@@ -281,21 +281,23 @@ export async function compositeImage(options: CompositeOptions): Promise<HTMLCan
   tempCanvas.height = sourceHeight;
   const tempCtx = tempCanvas.getContext('2d');
 
-  if (tempCtx) {
-    // First, fill transparent areas of the source with the background
-    // This ensures expanded crop areas get the background color
-    drawBackground(tempCtx, settings, sourceWidth, sourceHeight, backgroundImage);
-
+if (tempCtx) {
+    // Apply rounded clip FIRST (before drawing anything)
+    // This ensures both background fill and source image are clipped to rounded corners
     if (settings.borderRadius > 0) {
-      // Create rounded clip path
       drawRoundedRect(tempCtx, 0, 0, sourceWidth, sourceHeight, settings.borderRadius);
       tempCtx.clip();
     }
+
+    // Fill transparent areas of the source with the background (now clipped)
+    // This ensures expanded crop areas get the background color
+    drawBackground(tempCtx, settings, sourceWidth, sourceHeight, backgroundImage);
 
     // Draw the source image on top - transparent areas will show background
     tempCtx.drawImage(workingCanvas, 0, 0);
 
     // Draw the composited image onto the output
+    // Corners are now transparent (clipped), showing the main background underneath
     ctx.drawImage(tempCanvas, paddingX, paddingY);
   } else {
     // Fallback: draw directly

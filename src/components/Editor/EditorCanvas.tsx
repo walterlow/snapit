@@ -250,6 +250,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     x: number; y: number; width: number; height: number;
   } | null>(null);
 
+  // Crop drag axis constraint state (for Shift+drag)
+  const [cropDragStart, setCropDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [cropLockedAxis, setCropLockedAxis] = useState<'x' | 'y' | null>(null);
+
   // Inline text editing state
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState('');
@@ -1421,6 +1425,20 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     img.src = canvas.toDataURL();
   }, []);
 
+  // Load compositor background image for Konva rendering (needed for rounded corners)
+  const [compositorBgImage, setCompositorBgImage] = useState<HTMLImageElement | null>(null);
+  
+  useEffect(() => {
+    if (compositorSettings.backgroundType === 'image' && compositorSettings.backgroundImage) {
+      const img = new window.Image();
+      img.onload = () => setCompositorBgImage(img);
+      img.onerror = () => setCompositorBgImage(null);
+      img.src = compositorSettings.backgroundImage;
+    } else {
+      setCompositorBgImage(null);
+    }
+  }, [compositorSettings.backgroundType, compositorSettings.backgroundImage]);
+
   // Calculate composition box dimensions (for preview background)
   // Uses visibleBounds to match exactly what's clipped
   // Position is derived from Stage position + visibleBounds offset
@@ -1550,6 +1568,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             top: compositionBox.top,
             width: compositionBox.width,
             height: compositionBox.height,
+            zIndex: 0,
             willChange: 'transform, width, height',
             contain: 'layout style paint',
             ...compositionBackgroundStyle,
@@ -1593,6 +1612,125 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             />
           )}
 
+          {/* Compositor background fill - renders UNDER the clipped content */}
+          {/* This fills the rounded corner gaps that the CSS div can't reach */}
+          {compositorSettings.enabled && compositorSettings.borderRadius > 0 && visibleBounds && (() => {
+            const bgX = visibleBounds.x;
+            const bgY = visibleBounds.y;
+            const bgW = visibleBounds.width;
+            const bgH = visibleBounds.height;
+            
+            // For solid color
+            if (compositorSettings.backgroundType === 'solid') {
+              return (
+                <Rect
+                  x={bgX}
+                  y={bgY}
+                  width={bgW}
+                  height={bgH}
+                  fill={compositorSettings.backgroundColor}
+                  cornerRadius={compositorSettings.borderRadius}
+                  listening={false}
+                />
+              );
+            }
+            
+            // For gradient
+            if (compositorSettings.backgroundType === 'gradient') {
+              const angleRad = (compositorSettings.gradientAngle - 90) * (Math.PI / 180);
+              const centerX = bgX + bgW / 2;
+              const centerY = bgY + bgH / 2;
+              const length = Math.sqrt(bgW * bgW + bgH * bgH) / 2;
+              
+              const x1 = centerX - Math.cos(angleRad) * length;
+              const y1 = centerY - Math.sin(angleRad) * length;
+              const x2 = centerX + Math.cos(angleRad) * length;
+              const y2 = centerY + Math.sin(angleRad) * length;
+              
+              const colorStops: Array<number | string> = [];
+              compositorSettings.gradientStops.forEach((stop) => {
+                colorStops.push(stop.position / 100);
+                colorStops.push(stop.color);
+              });
+              
+              return (
+                <Rect
+                  x={bgX}
+                  y={bgY}
+                  width={bgW}
+                  height={bgH}
+                  fillLinearGradientStartPoint={{ x: x1 - bgX, y: y1 - bgY }}
+                  fillLinearGradientEndPoint={{ x: x2 - bgX, y: y2 - bgY }}
+                  fillLinearGradientColorStops={colorStops}
+                  cornerRadius={compositorSettings.borderRadius}
+                  listening={false}
+                />
+              );
+            }
+            
+            // For image
+            if (compositorSettings.backgroundType === 'image' && compositorBgImage) {
+              // Calculate cover sizing
+              const imgRatio = compositorBgImage.width / compositorBgImage.height;
+              const areaRatio = bgW / bgH;
+              
+              let drawW: number, drawH: number, offsetX: number, offsetY: number;
+              
+              if (imgRatio > areaRatio) {
+                drawH = bgH;
+                drawW = bgH * imgRatio;
+                offsetX = (bgW - drawW) / 2;
+                offsetY = 0;
+              } else {
+                drawW = bgW;
+                drawH = bgW / imgRatio;
+                offsetX = 0;
+                offsetY = (bgH - drawH) / 2;
+              }
+              
+              return (
+                <Group
+                  clipFunc={(ctx) => {
+                    const r = Math.min(compositorSettings.borderRadius, bgW / 2, bgH / 2);
+                    ctx.beginPath();
+                    ctx.moveTo(bgX + r, bgY);
+                    ctx.lineTo(bgX + bgW - r, bgY);
+                    ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + r);
+                    ctx.lineTo(bgX + bgW, bgY + bgH - r);
+                    ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - r, bgY + bgH);
+                    ctx.lineTo(bgX + r, bgY + bgH);
+                    ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - r);
+                    ctx.lineTo(bgX, bgY + r);
+                    ctx.quadraticCurveTo(bgX, bgY, bgX + r, bgY);
+                    ctx.closePath();
+                  }}
+                >
+                  <Image
+                    image={compositorBgImage}
+                    x={bgX + offsetX}
+                    y={bgY + offsetY}
+                    width={drawW}
+                    height={drawH}
+                    listening={false}
+                  />
+                </Group>
+              );
+            }
+            
+            // Fallback
+            return (
+              <Rect
+                x={bgX}
+                y={bgY}
+                width={bgW}
+                height={bgH}
+                fill="#1a1a2e"
+                cornerRadius={compositorSettings.borderRadius}
+                listening={false}
+              />
+            );
+          })()}
+
           {/* Cropped canvas content - clips to crop bounds when applied */}
           {image && (() => {
             // Always clip to visibleBounds when set (round to avoid sub-pixel artifacts)
@@ -1625,8 +1763,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   }
                 }}
               >
-                {/* Checkerboard pattern for transparency in expanded crop areas */}
-                {checkerPatternImage && (
+                {/* Checkerboard pattern for transparency - only when compositor disabled */}
+                {/* When compositor enabled, the CSS background shows through instead */}
+                {checkerPatternImage && !compositorSettings.enabled && (
                   <Rect
                     name="checkerboard"
                     x={clipX}
@@ -1768,6 +1907,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 />
 
                 {/* Draggable center area - pan the crop region */}
+                {/* Hold Shift to constrain to horizontal or vertical axis */}
                 <Rect
                   x={baseBounds.x}
                   y={baseBounds.y}
@@ -1775,23 +1915,65 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   height={baseBounds.height}
                   fill="transparent"
                   draggable
+                  onDragStart={(e) => {
+                    const node = e.target;
+                    setCropDragStart({ x: node.x(), y: node.y() });
+                    setCropLockedAxis(null);
+                  }}
                   onDragMove={(e) => {
                     const node = e.target;
+                    let newX = node.x();
+                    let newY = node.y();
+                    
+                    // Shift+drag: constrain to axis
+                    if (isShiftHeld && cropDragStart) {
+                      const dx = Math.abs(newX - cropDragStart.x);
+                      const dy = Math.abs(newY - cropDragStart.y);
+                      
+                      // Lock to axis once movement exceeds threshold (prevents jitter)
+                      if (!cropLockedAxis && (dx > 5 || dy > 5)) {
+                        setCropLockedAxis(dx > dy ? 'x' : 'y');
+                      }
+                      
+                      // Apply constraint
+                      if (cropLockedAxis === 'x') {
+                        newY = cropDragStart.y;
+                        node.y(newY);
+                      } else if (cropLockedAxis === 'y') {
+                        newX = cropDragStart.x;
+                        node.x(newX);
+                      }
+                    }
+                    
                     setCropPreview({
-                      x: node.x(),
-                      y: node.y(),
+                      x: newX,
+                      y: newY,
                       width: baseBounds.width,
                       height: baseBounds.height,
                     });
                   }}
                   onDragEnd={(e) => {
                     const node = e.target;
+                    let finalX = node.x();
+                    let finalY = node.y();
+                    
+                    // Apply final constraint if Shift was held
+                    if (isShiftHeld && cropDragStart && cropLockedAxis) {
+                      if (cropLockedAxis === 'x') {
+                        finalY = cropDragStart.y;
+                      } else if (cropLockedAxis === 'y') {
+                        finalX = cropDragStart.x;
+                      }
+                    }
+                    
                     commitBounds({
-                      x: node.x(),
-                      y: node.y(),
+                      x: finalX,
+                      y: finalY,
                       width: baseBounds.width,
                       height: baseBounds.height,
                     });
+                    setCropDragStart(null);
+                    setCropLockedAxis(null);
                   }}
                   onMouseEnter={(e) => {
                     const container = e.target.getStage()?.container();

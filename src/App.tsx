@@ -44,7 +44,7 @@ function App() {
   const { shapes, setShapes, clearEditor, compositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize } = useEditorStore();
 
   // Local editor UI state
-  const [selectedTool, setSelectedTool] = useState<Tool>('rect');
+  const [selectedTool, setSelectedTool] = useState<Tool>('select');
   const [strokeColor, setStrokeColor] = useState('#ef4444');
   const [fillColor, setFillColor] = useState('transparent');
   const [strokeWidth, setStrokeWidth] = useState(3);
@@ -98,10 +98,10 @@ function App() {
 
       const toolShortcuts: Record<string, Tool> = {
         'v': 'select',
-        'x': 'crop',
+        'c': 'crop',
         'a': 'arrow',
         'r': 'rect',
-        'c': 'circle',
+        'e': 'circle',
         't': 'text',
         'h': 'highlight',
         'b': 'blur',

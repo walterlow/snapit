@@ -55,10 +55,10 @@ interface ToolbarProps {
 
 const toolDefs: { id: Tool; Icon: typeof MousePointer2; label: string; shortcut: string }[] = [
   { id: 'select', Icon: MousePointer2, label: 'Select', shortcut: 'V' },
-  { id: 'crop', Icon: Crop, label: 'Crop/Expand', shortcut: 'X' },
+  { id: 'crop', Icon: Crop, label: 'Crop/Expand', shortcut: 'C' },
   { id: 'arrow', Icon: MoveUpRight, label: 'Arrow', shortcut: 'A' },
   { id: 'rect', Icon: Square, label: 'Rectangle', shortcut: 'R' },
-  { id: 'circle', Icon: Circle, label: 'Circle', shortcut: 'C' },
+  { id: 'circle', Icon: Circle, label: 'Ellipse', shortcut: 'E' },
   { id: 'text', Icon: Type, label: 'Text', shortcut: 'T' },
   { id: 'highlight', Icon: Highlighter, label: 'Highlight', shortcut: 'H' },
   { id: 'blur', Icon: Grid3X3, label: 'Blur', shortcut: 'B' },

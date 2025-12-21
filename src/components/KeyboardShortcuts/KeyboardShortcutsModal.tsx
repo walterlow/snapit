@@ -21,10 +21,10 @@ const sections: ShortcutSection[] = [
     title: 'Tools',
     shortcuts: [
       { keys: ['V'], description: 'Select tool' },
-      { keys: ['X'], description: 'Crop / Expand' },
+      { keys: ['C'], description: 'Crop / Expand' },
       { keys: ['A'], description: 'Arrow' },
       { keys: ['R'], description: 'Rectangle' },
-      { keys: ['C'], description: 'Circle / Ellipse' },
+      { keys: ['E'], description: 'Ellipse' },
       { keys: ['T'], description: 'Text' },
       { keys: ['H'], description: 'Highlight' },
       { keys: ['B'], description: 'Blur / Pixelate' },

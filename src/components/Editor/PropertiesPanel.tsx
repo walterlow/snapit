@@ -21,7 +21,7 @@ import {
   Pencil,
   Crop,
 } from 'lucide-react';
-import { useEditorStore } from '../../stores/editorStore';
+import { useEditorStore, recordAction } from '../../stores/editorStore';
 import { GRADIENT_PRESETS, DEFAULT_WALLPAPERS, WALLPAPER_THUMBNAILS, type GradientStop, type Tool } from '../../types';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
@@ -42,7 +42,7 @@ const TOOL_INFO: Record<Tool, { icon: React.ElementType; label: string }> = {
   crop: { icon: Crop, label: 'Crop' },
   arrow: { icon: MoveUpRight, label: 'Arrow' },
   rect: { icon: Square, label: 'Rectangle' },
-  circle: { icon: Circle, label: 'Circle' },
+  circle: { icon: Circle, label: 'Ellipse' },
   text: { icon: Type, label: 'Text' },
   highlight: { icon: Highlighter, label: 'Highlight' },
   blur: { icon: Grid3X3, label: 'Blur' },
@@ -79,6 +79,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     setBlurType,
     blurAmount,
     setBlurAmount,
+    updateShape,
   } = useEditorStore();
 
   // Get selected shapes
@@ -370,9 +371,60 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     </div>
   );
 
-  // Handle color selection
-  const handleColorSelect = (color: string) => {
+  // Handle stroke color change - updates global state and selected shapes
+  const handleStrokeColorChange = (color: string) => {
     onStrokeColorChange(color);
+
+    // Update selected shapes
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'arrow' || shape.type === 'rect' || shape.type === 'circle' || shape.type === 'pen') {
+            updateShape(shape.id, { stroke: color });
+          } else if (shape.type === 'text' || shape.type === 'step') {
+            updateShape(shape.id, { fill: color });
+          } else if (shape.type === 'highlight') {
+            // Convert hex to rgba for highlight
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
+            updateShape(shape.id, { fill: `rgba(${r}, ${g}, ${b}, 0.4)` });
+          }
+        });
+      });
+    }
+  };
+
+  // Handle fill color change - updates global state and selected shapes
+  const handleFillColorChange = (color: string) => {
+    onFillColorChange(color);
+
+    // Update selected shapes (rect and circle)
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'rect' || shape.type === 'circle') {
+            updateShape(shape.id, { fill: color });
+          }
+        });
+      });
+    }
+  };
+
+  // Handle stroke width change - updates global state and selected shapes
+  const handleStrokeWidthChange = (width: number) => {
+    onStrokeWidthChange(width);
+
+    // Update selected shapes
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'arrow' || shape.type === 'rect' || shape.type === 'circle' || shape.type === 'pen') {
+            updateShape(shape.id, { strokeWidth: width });
+          }
+        });
+      });
+    }
   };
 
   // Map shape type to corresponding tool
@@ -437,7 +489,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               {COLOR_PRESETS.map((color) => (
                 <button
                   key={color}
-                  onClick={() => handleColorSelect(color)}
+                  onClick={() => handleStrokeColorChange(color)}
                   className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 ${
                     strokeColor === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
                   }`}
@@ -449,13 +501,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <input
                 type="color"
                 value={strokeColor}
-                onChange={(e) => handleColorSelect(e.target.value)}
+                onChange={(e) => handleStrokeColorChange(e.target.value)}
                 className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent"
               />
               <input
                 type="text"
                 value={strokeColor}
-                onChange={(e) => handleColorSelect(e.target.value)}
+                onChange={(e) => handleStrokeColorChange(e.target.value)}
                 className="flex-1 h-8 px-2 rounded-lg bg-white border border-[var(--polar-frost)] text-sm text-[var(--ink-black)] font-mono focus:border-[var(--coral-400)] focus:ring-2 focus:ring-[var(--coral-glow)]"
               />
             </div>
@@ -468,7 +520,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Fill Color</Label>
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => onFillColorChange('transparent')}
+                onClick={() => handleFillColorChange('transparent')}
                 className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 flex items-center justify-center ${
                   fillColor === 'transparent' ? 'border-[var(--ink-black)]' : 'border-[var(--polar-frost)]'
                 }`}
@@ -480,7 +532,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               {COLOR_PRESETS.map((color) => (
                 <button
                   key={color}
-                  onClick={() => onFillColorChange(color)}
+                  onClick={() => handleFillColorChange(color)}
                   className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 ${
                     fillColor === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
                   }`}
@@ -501,7 +553,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               {COLOR_PRESETS.map((color) => (
                 <button
                   key={color}
-                  onClick={() => handleColorSelect(color)}
+                  onClick={() => handleStrokeColorChange(color)}
                   className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 ${
                     strokeColor === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
                   }`}
@@ -513,13 +565,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <input
                 type="color"
                 value={strokeColor}
-                onChange={(e) => handleColorSelect(e.target.value)}
+                onChange={(e) => handleStrokeColorChange(e.target.value)}
                 className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent"
               />
               <input
                 type="text"
                 value={strokeColor}
-                onChange={(e) => handleColorSelect(e.target.value)}
+                onChange={(e) => handleStrokeColorChange(e.target.value)}
                 className="flex-1 h-8 px-2 rounded-lg bg-white border border-[var(--polar-frost)] text-sm text-[var(--ink-black)] font-mono focus:border-[var(--coral-400)] focus:ring-2 focus:ring-[var(--coral-glow)]"
               />
             </div>
@@ -534,7 +586,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               {['#FFEB3B', '#FFC107', '#FF9800', '#4CAF50', '#00BCD4', '#E91E63'].map((color) => (
                 <button
                   key={color}
-                  onClick={() => handleColorSelect(color)}
+                  onClick={() => handleStrokeColorChange(color)}
                   className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 ${
                     strokeColor === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
                   }`}
@@ -559,7 +611,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               {STROKE_PRESETS.map((width) => (
                 <button
                   key={width}
-                  onClick={() => onStrokeWidthChange(width)}
+                  onClick={() => handleStrokeWidthChange(width)}
                   className={`flex-1 h-8 rounded-lg flex items-center justify-center transition-all ${
                     strokeWidth === width
                       ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border border-[var(--coral-200)]'

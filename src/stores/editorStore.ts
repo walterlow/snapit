@@ -1,17 +1,137 @@
 import { create } from 'zustand';
-import { temporal, type TemporalState } from 'zundo';
-import { useStoreWithEqualityFn } from 'zustand/traditional';
 import type { CanvasShape, CompositorSettings, BlurType } from '../types';
 import { DEFAULT_COMPOSITOR_SETTINGS } from '../types';
 
 // Canvas bounds for non-destructive crop/expand
-// Image is positioned at (imageOffset.x, imageOffset.y) within the canvas
 export interface CanvasBounds {
   width: number;
   height: number;
-  imageOffsetX: number; // Where the image sits on canvas (positive = space before image)
+  imageOffsetX: number;
   imageOffsetY: number;
 }
+
+// Snapshot of undoable state
+interface HistorySnapshot {
+  shapes: CanvasShape[];
+  canvasBounds: CanvasBounds | null;
+}
+
+// Manual history management - explicit snapshots only
+// No automatic tracking, no fighting with continuous updates
+const HISTORY_LIMIT = 50;
+let undoStack: HistorySnapshot[] = [];
+let redoStack: HistorySnapshot[] = [];
+let pendingSnapshot: HistorySnapshot | null = null;
+
+// Helper to update reactive history state in the store
+const updateHistoryState = () => {
+  useEditorStore.setState({
+    canUndo: undoStack.length > 0,
+    canRedo: redoStack.length > 0,
+  });
+};
+
+// Take a snapshot BEFORE starting a user action (drag, transform, etc.)
+// Call this in onDragStart, onTransformStart, before shape creation, etc.
+export const takeSnapshot = () => {
+  if (pendingSnapshot) return; // Already have a pending snapshot
+  
+  const state = useEditorStore.getState();
+  pendingSnapshot = {
+    shapes: JSON.parse(JSON.stringify(state.shapes)),
+    canvasBounds: state.canvasBounds ? JSON.parse(JSON.stringify(state.canvasBounds)) : null,
+  };
+};
+
+// Commit the pending snapshot to history AFTER an action completes
+// Call this in onDragEnd, onTransformEnd, after shape creation, etc.
+export const commitSnapshot = () => {
+  if (!pendingSnapshot) return;
+  
+  const state = useEditorStore.getState();
+  const currentSnapshot: HistorySnapshot = {
+    shapes: state.shapes,
+    canvasBounds: state.canvasBounds,
+  };
+  
+  // Only commit if state actually changed
+  const shapesChanged = JSON.stringify(pendingSnapshot.shapes) !== JSON.stringify(currentSnapshot.shapes);
+  const boundsChanged = JSON.stringify(pendingSnapshot.canvasBounds) !== JSON.stringify(currentSnapshot.canvasBounds);
+  
+  if (shapesChanged || boundsChanged) {
+    undoStack.push(pendingSnapshot);
+    if (undoStack.length > HISTORY_LIMIT) {
+      undoStack.shift();
+    }
+    redoStack = []; // Clear redo on new action
+    updateHistoryState();
+  }
+  
+  pendingSnapshot = null;
+};
+
+// Discard pending snapshot without committing (e.g., action cancelled)
+export const discardSnapshot = () => {
+  pendingSnapshot = null;
+};
+
+// Undo last action
+export const undo = () => {
+  if (undoStack.length === 0) return false;
+  
+  const state = useEditorStore.getState();
+  
+  // Save current state to redo stack
+  redoStack.push({
+    shapes: JSON.parse(JSON.stringify(state.shapes)),
+    canvasBounds: state.canvasBounds ? JSON.parse(JSON.stringify(state.canvasBounds)) : null,
+  });
+  
+  // Restore previous state
+  const snapshot = undoStack.pop()!;
+  state.setShapes(snapshot.shapes);
+  state.setCanvasBounds(snapshot.canvasBounds);
+  updateHistoryState();
+  
+  return true;
+};
+
+// Redo last undone action
+export const redo = () => {
+  if (redoStack.length === 0) return false;
+  
+  const state = useEditorStore.getState();
+  
+  // Save current state to undo stack
+  undoStack.push({
+    shapes: JSON.parse(JSON.stringify(state.shapes)),
+    canvasBounds: state.canvasBounds ? JSON.parse(JSON.stringify(state.canvasBounds)) : null,
+  });
+  
+  // Restore redo state
+  const snapshot = redoStack.pop()!;
+  state.setShapes(snapshot.shapes);
+  state.setCanvasBounds(snapshot.canvasBounds);
+  updateHistoryState();
+  
+  return true;
+};
+
+// Clear all history (e.g., when loading new image)
+export const clearHistory = () => {
+  undoStack = [];
+  redoStack = [];
+  pendingSnapshot = null;
+  updateHistoryState();
+};
+
+// Convenience: take snapshot + commit in one call for instant actions
+// Use for actions that don't have a drag phase (e.g., delete, paste)
+export const recordAction = (action: () => void) => {
+  takeSnapshot();
+  action();
+  commitSnapshot();
+};
 
 interface EditorState {
   shapes: CanvasShape[];
@@ -28,6 +148,10 @@ interface EditorState {
   canvasBounds: CanvasBounds | null;
   originalImageSize: { width: number; height: number } | null;
 
+  // History state (reactive for UI)
+  canUndo: boolean;
+  canRedo: boolean;
+
   // Actions
   setShapes: (shapes: CanvasShape[]) => void;
   setSelectedIds: (ids: string[]) => void;
@@ -42,84 +166,69 @@ interface EditorState {
   setBlurAmount: (amount: number) => void;
   setCanvasBounds: (bounds: CanvasBounds | null) => void;
   setOriginalImageSize: (size: { width: number; height: number }) => void;
-  resetCanvasBounds: () => void; // Reset to original image size
+  resetCanvasBounds: () => void;
 }
 
-export const useEditorStore = create<EditorState>()(
-  temporal(
-    (set, get) => ({
-      shapes: [],
-      selectedIds: [],
-      stepCount: 1,
-      compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS },
-      showCompositor: false,
-      blurType: 'pixelate' as BlurType,
-      blurAmount: 10,
-      canvasBounds: null,
-      originalImageSize: null,
+export const useEditorStore = create<EditorState>()((set, get) => ({
+  shapes: [],
+  selectedIds: [],
+  stepCount: 1,
+  compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS },
+  showCompositor: false,
+  blurType: 'pixelate' as BlurType,
+  blurAmount: 10,
+  canvasBounds: null,
+  originalImageSize: null,
+  canUndo: false,
+  canRedo: false,
 
-      setShapes: (shapes) => set({ shapes }),
-      setSelectedIds: (ids) => set({ selectedIds: ids }),
-      updateShape: (id, updates) => set((state) => ({
-        shapes: state.shapes.map(shape => 
-          shape.id === id ? { ...shape, ...updates } : shape
-        ),
-      })),
-      incrementStepCount: () => set((state) => ({ stepCount: state.stepCount + 1 })),
-      resetStepCount: () => set({ stepCount: 1 }),
-      clearEditor: () => set({
-        shapes: [],
-        selectedIds: [],
-        stepCount: 1,
-        compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS },
-        showCompositor: false,
-        blurType: 'pixelate' as BlurType,
-        blurAmount: 10,
-        canvasBounds: null,
-        originalImageSize: null,
-      }),
-      setCompositorSettings: (settings) => set((state) => ({
-        compositorSettings: { ...state.compositorSettings, ...settings },
-      })),
-      toggleCompositor: () => set((state) => ({
-        compositorSettings: {
-          ...state.compositorSettings,
-          enabled: !state.compositorSettings.enabled
+  setShapes: (shapes) => set({ shapes }),
+  setSelectedIds: (ids) => set({ selectedIds: ids }),
+  updateShape: (id, updates) => set((state) => ({
+    shapes: state.shapes.map(shape => 
+      shape.id === id ? { ...shape, ...updates } : shape
+    ),
+  })),
+  incrementStepCount: () => set((state) => ({ stepCount: state.stepCount + 1 })),
+  resetStepCount: () => set({ stepCount: 1 }),
+  clearEditor: () => set({
+    shapes: [],
+    selectedIds: [],
+    stepCount: 1,
+    compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS },
+    showCompositor: false,
+    blurType: 'pixelate' as BlurType,
+    blurAmount: 10,
+    canvasBounds: null,
+    originalImageSize: null,
+  }),
+  setCompositorSettings: (settings) => set((state) => ({
+    compositorSettings: { ...state.compositorSettings, ...settings },
+  })),
+  toggleCompositor: () => set((state) => ({
+    compositorSettings: {
+      ...state.compositorSettings,
+      enabled: !state.compositorSettings.enabled
+    },
+  })),
+  setShowCompositor: (show) => set({ showCompositor: show }),
+  setBlurType: (type) => set({ blurType: type }),
+  setBlurAmount: (amount) => set({ blurAmount: amount }),
+  setCanvasBounds: (bounds) => set({ canvasBounds: bounds }),
+  setOriginalImageSize: (size) => set({ originalImageSize: size }),
+  resetCanvasBounds: () => {
+    const { originalImageSize } = get();
+    if (originalImageSize) {
+      set({
+        canvasBounds: {
+          width: originalImageSize.width,
+          height: originalImageSize.height,
+          imageOffsetX: 0,
+          imageOffsetY: 0,
         },
-      })),
-      setShowCompositor: (show) => set({ showCompositor: show }),
-      setBlurType: (type) => set({ blurType: type }),
-      setBlurAmount: (amount) => set({ blurAmount: amount }),
-      setCanvasBounds: (bounds) => set({ canvasBounds: bounds }),
-      setOriginalImageSize: (size) => set({ originalImageSize: size }),
-      resetCanvasBounds: () => {
-        const { originalImageSize } = get();
-        if (originalImageSize) {
-          set({
-            canvasBounds: {
-              width: originalImageSize.width,
-              height: originalImageSize.height,
-              imageOffsetX: 0,
-              imageOffsetY: 0,
-            },
-          });
-        } else {
-          set({ canvasBounds: null });
-        }
-      },
-    }),
-    {
-      limit: 50, // Max 50 undo states
-      equality: (pastState, currentState) =>
-        JSON.stringify(pastState.shapes) === JSON.stringify(currentState.shapes) &&
-        JSON.stringify(pastState.canvasBounds) === JSON.stringify(currentState.canvasBounds),
+      });
+    } else {
+      set({ canvasBounds: null });
     }
-  )
-);
-
-// Hook to access temporal state reactively
-export const useTemporalStore = <T>(
-  selector: (state: TemporalState<EditorState>) => T
-): T => {
-  return useStoreWithEqualityFn(useEditorStore.temporal, selector);
-};
+  },
+}));

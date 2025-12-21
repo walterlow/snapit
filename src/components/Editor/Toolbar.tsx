@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { Tool } from '../../types';
-import { useTemporalStore, useEditorStore } from '../../stores/editorStore';
+import { useEditorStore } from '../../stores/editorStore';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -106,9 +106,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [copied, setCopied] = useState(false);
   const [isCompact, setIsCompact] = useState(false);
 
-  // Get undo/redo state from temporal store
-  const canUndo = useTemporalStore((state) => state.pastStates.length > 0);
-  const canRedo = useTemporalStore((state) => state.futureStates.length > 0);
+  // Get undo/redo state from store
+  const canUndo = useEditorStore((state) => state.canUndo);
+  const canRedo = useEditorStore((state) => state.canRedo);
 
   // Compositor state
   const { compositorSettings, toggleCompositor, blurType, setBlurType, blurAmount, setBlurAmount } = useEditorStore();

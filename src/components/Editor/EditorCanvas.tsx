@@ -16,116 +16,192 @@ import Konva from 'konva';
 import useImage from 'use-image';
 import { ZoomIn, ZoomOut, Maximize2, Square, Check, X } from 'lucide-react';
 import type { Tool, CanvasShape } from '../../types';
-import { useEditorStore } from '../../stores/editorStore';
+import { useEditorStore, takeSnapshot, commitSnapshot, recordAction } from '../../stores/editorStore';
 import { CompositorBackground } from './CompositorBackground';
 
-// Dynamic blur region using Konva's native filters
-// Re-renders in real-time as you move/resize - no baked pixels
+// Pre-rendered blur region with real-time updates during drag/resize
+// GPU-accelerated via native canvas filter
 interface BlurRegionProps {
   shape: CanvasShape;
   sourceImage: HTMLImageElement | undefined;
   isSelected: boolean;
   onSelect: () => void;
+  onDragStart?: () => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
-  onTransform: (e: Konva.KonvaEventObject<Event>) => void;
+  onTransformStart?: () => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
   draggable: boolean;
 }
+
+// Renders blur effect to an offscreen canvas
+const renderBlurCanvas = (
+  sourceImage: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  blurType: string,
+  blurAmount: number
+): HTMLCanvasElement | null => {
+  // Handle negative dimensions (drawing right-to-left or bottom-to-top)
+  const absWidth = Math.abs(width);
+  const absHeight = Math.abs(height);
+  
+  if (absWidth < 1 || absHeight < 1) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = absWidth;
+  canvas.height = absHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Normalize position for negative dimensions
+  const normalizedX = width < 0 ? x + width : x;
+  const normalizedY = height < 0 ? y + height : y;
+
+  // Clamp crop region to image bounds
+  const cropX = Math.max(0, Math.min(normalizedX, sourceImage.width - 1));
+  const cropY = Math.max(0, Math.min(normalizedY, sourceImage.height - 1));
+  const cropW = Math.min(absWidth, sourceImage.width - cropX);
+  const cropH = Math.min(absHeight, sourceImage.height - cropY);
+
+  if (blurType === 'pixelate') {
+    // Fast pixelation: downscale then upscale with nearest-neighbor
+    const pixelSize = Math.max(2, blurAmount);
+    const smallW = Math.max(1, Math.ceil(cropW / pixelSize));
+    const smallH = Math.max(1, Math.ceil(cropH / pixelSize));
+    
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(sourceImage, cropX, cropY, cropW, cropH, 0, 0, smallW, smallH);
+    
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(canvas, 0, 0, smallW, smallH, 0, 0, absWidth, absHeight);
+  } else {
+    // GPU-accelerated blur via native canvas filter
+    ctx.filter = `blur(${blurAmount}px)`;
+    const padding = blurAmount * 2;
+    ctx.drawImage(
+      sourceImage,
+      cropX - padding, cropY - padding, cropW + padding * 2, cropH + padding * 2,
+      -padding, -padding, absWidth + padding * 2, absHeight + padding * 2
+    );
+    ctx.filter = 'none';
+  }
+
+  return canvas;
+};
 
 const BlurRegion: React.FC<BlurRegionProps> = ({
   shape,
   sourceImage,
   isSelected,
   onSelect,
+  onDragStart,
   onDragEnd,
-  onTransform,
+  onTransformStart,
   onTransformEnd,
   draggable,
 }) => {
   const imageRef = useRef<Konva.Image>(null);
-
-  // Local state for real-time updates during drag/transform
-  const [localPos, setLocalPos] = useState({ x: shape.x || 0, y: shape.y || 0 });
-  const [localSize, setLocalSize] = useState({ 
-    width: Math.abs(shape.width || 0), 
-    height: Math.abs(shape.height || 0) 
+  const [blurredCanvas, setBlurredCanvas] = useState<HTMLCanvasElement | null>(null);
+  
+  // Track raw values (width/height can be negative during drawing)
+  // liveRect holds the actual dimensions we render the blur at
+  const [liveRect, setLiveRect] = useState({ 
+    x: shape.x || 0, 
+    y: shape.y || 0,
+    width: shape.width || 0, 
+    height: shape.height || 0 
   });
-
-  // Sync local state when shape prop changes (from store)
-  useEffect(() => {
-    setLocalPos({ x: shape.x || 0, y: shape.y || 0 });
-    setLocalSize({ width: Math.abs(shape.width || 0), height: Math.abs(shape.height || 0) });
-  }, [shape.x, shape.y, shape.width, shape.height]);
-
+  
   const blurType = shape.blurType || 'pixelate';
   const blurAmount = shape.blurAmount || shape.pixelSize || 10;
 
-  // Re-cache when filter settings or dimensions change
-  useEffect(() => {
-    const node = imageRef.current;
-    if (node && sourceImage && localSize.width > 0 && localSize.height > 0) {
-      node.cache();
-      node.getLayer()?.batchDraw();
-    }
-  }, [sourceImage, localSize.width, localSize.height, localPos.x, localPos.y, blurType, blurAmount]);
+  // Normalized values for rendering (handle negative dimensions)
+  const renderX = liveRect.width < 0 ? liveRect.x + liveRect.width : liveRect.x;
+  const renderY = liveRect.height < 0 ? liveRect.y + liveRect.height : liveRect.y;
+  const renderWidth = Math.abs(liveRect.width);
+  const renderHeight = Math.abs(liveRect.height);
 
-  // Real-time update during drag
+  // Sync with shape state when props change (external updates)
+  useEffect(() => {
+    setLiveRect({ 
+      x: shape.x || 0, 
+      y: shape.y || 0,
+      width: shape.width || 0, 
+      height: shape.height || 0 
+    });
+  }, [shape.x, shape.y, shape.width, shape.height]);
+
+  // Render blur whenever position/size changes
+  useEffect(() => {
+    if (!sourceImage || renderWidth < 1 || renderHeight < 1) {
+      setBlurredCanvas(null);
+      return;
+    }
+    const canvas = renderBlurCanvas(
+      sourceImage, renderX, renderY, 
+      renderWidth, renderHeight, 
+      blurType, blurAmount
+    );
+    setBlurredCanvas(canvas);
+  }, [sourceImage, renderX, renderY, renderWidth, renderHeight, blurType, blurAmount]);
+
+  // Real-time update during drag (position only)
   const handleDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target;
-    const newX = node.x();
-    const newY = node.y();
-    setLocalPos({ x: newX, y: newY });
+    setLiveRect(prev => ({ ...prev, x: node.x(), y: node.y() }));
   }, []);
 
-  // Real-time update during transform (resize) - use base size from shape, not local
-  const baseWidth = Math.abs(shape.width || 0);
-  const baseHeight = Math.abs(shape.height || 0);
-  
+  // Real-time update during transform (resize)
+  // Calculate actual dimensions from scale, re-render blur, reset scale
   const handleTransformInternal = useCallback((e: Konva.KonvaEventObject<Event>) => {
     const node = e.target;
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
-
-    // Reset scale immediately for consistent rendering
+    
+    // Use current node dimensions (which reflect accumulated transforms)
+    const currentWidth = node.width();
+    const currentHeight = node.height();
+    
+    // Calculate new dimensions with scale applied
+    const newWidth = Math.abs(currentWidth * scaleX);
+    const newHeight = Math.abs(currentHeight * scaleY);
+    const newX = node.x();
+    const newY = node.y();
+    
+    // Reset scale and set actual dimensions on node
+    // This way parent's handleTransformEnd can read node.width()/height()
     node.scaleX(1);
     node.scaleY(1);
-
-    // Calculate new size from BASE size (shape prop), not local state
-    // This avoids compounding scale issues
-    setLocalPos({ x: node.x(), y: node.y() });
-    setLocalSize({
-      width: Math.abs(baseWidth * scaleX),
-      height: Math.abs(baseHeight * scaleY),
+    node.width(newWidth);
+    node.height(newHeight);
+    
+    // Update live rect to trigger blur re-render
+    setLiveRect({
+      x: newX,
+      y: newY,
+      width: newWidth,
+      height: newHeight
     });
+  }, []);
 
-    // Notify parent to update store
-    onTransform(e);
-  }, [baseWidth, baseHeight, onTransform]);
-
-  const handleDragEndInternal = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
-    const node = imageRef.current;
-    if (node) {
-      node.cache();
-    }
-    onDragEnd(e);
-  }, [onDragEnd]);
-
+  // On transform end, commit final dimensions to parent
   const handleTransformEndInternal = useCallback((e: Konva.KonvaEventObject<Event>) => {
-    const node = imageRef.current;
-    if (node) {
-      node.cache();
-    }
+    // liveRect already has the final dimensions from handleTransformInternal
+    // Just call parent's onTransformEnd
     onTransformEnd(e);
   }, [onTransformEnd]);
 
-  if (!sourceImage || localSize.width <= 0 || localSize.height <= 0) {
+  // Placeholder while no image
+  if (!sourceImage || renderWidth < 1 || renderHeight < 1 || !blurredCanvas) {
     return (
       <Rect
         id={shape.id}
-        x={localPos.x}
-        y={localPos.y}
-        width={localSize.width || 0}
-        height={localSize.height || 0}
+        x={renderX}
+        y={renderY}
+        width={renderWidth || 50}
+        height={renderHeight || 50}
         fill="rgba(128, 128, 128, 0.5)"
         stroke={isSelected ? '#fbbf24' : '#666'}
         strokeWidth={isSelected ? 2 : 1}
@@ -133,45 +209,32 @@ const BlurRegion: React.FC<BlurRegionProps> = ({
         draggable={draggable}
         onClick={onSelect}
         onTap={onSelect}
+        onDragStart={onDragStart}
         onDragMove={handleDragMove}
         onDragEnd={onDragEnd}
+        onTransformStart={onTransformStart}
         onTransform={handleTransformInternal}
-        onTransformEnd={onTransformEnd}
+        onTransformEnd={handleTransformEndInternal}
       />
     );
   }
-
-  // Determine which Konva filter to use
-  const filters = blurType === 'pixelate' 
-    ? [Konva.Filters.Pixelate] 
-    : [Konva.Filters.Blur];
 
   return (
     <Image
       ref={imageRef}
       id={shape.id}
-      image={sourceImage}
-      x={localPos.x}
-      y={localPos.y}
-      width={localSize.width}
-      height={localSize.height}
-      // Crop the source image to only show this region (uses local state for real-time)
-      crop={{
-        x: Math.max(0, localPos.x),
-        y: Math.max(0, localPos.y),
-        width: localSize.width,
-        height: localSize.height,
-      }}
-      // Apply Konva's native filter
-      filters={filters}
-      // Filter-specific props
-      pixelSize={blurType === 'pixelate' ? Math.max(2, blurAmount) : undefined}
-      blurRadius={blurType !== 'pixelate' ? blurAmount : undefined}
+      image={blurredCanvas}
+      x={renderX}
+      y={renderY}
+      width={renderWidth}
+      height={renderHeight}
       draggable={draggable}
       onClick={onSelect}
       onTap={onSelect}
+      onDragStart={onDragStart}
       onDragMove={handleDragMove}
-      onDragEnd={handleDragEndInternal}
+      onDragEnd={onDragEnd}
+      onTransformStart={onTransformStart}
       onTransform={handleTransformInternal}
       onTransformEnd={handleTransformEndInternal}
     />
@@ -223,6 +286,15 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const setOriginalImageSize = useEditorStore((state) => state.setOriginalImageSize);
   const resetCanvasBounds = useEditorStore((state) => state.resetCanvasBounds);
   const originalImageSize = useEditorStore((state) => state.originalImageSize);
+  
+  // Helpers to manage undo history during drag/transform
+  // Takes a snapshot before action starts, commits when action ends
+  const pauseHistory = useCallback(() => {
+    takeSnapshot();
+  }, []);
+  const resumeHistory = useCallback(() => {
+    commitSnapshot();
+  }, []);
   // Note: getCompositorPreviewStyle is used for export, not preview rendering
 
   const imageUrl = `data:image/png;base64,${imageData}`;
@@ -282,8 +354,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       // Delete selected shapes
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
         e.preventDefault();
-        const newShapes = shapes.filter((shape) => !selectedIds.includes(shape.id));
-        onShapesChange(newShapes);
+        recordAction(() => {
+          const newShapes = shapes.filter((shape) => !selectedIds.includes(shape.id));
+          onShapesChange(newShapes);
+        });
         setSelectedIds([]);
         return;
       }
@@ -734,7 +808,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
       if (selectedTool === 'select') return;
 
-      // For click-to-place tools (text, steps), create immediately
+      // For click-to-place tools (text, steps), create immediately with undo support
       if (selectedTool === 'text') {
         const id = `shape_${Date.now()}`;
         const newShape: CanvasShape = {
@@ -746,7 +820,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           fontSize: 16,
           fill: strokeColor,
         };
-        onShapesChange([...shapes, newShape]);
+        recordAction(() => onShapesChange([...shapes, newShape]));
         setSelectedIds([id]);
         onToolChange('select');
         return;
@@ -763,13 +837,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           fill: strokeColor,
         };
         setStepCount(stepCount + 1);
-        onShapesChange([...shapes, newShape]);
+        recordAction(() => onShapesChange([...shapes, newShape]));
         setSelectedIds([id]);
         onToolChange('select');
         return;
       }
 
-      // For drag-to-draw tools, just record start - don't spawn yet
+      // For drag-to-draw tools, snapshot before drawing starts
+      takeSnapshot();
       setIsDrawing(true);
       setDrawStart(pos);
       setShapeSpawned(false);
@@ -1010,10 +1085,17 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       return;
     }
 
-    // If a shape was spawned during drag, switch back to select mode
-    // (unless tool is configured to retain its mode, like pen for continuous drawing)
-    if (isDrawing && shapeSpawned && !TOOLS_RETAIN_MODE.has(selectedTool)) {
-      onToolChange('select');
+    // If drawing ended, commit the snapshot (shape creation is now undoable)
+    if (isDrawing) {
+      if (shapeSpawned) {
+        commitSnapshot(); // Shape was created, commit to history
+        // Switch back to select mode (unless tool retains mode like pen)
+        if (!TOOLS_RETAIN_MODE.has(selectedTool)) {
+          onToolChange('select');
+        }
+      }
+      // If no shape was spawned (click without drag), discard the pending snapshot
+      // No need to call discardSnapshot - commitSnapshot handles the case where nothing changed
     }
 
     setIsDrawing(false);
@@ -1021,10 +1103,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   }, [isMarqueeSelecting, isDrawing, shapeSpawned, marqueeStart, marqueeEnd, shapes, onToolChange, selectedTool]);
 
   // Handle shape drag - supports both single and group movement
+  // Resumes history tracking to commit drag as single undo step
   const handleShapeDragEnd = useCallback(
     (id: string, e: Konva.KonvaEventObject<DragEvent>) => {
       const draggedShape = shapes.find(s => s.id === id);
-      if (!draggedShape) return;
+      if (!draggedShape) {
+        resumeHistory();
+        return;
+      }
 
       // Calculate delta based on shape type
       const isPen = draggedShape.type === 'pen' && draggedShape.points && draggedShape.points.length >= 2;
@@ -1074,9 +1160,17 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           onShapesChange(updatedShapes);
         }
       }
+
+      // Resume history tracking - commits all changes since pause as one undo step
+      resumeHistory();
     },
-    [shapes, onShapesChange, selectedIds]
+    [shapes, onShapesChange, selectedIds, resumeHistory]
   );
+
+  // Handle transform start - pause history to batch all intermediate updates
+  const handleTransformStart = useCallback(() => {
+    pauseHistory();
+  }, [pauseHistory]);
 
   // Handle transform (resize/rotate via gizmo) - updates in real-time for proper stroke rendering
   const handleTransform = useCallback(
@@ -1085,8 +1179,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       const shape = shapes.find(s => s.id === id);
       if (!shape) return;
 
-      // For pen strokes, let Konva handle visual scaling - bake it on transformEnd
-      if (shape.type === 'pen') {
+      // For pen and blur, let Konva handle visual scaling - bake it on transformEnd
+      // This avoids expensive re-renders during transform
+      if (shape.type === 'pen' || shape.type === 'blur') {
         return;
       }
 
@@ -1136,21 +1231,20 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     [shapes, onShapesChange]
   );
 
-  // Handle transform end - bake scale into points for pen, ensure final state for others
+  // Handle transform end - bake scale into dimensions for pen/blur, ensure final state for others
+  // Resume history tracking to commit all batched changes as single undo step
   const handleTransformEnd = useCallback(
     (id: string, e: Konva.KonvaEventObject<Event>) => {
       const node = e.target;
       const shape = shapes.find(s => s.id === id);
 
       // For pen strokes, bake the accumulated transform into points
-      // Konva applies: visualPos = node.position + point * node.scale
       if (shape?.type === 'pen' && shape.points && shape.points.length >= 2) {
         const scaleX = node.scaleX();
         const scaleY = node.scaleY();
         const nodeX = node.x();
         const nodeY = node.y();
 
-        // Transform each point: newPoint = nodePos + oldPoint * scale
         const newPoints = shape.points.map((val, i) => {
           if (i % 2 === 0) {
             return nodeX + val * scaleX;
@@ -1159,7 +1253,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           }
         });
 
-        // Reset node transform
         node.scaleX(1);
         node.scaleY(1);
         node.position({ x: 0, y: 0 });
@@ -1168,14 +1261,31 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           s.id === id ? { ...s, points: newPoints } : s
         );
         onShapesChange(updatedShapes);
-        return;
+      } 
+      // For blur shapes, read dimensions directly from node
+      // (BlurRegion's handleTransformInternal already bakes scale into node.width/height)
+      else if (shape?.type === 'blur') {
+        const updatedShapes = shapes.map(s => {
+          if (s.id !== id) return s;
+          return {
+            ...s,
+            x: node.x(),
+            y: node.y(),
+            width: node.width(),
+            height: node.height(),
+          };
+        });
+        onShapesChange(updatedShapes);
+      } else {
+        // For other shapes, just ensure scale is reset
+        node.scaleX(1);
+        node.scaleY(1);
       }
 
-      // For other shapes, just ensure scale is reset
-      node.scaleX(1);
-      node.scaleY(1);
+      // Resume history tracking - commits all changes since pause as one undo step
+      resumeHistory();
     },
-    [shapes, onShapesChange]
+    [shapes, onShapesChange, resumeHistory]
   );
 
   // Handle shape click with shift for multi-select
@@ -1273,9 +1383,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           if (!selectedIds.includes(shape.id)) {
             setSelectedIds([shape.id]);
           }
+          // Pause history to batch drag updates
+          pauseHistory();
         },
         onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) =>
           handleShapeDragEnd(shape.id, e),
+        onTransformStart: handleTransformStart,
         onTransform: (e: Konva.KonvaEventObject<Event>) =>
           handleTransform(shape.id, e),
         onTransformEnd: (e: Konva.KonvaEventObject<Event>) =>
@@ -1305,6 +1418,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   if (!selectedIds.includes(shape.id)) {
                     setSelectedIds([shape.id]);
                   }
+                  pauseHistory();
                 }}
                 onDragEnd={(e: Konva.KonvaEventObject<DragEvent>) => {
                   // Update all points by the drag delta
@@ -1321,6 +1435,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     s.id === shape.id ? { ...s, points: newPoints } : s
                   );
                   onShapesChange(updatedShapes);
+                  resumeHistory();
                 }}
               />
               {/* Custom endpoint handles for arrows */}
@@ -1335,7 +1450,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     stroke="#fff"
                     strokeWidth={1 / zoom}
                     draggable
+                    onDragStart={() => pauseHistory()}
                     onDragMove={(e) => handleArrowEndpointDrag(shape.id, 0, e)}
+                    onDragEnd={() => resumeHistory()}
                     onMouseEnter={(e) => {
                       const container = e.target.getStage()?.container();
                       if (container) container.style.cursor = 'move';
@@ -1354,7 +1471,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     stroke="#fff"
                     strokeWidth={1 / zoom}
                     draggable
+                    onDragStart={() => pauseHistory()}
                     onDragMove={(e) => handleArrowEndpointDrag(shape.id, 1, e)}
+                    onDragEnd={() => resumeHistory()}
                     onMouseEnter={(e) => {
                       const container = e.target.getStage()?.container();
                       if (container) container.style.cursor = 'move';
@@ -1406,7 +1525,28 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               fill={shape.fill}
             />
           );
-        case 'blur':
+        case 'blur': {
+          // While actively drawing this shape, show simple preview (no expensive blur)
+          const isActivelyDrawing = isDrawing && shapes[shapes.length - 1]?.id === shape.id;
+          
+          if (isActivelyDrawing) {
+            // Fast preview during drawing - just a dashed rect
+            return (
+              <Rect
+                key={shape.id}
+                id={shape.id}
+                x={shape.x}
+                y={shape.y}
+                width={shape.width}
+                height={shape.height}
+                fill="rgba(0, 0, 0, 0.3)"
+                stroke="#fbbf24"
+                strokeWidth={2}
+                dash={[6, 3]}
+              />
+            );
+          }
+          
           return (
             <BlurRegion
               key={shape.id}
@@ -1414,12 +1554,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               sourceImage={image}
               isSelected={selectedIds.includes(shape.id)}
               onSelect={() => setSelectedIds([shape.id])}
+              onDragStart={() => pauseHistory()}
               onDragEnd={(e) => handleShapeDragEnd(shape.id, e)}
-              onTransform={(e) => handleTransform(shape.id, e)}
+              onTransformStart={handleTransformStart}
               onTransformEnd={(e) => handleTransformEnd(shape.id, e)}
               draggable={selectedTool === 'select'}
             />
           );
+        }
         case 'text':
           return (
             <Text
@@ -2007,6 +2149,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     const node = e.target;
                     setCropDragStart({ x: node.x(), y: node.y() });
                     setCropLockedAxis(null);
+                    pauseHistory();
                   }}
                   onDragMove={(e) => {
                     const node = e.target;
@@ -2062,6 +2205,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     });
                     setCropDragStart(null);
                     setCropLockedAxis(null);
+                    resumeHistory();
                   }}
                   onMouseEnter={(e) => {
                     const container = e.target.getStage()?.container();
@@ -2092,6 +2236,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                         return { x: pos.x, y: handle.y * zoom + position.y };
                       }
                     }}
+                    onDragStart={() => pauseHistory()}
                     onDragMove={(e) => {
                       // Update preview for visual feedback (outline follows)
                       setCropPreview(calcPreviewFromDrag(handle.id, e.target.x(), e.target.y()));
@@ -2100,6 +2245,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                       // Commit to store on release
                       const preview = calcPreviewFromDrag(handle.id, e.target.x(), e.target.y());
                       commitBounds(preview);
+                      resumeHistory();
                     }}
                     onMouseEnter={(e) => {
                       const container = e.target.getStage()?.container();
@@ -2123,12 +2269,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     stroke="#000"
                     strokeWidth={1 / zoom}
                     draggable
+                    onDragStart={() => pauseHistory()}
                     onDragMove={(e) => {
                       setCropPreview(calcPreviewFromDrag(handle.id, e.target.x(), e.target.y()));
                     }}
                     onDragEnd={(e) => {
                       const preview = calcPreviewFromDrag(handle.id, e.target.x(), e.target.y());
                       commitBounds(preview);
+                      resumeHistory();
                     }}
                     onMouseEnter={(e) => {
                       const container = e.target.getStage()?.container();
@@ -2153,6 +2301,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               height={selectionBounds.height}
               fill="transparent"
               draggable
+              onDragStart={() => pauseHistory()}
               onDragEnd={(e) => {
                 const dx = e.target.x() - selectionBounds.x;
                 const dy = e.target.y() - selectionBounds.y;
@@ -2175,6 +2324,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   };
                 });
                 onShapesChange(updatedShapes);
+                resumeHistory();
               }}
             />
           )}
@@ -2189,6 +2339,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               }
               return newBox;
             }}
+            onTransformStart={() => pauseHistory()}
           />
         </Layer>
       </Stage>

@@ -13,7 +13,7 @@ import { PropertiesPanel } from './components/Editor/PropertiesPanel';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
 import { SettingsModal } from './components/Settings/SettingsModal';
 import { useCaptureStore } from './stores/captureStore';
-import { useEditorStore } from './stores/editorStore';
+import { useEditorStore, undo, redo, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import type { Tool, CanvasShape, Annotation } from './types';
@@ -58,11 +58,11 @@ function App() {
 
   // Undo/Redo handlers
   const handleUndo = useCallback(() => {
-    useEditorStore.temporal.getState().undo();
+    undo();
   }, []);
 
   const handleRedo = useCallback(() => {
-    useEditorStore.temporal.getState().redo();
+    redo();
   }, []);
 
   // Keyboard shortcuts for undo/redo, compositor, and tools
@@ -146,7 +146,7 @@ function App() {
       if (result?.image_data) {
         await saveNewCapture(result.image_data, 'fullscreen', {});
         clearEditor();
-        useEditorStore.temporal.getState().clear();
+        clearHistory();
         toast.success('Fullscreen captured');
       }
     } catch {
@@ -205,7 +205,7 @@ function App() {
       try {
         await saveNewCapture(imageData, 'region', {});
         clearEditor();
-        useEditorStore.temporal.getState().clear(); // Clear undo history for new capture
+        clearHistory(); // Clear undo history for new capture
         toast.success('Screenshot captured');
       } catch {
         toast.error('Failed to save capture');
@@ -478,7 +478,7 @@ function App() {
     }
 
     clearEditor();
-    useEditorStore.temporal.getState().clear(); // Clear undo history
+    clearHistory(); // Clear undo history
     setCurrentProject(null);
     setCurrentImageData(null);
     setView('library');

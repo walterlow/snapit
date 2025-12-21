@@ -194,6 +194,9 @@ const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.1;
 const MIN_SHAPE_SIZE = 5; // Minimum size to create a shape
 
+// Tools that stay in draw mode after completing a shape (don't auto-switch to select)
+const TOOLS_RETAIN_MODE: Set<Tool> = new Set(['pen']);
+
 export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   imageData,
   selectedTool,
@@ -673,6 +676,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   // Handle transformer - supports multiple selection, excludes arrows (they have custom handles)
   useEffect(() => {
     if (transformerRef.current && selectedIds.length > 0) {
+      // Don't show transformer when in pen mode (no gizmo while drawing freehand)
+      if (selectedTool === 'pen') {
+        transformerRef.current.nodes([]);
+        return;
+      }
+      
       // Filter out arrows - they use custom endpoint handles instead
       const nonArrowIds = selectedIds.filter(id => {
         const shape = shapes.find(s => s.id === id);
@@ -687,7 +696,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     } else if (transformerRef.current) {
       transformerRef.current.nodes([]);
     }
-  }, [selectedIds, stageRef, shapes]);
+  }, [selectedIds, stageRef, shapes, selectedTool]);
 
   // Transform screen position to canvas position (accounting for zoom and pan)
   const getCanvasPosition = useCallback(
@@ -975,6 +984,20 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           shapeH = Math.abs(py2 - py1);
         }
 
+        // For pen strokes, calculate bounding box from all points
+        if (shape.type === 'pen' && shape.points && shape.points.length >= 2) {
+          const xs = shape.points.filter((_, i) => i % 2 === 0);
+          const ys = shape.points.filter((_, i) => i % 2 === 1);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          shapeX = minX;
+          shapeY = minY;
+          shapeW = maxX - minX;
+          shapeH = maxY - minY;
+        }
+
         // Check intersection
         return !(shapeX > x2 || shapeX + shapeW < x1 || shapeY > y2 || shapeY + shapeH < y1);
       }).map(shape => shape.id);
@@ -988,24 +1011,71 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     }
 
     // If a shape was spawned during drag, switch back to select mode
-    if (isDrawing && shapeSpawned) {
+    // (unless tool is configured to retain its mode, like pen for continuous drawing)
+    if (isDrawing && shapeSpawned && !TOOLS_RETAIN_MODE.has(selectedTool)) {
       onToolChange('select');
     }
 
     setIsDrawing(false);
     setShapeSpawned(false);
-  }, [isMarqueeSelecting, isDrawing, shapeSpawned, marqueeStart, marqueeEnd, shapes, onToolChange]);
+  }, [isMarqueeSelecting, isDrawing, shapeSpawned, marqueeStart, marqueeEnd, shapes, onToolChange, selectedTool]);
 
+  // Handle shape drag - supports both single and group movement
   const handleShapeDragEnd = useCallback(
     (id: string, e: Konva.KonvaEventObject<DragEvent>) => {
-      const updatedShapes = shapes.map((shape) =>
-        shape.id === id
-          ? { ...shape, x: e.target.x(), y: e.target.y() }
-          : shape
-      );
-      onShapesChange(updatedShapes);
+      const draggedShape = shapes.find(s => s.id === id);
+      if (!draggedShape) return;
+
+      // Calculate delta based on shape type
+      const isPen = draggedShape.type === 'pen' && draggedShape.points && draggedShape.points.length >= 2;
+      const dx = e.target.x() - (isPen ? 0 : (draggedShape.x ?? 0));
+      const dy = e.target.y() - (isPen ? 0 : (draggedShape.y ?? 0));
+
+      // Reset position for pen strokes (they use points, not x/y)
+      if (isPen) {
+        e.target.position({ x: 0, y: 0 });
+      }
+
+      // Group drag: move all selected shapes by the same delta
+      if (selectedIds.length > 1 && selectedIds.includes(id)) {
+        const updatedShapes = shapes.map((shape) => {
+          if (!selectedIds.includes(shape.id)) return shape;
+
+          if (shape.type === 'pen' && shape.points && shape.points.length >= 2) {
+            const newPoints = shape.points.map((val, i) =>
+              i % 2 === 0 ? val + dx : val + dy
+            );
+            return { ...shape, points: newPoints };
+          }
+
+          return {
+            ...shape,
+            x: (shape.x ?? 0) + dx,
+            y: (shape.y ?? 0) + dy,
+          };
+        });
+        onShapesChange(updatedShapes);
+      } else {
+        // Single shape drag
+        if (isPen) {
+          const newPoints = draggedShape.points!.map((val, i) =>
+            i % 2 === 0 ? val + dx : val + dy
+          );
+          const updatedShapes = shapes.map((shape) =>
+            shape.id === id ? { ...shape, points: newPoints } : shape
+          );
+          onShapesChange(updatedShapes);
+        } else {
+          const updatedShapes = shapes.map((shape) =>
+            shape.id === id
+              ? { ...shape, x: e.target.x(), y: e.target.y() }
+              : shape
+          );
+          onShapesChange(updatedShapes);
+        }
+      }
     },
-    [shapes, onShapesChange]
+    [shapes, onShapesChange, selectedIds]
   );
 
   // Handle transform (resize/rotate via gizmo) - updates in real-time for proper stroke rendering
@@ -1079,7 +1149,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         setSelectedIds([...selectedIds, shapeId]);
       }
     } else {
-      setSelectedIds([shapeId]);
+      // Keep group selection if clicking on already-selected shape (allows group drag)
+      if (!selectedIds.includes(shapeId)) {
+        setSelectedIds([shapeId]);
+      }
     }
   }, [selectedIds, setSelectedIds]);
 
@@ -1352,6 +1425,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               points={shape.points || []}
               stroke={shape.stroke}
               strokeWidth={shape.strokeWidth}
+              hitStrokeWidth={Math.max(20, (shape.strokeWidth || 2) * 3)}
               tension={0.5}
               lineCap="round"
               lineJoin="round"
@@ -1398,6 +1472,59 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     // No crop - full image
     return { x: 0, y: 0, width: image.width, height: image.height };
   }, [image, canvasBounds, selectedTool]);
+
+  // Compute bounding box of selected shapes for group drag background
+  const selectionBounds = useMemo(() => {
+    if (selectedIds.length < 2) return null;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    for (const id of selectedIds) {
+      const shape = shapes.find(s => s.id === id);
+      if (!shape) continue;
+
+      let x = shape.x ?? 0;
+      let y = shape.y ?? 0;
+      let w = shape.width ?? 0;
+      let h = shape.height ?? 0;
+
+      // Handle circles/ellipses
+      if (shape.radiusX || shape.radiusY || shape.radius) {
+        const rx = shape.radiusX ?? shape.radius ?? 0;
+        const ry = shape.radiusY ?? shape.radius ?? 0;
+        x -= rx;
+        y -= ry;
+        w = rx * 2;
+        h = ry * 2;
+      }
+
+      // Handle point-based shapes (pen, arrow)
+      if (shape.points && shape.points.length >= 2) {
+        const xs = shape.points.filter((_, i) => i % 2 === 0);
+        const ys = shape.points.filter((_, i) => i % 2 === 1);
+        x = Math.min(...xs);
+        y = Math.min(...ys);
+        w = Math.max(...xs) - x;
+        h = Math.max(...ys) - y;
+      }
+
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
+    }
+
+    if (!isFinite(minX)) return null;
+
+    // Add padding for easier grabbing
+    const padding = 4;
+    return {
+      x: minX - padding,
+      y: minY - padding,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    };
+  }, [selectedIds, shapes]);
 
   // Create checkerboard pattern image for transparency indication
   const [checkerPatternImage, setCheckerPatternImage] = useState<HTMLImageElement | null>(null);
@@ -1977,6 +2104,41 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               </>
             );
           })()}
+
+          {/* Transparent background for multi-select group dragging (enables drag from empty space) */}
+          {selectionBounds && selectedTool === 'select' && (
+            <Rect
+              x={selectionBounds.x}
+              y={selectionBounds.y}
+              width={selectionBounds.width}
+              height={selectionBounds.height}
+              fill="transparent"
+              draggable
+              onDragEnd={(e) => {
+                const dx = e.target.x() - selectionBounds.x;
+                const dy = e.target.y() - selectionBounds.y;
+                e.target.position({ x: selectionBounds.x, y: selectionBounds.y });
+
+                const updatedShapes = shapes.map((shape) => {
+                  if (!selectedIds.includes(shape.id)) return shape;
+
+                  if (shape.type === 'pen' && shape.points && shape.points.length >= 2) {
+                    const newPoints = shape.points.map((val, i) =>
+                      i % 2 === 0 ? val + dx : val + dy
+                    );
+                    return { ...shape, points: newPoints };
+                  }
+
+                  return {
+                    ...shape,
+                    x: (shape.x ?? 0) + dx,
+                    y: (shape.y ?? 0) + dy,
+                  };
+                });
+                onShapesChange(updatedShapes);
+              }}
+            />
+          )}
 
           <Transformer
             ref={transformerRef}

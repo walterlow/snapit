@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(frontend-design:frontend-design)",
+      "Bash(npx tsc:*)",
+      "Bash(cargo check:*)",
+      "Bash(pushd:*)",
+      "WebFetch(domain:v2.tauri.app)",
+      "Bash(npm run build:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:base-ui.com)"
+    ]
+  }
+}

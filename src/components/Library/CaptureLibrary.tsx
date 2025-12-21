@@ -1,4 +1,4 @@
-import { useEffect, useState, memo } from 'react';
+import { useEffect, useState, memo, useRef, useCallback } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
@@ -23,7 +23,6 @@ import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Tooltip,
   TooltipContent,
@@ -67,9 +66,144 @@ export const CaptureLibrary: React.FC = () => {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
 
+  // Marquee selection state
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
+  const [selectionCurrent, setSelectionCurrent] = useState({ x: 0, y: 0 });
+  const [selectionStartIds, setSelectionStartIds] = useState<Set<string>>(new Set());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isShiftHeld = useRef(false);
+
   useEffect(() => {
     loadCaptures();
   }, [loadCaptures]);
+
+  // Calculate selection rectangle bounds (handles any drag direction)
+  const getSelectionRect = useCallback(() => {
+    const left = Math.min(selectionStart.x, selectionCurrent.x);
+    const top = Math.min(selectionStart.y, selectionCurrent.y);
+    const width = Math.abs(selectionCurrent.x - selectionStart.x);
+    const height = Math.abs(selectionCurrent.y - selectionStart.y);
+    return { left, top, width, height };
+  }, [selectionStart, selectionCurrent]);
+
+  // Check if two rectangles intersect
+  const rectsIntersect = useCallback((r1: DOMRect, r2: { left: number; top: number; width: number; height: number }) => {
+    return !(
+      r1.right < r2.left ||
+      r1.left > r2.left + r2.width ||
+      r1.bottom < r2.top ||
+      r1.top > r2.top + r2.height
+    );
+  }, []);
+
+  // Find captures within selection rectangle
+  const getSelectedCapturesInRect = useCallback(() => {
+    if (!containerRef.current) return new Set<string>();
+
+    const selectionRect = getSelectionRect();
+    const containerRect = containerRef.current.getBoundingClientRect();
+    
+    // Adjust selection rect to be relative to viewport
+    const viewportSelectionRect = {
+      left: selectionRect.left + containerRect.left,
+      top: selectionRect.top + containerRect.top,
+      width: selectionRect.width,
+      height: selectionRect.height,
+    };
+
+    const selected = new Set<string>();
+    const cards = containerRef.current.querySelectorAll('[data-capture-id]');
+    
+    cards.forEach((card) => {
+      const cardRect = card.getBoundingClientRect();
+      if (rectsIntersect(cardRect, viewportSelectionRect)) {
+        const id = card.getAttribute('data-capture-id');
+        if (id) selected.add(id);
+      }
+    });
+
+    return selected;
+  }, [getSelectionRect, rectsIntersect]);
+
+  // Handle mouse down on container
+  const handleMarqueeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Only start marquee on left click and on empty space
+    if (e.button !== 0) return;
+    
+    // Don't start marquee if clicking on a card or button
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-capture-id]') || target.closest('button')) {
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const x = e.clientX - containerRect.left + container.scrollLeft;
+    const y = e.clientY - containerRect.top + container.scrollTop;
+
+    isShiftHeld.current = e.shiftKey;
+    setSelectionStartIds(e.shiftKey ? new Set(selectedIds) : new Set());
+    setSelectionStart({ x, y });
+    setSelectionCurrent({ x, y });
+    setIsSelecting(true);
+
+    // Prevent text selection
+    e.preventDefault();
+  }, [selectedIds]);
+
+  // Handle mouse move during selection
+  const handleMarqueeMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isSelecting) return;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const x = e.clientX - containerRect.left + container.scrollLeft;
+    const y = e.clientY - containerRect.top + container.scrollTop;
+
+    setSelectionCurrent({ x, y });
+
+    // Update selection in real-time
+    const inRect = getSelectedCapturesInRect();
+    if (isShiftHeld.current) {
+      // Add to existing selection
+      const combined = new Set([...selectionStartIds, ...inRect]);
+      setSelectedIds(combined);
+    } else {
+      setSelectedIds(inRect);
+    }
+  }, [isSelecting, getSelectedCapturesInRect, selectionStartIds]);
+
+  // Handle mouse up to end selection
+  const handleMarqueeMouseUp = useCallback(() => {
+    if (!isSelecting) return;
+    
+    // If it was just a click (no drag), clear selection
+    const rect = getSelectionRect();
+    if (rect.width < 5 && rect.height < 5) {
+      if (!isShiftHeld.current) {
+        setSelectedIds(new Set());
+      }
+    }
+
+    setIsSelecting(false);
+  }, [isSelecting, getSelectionRect]);
+
+  // Global mouse up listener to handle mouse up outside container
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isSelecting) {
+        setIsSelecting(false);
+      }
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [isSelecting]);
 
   const handleSelect = (id: string, event: React.MouseEvent) => {
     if (event.ctrlKey || event.metaKey) {
@@ -264,54 +398,71 @@ export const CaptureLibrary: React.FC = () => {
           </div>
         </header>
 
-        {/* Content */}
-        <ScrollArea className="flex-1">
-          <main className="p-4">
-            {loading ? (
-              <div className="flex items-center justify-center h-64">
-                <div className="relative">
-                  <div className="w-8 h-8 border-2 border-[var(--border-default)] border-t-amber-400 rounded-full animate-spin" />
-                  <Sparkles className="absolute inset-0 m-auto w-3 h-3 text-amber-400 animate-pulse" />
-                </div>
+        {/* Content - Scrollable area with marquee selection */}
+        <div
+          ref={containerRef}
+          className="flex-1 overflow-auto p-4 relative select-none"
+          onMouseDown={handleMarqueeMouseDown}
+          onMouseMove={handleMarqueeMouseMove}
+          onMouseUp={handleMarqueeMouseUp}
+        >
+          {/* Marquee Selection Rectangle */}
+          {isSelecting && (
+            <div
+              className="absolute pointer-events-none z-50 border border-amber-400 bg-amber-400/10 rounded-sm"
+              style={{
+                left: getSelectionRect().left,
+                top: getSelectionRect().top,
+                width: getSelectionRect().width,
+                height: getSelectionRect().height,
+              }}
+            />
+          )}
+
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="relative">
+                <div className="w-8 h-8 border-2 border-[var(--border-default)] border-t-amber-400 rounded-full animate-spin" />
+                <Sparkles className="absolute inset-0 m-auto w-3 h-3 text-amber-400 animate-pulse" />
               </div>
-            ) : captures.length === 0 ? (
-              <EmptyState onNewCapture={handleNewCapture} />
-            ) : viewMode === 'grid' ? (
-              <div
-                className="grid gap-4 stagger-grid"
-                style={{
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                }}
-              >
-                {captures.map((capture) => (
-                  <CaptureCard
-                    key={capture.id}
-                    capture={capture}
-                    selected={selectedIds.has(capture.id)}
-                    onSelect={handleSelect}
-                    onToggleFavorite={() => toggleFavorite(capture.id)}
-                    onDelete={() => handleRequestDeleteSingle(capture.id)}
-                    formatDate={formatDate}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2 stagger-grid">
-                {captures.map((capture) => (
-                  <CaptureRow
-                    key={capture.id}
-                    capture={capture}
-                    selected={selectedIds.has(capture.id)}
-                    onSelect={handleSelect}
-                    onToggleFavorite={() => toggleFavorite(capture.id)}
-                    onDelete={() => handleRequestDeleteSingle(capture.id)}
-                    formatDate={formatDate}
-                  />
-                ))}
-              </div>
-            )}
-          </main>
-        </ScrollArea>
+            </div>
+          ) : captures.length === 0 ? (
+            <EmptyState onNewCapture={handleNewCapture} />
+          ) : viewMode === 'grid' ? (
+            <div
+              className="grid gap-4 stagger-grid"
+              style={{
+                gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              }}
+            >
+              {captures.map((capture) => (
+                <CaptureCard
+                  key={capture.id}
+                  capture={capture}
+                  selected={selectedIds.has(capture.id)}
+                  onSelect={handleSelect}
+                  onToggleFavorite={() => toggleFavorite(capture.id)}
+                  onDelete={() => handleRequestDeleteSingle(capture.id)}
+                  formatDate={formatDate}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 stagger-grid">
+              {captures.map((capture) => (
+                <CaptureRow
+                  key={capture.id}
+                  capture={capture}
+                  selected={selectedIds.has(capture.id)}
+                  onSelect={handleSelect}
+                  onToggleFavorite={() => toggleFavorite(capture.id)}
+                  onDelete={() => handleRequestDeleteSingle(capture.id)}
+                  formatDate={formatDate}
+                />
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -403,6 +554,7 @@ const CaptureCard: React.FC<CaptureCardProps> = memo(({
   return (
     <div
       className={`capture-card group ${selected ? 'selected' : ''}`}
+      data-capture-id={capture.id}
       onClick={(e) => onSelect(capture.id, e)}
     >
       {/* Thumbnail */}
@@ -489,6 +641,7 @@ const CaptureRow: React.FC<CaptureCardProps> = memo(({
   return (
     <div
       className={`capture-row group ${selected ? 'selected' : ''}`}
+      data-capture-id={capture.id}
       onClick={(e) => onSelect(capture.id, e)}
     >
       {/* Checkbox */}

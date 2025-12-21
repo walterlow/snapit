@@ -39,9 +39,7 @@ pub async fn capture_window(window_id: u32) -> Result<CaptureResult, String> {
     if wgc::is_available() {
         match wgc::capture_window(window_id as isize) {
             Ok(result) => return Ok(result),
-            Err(e) => {
-                log::warn!("WGC window capture failed, falling back to xcap: {}", e);
-            }
+            Err(_) => {}
         }
     }
 
@@ -76,9 +74,7 @@ pub async fn capture_fullscreen() -> Result<CaptureResult, String> {
 
         match wgc::capture_monitor(primary_index) {
             Ok(result) => return Ok(result),
-            Err(e) => {
-                log::warn!("WGC monitor capture failed, falling back to xcap: {}", e);
-            }
+            Err(_) => {}
         }
     }
 
@@ -92,19 +88,10 @@ pub async fn capture_fullscreen() -> Result<CaptureResult, String> {
 #[cfg(target_os = "windows")]
 #[command]
 pub async fn get_window_at_point(x: i32, y: i32) -> Result<Option<WindowInfo>, String> {
-    use xcap::Window;
-
     use windows::Win32::{
-        Foundation::{HWND, POINT, RECT},
-        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
+        Foundation::POINT,
         System::Threading::GetCurrentProcessId,
-        UI::WindowsAndMessaging::{
-            GetAncestor, GetClassNameW, GetLayeredWindowAttributes, GetWindow, GetWindowLongW,
-            GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
-            IsIconic, IsWindowVisible, WindowFromPoint, GA_ROOT, GWL_EXSTYLE, GW_HWNDNEXT,
-            LAYERED_WINDOW_ATTRIBUTES_FLAGS, LWA_ALPHA, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
-            WS_EX_TRANSPARENT,
-        },
+        UI::WindowsAndMessaging::{GetAncestor, GetWindow, WindowFromPoint, GA_ROOT, GW_HWNDNEXT},
     };
 
     let point = POINT { x, y };
@@ -148,25 +135,60 @@ pub async fn get_window_at_point(x: i32, y: i32) -> Result<Option<WindowInfo>, S
 }
 
 #[cfg(target_os = "windows")]
+fn get_process_name(process_id: u32) -> String {
+    use windows::Win32::{
+        Foundation::CloseHandle,
+        System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+    
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id);
+        if let Ok(handle) = handle {
+            let mut buffer = [0u16; 260];
+            let mut size = buffer.len() as u32;
+            
+            if QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, windows::core::PWSTR(buffer.as_mut_ptr()), &mut size).is_ok() {
+                let _ = CloseHandle(handle);
+                let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                // Extract just the filename from the path
+                return path.rsplit(['\\', '/']).next().unwrap_or(&path).to_string();
+            }
+            let _ = CloseHandle(handle);
+        }
+        String::new()
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn try_get_window_info(
     hwnd: windows::Win32::Foundation::HWND,
     current_process_id: u32,
     point: windows::Win32::Foundation::POINT,
 ) -> Option<WindowInfo> {
     use windows::Win32::{
-        Foundation::{HWND, POINT, RECT},
-        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
+        Foundation::RECT,
+        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS},
         UI::WindowsAndMessaging::{
-            GetClassNameW, GetLayeredWindowAttributes, GetWindowLongW, GetWindowRect,
+            GetClassNameW, GetLayeredWindowAttributes, GetWindowLongW,
             GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
             IsWindowVisible, GWL_EXSTYLE, LAYERED_WINDOW_ATTRIBUTES_FLAGS, LWA_ALPHA,
             WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
         },
     };
-    use xcap::Window;
 
     unsafe {
         if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return None;
+        }
+        
+        // Check if window is cloaked (hidden by DWM - catches UWP hidden windows)
+        let mut cloaked: u32 = 0;
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut u32 as *mut std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        ).is_ok() && cloaked != 0 {
             return None;
         }
 
@@ -180,21 +202,15 @@ fn try_get_window_info(
             return None;
         }
 
-        // Use DwmGetWindowAttribute to get the actual visible frame bounds
-        // This excludes the invisible borders that Windows 10/11 adds for shadows
+        // Use DWMWA_EXTENDED_FRAME_BOUNDS to get visible bounds (excludes shadow, includes titlebar)
         let mut rect = RECT::default();
-        let result = DwmGetWindowAttribute(
+        if DwmGetWindowAttribute(
             hwnd,
             DWMWA_EXTENDED_FRAME_BOUNDS,
             &mut rect as *mut RECT as *mut std::ffi::c_void,
             std::mem::size_of::<RECT>() as u32,
-        );
-        
-        // Fallback to GetWindowRect if DWM fails
-        if result.is_err() {
-            if GetWindowRect(hwnd, &mut rect).is_err() {
-                return None;
-            }
+        ).is_err() {
+            return None;
         }
 
         let width = (rect.right - rect.left) as u32;
@@ -225,10 +241,41 @@ fn try_get_window_info(
             String::new()
         };
 
+        // Filter system windows
         match class_name.as_str() {
             "Shell_TrayWnd" | "Shell_SecondaryTrayWnd" | "NotifyIconOverflowWindow"
             | "Windows.UI.Core.CoreWindow" | "Progman" | "WorkerW" => return None,
             _ => {}
+        }
+
+        // Get process name directly from Windows API
+        let app_name = get_process_name(process_id);
+        let app_lower = app_name.to_lowercase();
+        
+        // Filter out our own SnapIt windows
+        if app_lower.contains("snapit") {
+            return None;
+        }
+        
+        // Filter ApplicationFrameHost.exe - UWP container process, not the actual app
+        if app_lower == "applicationframehost.exe" {
+            return None;
+        }
+        
+        // Filter known hidden/popup UI elements by title
+        let title_lower = title.to_lowercase();
+        if matches!(title_lower.as_str(), 
+            "command palette" | "quick pick" | "go to file" | "go to symbol"
+            | "input" | "dropdown" | "tooltip" | "popup" | "menu window"
+        ) {
+            return None;
+        }
+        
+        // Filter webview windows with generic titles (likely our settings modal)
+        if class_name.starts_with("Chrome_") || class_name.contains("WebView") {
+            if title_lower == "settings" || title.is_empty() {
+                return None;
+            }
         }
 
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
@@ -252,15 +299,6 @@ fn try_get_window_info(
         }
 
         let hwnd_id = hwnd.0 as u32;
-        let app_name = Window::all()
-            .ok()
-            .and_then(|windows| {
-                windows
-                    .iter()
-                    .find(|w| w.id().unwrap_or(0) == hwnd_id)
-                    .map(|w| w.app_name().unwrap_or_default())
-            })
-            .unwrap_or_default();
 
         Some(WindowInfo {
             id: hwnd_id,
@@ -280,11 +318,20 @@ fn is_point_in_hwnd(
     hwnd: windows::Win32::Foundation::HWND,
     point: windows::Win32::Foundation::POINT,
 ) -> bool {
-    use windows::Win32::{Foundation::RECT, UI::WindowsAndMessaging::GetWindowRect};
+    use windows::Win32::{
+        Foundation::RECT,
+        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
+    };
 
     unsafe {
         let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_ok() {
+        // Use DWMWA_EXTENDED_FRAME_BOUNDS for visible bounds (excludes shadow)
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut RECT as *mut std::ffi::c_void,
+            std::mem::size_of::<RECT>() as u32,
+        ).is_ok() {
             point.x >= rect.left
                 && point.x < rect.right
                 && point.y >= rect.top

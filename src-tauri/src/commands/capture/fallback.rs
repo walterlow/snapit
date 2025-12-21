@@ -9,48 +9,6 @@ use xcap::{Monitor, Window};
 
 use super::types::{CaptureError, CaptureResult, MonitorInfo, RegionSelection, WindowInfo};
 
-/// Apply rounded corners with anti-aliased transparency.
-fn apply_rounded_corners(image: &mut RgbaImage, radius: u32) {
-    let width = image.width();
-    let height = image.height();
-    let radius = radius.min(width / 2).min(height / 2);
-
-    if radius == 0 {
-        return;
-    }
-
-    let radius_f = radius as f64;
-
-    for y in 0..radius {
-        for x in 0..radius {
-            let corners = [
-                (x, y),
-                (width - 1 - x, y),
-                (x, height - 1 - y),
-                (width - 1 - x, height - 1 - y),
-            ];
-
-            let dx = radius_f - x as f64 - 0.5;
-            let dy = radius_f - y as f64 - 0.5;
-            let dist = (dx * dx + dy * dy).sqrt();
-
-            let alpha = if dist > radius_f {
-                0u8
-            } else if dist > radius_f - 1.5 {
-                ((radius_f - dist) / 1.5 * 255.0) as u8
-            } else {
-                255u8
-            };
-
-            for (cx, cy) in corners {
-                let pixel = image.get_pixel_mut(cx, cy);
-                let current_alpha = pixel[3] as u16;
-                pixel[3] = ((current_alpha * alpha as u16) / 255) as u8;
-            }
-        }
-    }
-}
-
 /// Check if a window is likely visible and capturable.
 fn is_window_visible(w: &Window) -> bool {
     if w.is_minimized().unwrap_or(true) {
@@ -167,7 +125,63 @@ pub fn get_windows() -> Result<Vec<WindowInfo>, CaptureError> {
     Ok(window_list)
 }
 
+/// Check if image is mostly transparent or black (failed capture).
+fn is_capture_invalid(image: &RgbaImage) -> bool {
+    let total_pixels = (image.width() * image.height()) as usize;
+    if total_pixels == 0 {
+        return true;
+    }
+    
+    let mut transparent_or_black = 0usize;
+    for pixel in image.pixels() {
+        // Check if pixel is fully transparent OR fully black
+        if pixel[3] == 0 || (pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255) {
+            transparent_or_black += 1;
+        }
+    }
+    
+    let bad_ratio = transparent_or_black as f64 / total_pixels as f64;
+    bad_ratio > 0.8
+}
+
+/// Get visible window bounds using DWM (excludes invisible shadow, includes titlebar).
+#[cfg(target_os = "windows")]
+fn get_window_rect_win32(hwnd: u32) -> Option<(i32, i32, u32, u32)> {
+    use windows::Win32::{
+        Foundation::{HWND, RECT},
+        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
+    };
+    
+    unsafe {
+        let hwnd = HWND(hwnd as *mut std::ffi::c_void);
+        let mut rect = RECT::default();
+        
+        // DWMWA_EXTENDED_FRAME_BOUNDS gives the actual visible window bounds
+        // (includes titlebar, excludes invisible drop shadow)
+        let result = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut RECT as *mut _,
+            std::mem::size_of::<RECT>() as u32,
+        );
+        
+        if result.is_ok() {
+            let width = (rect.right - rect.left) as u32;
+            let height = (rect.bottom - rect.top) as u32;
+            Some((rect.left, rect.top, width, height))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_window_rect_win32(_hwnd: u32) -> Option<(i32, i32, u32, u32)> {
+    None
+}
+
 /// Capture a window by its ID using xcap.
+/// Falls back to screen capture + crop for elevated windows.
 pub fn capture_window(window_id: u32) -> Result<CaptureResult, CaptureError> {
     let windows =
         Window::all().map_err(|e| CaptureError::CaptureFailed(format!("Failed to get windows: {}", e)))?;
@@ -181,13 +195,29 @@ pub fn capture_window(window_id: u32) -> Result<CaptureResult, CaptureError> {
         return Err(CaptureError::WindowMinimized);
     }
 
-    let mut image = target_window
-        .capture_image()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture window: {}", e)))?;
+    // Get window bounds using Windows API (includes titlebar)
+    // Fall back to xcap bounds if API fails
+    let (win_x, win_y, win_width, win_height) = get_window_rect_win32(window_id)
+        .unwrap_or_else(|| {
+            (
+                target_window.x().unwrap_or(0),
+                target_window.y().unwrap_or(0),
+                target_window.width().unwrap_or(0),
+                target_window.height().unwrap_or(0),
+            )
+        });
 
-    // Apply rounded corners
-    apply_rounded_corners(&mut image, 8);
+    // Try direct window capture first
+    let image = match target_window.capture_image() {
+        Ok(img) if !is_capture_invalid(&img) => img,
+        _ => {
+            // Fallback: capture screen and crop to window bounds
+            // This works for elevated windows like Task Manager
+            capture_screen_region(win_x, win_y, win_width, win_height)?
+        }
+    };
 
+    // Note: Rounded corners are handled by the compositor/editor, not here
     let dynamic_image = DynamicImage::ImageRgba8(image);
 
     let mut buffer = Cursor::new(Vec::new());
@@ -201,8 +231,55 @@ pub fn capture_window(window_id: u32) -> Result<CaptureResult, CaptureError> {
         image_data: base64_data,
         width: dynamic_image.width(),
         height: dynamic_image.height(),
-        has_transparency: false, // xcap doesn't preserve transparency well
+        has_transparency: false,
     })
+}
+
+/// Capture a screen region by coordinates (for elevated window fallback).
+fn capture_screen_region(x: i32, y: i32, width: u32, height: u32) -> Result<RgbaImage, CaptureError> {
+    let monitors = Monitor::all()
+        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get monitors: {}", e)))?;
+
+    // Find which monitor contains the window
+    let target_monitor = monitors
+        .iter()
+        .find(|m| {
+            let mx = m.x().unwrap_or(0);
+            let my = m.y().unwrap_or(0);
+            let mw = m.width().unwrap_or(0) as i32;
+            let mh = m.height().unwrap_or(0) as i32;
+            x >= mx && x < mx + mw && y >= my && y < my + mh
+        })
+        .or_else(|| monitors.first())
+        .ok_or(CaptureError::MonitorNotFound)?;
+
+    let full_image = target_monitor
+        .capture_image()
+        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture screen: {}", e)))?;
+
+    let monitor_x = target_monitor.x().unwrap_or(0);
+    let monitor_y = target_monitor.y().unwrap_or(0);
+    
+    // Calculate relative position within monitor
+    let rel_x = (x - monitor_x).max(0) as u32;
+    let rel_y = (y - monitor_y).max(0) as u32;
+    
+    // Clamp dimensions to monitor bounds
+    let max_width = full_image.width().saturating_sub(rel_x);
+    let max_height = full_image.height().saturating_sub(rel_y);
+    let crop_width = width.min(max_width);
+    let crop_height = height.min(max_height);
+
+    if crop_width == 0 || crop_height == 0 {
+        return Err(CaptureError::InvalidRegion);
+    }
+
+    // Crop to window bounds
+    let cropped = DynamicImage::ImageRgba8(full_image)
+        .crop_imm(rel_x, rel_y, crop_width, crop_height)
+        .to_rgba8();
+
+    Ok(cropped)
 }
 
 /// Capture a specific region from the screen.

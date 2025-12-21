@@ -1,5 +1,7 @@
 pub mod capture;
 pub mod image;
+pub mod keyboard_hook;
+pub mod settings;
 pub mod storage;
 pub mod window;
 

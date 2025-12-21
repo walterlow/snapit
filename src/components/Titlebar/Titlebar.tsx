@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Window } from '@tauri-apps/api/window';
-import { Minus, Square, X, Maximize2, Aperture } from 'lucide-react';
+import { Minus, Square, X, Maximize2, Aperture, Settings } from 'lucide-react';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 interface TitlebarProps {
   title?: string;
@@ -14,6 +15,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   const [isMaximized, setIsMaximized] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const appWindow = Window.getCurrent();
+  const { openSettingsModal } = useSettingsStore();
 
   useEffect(() => {
     // Check initial maximized state
@@ -62,6 +64,14 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
       {/* Right: Window Controls */}
       <div className="titlebar-controls">
+        <button
+          onClick={() => openSettingsModal()}
+          className="titlebar-button"
+          aria-label="Settings"
+          title="Settings"
+        >
+          <Settings className="w-3.5 h-3.5" />
+        </button>
         <button
           onClick={handleMinimize}
           className="titlebar-button titlebar-button-minimize"

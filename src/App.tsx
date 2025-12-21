@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
@@ -10,9 +11,20 @@ import { EditorCanvas } from './components/Editor/EditorCanvas';
 import { Toolbar } from './components/Editor/Toolbar';
 import { PropertiesPanel } from './components/Editor/PropertiesPanel';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
+import { SettingsModal } from './components/Settings/SettingsModal';
 import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore } from './stores/editorStore';
+import { useSettingsStore } from './stores/settingsStore';
+import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import type { Tool, CanvasShape, Annotation } from './types';
+
+// Settings Modal Container - uses store for open/close state
+const SettingsModalContainer: React.FC = () => {
+  const { settingsModalOpen, closeSettingsModal } = useSettingsStore();
+  return (
+    <SettingsModal open={settingsModalOpen} onClose={closeSettingsModal} />
+  );
+};
 
 function App() {
   const {
@@ -119,6 +131,71 @@ function App() {
     loadCaptures();
   }, [loadCaptures]);
 
+  // Capture trigger functions
+  const triggerRegionCapture = useCallback(async () => {
+    try {
+      await invoke('show_overlay');
+    } catch {
+      toast.error('Failed to start capture');
+    }
+  }, []);
+
+  const triggerFullscreenCapture = useCallback(async () => {
+    try {
+      const result = await invoke<{ image_data: string }>('capture_fullscreen');
+      if (result?.image_data) {
+        await saveNewCapture(result.image_data, 'fullscreen', {});
+        clearEditor();
+        useEditorStore.temporal.getState().clear();
+        toast.success('Fullscreen captured');
+      }
+    } catch {
+      toast.error('Failed to capture fullscreen');
+    }
+  }, [saveNewCapture, clearEditor]);
+
+  const triggerWindowCapture = useCallback(async () => {
+    // For now, window capture uses the same overlay as region capture
+    // The user can then select a window from the overlay
+    try {
+      await invoke('show_overlay');
+    } catch {
+      toast.error('Failed to start capture');
+    }
+  }, []);
+
+  // Initialize settings and register shortcuts
+  useEffect(() => {
+    const initSettings = async () => {
+      const { loadSettings } = useSettingsStore.getState();
+      await loadSettings();
+      
+      // Set up shortcut handlers - these trigger actual captures
+      setShortcutHandler('region_capture', triggerRegionCapture);
+      setShortcutHandler('fullscreen_capture', triggerFullscreenCapture);
+      setShortcutHandler('window_capture', triggerWindowCapture);
+      
+      // Register all shortcuts from settings
+      await registerAllShortcuts();
+    };
+    
+    initSettings();
+  }, [triggerRegionCapture, triggerFullscreenCapture, triggerWindowCapture]);
+
+  // Listen for open-settings event from tray menu
+  useEffect(() => {
+    const unlisten = listen('open-settings', () => {
+      useSettingsStore.getState().openSettingsModal();
+    });
+    
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Note: Shortcut event listeners are now set up in hotkeyManager.ts
+  // when registerShortcut is called with allowOverride=true
+
   // Listen for capture-complete event from Rust
   useEffect(() => {
     const unlisten = listen<string>('capture-complete', async (event) => {
@@ -130,8 +207,7 @@ function App() {
         clearEditor();
         useEditorStore.temporal.getState().clear(); // Clear undo history for new capture
         toast.success('Screenshot captured');
-      } catch (error) {
-        console.error('Failed to save capture:', error);
+      } catch {
         toast.error('Failed to save capture');
         // Still show the editor even if save fails
         setCurrentImageData(imageData);
@@ -261,8 +337,7 @@ function App() {
     ]);
 
     toast.success('Copied to clipboard');
-    } catch (error) {
-      console.error('Failed to copy:', error);
+    } catch {
       toast.error('Failed to copy to clipboard');
     } finally {
       setIsCopying(false);
@@ -371,8 +446,7 @@ function App() {
         await writeFile(filePath, new Uint8Array(arrayBuffer));
         toast.success('Image saved successfully');
       }
-    } catch (error) {
-      console.error('Failed to save:', error);
+    } catch {
       toast.error('Failed to save image');
     } finally {
       setIsSaving(false);
@@ -429,6 +503,9 @@ function App() {
         open={showShortcuts} 
         onClose={() => setShowShortcuts(false)} 
       />
+      
+      {/* Settings Modal */}
+      <SettingsModalContainer />
       
       {/* Custom Titlebar */}
       <Titlebar />

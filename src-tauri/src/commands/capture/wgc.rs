@@ -67,74 +67,28 @@ impl GraphicsCaptureApiHandler for SingleFrameCapture {
     }
 }
 
-/// Apply rounded corners with anti-aliased transparency.
-fn apply_rounded_corners(image: &mut RgbaImage, radius: u32) {
-    let width = image.width();
-    let height = image.height();
-    let radius = radius.min(width / 2).min(height / 2);
-
-    if radius == 0 {
-        return;
+/// Check if captured image is mostly transparent (failed capture of elevated window).
+/// Returns true if more than 80% of pixels are fully transparent.
+fn is_mostly_transparent(data: &[u8], width: u32, height: u32) -> bool {
+    let total_pixels = (width * height) as usize;
+    if total_pixels == 0 {
+        return true;
     }
-
-    let radius_f = radius as f64;
-
-    for y in 0..radius {
-        for x in 0..radius {
-            let corners = [
-                (x, y),                          // Top-left
-                (width - 1 - x, y),              // Top-right
-                (x, height - 1 - y),             // Bottom-left
-                (width - 1 - x, height - 1 - y), // Bottom-right
-            ];
-
-            let dx = radius_f - x as f64 - 0.5;
-            let dy = radius_f - y as f64 - 0.5;
-            let dist = (dx * dx + dy * dy).sqrt();
-
-            let alpha = if dist > radius_f {
-                0u8
-            } else if dist > radius_f - 1.5 {
-                ((radius_f - dist) / 1.5 * 255.0) as u8
-            } else {
-                255u8
-            };
-
-            for (cx, cy) in corners {
-                let pixel = image.get_pixel_mut(cx, cy);
-                let current_alpha = pixel[3] as u16;
-                pixel[3] = ((current_alpha * alpha as u16) / 255) as u8;
-            }
-        }
-    }
+    
+    // Count fully transparent pixels (alpha = 0)
+    let transparent_count = data
+        .chunks(4)
+        .filter(|pixel| pixel.len() == 4 && pixel[3] == 0)
+        .count();
+    
+    let transparent_ratio = transparent_count as f64 / total_pixels as f64;
+    transparent_ratio > 0.8
 }
 
 /// Encode RGBA image data to PNG with transparency preserved.
 fn encode_rgba_to_png(data: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, CaptureError> {
     let image = RgbaImage::from_raw(width, height, data)
         .ok_or_else(|| CaptureError::EncodingFailed("Failed to create image from buffer".into()))?;
-
-    let dynamic_image = DynamicImage::ImageRgba8(image);
-
-    let mut buffer = Cursor::new(Vec::new());
-    dynamic_image
-        .write_to(&mut buffer, image::ImageFormat::Png)
-        .map_err(|e| CaptureError::EncodingFailed(e.to_string()))?;
-
-    Ok(buffer.into_inner())
-}
-
-/// Encode RGBA image data to PNG with rounded corners applied.
-fn encode_rgba_to_png_with_corners(
-    data: Vec<u8>,
-    width: u32,
-    height: u32,
-    corner_radius: u32,
-) -> Result<Vec<u8>, CaptureError> {
-    let mut image = RgbaImage::from_raw(width, height, data)
-        .ok_or_else(|| CaptureError::EncodingFailed("Failed to create image from buffer".into()))?;
-
-    apply_rounded_corners(&mut image, corner_radius);
 
     let dynamic_image = DynamicImage::ImageRgba8(image);
 
@@ -182,8 +136,15 @@ pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
 
     let (rgba_data, width, height) = result;
 
-    // Encode to PNG with rounded corners (Windows 11 style, 8px radius)
-    let png_data = encode_rgba_to_png_with_corners(rgba_data, width, height, 8)?;
+    // Check if capture returned mostly transparent content (elevated window issue)
+    if is_mostly_transparent(&rgba_data, width, height) {
+        return Err(CaptureError::CaptureFailed(
+            "Captured content is mostly transparent (possible elevated window)".into(),
+        ));
+    }
+
+    // Note: Rounded corners are handled by the compositor/editor, not here
+    let png_data = encode_rgba_to_png(rgba_data, width, height)?;
     let base64_data = STANDARD.encode(&png_data);
 
     Ok(CaptureResult {

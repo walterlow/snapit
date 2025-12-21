@@ -67,8 +67,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         y: screenY,
       });
       setHoveredWindow(windowInfo);
-    } catch (error) {
-      console.error('Window detection failed:', error);
+    } catch {
       setHoveredWindow(null);
     }
   }, []);
@@ -137,24 +136,24 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     // If we were in window mode and didn't drag, capture the window
     if (mode === 'window' && !isDragging && hoveredWindow) {
       try {
+        // Move overlays off-screen first - needed for screen-crop fallback
+        await invoke('move_overlays_offscreen');
+        // Small delay to ensure overlay is moved
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
         const result = await invoke<{ image_data: string; width: number; height: number }>(
           'capture_window',
           { windowId: hoveredWindow.id }
         );
         await invoke('open_editor', { imageData: result.image_data });
-      } catch (error) {
-        console.error('Window capture failed:', error);
-        // Fallback to fullscreen - hide overlay first
+      } catch {
+        // Fallback to fullscreen
         try {
-          await invoke('hide_overlay');
-          await new Promise(resolve => setTimeout(resolve, 150));
-
           const result = await invoke<{ image_data: string; width: number; height: number }>(
             'capture_fullscreen'
           );
           await invoke('open_editor', { imageData: result.image_data });
-        } catch (fallbackError) {
-          console.error('Fullscreen capture failed:', fallbackError);
+        } catch {
           await invoke('hide_overlay');
         }
       }
@@ -164,18 +163,14 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     // If we were in window mode but no window detected, capture fullscreen
     if (mode === 'window' && !isDragging && !hoveredWindow) {
       try {
-        // Hide overlay first so it doesn't appear in the screenshot
-        await invoke('hide_overlay');
-
-        // Wait for overlay to be fully hidden
-        await new Promise(resolve => setTimeout(resolve, 150));
-
+        // Move overlays off-screen first (instant, reliable)
+        await invoke('move_overlays_offscreen');
+        
         const result = await invoke<{ image_data: string; width: number; height: number }>(
           'capture_fullscreen'
         );
         await invoke('open_editor', { imageData: result.image_data });
-      } catch (error) {
-        console.error('Fullscreen capture failed:', error);
+      } catch {
         await invoke('hide_overlay');
       }
       return;
@@ -192,30 +187,25 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     }
 
     try {
-      // Store selection data before hiding overlay
-      const selectionData = {
-        x: monitorX + displayRect.x,
-        y: monitorY + displayRect.y,
-        width: Math.round(displayRect.width),
-        height: Math.round(displayRect.height),
-        monitor_id: monitorIndex,
-      };
+      // Move overlays off-screen first (instant, reliable)
+      await invoke('move_overlays_offscreen');
 
-      // Hide overlay first so it doesn't appear in the screenshot
-      await invoke('hide_overlay');
-
-      // Wait for overlay to be fully hidden
-      await new Promise(resolve => setTimeout(resolve, 150));
-
-      // Now capture the region without the overlay visible
+      // Now capture the region
       const result = await invoke<{ image_data: string; width: number; height: number }>(
         'capture_region',
-        { selection: selectionData }
+        {
+          selection: {
+            x: monitorX + displayRect.x,
+            y: monitorY + displayRect.y,
+            width: Math.round(displayRect.width),
+            height: Math.round(displayRect.height),
+            monitor_id: monitorIndex,
+          }
+        }
       );
 
       await invoke('open_editor', { imageData: result.image_data });
-    } catch (error) {
-      console.error('Capture failed:', error);
+    } catch {
       await invoke('hide_overlay');
     }
   }, [isSelecting, selection, getDisplayRect, monitorX, monitorY, monitorIndex, mode, isDragging, hoveredWindow]);
@@ -334,32 +324,54 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
               outline: '3px solid #3B82F6',
               outlineOffset: '-2px',
               boxShadow: 'inset 0 0 0 1px rgba(59, 130, 246, 0.5), 0 0 20px rgba(59, 130, 246, 0.3)',
-              borderRadius: '8px',
             }}
           />
 
           {/* Window title badge */}
-          {hoveredWindow && (
-            <div
-              className="absolute pointer-events-none px-3 py-1.5 rounded-lg"
-              style={{
-                left: windowHighlight.x,
-                top: Math.max(8, windowHighlight.y - 36),
-                background: 'rgba(0, 0, 0, 0.85)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(59, 130, 246, 0.5)',
-                color: 'white',
-                fontSize: '12px',
-                fontWeight: 500,
-                maxWidth: '300px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {hoveredWindow.app_name || hoveredWindow.title}
-            </div>
-          )}
+          {hoveredWindow && (() => {
+            // Clean up app name - remove .exe suffix and path
+            const rawAppName = hoveredWindow.app_name || '';
+            const appName = rawAppName
+              .replace(/\.exe$/i, '')
+              .split(/[/\\]/).pop() || 'Unknown';
+            
+            // If title equals app name (case-insensitive), don't show subtitle
+            const showTitle = hoveredWindow.title && 
+              hoveredWindow.title.toLowerCase() !== appName.toLowerCase();
+            
+            return (
+              <div
+                className="absolute pointer-events-none px-3 py-1.5 rounded-lg"
+                style={{
+                  left: windowHighlight.x,
+                  top: Math.max(8, windowHighlight.y - (showTitle ? 44 : 32)),
+                  background: 'rgba(0, 0, 0, 0.85)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(59, 130, 246, 0.5)',
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  maxWidth: '400px',
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>
+                  {appName}
+                </div>
+                {showTitle && (
+                  <div style={{ 
+                    color: 'rgba(255,255,255,0.7)', 
+                    fontSize: '11px',
+                    marginTop: '2px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {hoveredWindow.title}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
 

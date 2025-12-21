@@ -2,11 +2,13 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 
 #[cfg(desktop)]
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_autostart::MacosLauncher;
+
+
 
 mod commands;
 
@@ -21,7 +23,12 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+        builder = builder
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+            .plugin(tauri_plugin_autostart::init(
+                MacosLauncher::LaunchAgent,
+                Some(vec!["--minimized"]),
+            ));
     }
 
     builder
@@ -46,6 +53,7 @@ pub fn run() {
             commands::window::show_overlay,
             commands::window::hide_overlay,
             commands::window::open_editor,
+            commands::window::move_overlays_offscreen,
             // Image commands
             commands::image::save_image,
             commands::image::save_png_bytes,
@@ -64,12 +72,23 @@ pub fn run() {
             commands::storage::delete_projects,
             commands::storage::export_project,
             commands::storage::get_storage_stats,
+            // Settings commands
+            commands::settings::set_autostart,
+            commands::settings::is_autostart_enabled,
+            commands::settings::open_path_in_explorer,
+            commands::settings::get_default_save_dir,
+            // Keyboard hook commands (Windows shortcut override)
+            commands::keyboard_hook::register_shortcut_with_hook,
+            commands::keyboard_hook::unregister_shortcut_hook,
+            commands::keyboard_hook::unregister_all_hooks,
+            commands::keyboard_hook::reinstall_hook,
         ])
         .setup(|app| {
             #[cfg(desktop)]
             {
                 setup_system_tray(app)?;
-                setup_global_shortcuts(app)?;
+                // Note: Shortcuts are now registered dynamically via frontend
+                // after settings are loaded. See commands::settings module.
             }
 
             // Show main window after setup
@@ -85,14 +104,21 @@ pub fn run() {
 
 #[cfg(desktop)]
 fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::PredefinedMenuItem;
+
     let quit = MenuItem::with_id(app, "quit", "Quit SnapIt", true, None::<&str>)?;
     let capture =
         MenuItem::with_id(app, "capture", "Region Capture (Ctrl+Shift+S)", true, None::<&str>)?;
     let capture_full =
         MenuItem::with_id(app, "capture_full", "Fullscreen (Ctrl+Shift+F)", true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show Library", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
 
-    let menu = Menu::with_items(app, &[&capture, &capture_full, &show, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&capture, &capture_full, &separator, &show, &settings, &separator, &quit],
+    )?;
 
     // Load custom tray icon (32x32 is standard for system tray)
     let tray_icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
@@ -121,6 +147,14 @@ fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
                     let _ = window.set_focus();
                 }
             }
+            "settings" => {
+                // Show main window and emit event to open settings modal
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                let _ = app.emit("open-settings", ());
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -137,34 +171,5 @@ fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[cfg(desktop)]
-fn setup_global_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // Register Ctrl+Shift+S for region capture
-    let app_handle = app.handle().clone();
-    let region_shortcut = "Ctrl+Shift+S".parse::<Shortcut>()?;
-
-    app.global_shortcut()
-        .on_shortcut(region_shortcut, move |_app, _scut, event| {
-            if event.state == ShortcutState::Pressed {
-                let _ = commands::window::trigger_capture(&app_handle);
-            }
-        })?;
-
-    // Register Ctrl+Shift+F for fullscreen capture
-    let app_handle2 = app.handle().clone();
-    let fullscreen_shortcut = "Ctrl+Shift+F".parse::<Shortcut>()?;
-
-    app.global_shortcut()
-        .on_shortcut(fullscreen_shortcut, move |_app, _scut, event| {
-            if event.state == ShortcutState::Pressed {
-                let app_clone = app_handle2.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Ok(result) = commands::capture::capture_fullscreen().await {
-                        let _ = commands::window::open_editor(app_clone, result.image_data).await;
-                    }
-                });
-            }
-        })?;
-
-    Ok(())
-}
+// Global shortcuts are now registered dynamically via commands::settings module
+// This allows users to customize shortcuts through the settings UI

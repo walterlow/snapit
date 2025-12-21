@@ -207,3 +207,89 @@ export const WALLPAPER_THUMBNAILS = [
 
 // Blur effect types
 export type BlurType = 'pixelate' | 'gaussian';
+
+// ============================================
+// Settings Types
+// ============================================
+
+// Shortcut registration status
+export type ShortcutStatus = 'registered' | 'conflict' | 'error' | 'pending';
+
+// Individual shortcut configuration
+export interface ShortcutConfig {
+  id: string;
+  name: string;
+  description: string;
+  defaultShortcut: string;
+  currentShortcut: string;
+  status: ShortcutStatus;
+  useHook: boolean; // Whether to use low-level hook for override
+}
+
+// Image format options
+export type ImageFormat = 'png' | 'jpg' | 'webp';
+
+// General application settings
+export interface GeneralSettings {
+  startWithWindows: boolean;
+  minimizeToTray: boolean;
+  showNotifications: boolean;
+  defaultSaveDir: string | null;
+  imageFormat: ImageFormat;
+  jpgQuality: number; // 0-100
+  allowOverride: boolean; // Allow SnapIt to override shortcuts registered by other apps
+}
+
+// Complete application settings
+export interface AppSettings {
+  shortcuts: Record<string, ShortcutConfig>;
+  general: GeneralSettings;
+}
+
+// Default shortcut configurations
+export const DEFAULT_SHORTCUTS: Record<string, ShortcutConfig> = {
+  region_capture: {
+    id: 'region_capture',
+    name: 'Region Capture',
+    description: 'Capture a selected area of the screen',
+    defaultShortcut: 'Ctrl+Shift+S',
+    currentShortcut: 'Ctrl+Shift+S',
+    status: 'pending',
+    useHook: false,
+  },
+  fullscreen_capture: {
+    id: 'fullscreen_capture',
+    name: 'Fullscreen Capture',
+    description: 'Capture the entire screen',
+    defaultShortcut: 'Ctrl+Shift+F',
+    currentShortcut: 'Ctrl+Shift+F',
+    status: 'pending',
+    useHook: false,
+  },
+  window_capture: {
+    id: 'window_capture',
+    name: 'Window Capture',
+    description: 'Capture a specific window',
+    defaultShortcut: 'Ctrl+Shift+W',
+    currentShortcut: 'Ctrl+Shift+W',
+    status: 'pending',
+    useHook: false,
+  },
+};
+
+// Default general settings
+export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
+  startWithWindows: false,
+  minimizeToTray: true,
+  showNotifications: true,
+  defaultSaveDir: null,
+  imageFormat: 'png',
+  jpgQuality: 85,
+  allowOverride: false,
+};
+
+// Default complete settings
+export const DEFAULT_SETTINGS: AppSettings = {
+  shortcuts: DEFAULT_SHORTCUTS,
+  general: DEFAULT_GENERAL_SETTINGS,
+};

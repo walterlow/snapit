@@ -1,33 +1,37 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
 
+// Unique session counter to avoid window label conflicts
+static OVERLAY_SESSION: AtomicU64 = AtomicU64::new(0);
+
 /// Trigger the capture overlay - called from tray or hotkey
 pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
-    // Hide main window if visible
+    // Clean up existing overlays first
+    let windows = app.webview_windows();
+    for (label, window) in windows {
+        if label.starts_with("ov_") || label.starts_with("overlay_") {
+            let _ = window.close();
+        }
+    }
+
+    // Create overlay windows
+    create_overlay_windows(app)?;
+
+    // Hide main window
     if let Some(main_window) = app.get_webview_window("main") {
         let _ = main_window.hide();
     }
-
-    // Small delay to ensure window is hidden before capture
-    std::thread::sleep(std::time::Duration::from_millis(150));
-
-    // Create overlay windows on each monitor
-    create_overlay_windows(app)?;
 
     Ok(())
 }
 
 fn create_overlay_windows(app: &AppHandle) -> Result<(), String> {
+    let session = OVERLAY_SESSION.fetch_add(1, Ordering::SeqCst);
     let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
 
     for (idx, monitor) in monitors.iter().enumerate() {
-        let label = format!("overlay_{}", idx);
-
-        // Close existing overlay if present
-        if let Some(existing) = app.get_webview_window(&label) {
-            let _ = existing.close();
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
+        let label = format!("ov_{}_{}", session, idx);
 
         let x = monitor.x().unwrap_or(0) as f64;
         let y = monitor.y().unwrap_or(0) as f64;
@@ -65,6 +69,26 @@ fn create_overlay_windows(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Move all overlays off-screen (instant, synchronous) - call before capture
+#[command]
+pub async fn move_overlays_offscreen(app: AppHandle) -> Result<(), String> {
+    let windows = app.webview_windows();
+    
+    for (label, window) in windows {
+        if label.starts_with("ov_") || label.starts_with("overlay_") {
+            // Move way off screen - this is instant and synchronous
+            let _ = window.set_position(tauri::Position::Physical(
+                tauri::PhysicalPosition { x: -10000, y: -10000 }
+            ));
+        }
+    }
+    
+    // Small sync delay to ensure Windows compositor updates
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    
+    Ok(())
+}
+
 #[command]
 pub async fn show_overlay(app: AppHandle) -> Result<(), String> {
     trigger_capture(&app)
@@ -72,11 +96,10 @@ pub async fn show_overlay(app: AppHandle) -> Result<(), String> {
 
 #[command]
 pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
-    let monitors = Monitor::all().unwrap_or_default();
-
-    for idx in 0..monitors.len().max(4) {
-        let label = format!("overlay_{}", idx);
-        if let Some(window) = app.get_webview_window(&label) {
+    let windows = app.webview_windows();
+    
+    for (label, window) in windows {
+        if label.starts_with("ov_") || label.starts_with("overlay_") {
             let _ = window.close();
         }
     }
@@ -86,31 +109,23 @@ pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
 
 #[command]
 pub async fn open_editor(app: AppHandle, image_data: String) -> Result<(), String> {
-    // Hide all overlays first
+    // Close all overlays
     hide_overlay(app.clone()).await?;
-
-    // Small delay to ensure overlays are closed
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Show main window with the captured image
     if let Some(main_window) = app.get_webview_window("main") {
-        // Unminimize if minimized
         let _ = main_window.unminimize();
 
-        // Show the window
         main_window
             .show()
             .map_err(|e| format!("Failed to show main window: {}", e))?;
 
-        // Request user attention to flash taskbar (helps on Windows)
         let _ = main_window.request_user_attention(Some(tauri::UserAttentionType::Informational));
 
-        // Set focus
         main_window
             .set_focus()
             .map_err(|e| format!("Failed to focus window: {}", e))?;
 
-        // Emit event to frontend with the captured image
         main_window
             .emit("capture-complete", &image_data)
             .map_err(|e| format!("Failed to emit event: {}", e))?;

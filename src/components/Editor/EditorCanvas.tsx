@@ -17,6 +17,7 @@ import useImage from 'use-image';
 import { ZoomIn, ZoomOut, Maximize2, Square, Check, X } from 'lucide-react';
 import type { Tool, CanvasShape } from '../../types';
 import { useEditorStore } from '../../stores/editorStore';
+import { CompositorBackground } from './CompositorBackground';
 
 // Dynamic blur region using Konva's native filters
 // Re-renders in real-time as you move/resize - no baked pixels
@@ -1425,20 +1426,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     img.src = canvas.toDataURL();
   }, []);
 
-  // Load compositor background image for Konva rendering (needed for rounded corners)
-  const [compositorBgImage, setCompositorBgImage] = useState<HTMLImageElement | null>(null);
-  
-  useEffect(() => {
-    if (compositorSettings.backgroundType === 'image' && compositorSettings.backgroundImage) {
-      const img = new window.Image();
-      img.onload = () => setCompositorBgImage(img);
-      img.onerror = () => setCompositorBgImage(null);
-      img.src = compositorSettings.backgroundImage;
-    } else {
-      setCompositorBgImage(null);
-    }
-  }, [compositorSettings.backgroundType, compositorSettings.backgroundImage]);
-
   // Calculate composition box dimensions (for preview background)
   // Uses visibleBounds to match exactly what's clipped
   // Position is derived from Stage position + visibleBounds offset
@@ -1613,123 +1600,19 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           )}
 
           {/* Compositor background fill - renders UNDER the clipped content */}
-          {/* This fills the rounded corner gaps that the CSS div can't reach */}
-          {compositorSettings.enabled && compositorSettings.borderRadius > 0 && visibleBounds && (() => {
-            const bgX = visibleBounds.x;
-            const bgY = visibleBounds.y;
-            const bgW = visibleBounds.width;
-            const bgH = visibleBounds.height;
-            
-            // For solid color
-            if (compositorSettings.backgroundType === 'solid') {
-              return (
-                <Rect
-                  x={bgX}
-                  y={bgY}
-                  width={bgW}
-                  height={bgH}
-                  fill={compositorSettings.backgroundColor}
-                  cornerRadius={compositorSettings.borderRadius}
-                  listening={false}
-                />
-              );
-            }
-            
-            // For gradient
-            if (compositorSettings.backgroundType === 'gradient') {
-              const angleRad = (compositorSettings.gradientAngle - 90) * (Math.PI / 180);
-              const centerX = bgX + bgW / 2;
-              const centerY = bgY + bgH / 2;
-              const length = Math.sqrt(bgW * bgW + bgH * bgH) / 2;
-              
-              const x1 = centerX - Math.cos(angleRad) * length;
-              const y1 = centerY - Math.sin(angleRad) * length;
-              const x2 = centerX + Math.cos(angleRad) * length;
-              const y2 = centerY + Math.sin(angleRad) * length;
-              
-              const colorStops: Array<number | string> = [];
-              compositorSettings.gradientStops.forEach((stop) => {
-                colorStops.push(stop.position / 100);
-                colorStops.push(stop.color);
-              });
-              
-              return (
-                <Rect
-                  x={bgX}
-                  y={bgY}
-                  width={bgW}
-                  height={bgH}
-                  fillLinearGradientStartPoint={{ x: x1 - bgX, y: y1 - bgY }}
-                  fillLinearGradientEndPoint={{ x: x2 - bgX, y: y2 - bgY }}
-                  fillLinearGradientColorStops={colorStops}
-                  cornerRadius={compositorSettings.borderRadius}
-                  listening={false}
-                />
-              );
-            }
-            
-            // For image
-            if (compositorSettings.backgroundType === 'image' && compositorBgImage) {
-              // Calculate cover sizing
-              const imgRatio = compositorBgImage.width / compositorBgImage.height;
-              const areaRatio = bgW / bgH;
-              
-              let drawW: number, drawH: number, offsetX: number, offsetY: number;
-              
-              if (imgRatio > areaRatio) {
-                drawH = bgH;
-                drawW = bgH * imgRatio;
-                offsetX = (bgW - drawW) / 2;
-                offsetY = 0;
-              } else {
-                drawW = bgW;
-                drawH = bgW / imgRatio;
-                offsetX = 0;
-                offsetY = (bgH - drawH) / 2;
-              }
-              
-              return (
-                <Group
-                  clipFunc={(ctx) => {
-                    const r = Math.min(compositorSettings.borderRadius, bgW / 2, bgH / 2);
-                    ctx.beginPath();
-                    ctx.moveTo(bgX + r, bgY);
-                    ctx.lineTo(bgX + bgW - r, bgY);
-                    ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + r);
-                    ctx.lineTo(bgX + bgW, bgY + bgH - r);
-                    ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - r, bgY + bgH);
-                    ctx.lineTo(bgX + r, bgY + bgH);
-                    ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - r);
-                    ctx.lineTo(bgX, bgY + r);
-                    ctx.quadraticCurveTo(bgX, bgY, bgX + r, bgY);
-                    ctx.closePath();
-                  }}
-                >
-                  <Image
-                    image={compositorBgImage}
-                    x={bgX + offsetX}
-                    y={bgY + offsetY}
-                    width={drawW}
-                    height={drawH}
-                    listening={false}
-                  />
-                </Group>
-              );
-            }
-            
-            // Fallback
-            return (
-              <Rect
-                x={bgX}
-                y={bgY}
-                width={bgW}
-                height={bgH}
-                fill="#1a1a2e"
-                cornerRadius={compositorSettings.borderRadius}
-                listening={false}
-              />
-            );
-          })()}
+          {/* Uses shared CompositorBackground component for single source of truth */}
+          {compositorSettings.enabled && compositorSettings.borderRadius > 0 && visibleBounds && (
+            <CompositorBackground
+              settings={compositorSettings}
+              bounds={{
+                x: visibleBounds.x,
+                y: visibleBounds.y,
+                width: visibleBounds.width,
+                height: visibleBounds.height,
+              }}
+              borderRadius={compositorSettings.borderRadius}
+            />
+          )}
 
           {/* Cropped canvas content - clips to crop bounds when applied */}
           {image && (() => {

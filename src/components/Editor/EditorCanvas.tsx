@@ -1891,17 +1891,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     zoom,
   ]);
 
-  // Generate shadow style - simplified single shadow for better perf
-  const compositionShadowStyle = useMemo((): React.CSSProperties => {
-    if (!compositorSettings.enabled || !compositorSettings.shadowEnabled) return {};
-    
-    const intensity = compositorSettings.shadowIntensity;
-    // Single optimized shadow instead of 3 layered shadows
-    return {
-      boxShadow: `0 ${8 * intensity}px ${32 * intensity}px rgba(0,0,0,${0.35 * intensity})`,
-    };
-  }, [compositorSettings.enabled, compositorSettings.shadowEnabled, compositorSettings.shadowIntensity]);
-
   return (
     <div
       ref={containerRef}
@@ -1917,8 +1906,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     >
       
       {/* Composition Preview Background - renders BEHIND the Konva stage */}
-      {/* Background is rectangular; only the screenshot has rounded corners (via Konva clip) */}
-      {compositorSettings.enabled && compositionBox && (
+      {compositorSettings.enabled && compositionBox && visibleBounds && (
         <div
           className="absolute pointer-events-none"
           style={{
@@ -1930,9 +1918,36 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             willChange: 'transform, width, height',
             contain: 'layout style paint',
             ...compositionBackgroundStyle,
-            ...compositionShadowStyle,
           }}
-        />
+        >
+          {/* Shadow element for content - positioned inside compositor padding */}
+          {compositorSettings.shadowEnabled && (() => {
+            const intensity = compositorSettings.shadowIntensity;
+            // Calculate content position relative to compositor box
+            const contentLeft = position.x + visibleBounds.x * zoom - compositionBox.left;
+            const contentTop = position.y + visibleBounds.y * zoom - compositionBox.top;
+            const contentWidth = visibleBounds.width * zoom;
+            const contentHeight = visibleBounds.height * zoom;
+            
+            return (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: contentLeft,
+                  top: contentTop,
+                  width: contentWidth,
+                  height: contentHeight,
+                  borderRadius: compositorSettings.borderRadius * zoom,
+                  boxShadow: [
+                    `0 ${2 * intensity}px ${10 * intensity}px rgba(0,0,0,${0.1 * intensity})`,
+                    `0 ${8 * intensity}px ${30 * intensity}px rgba(0,0,0,${0.15 * intensity})`,
+                    `0 ${16 * intensity}px ${60 * intensity}px rgba(0,0,0,${0.2 * intensity})`,
+                  ].join(', '),
+                }}
+              />
+            );
+          })()}
+        </div>
       )}
       
       {/* Canvas Stage */}
@@ -1986,14 +2001,44 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             
             return (
               <>
-                {/* Full background with padding - for export */}
+                {/* Full background with padding - NO shadow here (shadow goes on content) */}
                 <CompositorBackground
                   name="compositor-background"
                   settings={compositorSettings}
                   bounds={compBounds}
                   borderRadius={0}
-                  includeShadow={compositorSettings.shadowEnabled}
+                  includeShadow={false}
                 />
+                {/* Shadow around content (inside padding) - matches export behavior */}
+                {/* Uses multiple shadow layers like export for realistic effect */}
+                {/* The black fill casts the shadow; content drawn on top covers the fill */}
+                {compositorSettings.shadowEnabled && (() => {
+                  const intensity = compositorSettings.shadowIntensity;
+                  const shadowLayers = [
+                    { blur: 10, opacity: 0.1 * intensity, offsetY: 2 },
+                    { blur: 30, opacity: 0.15 * intensity, offsetY: 8 },
+                    { blur: 60, opacity: 0.2 * intensity, offsetY: 16 },
+                  ];
+                  return shadowLayers.map((layer, i) => (
+                    <Rect
+                      key={`shadow-${i}`}
+                      name={`content-shadow-${i}`}
+                      x={Math.round(visibleBounds.x)}
+                      y={Math.round(visibleBounds.y)}
+                      width={Math.round(visibleBounds.width)}
+                      height={Math.round(visibleBounds.height)}
+                      fill="black"
+                      cornerRadius={compositorSettings.borderRadius}
+                      shadowColor="black"
+                      shadowBlur={layer.blur}
+                      shadowOffsetX={0}
+                      shadowOffsetY={layer.offsetY}
+                      shadowOpacity={layer.opacity}
+                      shadowEnabled={true}
+                      listening={false}
+                    />
+                  ));
+                })()}
                 {/* Content area background with rounded corners - fills corner gaps */}
                 {/* Use rounded bounds with 1px buffer to match clip and prevent sub-pixel gaps */}
                 {compositorSettings.borderRadius > 0 && (

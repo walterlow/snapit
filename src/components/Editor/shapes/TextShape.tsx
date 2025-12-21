@@ -13,7 +13,6 @@ interface TextShapeProps {
   onDragStart: () => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformStart: () => void;
-  onTransform: (e: Konva.KonvaEventObject<Event>) => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
   onStartEdit: () => void;
 }
@@ -27,7 +26,6 @@ export const TextShape: React.FC<TextShapeProps> = React.memo(({
   onDragStart,
   onDragEnd,
   onTransformStart,
-  onTransform,
   onTransformEnd,
   onStartEdit,
 }) => {
@@ -49,7 +47,6 @@ export const TextShape: React.FC<TextShapeProps> = React.memo(({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onTransformStart={onTransformStart}
-      onTransform={onTransform}
       onTransformEnd={onTransformEnd}
       onMouseEnter={(e) => {
         if (isDraggable) {

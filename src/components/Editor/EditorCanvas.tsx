@@ -601,9 +601,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   onDragEnd={transform.handleShapeDragEnd}
                   onArrowDragEnd={transform.handleArrowDragEnd}
                   onTransformStart={transform.handleTransformStart}
-                  onTransform={transform.handleTransform}
                   onTransformEnd={transform.handleTransformEnd}
-                  onArrowEndpointDrag={transform.handleArrowEndpointDrag}
+                  onArrowEndpointDragEnd={transform.handleArrowEndpointDragEnd}
                   onTextStartEdit={textEditing.startEditing}
                 />
               </Group>

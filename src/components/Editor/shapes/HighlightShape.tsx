@@ -12,7 +12,6 @@ interface HighlightShapeProps {
   onDragStart: () => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformStart: () => void;
-  onTransform: (e: Konva.KonvaEventObject<Event>) => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
 }
 
@@ -24,7 +23,6 @@ export const HighlightShape: React.FC<HighlightShapeProps> = React.memo(({
   onDragStart,
   onDragEnd,
   onTransformStart,
-  onTransform,
   onTransformEnd,
 }) => {
   return (
@@ -42,7 +40,6 @@ export const HighlightShape: React.FC<HighlightShapeProps> = React.memo(({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onTransformStart={onTransformStart}
-      onTransform={onTransform}
       onTransformEnd={onTransformEnd}
       onMouseEnter={(e) => {
         if (isDraggable) {

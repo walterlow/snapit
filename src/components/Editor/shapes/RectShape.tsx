@@ -12,7 +12,6 @@ interface RectShapeProps {
   onDragStart: () => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformStart: () => void;
-  onTransform: (e: Konva.KonvaEventObject<Event>) => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
 }
 
@@ -24,7 +23,6 @@ export const RectShape: React.FC<RectShapeProps> = React.memo(({
   onDragStart,
   onDragEnd,
   onTransformStart,
-  onTransform,
   onTransformEnd,
 }) => {
   return (
@@ -44,7 +42,6 @@ export const RectShape: React.FC<RectShapeProps> = React.memo(({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onTransformStart={onTransformStart}
-      onTransform={onTransform}
       onTransformEnd={onTransformEnd}
       onMouseEnter={(e) => {
         if (isDraggable) {

@@ -15,10 +15,9 @@ interface UseShapeTransformReturn {
   handleShapeDragEnd: (id: string, e: Konva.KonvaEventObject<DragEvent>) => void;
   handleArrowDragEnd: (id: string, newPoints: number[]) => void;
   handleTransformStart: () => void;
-  handleTransform: (id: string, e: Konva.KonvaEventObject<Event>) => void;
   handleTransformEnd: (id: string, e: Konva.KonvaEventObject<Event>) => void;
   handleShapeClick: (shapeId: string, e: Konva.KonvaEventObject<MouseEvent>) => void;
-  handleArrowEndpointDrag: (shapeId: string, endpointIndex: 0 | 1, e: Konva.KonvaEventObject<DragEvent>) => void;
+  handleArrowEndpointDragEnd: (shapeId: string, newPoints: number[]) => void;
 }
 
 /**
@@ -126,61 +125,7 @@ export const useShapeTransform = ({
     takeSnapshot();
   }, []);
 
-  // Handle transform (resize/rotate) - real-time updates
-  const handleTransform = useCallback(
-    (id: string, e: Konva.KonvaEventObject<Event>) => {
-      const node = e.target;
-      const shape = shapes.find(s => s.id === id);
-      if (!shape) return;
-
-      // For pen, blur, and step, let Konva handle visual scaling
-      if (shape.type === 'pen' || shape.type === 'blur' || shape.type === 'step') {
-        return;
-      }
-
-      const scaleX = node.scaleX();
-      const scaleY = node.scaleY();
-
-      // Reset scale and apply to dimensions
-      node.scaleX(1);
-      node.scaleY(1);
-
-      const updatedShapes = shapes.map((s) => {
-        if (s.id !== id) return s;
-
-        const updates: Partial<CanvasShape> = {
-          x: node.x(),
-          y: node.y(),
-          rotation: node.rotation(),
-        };
-
-        if (s.width !== undefined) {
-          updates.width = Math.abs(s.width * scaleX);
-        }
-        if (s.height !== undefined) {
-          updates.height = Math.abs(s.height * scaleY);
-        }
-        if (s.radiusX !== undefined) {
-          updates.radiusX = Math.abs(s.radiusX * scaleX);
-        }
-        if (s.radiusY !== undefined) {
-          updates.radiusY = Math.abs(s.radiusY * scaleY);
-        }
-        if (s.radius !== undefined && s.radiusX === undefined) {
-          updates.radiusX = Math.abs(s.radius * scaleX);
-          updates.radiusY = Math.abs(s.radius * scaleY);
-          updates.radius = undefined;
-        }
-
-        return { ...s, ...updates };
-      });
-
-      onShapesChange(updatedShapes);
-    },
-    [shapes, onShapesChange]
-  );
-
-  // Handle transform end - bake final state
+  // Handle transform end - bake final state and update React state
   const handleTransformEnd = useCallback(
     (id: string, e: Konva.KonvaEventObject<Event>) => {
       const node = e.target;
@@ -245,9 +190,46 @@ export const useShapeTransform = ({
           };
         });
         onShapesChange(updatedShapes);
-      } else {
+      }
+      // For rect, circle, highlight, text - bake scale into dimensions
+      else if (shape) {
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+
         node.scaleX(1);
         node.scaleY(1);
+
+        const updatedShapes = shapes.map((s) => {
+          if (s.id !== id) return s;
+
+          const updates: Partial<CanvasShape> = {
+            x: node.x(),
+            y: node.y(),
+            rotation: node.rotation(),
+          };
+
+          if (s.width !== undefined) {
+            updates.width = Math.abs(s.width * scaleX);
+          }
+          if (s.height !== undefined) {
+            updates.height = Math.abs(s.height * scaleY);
+          }
+          if (s.radiusX !== undefined) {
+            updates.radiusX = Math.abs(s.radiusX * scaleX);
+          }
+          if (s.radiusY !== undefined) {
+            updates.radiusY = Math.abs(s.radiusY * scaleY);
+          }
+          if (s.radius !== undefined && s.radiusX === undefined) {
+            updates.radiusX = Math.abs(s.radius * scaleX);
+            updates.radiusY = Math.abs(s.radius * scaleY);
+            updates.radius = undefined;
+          }
+
+          return { ...s, ...updates };
+        });
+
+        onShapesChange(updatedShapes);
       }
 
       commitSnapshot();
@@ -287,21 +269,9 @@ export const useShapeTransform = ({
     [shapes, onShapesChange]
   );
 
-  // Handle arrow endpoint drag
-  const handleArrowEndpointDrag = useCallback(
-    (shapeId: string, endpointIndex: 0 | 1, e: Konva.KonvaEventObject<DragEvent>) => {
-      const shape = shapes.find(s => s.id === shapeId);
-      if (!shape || !shape.points || shape.points.length < 4) return;
-
-      const newPoints = [...shape.points];
-      if (endpointIndex === 0) {
-        newPoints[0] = e.target.x();
-        newPoints[1] = e.target.y();
-      } else {
-        newPoints[2] = e.target.x();
-        newPoints[3] = e.target.y();
-      }
-
+  // Handle arrow endpoint drag end - update state only at the end
+  const handleArrowEndpointDragEnd = useCallback(
+    (shapeId: string, newPoints: number[]) => {
       const updatedShapes = shapes.map(s =>
         s.id === shapeId ? { ...s, points: newPoints } : s
       );
@@ -315,9 +285,8 @@ export const useShapeTransform = ({
     handleShapeDragEnd,
     handleArrowDragEnd,
     handleTransformStart,
-    handleTransform,
     handleTransformEnd,
     handleShapeClick,
-    handleArrowEndpointDrag,
+    handleArrowEndpointDragEnd,
   };
 };

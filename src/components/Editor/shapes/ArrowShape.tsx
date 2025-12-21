@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useRef, useCallback } from 'react';
 import { Arrow, Circle } from 'react-konva';
 import Konva from 'konva';
 import type { CanvasShape } from '../../../types';
@@ -13,7 +13,7 @@ interface ArrowShapeProps {
   onClick: (e: Konva.KonvaEventObject<MouseEvent>) => void;
   onDragStart: () => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>, newPoints: number[]) => void;
-  onEndpointDrag: (endpointIndex: 0 | 1, e: Konva.KonvaEventObject<DragEvent>) => void;
+  onEndpointDragEnd: (endpointIndex: 0 | 1, newPoints: number[]) => void;
 }
 
 export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
@@ -25,30 +25,35 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
   onSelect,
   onDragStart,
   onDragEnd,
-  onEndpointDrag,
+  onEndpointDragEnd,
 }) => {
   const points = shape.points || [0, 0, 0, 0];
   const handleSize = 6 / zoom;
 
-  // Track drag offset so handles follow the arrow in real-time
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  // Refs for endpoint handles to move them during arrow drag
+  const startHandleRef = useRef<Konva.Circle>(null);
+  const endHandleRef = useRef<Konva.Circle>(null);
 
   const handleArrowDragStart = useCallback(() => {
-    setDragOffset({ x: 0, y: 0 });
     onDragStart();
   }, [onDragStart]);
 
   const handleArrowDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
-    // Update offset so handles follow in real-time
-    setDragOffset({ x: e.target.x(), y: e.target.y() });
-  }, []);
-
-  const handleArrowDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
-    // Calculate delta and update all points
+    // Move endpoint handles in sync with arrow (Konva-level, no React state)
     const dx = e.target.x();
     const dy = e.target.y();
-    e.target.position({ x: 0, y: 0 }); // Reset position
-    setDragOffset({ x: 0, y: 0 }); // Reset offset
+    if (startHandleRef.current) {
+      startHandleRef.current.position({ x: points[0] + dx, y: points[1] + dy });
+    }
+    if (endHandleRef.current) {
+      endHandleRef.current.position({ x: points[2] + dx, y: points[3] + dy });
+    }
+  }, [points]);
+
+  const handleArrowDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    const dx = e.target.x();
+    const dy = e.target.y();
+    e.target.position({ x: 0, y: 0 });
 
     const newPoints = [
       points[0] + dx,
@@ -59,7 +64,20 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
     onDragEnd(e, newPoints);
   }, [points, onDragEnd]);
 
-  // Larger hit area for easier body dragging
+  // Handle endpoint drag end - update React state only at the end
+  const handleEndpointDragEnd = useCallback((endpointIndex: 0 | 1, e: Konva.KonvaEventObject<DragEvent>) => {
+    const newPoints = [...points];
+    if (endpointIndex === 0) {
+      newPoints[0] = e.target.x();
+      newPoints[1] = e.target.y();
+    } else {
+      newPoints[2] = e.target.x();
+      newPoints[3] = e.target.y();
+    }
+    onEndpointDragEnd(endpointIndex, newPoints);
+    commitSnapshot();
+  }, [points, onEndpointDragEnd]);
+
   const hitStrokeWidth = Math.max((shape.strokeWidth || 2) * 3, 12);
 
   return (
@@ -90,24 +108,24 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
           if (container) container.style.cursor = 'default';
         }}
       />
-      {/* Custom endpoint handles for arrows - for changing direction */}
+      {/* Custom endpoint handles for arrows */}
       {isSelected && isDraggable && (
         <>
           {/* Start point handle (tail) */}
           <Circle
-            x={points[0] + dragOffset.x}
-            y={points[1] + dragOffset.y}
+            ref={startHandleRef}
+            x={points[0]}
+            y={points[1]}
             radius={handleSize}
             fill="#3b82f6"
             stroke="#fff"
             strokeWidth={1.5 / zoom}
             draggable
             onDragStart={() => takeSnapshot()}
-            onDragMove={(e) => onEndpointDrag(0, e)}
-            onDragEnd={() => commitSnapshot()}
+            onDragEnd={(e) => handleEndpointDragEnd(0, e)}
             onMouseEnter={(e) => {
               const container = e.target.getStage()?.container();
-              if (container) container.style.cursor = 'ew-resize';
+              if (container) container.style.cursor = 'crosshair';
             }}
             onMouseLeave={(e) => {
               const container = e.target.getStage()?.container();
@@ -116,19 +134,19 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
           />
           {/* End point handle (arrow head) */}
           <Circle
-            x={points[2] + dragOffset.x}
-            y={points[3] + dragOffset.y}
+            ref={endHandleRef}
+            x={points[2]}
+            y={points[3]}
             radius={handleSize}
             fill="#f97316"
             stroke="#fff"
             strokeWidth={1.5 / zoom}
             draggable
             onDragStart={() => takeSnapshot()}
-            onDragMove={(e) => onEndpointDrag(1, e)}
-            onDragEnd={() => commitSnapshot()}
+            onDragEnd={(e) => handleEndpointDragEnd(1, e)}
             onMouseEnter={(e) => {
               const container = e.target.getStage()?.container();
-              if (container) container.style.cursor = 'ew-resize';
+              if (container) container.style.cursor = 'crosshair';
             }}
             onMouseLeave={(e) => {
               const container = e.target.getStage()?.container();

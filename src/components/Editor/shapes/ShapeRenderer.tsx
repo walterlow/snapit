@@ -24,9 +24,8 @@ interface ShapeRendererProps {
   onDragEnd: (shapeId: string, e: Konva.KonvaEventObject<DragEvent>) => void;
   onArrowDragEnd: (shapeId: string, newPoints: number[]) => void;
   onTransformStart: () => void;
-  onTransform: (shapeId: string, e: Konva.KonvaEventObject<Event>) => void;
   onTransformEnd: (shapeId: string, e: Konva.KonvaEventObject<Event>) => void;
-  onArrowEndpointDrag: (shapeId: string, endpointIndex: 0 | 1, e: Konva.KonvaEventObject<DragEvent>) => void;
+  onArrowEndpointDragEnd: (shapeId: string, newPoints: number[]) => void;
   onTextStartEdit: (shapeId: string, currentText: string) => void;
 }
 
@@ -47,9 +46,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({
   onDragEnd,
   onArrowDragEnd,
   onTransformStart,
-  onTransform,
   onTransformEnd,
-  onArrowEndpointDrag,
+  onArrowEndpointDragEnd,
   onTextStartEdit,
 }) => {
   const isDraggable = selectedTool === 'select';
@@ -70,7 +68,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({
           onDragStart: () => onDragStart(shape.id),
           onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => onDragEnd(shape.id, e),
           onTransformStart,
-          onTransform: (e: Konva.KonvaEventObject<Event>) => onTransform(shape.id, e),
           onTransformEnd: (e: Konva.KonvaEventObject<Event>) => onTransformEnd(shape.id, e),
         };
 
@@ -82,8 +79,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({
                 {...commonProps}
                 zoom={zoom}
                 onDragEnd={(_e, newPoints) => onArrowDragEnd(shape.id, newPoints)}
-                onEndpointDrag={(endpointIndex, e) =>
-                  onArrowEndpointDrag(shape.id, endpointIndex, e)
+                onEndpointDragEnd={(_, newPoints) =>
+                  onArrowEndpointDragEnd(shape.id, newPoints)
                 }
               />
             );

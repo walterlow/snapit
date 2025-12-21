@@ -96,6 +96,13 @@ fn get_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to get app data dir: {}", e))
 }
 
+#[command]
+pub fn get_library_folder(app: AppHandle) -> Result<String, String> {
+    let base_dir = get_app_data_dir(&app)?;
+    let captures_dir = base_dir.join("captures");
+    Ok(captures_dir.to_string_lossy().to_string())
+}
+
 fn ensure_directories(app: &AppHandle) -> Result<PathBuf, String> {
     let base_dir = get_app_data_dir(app)?;
 

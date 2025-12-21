@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   Sparkles,
   AlertTriangle,
+  FolderOpen,
 } from 'lucide-react';
 import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore';
 import type { CaptureListItem } from '../../types';
@@ -228,6 +229,16 @@ export const CaptureLibrary: React.FC = () => {
     }
   };
 
+  const handleOpenLibraryFolder = async () => {
+    try {
+      const libraryPath = await invoke<string>('get_library_folder');
+      await invoke('open_path_in_explorer', { path: libraryPath });
+    } catch (error) {
+      console.error('Failed to open library folder:', error);
+      toast.error('Failed to open library folder');
+    }
+  };
+
   // Handlers for delete confirmation
   const handleRequestDeleteSingle = (id: string) => {
     setPendingDeleteId(id);
@@ -345,6 +356,7 @@ export const CaptureLibrary: React.FC = () => {
                   <List className="w-3.5 h-3.5" />
                 </ToggleGroupItem>
               </ToggleGroup>
+
             </div>
 
             <div className="flex-1" />
@@ -387,13 +399,23 @@ export const CaptureLibrary: React.FC = () => {
                 </Tooltip>
               </div>
             ) : (
-              <Button
-                onClick={handleNewCapture}
-                className="btn-amber h-8 px-3 gap-1.5 rounded-lg text-sm font-medium"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                New Capture
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleOpenLibraryFolder}
+                  variant="outline"
+                  className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-[var(--obsidian-elevated)] border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Open Folder
+                </Button>
+                <Button
+                  onClick={handleNewCapture}
+                  className="btn-amber h-8 px-3 gap-1.5 rounded-lg text-sm font-medium"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  New Capture
+                </Button>
+              </div>
             )}
           </div>
         </header>
@@ -401,7 +423,7 @@ export const CaptureLibrary: React.FC = () => {
         {/* Content - Scrollable area with marquee selection */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto p-4 relative select-none"
+          className="flex-1 overflow-auto p-8 relative select-none"
           onMouseDown={handleMarqueeMouseDown}
           onMouseMove={handleMarqueeMouseMove}
           onMouseUp={handleMarqueeMouseUp}

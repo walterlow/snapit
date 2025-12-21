@@ -72,6 +72,7 @@ pub fn run() {
             commands::storage::delete_projects,
             commands::storage::export_project,
             commands::storage::get_storage_stats,
+            commands::storage::get_library_folder,
             // Settings commands
             commands::settings::set_autostart,
             commands::settings::is_autostart_enabled,

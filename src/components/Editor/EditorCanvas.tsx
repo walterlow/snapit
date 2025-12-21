@@ -10,6 +10,7 @@ import {
   Text,
   Group,
   Transformer,
+  Line,
 } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
@@ -248,6 +249,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const [cropPreview, setCropPreview] = useState<{
     x: number; y: number; width: number; height: number;
   } | null>(null);
+
+  // Inline text editing state
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [editingTextValue, setEditingTextValue] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Shift key state for proportional resize
   const [isShiftHeld, setIsShiftHeld] = useState(false);
@@ -772,6 +778,15 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           blurAmount: blurAmount,
           pixelSize: blurAmount,
         };
+      case 'pen':
+        // Pen uses points array for freehand drawing
+        return {
+          id,
+          type: 'pen',
+          points: [startPos.x, startPos.y, endPos.x, endPos.y],
+          stroke: strokeColor,
+          strokeWidth,
+        };
       default:
         return null;
     }
@@ -850,6 +865,15 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             y: centerY,
             radiusX,
             radiusY,
+          };
+          break;
+        }
+        case 'pen': {
+          // Accumulate points for freehand drawing
+          const existingPoints = lastShape.points || [];
+          updatedShapes[shapeIndex] = {
+            ...lastShape,
+            points: [...existingPoints, pos.x, pos.y],
           };
           break;
         }
@@ -1027,6 +1051,46 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     [shapes, onShapesChange]
   );
 
+  // Handle saving inline text edit
+  const handleSaveTextEdit = useCallback(() => {
+    if (!editingTextId) return;
+    
+    const updatedShapes = shapes.map(s =>
+      s.id === editingTextId ? { ...s, text: editingTextValue } : s
+    );
+    onShapesChange(updatedShapes);
+    setEditingTextId(null);
+    setEditingTextValue('');
+  }, [editingTextId, editingTextValue, shapes, onShapesChange]);
+
+  // Handle canceling inline text edit
+  const handleCancelTextEdit = useCallback(() => {
+    setEditingTextId(null);
+    setEditingTextValue('');
+  }, []);
+
+  // Get the position for the textarea overlay
+  const getTextareaPosition = useCallback(() => {
+    if (!editingTextId || !stageRef.current || !containerRef.current) return null;
+    
+    const shape = shapes.find(s => s.id === editingTextId);
+    if (!shape) return null;
+    
+    // Get stage transform
+    const containerRect = containerRef.current.getBoundingClientRect();
+    
+    // Calculate screen position
+    const screenX = containerRect.left + position.x + (shape.x || 0) * zoom;
+    const screenY = containerRect.top + position.y + (shape.y || 0) * zoom;
+    
+    return {
+      left: screenX,
+      top: screenY,
+      fontSize: (shape.fontSize || 16) * zoom,
+      color: shape.fill || '#000',
+    };
+  }, [editingTextId, shapes, position, zoom, stageRef]);
+
   const renderShape = useCallback(
     (shape: CanvasShape) => {
       const commonProps = {
@@ -1197,6 +1261,15 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               fontSize={shape.fontSize}
               fill={shape.fill}
               draggable
+              visible={editingTextId !== shape.id}
+              onDblClick={() => {
+                setEditingTextId(shape.id);
+                setEditingTextValue(shape.text || '');
+              }}
+              onDblTap={() => {
+                setEditingTextId(shape.id);
+                setEditingTextValue(shape.text || '');
+              }}
             />
           );
         case 'step':
@@ -1215,11 +1288,24 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               />
             </Group>
           );
+        case 'pen':
+          return (
+            <Line
+              {...commonProps}
+              points={shape.points || []}
+              stroke={shape.stroke}
+              strokeWidth={shape.strokeWidth}
+              tension={0.5}
+              lineCap="round"
+              lineJoin="round"
+              globalCompositeOperation="source-over"
+            />
+          );
         default:
           return null;
       }
     },
-    [selectedTool, handleShapeDragEnd, handleTransform, handleTransformEnd, handleShapeClick, handleArrowEndpointDrag, image, selectedIds, shapes, onShapesChange, zoom]
+    [selectedTool, handleShapeDragEnd, handleTransform, handleTransformEnd, handleShapeClick, handleArrowEndpointDrag, image, selectedIds, shapes, onShapesChange, zoom, editingTextId]
   );
 
   // Memoize rendered shapes to prevent recalculation during resize
@@ -1796,6 +1882,51 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           </button>
         </div>
       )}
+
+      {/* Inline Text Editor Overlay */}
+      {editingTextId && (() => {
+        const pos = getTextareaPosition();
+        if (!pos) return null;
+        
+        return (
+          <textarea
+            ref={textareaRef}
+            autoFocus
+            value={editingTextValue}
+            onChange={(e) => setEditingTextValue(e.target.value)}
+            onBlur={handleSaveTextEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSaveTextEdit();
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                handleCancelTextEdit();
+              }
+            }}
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top,
+              fontSize: pos.fontSize,
+              color: pos.color,
+              fontFamily: 'sans-serif',
+              border: 'none',
+              background: 'transparent',
+              outline: 'none',
+              resize: 'none',
+              overflow: 'hidden',
+              padding: 0,
+              margin: 0,
+              minWidth: '100px',
+              minHeight: '1.5em',
+              zIndex: 1000,
+              lineHeight: 1.2,
+            }}
+          />
+        );
+      })()}
 
       {/* Zoom Controls */}
       <div className="absolute bottom-4 right-4 flex items-center gap-1 glass rounded-lg p-1.5 animate-fade-in">

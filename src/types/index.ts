@@ -72,7 +72,7 @@ export interface StorageStats {
   storage_path: string;
 }
 
-export type Tool = 'select' | 'arrow' | 'rect' | 'circle' | 'text' | 'blur' | 'highlight' | 'steps' | 'crop';
+export type Tool = 'select' | 'arrow' | 'rect' | 'circle' | 'text' | 'blur' | 'highlight' | 'steps' | 'crop' | 'pen';
 
 export interface CanvasShape {
   id: string;

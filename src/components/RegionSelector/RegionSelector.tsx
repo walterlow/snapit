@@ -144,8 +144,11 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         await invoke('open_editor', { imageData: result.image_data });
       } catch (error) {
         console.error('Window capture failed:', error);
-        // Fallback to fullscreen
+        // Fallback to fullscreen - hide overlay first
         try {
+          await invoke('hide_overlay');
+          await new Promise(resolve => setTimeout(resolve, 150));
+
           const result = await invoke<{ image_data: string; width: number; height: number }>(
             'capture_fullscreen'
           );
@@ -161,6 +164,12 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     // If we were in window mode but no window detected, capture fullscreen
     if (mode === 'window' && !isDragging && !hoveredWindow) {
       try {
+        // Hide overlay first so it doesn't appear in the screenshot
+        await invoke('hide_overlay');
+
+        // Wait for overlay to be fully hidden
+        await new Promise(resolve => setTimeout(resolve, 150));
+
         const result = await invoke<{ image_data: string; width: number; height: number }>(
           'capture_fullscreen'
         );
@@ -183,18 +192,25 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     }
 
     try {
-      // Capture the region
+      // Store selection data before hiding overlay
+      const selectionData = {
+        x: monitorX + displayRect.x,
+        y: monitorY + displayRect.y,
+        width: Math.round(displayRect.width),
+        height: Math.round(displayRect.height),
+        monitor_id: monitorIndex,
+      };
+
+      // Hide overlay first so it doesn't appear in the screenshot
+      await invoke('hide_overlay');
+
+      // Wait for overlay to be fully hidden
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      // Now capture the region without the overlay visible
       const result = await invoke<{ image_data: string; width: number; height: number }>(
         'capture_region',
-        {
-          selection: {
-            x: monitorX + displayRect.x,
-            y: monitorY + displayRect.y,
-            width: Math.round(displayRect.width),
-            height: Math.round(displayRect.height),
-            monitor_id: monitorIndex,
-          },
-        }
+        { selection: selectionData }
       );
 
       await invoke('open_editor', { imageData: result.image_data });
@@ -307,7 +323,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
             />
           </div>
 
-          {/* Window border highlight */}
+          {/* Window border highlight (outline doesn't affect size) */}
           <div
             className="absolute pointer-events-none"
             style={{
@@ -315,9 +331,10 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
               top: windowHighlight.y,
               width: windowHighlight.width,
               height: windowHighlight.height,
-              border: '3px solid #3B82F6',
-              boxShadow: '0 0 0 1px rgba(59, 130, 246, 0.5), 0 0 20px rgba(59, 130, 246, 0.3)',
-              borderRadius: '4px',
+              outline: '3px solid #3B82F6',
+              outlineOffset: '-2px',
+              boxShadow: 'inset 0 0 0 1px rgba(59, 130, 246, 0.5), 0 0 20px rgba(59, 130, 246, 0.3)',
+              borderRadius: '8px',
             }}
           />
 
@@ -407,7 +424,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
             />
           </div>
 
-          {/* Selection border - premium blue accent */}
+          {/* Selection border - premium blue accent (outline doesn't affect size) */}
           <div
             className="absolute pointer-events-none"
             style={{
@@ -415,8 +432,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
               top: displayRect.y,
               width: displayRect.width,
               height: displayRect.height,
-              border: '2px solid #3B82F6',
-              boxShadow: '0 0 0 1px rgba(59, 130, 246, 0.3)',
+              outline: '2px solid #3B82F6',
+              outlineOffset: '-1px',
+              boxShadow: 'inset 0 0 0 1px rgba(59, 130, 246, 0.3)',
             }}
           >
             {/* Corner handles - white circles with blue border */}

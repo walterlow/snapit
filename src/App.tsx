@@ -3,11 +3,13 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import Konva from 'konva';
+import { toast, Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { EditorCanvas } from './components/Editor/EditorCanvas';
 import { Toolbar } from './components/Editor/Toolbar';
 import { PropertiesPanel } from './components/Editor/PropertiesPanel';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
 import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore } from './stores/editorStore';
 import { compositeImage } from './utils/compositor';
@@ -35,6 +37,13 @@ function App() {
   const [strokeColor, setStrokeColor] = useState('#ef4444');
   const [strokeWidth, setStrokeWidth] = useState(3);
   const stageRef = useRef<Konva.Stage>(null);
+  
+  // Loading states for async operations
+  const [isCopying, setIsCopying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Keyboard shortcuts help modal
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   // Undo/Redo handlers
   const handleUndo = useCallback(() => {
@@ -85,12 +94,20 @@ function App() {
         'h': 'highlight',
         'b': 'blur',
         's': 'steps',
+        'p': 'pen',
       };
 
       const tool = toolShortcuts[e.key.toLowerCase()];
       if (tool) {
         e.preventDefault();
         setSelectedTool(tool);
+        return;
+      }
+      
+      // Show keyboard shortcuts help
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        setShowShortcuts(true);
       }
     };
 
@@ -113,8 +130,10 @@ function App() {
         await saveNewCapture(imageData, 'region', {});
         clearEditor();
         useEditorStore.temporal.getState().clear(); // Clear undo history for new capture
+        toast.success('Screenshot captured');
       } catch (error) {
         console.error('Failed to save capture:', error);
+        toast.error('Failed to save capture');
         // Still show the editor even if save fails
         setCurrentImageData(imageData);
         setView('editor');
@@ -173,6 +192,7 @@ function App() {
   const handleCopy = async () => {
     if (!stageRef.current || !currentImageData) return;
 
+    setIsCopying(true);
     try {
       // Get layer reference
       const layer = stageRef.current.findOne('Layer') as Konva.Layer;
@@ -268,8 +288,12 @@ function App() {
       const base64 = dataUrl.split(',')[1];
 
       await invoke('copy_to_clipboard', { imageData: base64 });
+      toast.success('Copied to clipboard');
     } catch (error) {
       console.error('Failed to copy:', error);
+      toast.error('Failed to copy to clipboard');
+    } finally {
+      setIsCopying(false);
     }
   };
 
@@ -277,6 +301,7 @@ function App() {
   const handleSave = async () => {
     if (!stageRef.current || !currentImageData) return;
 
+    setIsSaving(true);
     try {
       // First save annotations to project (including crop bounds)
       if (currentProject) {
@@ -392,9 +417,13 @@ function App() {
         const base64 = dataUrl.split(',')[1];
 
         await invoke('save_image', { imageData: base64, filePath: filePath, format: 'png' });
+        toast.success('Image saved successfully');
       }
     } catch (error) {
       console.error('Failed to save:', error);
+      toast.error('Failed to save image');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -431,6 +460,24 @@ function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--obsidian-base)] overflow-hidden">
+      {/* Toast Notifications */}
+      <Toaster 
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: 'var(--obsidian-elevated)',
+            border: '1px solid var(--border-default)',
+            color: 'var(--text-primary)',
+          },
+        }}
+      />
+      
+      {/* Keyboard Shortcuts Help Modal */}
+      <KeyboardShortcutsModal 
+        open={showShortcuts} 
+        onClose={() => setShowShortcuts(false)} 
+      />
+      
       {/* Custom Titlebar */}
       <Titlebar />
 
@@ -475,6 +522,8 @@ function App() {
               onBack={handleBack}
               onUndo={handleUndo}
               onRedo={handleRedo}
+              isCopying={isCopying}
+              isSaving={isSaving}
             />
           </>
         )}

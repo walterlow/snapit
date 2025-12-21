@@ -2,7 +2,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @plugin "tailwindcss-animate";
-@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -100,8 +99,6 @@
 
 *, *::before, *::after {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 html {

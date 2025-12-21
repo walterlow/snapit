@@ -18,6 +18,8 @@ import {
   Sparkles,
   Droplets,
   Crop,
+  Loader2,
+  Pencil,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { Tool } from '../../types';
@@ -49,6 +51,8 @@ interface ToolbarProps {
   onBack: () => void;
   onUndo: () => void;
   onRedo: () => void;
+  isCopying?: boolean;
+  isSaving?: boolean;
 }
 
 const toolDefs: { id: Tool; Icon: typeof MousePointer2; label: string; shortcut: string }[] = [
@@ -61,6 +65,7 @@ const toolDefs: { id: Tool; Icon: typeof MousePointer2; label: string; shortcut:
   { id: 'highlight', Icon: Highlighter, label: 'Highlight', shortcut: 'H' },
   { id: 'blur', Icon: Grid3X3, label: 'Blur', shortcut: 'B' },
   { id: 'steps', Icon: Hash, label: 'Steps', shortcut: 'S' },
+  { id: 'pen', Icon: Pencil, label: 'Pen', shortcut: 'P' },
 ];
 
 const colors = [
@@ -95,6 +100,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onBack,
   onUndo,
   onRedo,
+  isCopying = false,
+  isSaving = false,
 }) => {
   const [copied, setCopied] = useState(false);
   const [isCompact, setIsCompact] = useState(false);
@@ -425,13 +432,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 variant="ghost"
                 size="icon"
                 onClick={handleCopy}
+                disabled={isCopying}
                 className={`${buttonSize} rounded-lg transition-all ${
                   copied
                     ? 'bg-emerald-500/15 text-emerald-400'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]'
-                }`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                {copied ? (
+                {isCopying ? (
+                  <Loader2 className={`${iconSize} animate-spin`} />
+                ) : copied ? (
                   <Check className={`${iconSize} animate-scale-in`} />
                 ) : (
                   <Copy className={iconSize} />
@@ -439,7 +449,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top" >
-              <p className="text-xs">{copied ? 'Copied!' : 'Copy to Clipboard'}</p>
+              <p className="text-xs">{isCopying ? 'Copying...' : copied ? 'Copied!' : 'Copy to Clipboard'}</p>
             </TooltipContent>
           </Tooltip>
 
@@ -450,13 +460,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 variant="ghost"
                 size="icon"
                 onClick={onSave}
-                className={`${buttonSize} rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]`}
+                disabled={isSaving}
+                className={`${buttonSize} rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)] disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                <Download className={iconSize} />
+                {isSaving ? (
+                  <Loader2 className={`${iconSize} animate-spin`} />
+                ) : (
+                  <Download className={iconSize} />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top" >
-              <p className="text-xs">Save to File</p>
+              <p className="text-xs">{isSaving ? 'Saving...' : 'Save to File'}</p>
             </TooltipContent>
           </Tooltip>
         </div>

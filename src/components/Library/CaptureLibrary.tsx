@@ -1,6 +1,7 @@
 import { useEffect, useState, memo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 import {
   Search,
   Star,
@@ -13,6 +14,7 @@ import {
   X,
   Image as ImageIcon,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
 import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore';
 import type { CaptureListItem } from '../../types';
@@ -29,6 +31,16 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 type ViewMode = 'grid' | 'list';
 
@@ -49,6 +61,11 @@ export const CaptureLibrary: React.FC = () => {
   const captures = useFilteredCaptures();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Delete confirmation state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
 
   useEffect(() => {
     loadCaptures();
@@ -73,13 +90,52 @@ export const CaptureLibrary: React.FC = () => {
       await invoke('show_overlay');
     } catch (error) {
       console.error('Failed to start capture:', error);
+      toast.error('Failed to start capture');
     }
   };
 
-  const handleDeleteSelected = async () => {
+  // Handlers for delete confirmation
+  const handleRequestDeleteSingle = (id: string) => {
+    setPendingDeleteId(id);
+    setPendingBulkDelete(false);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleRequestDeleteSelected = () => {
     if (selectedIds.size === 0) return;
-    await deleteCaptures(Array.from(selectedIds));
-    setSelectedIds(new Set());
+    setPendingDeleteId(null);
+    setPendingBulkDelete(true);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      if (pendingBulkDelete) {
+        await deleteCaptures(Array.from(selectedIds));
+        setSelectedIds(new Set());
+        toast.success(`Deleted ${selectedIds.size} capture${selectedIds.size > 1 ? 's' : ''}`);
+      } else if (pendingDeleteId) {
+        await deleteCapture(pendingDeleteId);
+        toast.success('Capture deleted');
+      }
+    } catch (error) {
+      console.error('Failed to delete:', error);
+      toast.error('Failed to delete capture');
+    }
+    setDeleteDialogOpen(false);
+    setPendingDeleteId(null);
+    setPendingBulkDelete(false);
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteDialogOpen(false);
+    setPendingDeleteId(null);
+    setPendingBulkDelete(false);
+  };
+
+  const getDeleteCount = () => {
+    if (pendingBulkDelete) return selectedIds.size;
+    return pendingDeleteId ? 1 : 0;
   };
 
   const formatDate = (dateStr: string) => {
@@ -170,7 +226,7 @@ export const CaptureLibrary: React.FC = () => {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={handleDeleteSelected}
+                      onClick={handleRequestDeleteSelected}
                       className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -234,7 +290,7 @@ export const CaptureLibrary: React.FC = () => {
                     selected={selectedIds.has(capture.id)}
                     onSelect={handleSelect}
                     onToggleFavorite={() => toggleFavorite(capture.id)}
-                    onDelete={() => deleteCapture(capture.id)}
+                    onDelete={() => handleRequestDeleteSingle(capture.id)}
                     formatDate={formatDate}
                   />
                 ))}
@@ -248,7 +304,7 @@ export const CaptureLibrary: React.FC = () => {
                     selected={selectedIds.has(capture.id)}
                     onSelect={handleSelect}
                     onToggleFavorite={() => toggleFavorite(capture.id)}
-                    onDelete={() => deleteCapture(capture.id)}
+                    onDelete={() => handleRequestDeleteSingle(capture.id)}
                     formatDate={formatDate}
                   />
                 ))}
@@ -256,6 +312,36 @@ export const CaptureLibrary: React.FC = () => {
             )}
           </main>
         </ScrollArea>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+                Delete {getDeleteCount() === 1 ? 'Capture' : 'Captures'}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete {getDeleteCount() === 1 ? 'this capture' : `${getDeleteCount()} captures`}? 
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel 
+                onClick={handleCancelDelete}
+                className="bg-[var(--obsidian-elevated)] border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={handleConfirmDelete}
+                className="bg-red-500 text-white hover:bg-red-600"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </TooltipProvider>
   );

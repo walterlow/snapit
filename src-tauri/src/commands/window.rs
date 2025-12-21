@@ -89,14 +89,23 @@ pub async fn open_editor(app: AppHandle, image_data: String) -> Result<(), Strin
     // Hide all overlays first
     hide_overlay(app.clone()).await?;
 
-    // Small delay
+    // Small delay to ensure overlays are closed
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Show main window with the captured image
     if let Some(main_window) = app.get_webview_window("main") {
+        // Unminimize if minimized
+        let _ = main_window.unminimize();
+
+        // Show the window
         main_window
             .show()
             .map_err(|e| format!("Failed to show main window: {}", e))?;
+
+        // Request user attention to flash taskbar (helps on Windows)
+        let _ = main_window.request_user_attention(Some(tauri::UserAttentionType::Informational));
+
+        // Set focus
         main_window
             .set_focus()
             .map_err(|e| format!("Failed to focus window: {}", e))?;

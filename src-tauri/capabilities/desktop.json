@@ -65,6 +65,12 @@
       "allow": [
         { "path": "$APPDATA/**" }
       ]
-    }
+    },
+    "fs:allow-desktop-write-recursive",
+    "fs:allow-document-write-recursive",
+    "fs:allow-download-write-recursive",
+    "fs:allow-picture-write-recursive",
+    "fs:allow-home-write-recursive",
+    "fs:allow-appdata-write-recursive"
   ]
 }

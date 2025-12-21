@@ -303,11 +303,13 @@ function App() {
       stage.scale({ x: 1, y: 1 });
       stage.position({ x: 0, y: 0 });
 
-    // Hide editor-only elements
+    // Hide editor-only elements (checkerboard, shadow, and transformer/gizmo)
     const checkerboard = stage.findOne('[name=checkerboard]');
     const editorShadow = stage.findOne('[name=editor-shadow]');
+    const transformer = stage.findOne('Transformer');
     if (checkerboard) checkerboard.hide();
     if (editorShadow) editorShadow.hide();
+    if (transformer) transformer.hide();
 
     // Export directly from Konva
     const outputCanvas = layer.toCanvas({
@@ -323,6 +325,7 @@ function App() {
     stage.position(savedPosition);
     if (checkerboard) checkerboard.show();
     if (editorShadow) editorShadow.show();
+    if (transformer) transformer.show();
 
     // Use browser's native Clipboard API
     const blob = await new Promise<Blob>((resolve, reject) => {
@@ -412,11 +415,13 @@ function App() {
         stage.scale({ x: 1, y: 1 });
         stage.position({ x: 0, y: 0 });
 
-        // Hide editor-only elements
+        // Hide editor-only elements (checkerboard, shadow, and transformer/gizmo)
         const checkerboard = stage.findOne('[name=checkerboard]');
         const editorShadow = stage.findOne('[name=editor-shadow]');
+        const transformer = stage.findOne('Transformer');
         if (checkerboard) checkerboard.hide();
         if (editorShadow) editorShadow.hide();
+        if (transformer) transformer.hide();
 
         // Export directly from Konva
         const outputCanvas = layer.toCanvas({
@@ -432,6 +437,7 @@ function App() {
         stage.position(savedPosition);
         if (checkerboard) checkerboard.show();
         if (editorShadow) editorShadow.show();
+        if (transformer) transformer.show();
 
         // Fast path: canvas.toBlob() -> Uint8Array -> direct file write (no IPC serialization)
         const blob = await new Promise<Blob>((resolve, reject) => {
@@ -446,8 +452,9 @@ function App() {
         await writeFile(filePath, new Uint8Array(arrayBuffer));
         toast.success('Image saved successfully');
       }
-    } catch {
-      toast.error('Failed to save image');
+    } catch (err) {
+      console.error('Save failed:', err);
+      toast.error(`Failed to save image: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsSaving(false);
     }

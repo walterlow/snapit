@@ -426,30 +426,56 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     }
   }, [image, containerSize, isInitialFit, getCompositionSize, canvasBounds]);
 
-  // Zoom handlers - keep IMAGE centered (padding grows around it)
+  // Zoom handlers - keep CROPPED CONTENT centered (respects crop bounds)
   const handleZoomIn = useCallback(() => {
     setZoom((prevZoom) => {
       const newZoom = Math.min(prevZoom + ZOOM_STEP, MAX_ZOOM);
       if (image) {
-        const x = (containerSize.width - image.width * newZoom) / 2;
-        const y = (containerSize.height - image.height * newZoom) / 2;
+        // Use crop bounds if applied, otherwise full image
+        const isCropApplied = canvasBounds && (
+          canvasBounds.imageOffsetX !== 0 ||
+          canvasBounds.imageOffsetY !== 0 ||
+          canvasBounds.width !== image.width ||
+          canvasBounds.height !== image.height
+        );
+        const contentWidth = isCropApplied ? canvasBounds!.width : image.width;
+        const contentHeight = isCropApplied ? canvasBounds!.height : image.height;
+        const cropX = isCropApplied ? -canvasBounds!.imageOffsetX : 0;
+        const cropY = isCropApplied ? -canvasBounds!.imageOffsetY : 0;
+        
+        // Center the crop region in the container
+        const x = (containerSize.width - contentWidth * newZoom) / 2 - cropX * newZoom;
+        const y = (containerSize.height - contentHeight * newZoom) / 2 - cropY * newZoom;
         setPosition({ x, y });
       }
       return newZoom;
     });
-  }, [image, containerSize]);
+  }, [image, containerSize, canvasBounds]);
 
   const handleZoomOut = useCallback(() => {
     setZoom((prevZoom) => {
       const newZoom = Math.max(prevZoom - ZOOM_STEP, MIN_ZOOM);
       if (image) {
-        const x = (containerSize.width - image.width * newZoom) / 2;
-        const y = (containerSize.height - image.height * newZoom) / 2;
+        // Use crop bounds if applied, otherwise full image
+        const isCropApplied = canvasBounds && (
+          canvasBounds.imageOffsetX !== 0 ||
+          canvasBounds.imageOffsetY !== 0 ||
+          canvasBounds.width !== image.width ||
+          canvasBounds.height !== image.height
+        );
+        const contentWidth = isCropApplied ? canvasBounds!.width : image.width;
+        const contentHeight = isCropApplied ? canvasBounds!.height : image.height;
+        const cropX = isCropApplied ? -canvasBounds!.imageOffsetX : 0;
+        const cropY = isCropApplied ? -canvasBounds!.imageOffsetY : 0;
+        
+        // Center the crop region in the container
+        const x = (containerSize.width - contentWidth * newZoom) / 2 - cropX * newZoom;
+        const y = (containerSize.height - contentHeight * newZoom) / 2 - cropY * newZoom;
         setPosition({ x, y });
       }
       return newZoom;
     });
-  }, [image, containerSize]);
+  }, [image, containerSize, canvasBounds]);
 
   const handleFitToSize = useCallback(() => {
     if (!image) return;
@@ -495,14 +521,28 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     prevToolRef.current = selectedTool;
   }, [selectedTool, handleFitToSize]);
 
-  // 100% zoom - actual size centered
+  // 100% zoom - actual size centered on cropped content
   const handleActualSize = useCallback(() => {
     if (!image) return;
-    const x = (containerSize.width - image.width) / 2;
-    const y = (containerSize.height - image.height) / 2;
+    
+    // Use crop bounds if applied, otherwise full image
+    const isCropApplied = canvasBounds && (
+      canvasBounds.imageOffsetX !== 0 ||
+      canvasBounds.imageOffsetY !== 0 ||
+      canvasBounds.width !== image.width ||
+      canvasBounds.height !== image.height
+    );
+    const contentWidth = isCropApplied ? canvasBounds!.width : image.width;
+    const contentHeight = isCropApplied ? canvasBounds!.height : image.height;
+    const cropX = isCropApplied ? -canvasBounds!.imageOffsetX : 0;
+    const cropY = isCropApplied ? -canvasBounds!.imageOffsetY : 0;
+    
+    // Center the crop region in the container at 100% zoom
+    const x = (containerSize.width - contentWidth) / 2 - cropX;
+    const y = (containerSize.height - contentHeight) / 2 - cropY;
     setZoom(1);
     setPosition({ x, y });
-  }, [image, containerSize]);
+  }, [image, containerSize, canvasBounds]);
 
   // Middle mouse panning handlers
   const handleMiddleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -589,7 +629,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     prevBoundsRef.current = canvasBounds;
   }, [canvasBounds, handleFitToSize, image, selectedTool]);
 
-  // Mouse wheel zoom - keep IMAGE centered
+  // Mouse wheel zoom - keep CROPPED CONTENT centered
   const handleWheel = useCallback(
     (e: Konva.KonvaEventObject<WheelEvent>) => {
       e.evt.preventDefault();
@@ -603,14 +643,26 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         MAX_ZOOM
       );
 
-      // Keep IMAGE centered (padding grows around it)
-      const x = (containerSize.width - image.width * newZoom) / 2;
-      const y = (containerSize.height - image.height * newZoom) / 2;
+      // Use crop bounds if applied, otherwise full image
+      const isCropApplied = canvasBounds && (
+        canvasBounds.imageOffsetX !== 0 ||
+        canvasBounds.imageOffsetY !== 0 ||
+        canvasBounds.width !== image.width ||
+        canvasBounds.height !== image.height
+      );
+      const contentWidth = isCropApplied ? canvasBounds!.width : image.width;
+      const contentHeight = isCropApplied ? canvasBounds!.height : image.height;
+      const cropX = isCropApplied ? -canvasBounds!.imageOffsetX : 0;
+      const cropY = isCropApplied ? -canvasBounds!.imageOffsetY : 0;
+
+      // Center the crop region in the container
+      const x = (containerSize.width - contentWidth * newZoom) / 2 - cropX * newZoom;
+      const y = (containerSize.height - contentHeight * newZoom) / 2 - cropY * newZoom;
 
       setZoom(newZoom);
       setPosition({ x, y });
     },
-    [zoom, image, containerSize]
+    [zoom, image, containerSize, canvasBounds]
   );
 
   // Handle transformer - supports multiple selection, excludes arrows (they have custom handles)

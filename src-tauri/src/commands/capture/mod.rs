@@ -96,6 +96,7 @@ pub async fn get_window_at_point(x: i32, y: i32) -> Result<Option<WindowInfo>, S
 
     use windows::Win32::{
         Foundation::{HWND, POINT, RECT},
+        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
         System::Threading::GetCurrentProcessId,
         UI::WindowsAndMessaging::{
             GetAncestor, GetClassNameW, GetLayeredWindowAttributes, GetWindow, GetWindowLongW,
@@ -154,6 +155,7 @@ fn try_get_window_info(
 ) -> Option<WindowInfo> {
     use windows::Win32::{
         Foundation::{HWND, POINT, RECT},
+        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
         UI::WindowsAndMessaging::{
             GetClassNameW, GetLayeredWindowAttributes, GetWindowLongW, GetWindowRect,
             GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
@@ -178,9 +180,21 @@ fn try_get_window_info(
             return None;
         }
 
+        // Use DwmGetWindowAttribute to get the actual visible frame bounds
+        // This excludes the invisible borders that Windows 10/11 adds for shadows
         let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_err() {
-            return None;
+        let result = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut RECT as *mut std::ffi::c_void,
+            std::mem::size_of::<RECT>() as u32,
+        );
+        
+        // Fallback to GetWindowRect if DWM fails
+        if result.is_err() {
+            if GetWindowRect(hwnd, &mut rect).is_err() {
+                return None;
+            }
         }
 
         let width = (rect.right - rect.left) as u32;

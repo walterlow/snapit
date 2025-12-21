@@ -296,29 +296,29 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
             {/* Top */}
             <div
               className="absolute left-0 right-0 top-0 bg-black/40"
-              style={{ height: windowHighlight.y }}
+              style={{ height: Math.floor(windowHighlight.y) }}
             />
             {/* Bottom */}
             <div
               className="absolute left-0 right-0 bottom-0 bg-black/40"
-              style={{ top: windowHighlight.y + windowHighlight.height }}
+              style={{ top: Math.floor(windowHighlight.y + windowHighlight.height) }}
             />
             {/* Left */}
             <div
               className="absolute left-0 bg-black/40"
               style={{
-                top: windowHighlight.y,
-                height: windowHighlight.height,
-                width: windowHighlight.x,
+                top: Math.floor(windowHighlight.y) - 1,
+                height: Math.ceil(windowHighlight.height) + 2,
+                width: Math.floor(windowHighlight.x),
               }}
             />
             {/* Right */}
             <div
               className="absolute right-0 bg-black/40"
               style={{
-                top: windowHighlight.y,
-                height: windowHighlight.height,
-                left: windowHighlight.x + windowHighlight.width,
+                top: Math.floor(windowHighlight.y) - 1,
+                height: Math.ceil(windowHighlight.height) + 2,
+                left: Math.floor(windowHighlight.x + windowHighlight.width),
               }}
             />
           </div>
@@ -397,29 +397,29 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
             {/* Top */}
             <div
               className="absolute left-0 right-0 top-0 bg-black/60"
-              style={{ height: displayRect.y }}
+              style={{ height: Math.floor(displayRect.y) }}
             />
             {/* Bottom */}
             <div
               className="absolute left-0 right-0 bottom-0 bg-black/60"
-              style={{ top: displayRect.y + displayRect.height }}
+              style={{ top: Math.floor(displayRect.y + displayRect.height) }}
             />
             {/* Left */}
             <div
               className="absolute left-0 bg-black/60"
               style={{
-                top: displayRect.y,
-                height: displayRect.height,
-                width: displayRect.x,
+                top: Math.floor(displayRect.y) - 1,
+                height: Math.ceil(displayRect.height) + 2,
+                width: Math.floor(displayRect.x),
               }}
             />
             {/* Right */}
             <div
               className="absolute right-0 bg-black/60"
               style={{
-                top: displayRect.y,
-                height: displayRect.height,
-                left: displayRect.x + displayRect.width,
+                top: Math.floor(displayRect.y) - 1,
+                height: Math.ceil(displayRect.height) + 2,
+                left: Math.floor(displayRect.x + displayRect.width),
               }}
             />
           </div>

@@ -46,6 +46,16 @@ export const PenShape: React.FC<PenShapeProps> = React.memo(({
       onTransformStart={onTransformStart}
       onTransform={onTransform}
       onTransformEnd={onTransformEnd}
+      onMouseEnter={(e) => {
+        if (isDraggable) {
+          const container = e.target.getStage()?.container();
+          if (container) container.style.cursor = 'move';
+        }
+      }}
+      onMouseLeave={(e) => {
+        const container = e.target.getStage()?.container();
+        if (container) container.style.cursor = 'default';
+      }}
     />
   );
 });

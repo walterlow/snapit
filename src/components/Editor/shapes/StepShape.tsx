@@ -27,6 +27,10 @@ export const StepShape: React.FC<StepShapeProps> = React.memo(({
   onTransform,
   onTransformEnd,
 }) => {
+  const radius = shape.radius ?? 15;
+  const fontSize = Math.round(radius * 0.93); // Scale font with radius
+  const textOffset = fontSize * 0.3; // Approximate center offset
+
   return (
     <Group
       id={shape.id}
@@ -40,17 +44,27 @@ export const StepShape: React.FC<StepShapeProps> = React.memo(({
       onTransformStart={onTransformStart}
       onTransform={onTransform}
       onTransformEnd={onTransformEnd}
+      onMouseEnter={(e) => {
+        if (isDraggable) {
+          const container = e.target.getStage()?.container();
+          if (container) container.style.cursor = 'move';
+        }
+      }}
+      onMouseLeave={(e) => {
+        const container = e.target.getStage()?.container();
+        if (container) container.style.cursor = 'default';
+      }}
     >
-      <Circle radius={15} fill={shape.fill} />
+      <Circle radius={radius} fill={shape.fill} />
       <Text
         text={String(shape.number)}
-        fontSize={14}
+        fontSize={fontSize}
         fill="white"
         fontStyle="bold"
         align="center"
         verticalAlign="middle"
-        offsetX={4}
-        offsetY={6}
+        offsetX={textOffset}
+        offsetY={fontSize * 0.43}
       />
     </Group>
   );

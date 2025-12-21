@@ -133,8 +133,8 @@ export const useShapeTransform = ({
       const shape = shapes.find(s => s.id === id);
       if (!shape) return;
 
-      // For pen and blur, let Konva handle visual scaling
-      if (shape.type === 'pen' || shape.type === 'blur') {
+      // For pen, blur, and step, let Konva handle visual scaling
+      if (shape.type === 'pen' || shape.type === 'blur' || shape.type === 'step') {
         return;
       }
 
@@ -220,6 +220,28 @@ export const useShapeTransform = ({
             y: node.y(),
             width: node.width(),
             height: node.height(),
+          };
+        });
+        onShapesChange(updatedShapes);
+      }
+      // For step shapes, bake scale into radius
+      else if (shape?.type === 'step') {
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        const avgScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
+        const currentRadius = shape.radius ?? 15;
+        const newRadius = Math.max(8, currentRadius * avgScale);
+
+        node.scaleX(1);
+        node.scaleY(1);
+
+        const updatedShapes = shapes.map(s => {
+          if (s.id !== id) return s;
+          return {
+            ...s,
+            x: node.x(),
+            y: node.y(),
+            radius: newRadius,
           };
         });
         onShapesChange(updatedShapes);

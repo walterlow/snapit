@@ -46,6 +46,16 @@ export const RectShape: React.FC<RectShapeProps> = React.memo(({
       onTransformStart={onTransformStart}
       onTransform={onTransform}
       onTransformEnd={onTransformEnd}
+      onMouseEnter={(e) => {
+        if (isDraggable) {
+          const container = e.target.getStage()?.container();
+          if (container) container.style.cursor = 'move';
+        }
+      }}
+      onMouseLeave={(e) => {
+        const container = e.target.getStage()?.container();
+        if (container) container.style.cursor = 'default';
+      }}
     />
   );
 });

@@ -115,7 +115,14 @@ function App() {
         setSelectedTool(tool);
         return;
       }
-      
+
+      // Escape: switch to select mode
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelectedTool('select');
+        return;
+      }
+
       // Show keyboard shortcuts help
       if (e.key === '?' || (e.shiftKey && e.key === '/')) {
         e.preventDefault();

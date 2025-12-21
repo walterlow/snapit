@@ -6,7 +6,7 @@ import { takeSnapshot, commitSnapshot, recordAction } from '../stores/editorStor
 const MIN_SHAPE_SIZE = 5;
 
 // Tools that stay in draw mode after completing a shape
-const TOOLS_RETAIN_MODE: Set<Tool> = new Set(['pen']);
+const TOOLS_RETAIN_MODE: Set<Tool> = new Set(['pen', 'steps']);
 
 interface UseShapeDrawingProps {
   selectedTool: Tool;
@@ -21,8 +21,6 @@ interface UseShapeDrawingProps {
   setSelectedIds: (ids: string[]) => void;
   stageRef: React.RefObject<Konva.Stage | null>;
   getCanvasPosition: (screenPos: { x: number; y: number }) => { x: number; y: number };
-  stepCount: number;
-  setStepCount: (count: number) => void;
 }
 
 interface UseShapeDrawingReturn {
@@ -48,8 +46,6 @@ export const useShapeDrawing = ({
   setSelectedIds,
   stageRef,
   getCanvasPosition,
-  stepCount,
-  setStepCount,
 }: UseShapeDrawingProps): UseShapeDrawingReturn => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState({ x: 0, y: 0 });
@@ -177,19 +173,34 @@ export const useShapeDrawing = ({
       }
 
       if (selectedTool === 'steps') {
+        // Find the next available step number (fill gaps first, then continue series)
+        const existingNumbers = shapes
+          .filter((s) => s.type === 'step' && s.number !== undefined)
+          .map((s) => s.number as number)
+          .sort((a, b) => a - b);
+
+        let nextNumber = 1;
+        for (const num of existingNumbers) {
+          if (num === nextNumber) {
+            nextNumber++;
+          } else if (num > nextNumber) {
+            break; // Found a gap
+          }
+        }
+
         const id = `shape_${Date.now()}`;
         const newShape: CanvasShape = {
           id,
           type: 'step',
           x: pos.x,
           y: pos.y,
-          number: stepCount,
+          number: nextNumber,
           fill: strokeColor,
+          radius: 15,
         };
-        setStepCount(stepCount + 1);
         recordAction(() => onShapesChange([...shapes, newShape]));
         setSelectedIds([id]);
-        onToolChange('select');
+        // Don't switch to select - steps tool retains mode
         return true;
       }
 
@@ -206,14 +217,12 @@ export const useShapeDrawing = ({
     [
       selectedTool,
       strokeColor,
-      stepCount,
       shapes,
       onShapesChange,
       onToolChange,
       stageRef,
       getCanvasPosition,
       setSelectedIds,
-      setStepCount,
     ]
   );
 

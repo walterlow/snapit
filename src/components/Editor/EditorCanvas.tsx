@@ -89,9 +89,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const resetCanvasBounds = useEditorStore((state) => state.resetCanvasBounds);
   const originalImageSize = useEditorStore((state) => state.originalImageSize);
 
-  // Step counter for step tool
-  const [stepCount, setStepCount] = React.useState(1);
-
   // Load image
   const imageUrl = `data:image/png;base64,${imageData}`;
   const [image] = useImage(imageUrl);
@@ -156,8 +153,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     setSelectedIds,
     stageRef,
     getCanvasPosition: navigation.getCanvasPosition,
-    stepCount,
-    setStepCount,
   });
 
   // Marquee selection hook
@@ -189,9 +184,24 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     return getSelectionBounds(shapes, selectedIds);
   }, [shapes, selectedIds]);
 
+  // Check if any selected shape requires proportional scaling
+  const hasProportionalShape = useMemo(() => {
+    return selectedIds.some((id) => {
+      const shape = shapes.find((s) => s.id === id);
+      return shape?.type === 'step';
+    });
+  }, [selectedIds, shapes]);
+
   // Attach transformer to selected shapes
   useEffect(() => {
     if (!transformerRef.current || !layerRef.current) return;
+
+    // Hide transformer while drawing
+    if (drawing.isDrawing) {
+      transformerRef.current.nodes([]);
+      transformerRef.current.getLayer()?.batchDraw();
+      return;
+    }
 
     // Exclude arrows (they use custom endpoint handles)
     const nodes = selectedIds
@@ -204,7 +214,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
     transformerRef.current.nodes(nodes);
     transformerRef.current.getLayer()?.batchDraw();
-  }, [selectedIds, shapes]);
+  }, [selectedIds, shapes, drawing.isDrawing]);
 
   // Handle mouse events
   const handleMouseDown = React.useCallback(
@@ -633,6 +643,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             <SelectionBoundsRect
               bounds={selectionBounds}
               isDraggable={true}
+              selectedIds={selectedIds}
+              layerRef={layerRef}
               onDragStart={() => takeSnapshot()}
               onDragEnd={(dx, dy) => {
                 const updatedShapes = shapes.map((shape) => {
@@ -657,8 +669,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
           <Transformer
             ref={transformerRef}
-            keepRatio={isShiftHeld}
-            enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right', 'top-center', 'bottom-center', 'middle-left', 'middle-right']}
+            keepRatio={isShiftHeld || hasProportionalShape}
+            enabledAnchors={hasProportionalShape
+              ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+              : ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'top-center', 'bottom-center', 'middle-left', 'middle-right']
+            }
             boundBoxFunc={(oldBox, newBox) => {
               if (newBox.width < 5 || newBox.height < 5) {
                 return oldBox;

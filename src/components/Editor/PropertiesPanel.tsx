@@ -578,6 +578,49 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           </div>
         )}
 
+        {/* Step Size for steps tool */}
+        {effectiveTool === 'steps' && (() => {
+          const stepShapes = shapes.filter(s => s.type === 'step');
+          const radii = stepShapes.map(s => s.radius ?? 15);
+          const hasSteps = radii.length > 0;
+          const minRadius = hasSteps ? Math.min(...radii) : 15;
+          const maxRadius = hasSteps ? Math.max(...radii) : 15;
+          const avgRadius = hasSteps ? Math.round(radii.reduce((a, b) => a + b, 0) / radii.length) : 15;
+          const allSame = hasSteps && radii.every(r => r === radii[0]);
+
+          return (
+            <div className="space-y-3">
+              <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Size</Label>
+              <div className="flex gap-2">
+                {[
+                  { label: 'Smallest', targetRadius: minRadius },
+                  { label: 'Average', targetRadius: avgRadius },
+                  { label: 'Largest', targetRadius: maxRadius },
+                ].map(({ label, targetRadius }) => (
+                  <button
+                    key={label}
+                    disabled={!hasSteps || allSame}
+                    onClick={() => {
+                      recordAction(() => {
+                        stepShapes.forEach(shape => {
+                          updateShape(shape.id, { radius: targetRadius });
+                        });
+                      });
+                    }}
+                    className={`flex-1 h-9 rounded-lg text-xs font-medium transition-all border ${
+                      !hasSteps || allSame
+                        ? 'bg-[var(--polar-ice)] text-[var(--ink-muted)] border-[var(--polar-frost)] opacity-50 cursor-not-allowed'
+                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Highlight Color */}
         {highlightTools.includes(effectiveTool) && (
           <div className="space-y-3">

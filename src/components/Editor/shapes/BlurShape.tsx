@@ -169,6 +169,16 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
         onTransformStart={onTransformStart}
         onTransform={handleTransformInternal}
         onTransformEnd={handleTransformEndInternal}
+        onMouseEnter={(e) => {
+          if (isDraggable) {
+            const container = e.target.getStage()?.container();
+            if (container) container.style.cursor = 'move';
+          }
+        }}
+        onMouseLeave={(e) => {
+          const container = e.target.getStage()?.container();
+          if (container) container.style.cursor = 'default';
+        }}
       />
     );
   }
@@ -210,6 +220,16 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
         onTransformStart={onTransformStart}
         onTransform={handleTransformInternal}
         onTransformEnd={handleTransformEndInternal}
+        onMouseEnter={(e) => {
+          if (isDraggable) {
+            const container = e.target.getStage()?.container();
+            if (container) container.style.cursor = 'move';
+          }
+        }}
+        onMouseLeave={(e) => {
+          const container = e.target.getStage()?.container();
+          if (container) container.style.cursor = 'default';
+        }}
       />
     </Group>
   );

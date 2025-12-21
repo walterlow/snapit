@@ -256,14 +256,13 @@ export async function compositeImage(options: CompositeOptions): Promise<HTMLCan
     backgroundImage = await loadImage(settings.backgroundImage);
   }
 
-  // Draw background
+  // Calculate screenshot position (centered with padding) - round to avoid sub-pixel artifacts
+  const paddingX = Math.round((outputCanvas.width - sourceWidth) / 2);
+  const paddingY = Math.round((outputCanvas.height - sourceHeight) / 2);
+
+  // Draw shadow if enabled (must be drawn on background first)
   drawBackground(ctx, settings, outputCanvas.width, outputCanvas.height, backgroundImage);
 
-  // Calculate screenshot position (centered with padding)
-  const paddingX = (outputCanvas.width - sourceWidth) / 2;
-  const paddingY = (outputCanvas.height - sourceHeight) / 2;
-
-  // Draw shadow if enabled
   if (settings.shadowEnabled) {
     drawShadow(
       ctx,
@@ -276,26 +275,30 @@ export async function compositeImage(options: CompositeOptions): Promise<HTMLCan
     );
   }
 
-  // Create a temporary canvas for the rounded screenshot
-  if (settings.borderRadius > 0) {
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = sourceWidth;
-    tempCanvas.height = sourceHeight;
-    const tempCtx = tempCanvas.getContext('2d');
+  // Create a temporary canvas for the screenshot (with optional rounded corners)
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = sourceWidth;
+  tempCanvas.height = sourceHeight;
+  const tempCtx = tempCanvas.getContext('2d');
 
-    if (tempCtx) {
+  if (tempCtx) {
+    // First, fill transparent areas of the source with the background
+    // This ensures expanded crop areas get the background color
+    drawBackground(tempCtx, settings, sourceWidth, sourceHeight, backgroundImage);
+
+    if (settings.borderRadius > 0) {
       // Create rounded clip path
       drawRoundedRect(tempCtx, 0, 0, sourceWidth, sourceHeight, settings.borderRadius);
       tempCtx.clip();
-
-// Draw the source image
-      tempCtx.drawImage(workingCanvas, 0, 0);
-
-      // Draw the rounded image onto the output
-      ctx.drawImage(tempCanvas, paddingX, paddingY);
     }
+
+    // Draw the source image on top - transparent areas will show background
+    tempCtx.drawImage(workingCanvas, 0, 0);
+
+    // Draw the composited image onto the output
+    ctx.drawImage(tempCanvas, paddingX, paddingY);
   } else {
-    // No border radius, draw directly
+    // Fallback: draw directly
     ctx.drawImage(workingCanvas, paddingX, paddingY);
   }
 

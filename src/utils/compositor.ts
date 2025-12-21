@@ -127,9 +127,9 @@ function drawShadow(
 
   // Multiple shadow layers for realistic effect
   const shadowLayers = [
-    { blur: 10, opacity: 0.1 * intensity, offsetY: 2 },
-    { blur: 30, opacity: 0.15 * intensity, offsetY: 8 },
-    { blur: 60, opacity: 0.2 * intensity, offsetY: 16 },
+    { blur: 10, opacity: 0.15 * intensity, offsetY: 2 },
+    { blur: 30, opacity: 0.25 * intensity, offsetY: 8 },
+    { blur: 60, opacity: 0.35 * intensity, offsetY: 16 },
   ];
 
   shadowLayers.forEach((layer) => {

@@ -1939,9 +1939,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   height: contentHeight,
                   borderRadius: compositorSettings.borderRadius * zoom,
                   boxShadow: [
-                    `0 ${2 * intensity}px ${10 * intensity}px rgba(0,0,0,${0.1 * intensity})`,
-                    `0 ${8 * intensity}px ${30 * intensity}px rgba(0,0,0,${0.15 * intensity})`,
-                    `0 ${16 * intensity}px ${60 * intensity}px rgba(0,0,0,${0.2 * intensity})`,
+                    `0 ${2 * intensity}px ${10 * intensity}px rgba(0,0,0,${0.15 * intensity})`,
+                    `0 ${8 * intensity}px ${30 * intensity}px rgba(0,0,0,${0.25 * intensity})`,
+                    `0 ${16 * intensity}px ${60 * intensity}px rgba(0,0,0,${0.35 * intensity})`,
                   ].join(', '),
                 }}
               />
@@ -2015,9 +2015,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 {compositorSettings.shadowEnabled && (() => {
                   const intensity = compositorSettings.shadowIntensity;
                   const shadowLayers = [
-                    { blur: 10, opacity: 0.1 * intensity, offsetY: 2 },
-                    { blur: 30, opacity: 0.15 * intensity, offsetY: 8 },
-                    { blur: 60, opacity: 0.2 * intensity, offsetY: 16 },
+                    { blur: 10, opacity: 0.15 * intensity, offsetY: 2 },
+                    { blur: 30, opacity: 0.25 * intensity, offsetY: 8 },
+                    { blur: 60, opacity: 0.35 * intensity, offsetY: 16 },
                   ];
                   return shadowLayers.map((layer, i) => (
                     <Rect

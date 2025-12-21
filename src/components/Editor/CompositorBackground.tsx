@@ -18,6 +18,7 @@ interface CompositorBackgroundProps {
   };
   borderRadius?: number;
   includeShadow?: boolean;
+  name?: string;
 }
 
 /**
@@ -29,6 +30,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
   bounds,
   borderRadius = 0,
   includeShadow = false,
+  name,
 }) => {
   const backgroundImage = useCompositorBackgroundImage(
     settings.backgroundType,
@@ -51,6 +53,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
   if (settings.backgroundType === 'solid') {
     return (
       <Rect
+        name={name}
         x={bounds.x}
         y={bounds.y}
         width={bounds.width}
@@ -75,6 +78,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
 
     return (
       <Rect
+        name={name}
         x={bounds.x}
         y={bounds.y}
         width={bounds.width}
@@ -101,6 +105,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
       // Fallback while loading
       return (
         <Rect
+          name={name}
           x={bounds.x}
           y={bounds.y}
           width={bounds.width}
@@ -124,6 +129,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
     if (borderRadius > 0) {
       return (
         <Group
+          name={name}
           clipFunc={(ctx) => {
             const r = Math.min(borderRadius, bounds.width / 2, bounds.height / 2);
             ctx.beginPath();
@@ -153,15 +159,17 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
     }
 
     return (
-      <Image
-        image={backgroundImage}
-        x={bounds.x + cover.offsetX}
-        y={bounds.y + cover.offsetY}
-        width={cover.width}
-        height={cover.height}
-        listening={false}
-        {...shadowProps}
-      />
+      <Group name={name}>
+        <Image
+          image={backgroundImage}
+          x={bounds.x + cover.offsetX}
+          y={bounds.y + cover.offsetY}
+          width={cover.width}
+          height={cover.height}
+          listening={false}
+          {...shadowProps}
+        />
+      </Group>
     );
   }
 

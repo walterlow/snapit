@@ -12,7 +12,6 @@ import { PropertiesPanel } from './components/Editor/PropertiesPanel';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
 import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore } from './stores/editorStore';
-import { compositeImage } from './utils/compositor';
 import type { Tool, CanvasShape, Annotation } from './types';
 
 function App() {
@@ -188,107 +187,80 @@ function App() {
     setHasUnsavedChanges(true);
   };
 
-  // Copy to clipboard
+  // Copy to clipboard (native browser API)
   const handleCopy = async () => {
     if (!stageRef.current || !currentImageData) return;
 
     setIsCopying(true);
     try {
-      // Get layer reference
-      const layer = stageRef.current.findOne('Layer') as Konva.Layer;
+      const stage = stageRef.current;
+      const layer = stage.findOne('Layer') as Konva.Layer;
       if (!layer) return;
 
-      // Find the background image to get original dimensions
-      const imageNode = stageRef.current.findOne('[name=background]') as Konva.Image | undefined;
-      const imageWidth = imageNode?.width() || 800;
-      const imageHeight = imageNode?.height() || 600;
+      // Get content dimensions from image or canvas bounds
+      const imageNode = stage.findOne('[name=background]') as Konva.Image | undefined;
+      const contentWidth = canvasBounds?.width || imageNode?.width() || 800;
+      const contentHeight = canvasBounds?.height || imageNode?.height() || 600;
+      const contentX = canvasBounds ? -canvasBounds.imageOffsetX : 0;
+      const contentY = canvasBounds ? -canvasBounds.imageOffsetY : 0;
 
-      // Save current stage transform (zoom/pan)
-      const stage = stageRef.current;
+      // Calculate export bounds (with compositor padding if enabled)
+      let exportX: number, exportY: number, exportWidth: number, exportHeight: number;
+      
+      if (compositorSettings.enabled) {
+        const avgDimension = (contentWidth + contentHeight) / 2;
+        const padding = avgDimension * (compositorSettings.padding / 100);
+        exportX = Math.round(contentX - padding);
+        exportY = Math.round(contentY - padding);
+        exportWidth = Math.round(contentWidth + padding * 2);
+        exportHeight = Math.round(contentHeight + padding * 2);
+      } else {
+        exportX = Math.round(contentX);
+        exportY = Math.round(contentY);
+        exportWidth = Math.round(contentWidth);
+        exportHeight = Math.round(contentHeight);
+      }
+
+      // Save and reset transform for 1:1 export
       const savedScale = { x: stage.scaleX(), y: stage.scaleY() };
       const savedPosition = { x: stage.x(), y: stage.y() };
-
-      // Reset stage to 1:1 for true-size export
       stage.scale({ x: 1, y: 1 });
       stage.position({ x: 0, y: 0 });
 
-      // Physically remove editor-only elements from their parents before export
-      // Try multiple selector syntaxes
-      let checkerboard = stageRef.current.findOne('.checkerboard');
-      if (!checkerboard) checkerboard = stageRef.current.findOne('[name=checkerboard]');
+    // Hide editor-only elements
+    const checkerboard = stage.findOne('[name=checkerboard]');
+    const editorShadow = stage.findOne('[name=editor-shadow]');
+    if (checkerboard) checkerboard.hide();
+    if (editorShadow) editorShadow.hide();
 
-      let editorShadow = stageRef.current.findOne('.editor-shadow');
-      if (!editorShadow) editorShadow = stageRef.current.findOne('[name=editor-shadow]');
+    // Export directly from Konva
+    const outputCanvas = layer.toCanvas({
+      x: exportX,
+      y: exportY,
+      width: exportWidth,
+      height: exportHeight,
+      pixelRatio: 1,
+    });
 
-      console.log('Export debug - checkerboard found:', !!checkerboard, checkerboard?.getClassName());
+    // Restore immediately
+    stage.scale(savedScale);
+    stage.position(savedPosition);
+    if (checkerboard) checkerboard.show();
+    if (editorShadow) editorShadow.show();
 
-      // Debug: list all nodes with names
-      const allNodes = stageRef.current.find('Rect');
-      console.log('All Rects:', allNodes.map((n: Konva.Node) => ({ name: n.name(), className: n.getClassName() })));
-      console.log('Export debug - editorShadow found:', !!editorShadow);
+    // Use browser's native Clipboard API
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      outputCanvas.toBlob((b) => {
+        if (b) resolve(b);
+        else reject(new Error('Failed to create blob'));
+      }, 'image/png');
+    });
 
-      const checkerParent = checkerboard?.getParent();
-      const shadowParent = editorShadow?.getParent();
-      const checkerIndex = checkerboard?.getZIndex();
-      const shadowIndex = editorShadow?.getZIndex();
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': blob })
+    ]);
 
-      if (checkerboard) checkerboard.remove();
-      if (editorShadow) editorShadow.remove();
-
-      // Force synchronous redraw at 1:1 scale before export
-      layer.draw();
-
-      // Calculate export region - use crop bounds if set, otherwise full image
-      const exportX = Math.round(canvasBounds ? -canvasBounds.imageOffsetX : 0);
-      const exportY = Math.round(canvasBounds ? -canvasBounds.imageOffsetY : 0);
-      const exportWidth = Math.round(canvasBounds?.width || imageWidth);
-      const exportHeight = Math.round(canvasBounds?.height || imageHeight);
-
-      console.log('Export region:', { exportX, exportY, exportWidth, exportHeight });
-      console.log('Canvas bounds:', canvasBounds);
-      console.log('Layer children after remove:', layer.getChildren().length);
-
-      // Export at true 1:1 pixel size
-      const sourceCanvas = layer.toCanvas({
-        x: exportX,
-        y: exportY,
-        width: exportWidth,
-        height: exportHeight,
-        pixelRatio: 1,
-      });
-
-      // Restore stage transform
-      stage.scale(savedScale);
-      stage.position(savedPosition);
-
-      // Re-add editor elements to their parents
-      if (checkerboard && checkerParent) {
-        checkerParent.add(checkerboard);
-        if (checkerIndex !== undefined) checkerboard.zIndex(checkerIndex);
-      }
-      if (editorShadow && shadowParent) {
-        shadowParent.add(editorShadow);
-        if (shadowIndex !== undefined) editorShadow.zIndex(shadowIndex);
-      }
-      layer.draw();
-
-      // Apply compositor only if enabled, otherwise export directly (preserve transparency)
-      let outputCanvas: HTMLCanvasElement;
-      if (compositorSettings.enabled) {
-        outputCanvas = await compositeImage({
-          settings: compositorSettings,
-          sourceCanvas,
-          canvasBounds: null,
-        });
-      } else {
-        outputCanvas = sourceCanvas;
-      }
-
-      const dataUrl = outputCanvas.toDataURL('image/png');
-      const base64 = dataUrl.split(',')[1];
-
-      await invoke('copy_to_clipboard', { imageData: base64 });
-      toast.success('Copied to clipboard');
+    toast.success('Copied to clipboard');
     } catch (error) {
       console.error('Failed to copy:', error);
       toast.error('Failed to copy to clipboard');
@@ -297,19 +269,18 @@ function App() {
     }
   };
 
-  // Save to file
+  // Save to file (fast - exports directly from Konva)
   const handleSave = async () => {
     if (!stageRef.current || !currentImageData) return;
 
     setIsSaving(true);
     try {
-      // First save annotations to project (including crop bounds)
+      // Save annotations first
       if (currentProject) {
         const shapeAnnotations: Annotation[] = shapes.map((shape) => ({
           ...shape,
         } as Annotation));
         
-        // Add crop bounds as special annotation if modified
         const annotations = [...shapeAnnotations];
         if (canvasBounds) {
           annotations.push({
@@ -325,60 +296,55 @@ function App() {
         await updateAnnotations(annotations);
       }
 
-      // Ask user for save location
+      // Ask user for save location first
       const filePath = await save({
         defaultPath: `capture_${Date.now()}.png`,
         filters: [{ name: 'Images', extensions: ['png'] }],
       });
 
       if (filePath) {
-        // Get layer reference
-        const layer = stageRef.current.findOne('Layer') as Konva.Layer;
+        const stage = stageRef.current;
+        const layer = stage.findOne('Layer') as Konva.Layer;
         if (!layer) return;
 
-        // Find the background image to get original dimensions
-        const imageNode = stageRef.current.findOne('[name=background]') as Konva.Image | undefined;
-        const imageWidth = imageNode?.width() || 800;
-        const imageHeight = imageNode?.height() || 600;
+        // Get content dimensions
+        const imageNode = stage.findOne('[name=background]') as Konva.Image | undefined;
+        const contentWidth = canvasBounds?.width || imageNode?.width() || 800;
+        const contentHeight = canvasBounds?.height || imageNode?.height() || 600;
+        const contentX = canvasBounds ? -canvasBounds.imageOffsetX : 0;
+        const contentY = canvasBounds ? -canvasBounds.imageOffsetY : 0;
 
-        // Save current stage transform (zoom/pan)
-        const stage = stageRef.current;
+        // Calculate export bounds (with compositor padding if enabled)
+        let exportX: number, exportY: number, exportWidth: number, exportHeight: number;
+        
+        if (compositorSettings.enabled) {
+          const avgDimension = (contentWidth + contentHeight) / 2;
+          const padding = avgDimension * (compositorSettings.padding / 100);
+          exportX = Math.round(contentX - padding);
+          exportY = Math.round(contentY - padding);
+          exportWidth = Math.round(contentWidth + padding * 2);
+          exportHeight = Math.round(contentHeight + padding * 2);
+        } else {
+          exportX = Math.round(contentX);
+          exportY = Math.round(contentY);
+          exportWidth = Math.round(contentWidth);
+          exportHeight = Math.round(contentHeight);
+        }
+
+        // Save and reset transform
         const savedScale = { x: stage.scaleX(), y: stage.scaleY() };
         const savedPosition = { x: stage.x(), y: stage.y() };
-
-        // Reset stage to 1:1 for true-size export
         stage.scale({ x: 1, y: 1 });
         stage.position({ x: 0, y: 0 });
 
-        // Physically remove editor-only elements from their parents before export
-        // Try multiple selector syntaxes
-        let checkerboard = stageRef.current.findOne('.checkerboard');
-        if (!checkerboard) checkerboard = stageRef.current.findOne('[name=checkerboard]');
+        // Hide editor-only elements
+        const checkerboard = stage.findOne('[name=checkerboard]');
+        const editorShadow = stage.findOne('[name=editor-shadow]');
+        if (checkerboard) checkerboard.hide();
+        if (editorShadow) editorShadow.hide();
 
-        let editorShadow = stageRef.current.findOne('.editor-shadow');
-        if (!editorShadow) editorShadow = stageRef.current.findOne('[name=editor-shadow]');
-
-        console.log('SAVE debug - checkerboard found:', !!checkerboard);
-
-        const checkerParent = checkerboard?.getParent();
-        const shadowParent = editorShadow?.getParent();
-        const checkerIndex = checkerboard?.getZIndex();
-        const shadowIndex = editorShadow?.getZIndex();
-
-        if (checkerboard) checkerboard.remove();
-        if (editorShadow) editorShadow.remove();
-
-        // Force synchronous redraw at 1:1 scale before export
-        layer.draw();
-
-        // Calculate export region - use crop bounds if set, otherwise full image
-        const exportX = Math.round(canvasBounds ? -canvasBounds.imageOffsetX : 0);
-        const exportY = Math.round(canvasBounds ? -canvasBounds.imageOffsetY : 0);
-        const exportWidth = Math.round(canvasBounds?.width || imageWidth);
-        const exportHeight = Math.round(canvasBounds?.height || imageHeight);
-
-        // Export at true 1:1 pixel size
-        const sourceCanvas = layer.toCanvas({
+        // Export directly from Konva
+        const outputCanvas = layer.toCanvas({
           x: exportX,
           y: exportY,
           width: exportWidth,
@@ -386,33 +352,13 @@ function App() {
           pixelRatio: 1,
         });
 
-        // Restore stage transform
+        // Restore immediately
         stage.scale(savedScale);
         stage.position(savedPosition);
+        if (checkerboard) checkerboard.show();
+        if (editorShadow) editorShadow.show();
 
-        // Re-add editor elements to their parents
-        if (checkerboard && checkerParent) {
-          checkerParent.add(checkerboard);
-          if (checkerIndex !== undefined) checkerboard.zIndex(checkerIndex);
-        }
-        if (editorShadow && shadowParent) {
-          shadowParent.add(editorShadow);
-          if (shadowIndex !== undefined) editorShadow.zIndex(shadowIndex);
-        }
-        layer.draw();
-
-        // Apply compositor only if enabled, otherwise export directly (preserve transparency)
-        let outputCanvas: HTMLCanvasElement;
-        if (compositorSettings.enabled) {
-          outputCanvas = await compositeImage({
-            settings: compositorSettings,
-            sourceCanvas,
-            canvasBounds: null,
-          });
-        } else {
-          outputCanvas = sourceCanvas;
-        }
-
+        // PNG encode and save
         const dataUrl = outputCanvas.toDataURL('image/png');
         const base64 = dataUrl.split(',')[1];
 
@@ -462,7 +408,7 @@ function App() {
     <div className="h-screen w-screen flex flex-col bg-[var(--obsidian-base)] overflow-hidden">
       {/* Toast Notifications */}
       <Toaster 
-        position="bottom-right"
+        position="top-center"
         toastOptions={{
           style: {
             background: 'var(--obsidian-elevated)',

@@ -38,6 +38,7 @@ pub async fn save_image(image_data: String, file_path: String, format: String) -
     Ok(())
 }
 
+/// Copy image to clipboard from base64 PNG (legacy, slower)
 #[command]
 pub async fn copy_to_clipboard(app: AppHandle, image_data: String) -> Result<(), String> {
     let decoded = STANDARD
@@ -54,6 +55,35 @@ pub async fn copy_to_clipboard(app: AppHandle, image_data: String) -> Result<(),
 
     // Create a Tauri Image from the RGBA data
     let tauri_image = TauriImage::new_owned(raw_data, width, height);
+
+    app.clipboard()
+        .write_image(&tauri_image)
+        .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
+
+    Ok(())
+}
+
+/// Copy raw RGBA image data directly to clipboard (fast path)
+/// Skips PNG encode/decode - much faster for large images
+#[command]
+pub async fn copy_rgba_to_clipboard(
+    app: AppHandle,
+    rgba_data: Vec<u8>,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    // Validate data size
+    let expected_size = (width * height * 4) as usize;
+    if rgba_data.len() != expected_size {
+        return Err(format!(
+            "Invalid RGBA data size: expected {}, got {}",
+            expected_size,
+            rgba_data.len()
+        ));
+    }
+
+    // Create Tauri Image directly from RGBA data - no encoding/decoding
+    let tauri_image = TauriImage::new_owned(rgba_data, width, height);
 
     app.clipboard()
         .write_image(&tauri_image)

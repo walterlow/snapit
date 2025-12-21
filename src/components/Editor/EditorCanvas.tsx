@@ -1439,14 +1439,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     const avgDimension = (contentWidth + contentHeight) / 2;
     const padding = avgDimension * zoom * paddingPercent;
     
-    const width = contentWidth * zoom + padding * 2;
-    const height = contentHeight * zoom + padding * 2;
-    
-    // The Stage is at (position.x, position.y)
-    // The visible content starts at (visibleBounds.x, visibleBounds.y) in canvas coords
-    // On screen: position.x + visibleBounds.x * zoom
-    const left = position.x + visibleBounds.x * zoom - padding;
-    const top = position.y + visibleBounds.y * zoom - padding;
+    // Round to integers and add 1px buffer to prevent sub-pixel edge artifacts
+    // Use floor for position (expand left/up) and ceil for size (expand right/down)
+    const left = Math.floor(position.x + visibleBounds.x * zoom - padding) - 1;
+    const top = Math.floor(position.y + visibleBounds.y * zoom - padding) - 1;
+    const width = Math.ceil(contentWidth * zoom + padding * 2) + 2;
+    const height = Math.ceil(contentHeight * zoom + padding * 2) + 2;
     
     return { width, height, left, top };
   }, [compositorSettings.enabled, compositorSettings.padding, visibleBounds, zoom, position]);
@@ -1580,9 +1578,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         style={{ backgroundColor: 'transparent' }}
       >
         <Layer ref={layerRef}>
-          {/* Shadow is now rendered via CSS on the composition preview element */}
-          
-          {/* Default shadow when compositor disabled - uses visibleBounds to match clipped content */}
+          {/* Default shadow when compositor disabled */}
           {!compositorSettings.enabled && visibleBounds && (
             <Rect
               name="editor-shadow"
@@ -1599,20 +1595,49 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             />
           )}
 
-          {/* Compositor background fill - renders UNDER the clipped content */}
-          {/* Uses shared CompositorBackground component for single source of truth */}
-          {compositorSettings.enabled && compositorSettings.borderRadius > 0 && visibleBounds && (
-            <CompositorBackground
-              settings={compositorSettings}
-              bounds={{
-                x: visibleBounds.x,
-                y: visibleBounds.y,
-                width: visibleBounds.width,
-                height: visibleBounds.height,
-              }}
-              borderRadius={compositorSettings.borderRadius}
-            />
-          )}
+          {/* Full compositor background (with padding) - rendered in Konva for direct export */}
+          {compositorSettings.enabled && visibleBounds && baseCompositionSize.width > 0 && (() => {
+            // Calculate padding in canvas coordinates
+            const avgDimension = (visibleBounds.width + visibleBounds.height) / 2;
+            const padding = avgDimension * (compositorSettings.padding / 100);
+            
+            // Compositor bounds (content + padding)
+            // Round to integers to match export bounds calculation and prevent sub-pixel artifacts
+            // Add 1px buffer on all sides to prevent edge clipping artifacts
+            const compBounds = {
+              x: Math.round(visibleBounds.x - padding) - 1,
+              y: Math.round(visibleBounds.y - padding) - 1,
+              width: Math.round(visibleBounds.width + padding * 2) + 2,
+              height: Math.round(visibleBounds.height + padding * 2) + 2,
+            };
+            
+            return (
+              <>
+                {/* Full background with padding - for export */}
+                <CompositorBackground
+                  name="compositor-background"
+                  settings={compositorSettings}
+                  bounds={compBounds}
+                  borderRadius={0}
+                  includeShadow={compositorSettings.shadowEnabled}
+                />
+                {/* Content area background with rounded corners - fills corner gaps */}
+                {/* Use rounded bounds with 1px buffer to match clip and prevent sub-pixel gaps */}
+                {compositorSettings.borderRadius > 0 && (
+                  <CompositorBackground
+                    settings={compositorSettings}
+                    bounds={{
+                      x: Math.round(visibleBounds.x) - 1,
+                      y: Math.round(visibleBounds.y) - 1,
+                      width: Math.round(visibleBounds.width) + 2,
+                      height: Math.round(visibleBounds.height) + 2,
+                    }}
+                    borderRadius={compositorSettings.borderRadius}
+                  />
+                )}
+              </>
+            );
+          })()}
 
           {/* Cropped canvas content - clips to crop bounds when applied */}
           {image && (() => {
@@ -1658,6 +1683,20 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     fillPatternImage={checkerPatternImage}
                     fillPatternRepeat="repeat"
                     listening={false}
+                  />
+                )}
+                {/* Inner clip background - prevents dark fringe from anti-aliased clip edges */}
+                {/* This ensures edge pixels blend with compositor color, not transparency */}
+                {compositorSettings.enabled && (
+                  <CompositorBackground
+                    settings={compositorSettings}
+                    bounds={{
+                      x: clipX,
+                      y: clipY,
+                      width: clipW,
+                      height: clipH,
+                    }}
+                    borderRadius={0}
                   />
                 )}
                 <Image

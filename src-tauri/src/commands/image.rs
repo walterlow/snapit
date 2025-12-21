@@ -14,6 +14,7 @@ pub struct BlurRegion {
     pub intensity: u32,
 }
 
+/// Save image from base64 PNG (legacy, slower)
 #[command]
 pub async fn save_image(image_data: String, file_path: String, format: String) -> Result<(), String> {
     let decoded = STANDARD
@@ -35,6 +36,15 @@ pub async fn save_image(image_data: String, file_path: String, format: String) -
         .save_with_format(&file_path, img_format)
         .map_err(|e| format!("Failed to save image: {}", e))?;
 
+    Ok(())
+}
+
+/// Save raw PNG bytes directly to file (fast path)
+/// Skips all encoding/decoding - just writes bytes to disk
+#[command]
+pub async fn save_png_bytes(png_bytes: Vec<u8>, file_path: String) -> Result<(), String> {
+    std::fs::write(&file_path, &png_bytes)
+        .map_err(|e| format!("Failed to write file: {}", e))?;
     Ok(())
 }
 

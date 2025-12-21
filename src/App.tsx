@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile } from '@tauri-apps/plugin-fs';
 import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
@@ -358,11 +358,17 @@ function App() {
         if (checkerboard) checkerboard.show();
         if (editorShadow) editorShadow.show();
 
-        // PNG encode and save
-        const dataUrl = outputCanvas.toDataURL('image/png');
-        const base64 = dataUrl.split(',')[1];
+        // Fast path: canvas.toBlob() -> Uint8Array -> direct file write (no IPC serialization)
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          outputCanvas.toBlob((b) => {
+            if (b) resolve(b);
+            else reject(new Error('Failed to create blob'));
+          }, 'image/png');
+        });
 
-        await invoke('save_image', { imageData: base64, filePath: filePath, format: 'png' });
+        // Write directly using Tauri's fs plugin (handles binary efficiently)
+        const arrayBuffer = await blob.arrayBuffer();
+        await writeFile(filePath, new Uint8Array(arrayBuffer));
         toast.success('Image saved successfully');
       }
     } catch (error) {

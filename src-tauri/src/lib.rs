@@ -48,6 +48,7 @@ pub fn run() {
             commands::window::open_editor,
             // Image commands
             commands::image::save_image,
+            commands::image::save_png_bytes,
             commands::image::copy_to_clipboard,
             commands::image::copy_rgba_to_clipboard,
             commands::image::crop_image,

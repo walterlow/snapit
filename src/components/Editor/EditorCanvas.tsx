@@ -33,7 +33,17 @@ interface BlurRegionProps {
   draggable: boolean;
 }
 
+// Result from blur rendering - includes actual bounds for proper positioning
+interface BlurRenderResult {
+  canvas: HTMLCanvasElement;
+  x: number;      // Actual x position (clamped to image bounds)
+  y: number;      // Actual y position (clamped to image bounds)
+  width: number;  // Actual width (may be smaller if clipped)
+  height: number; // Actual height (may be smaller if clipped)
+}
+
 // Renders blur effect to an offscreen canvas
+// Returns the canvas AND the actual bounds (clamped to image) for correct positioning
 const renderBlurCanvas = (
   sourceImage: HTMLImageElement,
   x: number,
@@ -42,53 +52,70 @@ const renderBlurCanvas = (
   height: number,
   blurType: string,
   blurAmount: number
-): HTMLCanvasElement | null => {
+): BlurRenderResult | null => {
   // Handle negative dimensions (drawing right-to-left or bottom-to-top)
   const absWidth = Math.abs(width);
   const absHeight = Math.abs(height);
   
   if (absWidth < 1 || absHeight < 1) return null;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = absWidth;
-  canvas.height = absHeight;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
   // Normalize position for negative dimensions
   const normalizedX = width < 0 ? x + width : x;
   const normalizedY = height < 0 ? y + height : y;
 
-  // Clamp crop region to image bounds
-  const cropX = Math.max(0, Math.min(normalizedX, sourceImage.width - 1));
-  const cropY = Math.max(0, Math.min(normalizedY, sourceImage.height - 1));
-  const cropW = Math.min(absWidth, sourceImage.width - cropX);
-  const cropH = Math.min(absHeight, sourceImage.height - cropY);
+  // Calculate the intersection with image bounds
+  const imgW = sourceImage.width;
+  const imgH = sourceImage.height;
+  
+  // Clamp to image bounds
+  const clampedX = Math.max(0, normalizedX);
+  const clampedY = Math.max(0, normalizedY);
+  const clampedRight = Math.min(imgW, normalizedX + absWidth);
+  const clampedBottom = Math.min(imgH, normalizedY + absHeight);
+  
+  // Actual dimensions after clamping
+  const actualW = clampedRight - clampedX;
+  const actualH = clampedBottom - clampedY;
+  
+  // If completely outside image bounds, return null
+  if (actualW < 1 || actualH < 1) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = actualW;
+  canvas.height = actualH;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
 
   if (blurType === 'pixelate') {
     // Fast pixelation: downscale then upscale with nearest-neighbor
     const pixelSize = Math.max(2, blurAmount);
-    const smallW = Math.max(1, Math.ceil(cropW / pixelSize));
-    const smallH = Math.max(1, Math.ceil(cropH / pixelSize));
+    const smallW = Math.max(1, Math.ceil(actualW / pixelSize));
+    const smallH = Math.max(1, Math.ceil(actualH / pixelSize));
     
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(sourceImage, cropX, cropY, cropW, cropH, 0, 0, smallW, smallH);
+    ctx.drawImage(sourceImage, clampedX, clampedY, actualW, actualH, 0, 0, smallW, smallH);
     
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(canvas, 0, 0, smallW, smallH, 0, 0, absWidth, absHeight);
+    ctx.drawImage(canvas, 0, 0, smallW, smallH, 0, 0, actualW, actualH);
   } else {
     // GPU-accelerated blur via native canvas filter
     ctx.filter = `blur(${blurAmount}px)`;
     const padding = blurAmount * 2;
     ctx.drawImage(
       sourceImage,
-      cropX - padding, cropY - padding, cropW + padding * 2, cropH + padding * 2,
-      -padding, -padding, absWidth + padding * 2, absHeight + padding * 2
+      clampedX - padding, clampedY - padding, actualW + padding * 2, actualH + padding * 2,
+      -padding, -padding, actualW + padding * 2, actualH + padding * 2
     );
     ctx.filter = 'none';
   }
 
-  return canvas;
+  return {
+    canvas,
+    x: clampedX,
+    y: clampedY,
+    width: actualW,
+    height: actualH
+  };
 };
 
 const BlurRegion: React.FC<BlurRegionProps> = ({
@@ -102,11 +129,10 @@ const BlurRegion: React.FC<BlurRegionProps> = ({
   onTransformEnd,
   draggable,
 }) => {
-  const imageRef = useRef<Konva.Image>(null);
-  const [blurredCanvas, setBlurredCanvas] = useState<HTMLCanvasElement | null>(null);
+  const rectRef = useRef<Konva.Rect>(null);
+  const [blurResult, setBlurResult] = useState<BlurRenderResult | null>(null);
   
-  // Track raw values (width/height can be negative during drawing)
-  // liveRect holds the actual dimensions we render the blur at
+  // Track the shape's logical bounds (may extend outside image)
   const [liveRect, setLiveRect] = useState({ 
     x: shape.x || 0, 
     y: shape.y || 0,
@@ -117,11 +143,11 @@ const BlurRegion: React.FC<BlurRegionProps> = ({
   const blurType = shape.blurType || 'pixelate';
   const blurAmount = shape.blurAmount || shape.pixelSize || 10;
 
-  // Normalized values for rendering (handle negative dimensions)
-  const renderX = liveRect.width < 0 ? liveRect.x + liveRect.width : liveRect.x;
-  const renderY = liveRect.height < 0 ? liveRect.y + liveRect.height : liveRect.y;
-  const renderWidth = Math.abs(liveRect.width);
-  const renderHeight = Math.abs(liveRect.height);
+  // Normalized values for the shape bounds (handle negative dimensions)
+  const shapeX = liveRect.width < 0 ? liveRect.x + liveRect.width : liveRect.x;
+  const shapeY = liveRect.height < 0 ? liveRect.y + liveRect.height : liveRect.y;
+  const shapeWidth = Math.abs(liveRect.width);
+  const shapeHeight = Math.abs(liveRect.height);
 
   // Sync with shape state when props change (external updates)
   useEffect(() => {
@@ -134,44 +160,46 @@ const BlurRegion: React.FC<BlurRegionProps> = ({
   }, [shape.x, shape.y, shape.width, shape.height]);
 
   // Render blur whenever position/size changes
+  // Result includes clamped bounds for correct positioning within image
   useEffect(() => {
-    if (!sourceImage || renderWidth < 1 || renderHeight < 1) {
-      setBlurredCanvas(null);
+    if (!sourceImage || shapeWidth < 1 || shapeHeight < 1) {
+      setBlurResult(null);
       return;
     }
-    const canvas = renderBlurCanvas(
-      sourceImage, renderX, renderY, 
-      renderWidth, renderHeight, 
+    const result = renderBlurCanvas(
+      sourceImage, shapeX, shapeY, 
+      shapeWidth, shapeHeight, 
       blurType, blurAmount
     );
-    setBlurredCanvas(canvas);
-  }, [sourceImage, renderX, renderY, renderWidth, renderHeight, blurType, blurAmount]);
+    setBlurResult(result);
+  }, [sourceImage, shapeX, shapeY, shapeWidth, shapeHeight, blurType, blurAmount]);
 
-  // Real-time update during drag (position only)
+  // Real-time update during drag - track delta, apply to logical position
   const handleDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target;
-    setLiveRect(prev => ({ ...prev, x: node.x(), y: node.y() }));
+    // Node position IS the shape's logical position (Rect is at shapeX/shapeY)
+    setLiveRect(prev => ({ 
+      ...prev, 
+      x: prev.width < 0 ? node.x() + Math.abs(prev.width) : node.x(),
+      y: prev.height < 0 ? node.y() + Math.abs(prev.height) : node.y()
+    }));
   }, []);
 
   // Real-time update during transform (resize)
-  // Calculate actual dimensions from scale, re-render blur, reset scale
   const handleTransformInternal = useCallback((e: Konva.KonvaEventObject<Event>) => {
     const node = e.target;
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
     
-    // Use current node dimensions (which reflect accumulated transforms)
     const currentWidth = node.width();
     const currentHeight = node.height();
     
-    // Calculate new dimensions with scale applied
     const newWidth = Math.abs(currentWidth * scaleX);
     const newHeight = Math.abs(currentHeight * scaleY);
     const newX = node.x();
     const newY = node.y();
     
     // Reset scale and set actual dimensions on node
-    // This way parent's handleTransformEnd can read node.width()/height()
     node.scaleX(1);
     node.scaleY(1);
     node.width(newWidth);
@@ -186,22 +214,20 @@ const BlurRegion: React.FC<BlurRegionProps> = ({
     });
   }, []);
 
-  // On transform end, commit final dimensions to parent
   const handleTransformEndInternal = useCallback((e: Konva.KonvaEventObject<Event>) => {
-    // liveRect already has the final dimensions from handleTransformInternal
-    // Just call parent's onTransformEnd
     onTransformEnd(e);
   }, [onTransformEnd]);
 
-  // Placeholder while no image
-  if (!sourceImage || renderWidth < 1 || renderHeight < 1 || !blurredCanvas) {
+  // Placeholder while no image or blur completely outside bounds
+  if (!sourceImage || shapeWidth < 1 || shapeHeight < 1) {
     return (
       <Rect
+        ref={rectRef}
         id={shape.id}
-        x={renderX}
-        y={renderY}
-        width={renderWidth || 50}
-        height={renderHeight || 50}
+        x={shapeX}
+        y={shapeY}
+        width={shapeWidth || 50}
+        height={shapeHeight || 50}
         fill="rgba(128, 128, 128, 0.5)"
         stroke={isSelected ? '#fbbf24' : '#666'}
         strokeWidth={isSelected ? 2 : 1}
@@ -219,25 +245,43 @@ const BlurRegion: React.FC<BlurRegionProps> = ({
     );
   }
 
+  // Use Group: invisible Rect at shape position for interaction,
+  // blur Image at clamped position for display
   return (
-    <Image
-      ref={imageRef}
-      id={shape.id}
-      image={blurredCanvas}
-      x={renderX}
-      y={renderY}
-      width={renderWidth}
-      height={renderHeight}
-      draggable={draggable}
-      onClick={onSelect}
-      onTap={onSelect}
-      onDragStart={onDragStart}
-      onDragMove={handleDragMove}
-      onDragEnd={onDragEnd}
-      onTransformStart={onTransformStart}
-      onTransform={handleTransformInternal}
-      onTransformEnd={handleTransformEndInternal}
-    />
+    <Group>
+      {/* Blur image - positioned at clamped bounds, non-interactive */}
+      {blurResult && (
+        <Image
+          image={blurResult.canvas}
+          x={blurResult.x}
+          y={blurResult.y}
+          width={blurResult.width}
+          height={blurResult.height}
+          listening={false}
+        />
+      )}
+      {/* Invisible rect at shape's logical position - handles all interaction */}
+      <Rect
+        ref={rectRef}
+        id={shape.id}
+        x={shapeX}
+        y={shapeY}
+        width={shapeWidth}
+        height={shapeHeight}
+        fill="transparent"
+        stroke={isSelected ? '#fbbf24' : 'transparent'}
+        strokeWidth={isSelected ? 2 : 0}
+        draggable={draggable}
+        onClick={onSelect}
+        onTap={onSelect}
+        onDragStart={onDragStart}
+        onDragMove={handleDragMove}
+        onDragEnd={onDragEnd}
+        onTransformStart={onTransformStart}
+        onTransform={handleTransformInternal}
+        onTransformEnd={handleTransformEndInternal}
+      />
+    </Group>
   );
 };
 
@@ -1149,6 +1193,23 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           );
           const updatedShapes = shapes.map((shape) =>
             shape.id === id ? { ...shape, points: newPoints } : shape
+          );
+          onShapesChange(updatedShapes);
+        } else if (draggedShape.type === 'blur') {
+          // Blur uses normalized position (Rect is at shapeX, not shape.x)
+          // Calculate delta from normalized position to preserve negative width/height
+          const normalizedX = (draggedShape.width ?? 0) < 0 
+            ? (draggedShape.x ?? 0) + (draggedShape.width ?? 0) 
+            : (draggedShape.x ?? 0);
+          const normalizedY = (draggedShape.height ?? 0) < 0 
+            ? (draggedShape.y ?? 0) + (draggedShape.height ?? 0) 
+            : (draggedShape.y ?? 0);
+          const blurDx = e.target.x() - normalizedX;
+          const blurDy = e.target.y() - normalizedY;
+          const updatedShapes = shapes.map((shape) =>
+            shape.id === id
+              ? { ...shape, x: (shape.x ?? 0) + blurDx, y: (shape.y ?? 0) + blurDy }
+              : shape
           );
           onShapesChange(updatedShapes);
         } else {

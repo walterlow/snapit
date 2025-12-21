@@ -1082,6 +1082,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const handleTransform = useCallback(
     (id: string, e: Konva.KonvaEventObject<Event>) => {
       const node = e.target;
+      const shape = shapes.find(s => s.id === id);
+      if (!shape) return;
+
+      // For pen strokes, let Konva handle visual scaling - bake it on transformEnd
+      if (shape.type === 'pen') {
+        return;
+      }
+
       const scaleX = node.scaleX();
       const scaleY = node.scaleY();
 
@@ -1090,8 +1098,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       node.scaleX(1);
       node.scaleY(1);
 
-      const updatedShapes = shapes.map((shape) => {
-        if (shape.id !== id) return shape;
+      const updatedShapes = shapes.map((s) => {
+        if (s.id !== id) return s;
 
         const updates: Partial<CanvasShape> = {
           x: node.x(),
@@ -1100,27 +1108,27 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         };
 
         // Apply scale to width/height for rect-like shapes
-        if (shape.width !== undefined) {
-          updates.width = Math.abs(shape.width * scaleX);
+        if (s.width !== undefined) {
+          updates.width = Math.abs(s.width * scaleX);
         }
-        if (shape.height !== undefined) {
-          updates.height = Math.abs(shape.height * scaleY);
+        if (s.height !== undefined) {
+          updates.height = Math.abs(s.height * scaleY);
         }
         // Apply scale to radiusX/radiusY for ellipses
-        if (shape.radiusX !== undefined) {
-          updates.radiusX = Math.abs(shape.radiusX * scaleX);
+        if (s.radiusX !== undefined) {
+          updates.radiusX = Math.abs(s.radiusX * scaleX);
         }
-        if (shape.radiusY !== undefined) {
-          updates.radiusY = Math.abs(shape.radiusY * scaleY);
+        if (s.radiusY !== undefined) {
+          updates.radiusY = Math.abs(s.radiusY * scaleY);
         }
         // Legacy: convert old radius to radiusX/radiusY
-        if (shape.radius !== undefined && shape.radiusX === undefined) {
-          updates.radiusX = Math.abs(shape.radius * scaleX);
-          updates.radiusY = Math.abs(shape.radius * scaleY);
+        if (s.radius !== undefined && s.radiusX === undefined) {
+          updates.radiusX = Math.abs(s.radius * scaleX);
+          updates.radiusY = Math.abs(s.radius * scaleY);
           updates.radius = undefined;
         }
 
-        return { ...shape, ...updates };
+        return { ...s, ...updates };
       });
 
       onShapesChange(updatedShapes);
@@ -1128,15 +1136,46 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     [shapes, onShapesChange]
   );
 
-  // Handle transform end - just ensures final state is captured (real-time updates already applied)
+  // Handle transform end - bake scale into points for pen, ensure final state for others
   const handleTransformEnd = useCallback(
-    (_id: string, e: Konva.KonvaEventObject<Event>) => {
+    (id: string, e: Konva.KonvaEventObject<Event>) => {
       const node = e.target;
-      // Ensure scale is reset (should already be 1 from handleTransform)
+      const shape = shapes.find(s => s.id === id);
+
+      // For pen strokes, bake the accumulated transform into points
+      // Konva applies: visualPos = node.position + point * node.scale
+      if (shape?.type === 'pen' && shape.points && shape.points.length >= 2) {
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        const nodeX = node.x();
+        const nodeY = node.y();
+
+        // Transform each point: newPoint = nodePos + oldPoint * scale
+        const newPoints = shape.points.map((val, i) => {
+          if (i % 2 === 0) {
+            return nodeX + val * scaleX;
+          } else {
+            return nodeY + val * scaleY;
+          }
+        });
+
+        // Reset node transform
+        node.scaleX(1);
+        node.scaleY(1);
+        node.position({ x: 0, y: 0 });
+
+        const updatedShapes = shapes.map(s =>
+          s.id === id ? { ...s, points: newPoints } : s
+        );
+        onShapesChange(updatedShapes);
+        return;
+      }
+
+      // For other shapes, just ensure scale is reset
       node.scaleX(1);
       node.scaleY(1);
     },
-    []
+    [shapes, onShapesChange]
   );
 
   // Handle shape click with shift for multi-select

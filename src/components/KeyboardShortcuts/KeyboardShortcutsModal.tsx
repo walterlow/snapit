@@ -56,7 +56,7 @@ const sections: ShortcutSection[] = [
 ];
 
 const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <kbd className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 text-xs font-mono font-medium bg-[var(--obsidian-elevated)] border border-[var(--border-default)] rounded text-[var(--text-primary)]">
+  <kbd className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 text-xs font-mono font-medium bg-[var(--polar-ice)] border border-[var(--polar-frost)] rounded-md text-[var(--ink-black)] shadow-sm">
     {children}
   </kbd>
 );
@@ -88,21 +88,21 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
       onClick={onClose}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
       {/* Modal */}
       <div
-        className="relative bg-[var(--obsidian-base)] border border-[var(--border-default)] rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[80vh] overflow-hidden animate-scale-in"
+        className="relative bg-white border border-[var(--polar-frost)] rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[80vh] overflow-hidden animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--polar-frost)] bg-[var(--polar-ice)]">
+          <h2 className="text-lg font-semibold text-[var(--ink-black)]">
             Keyboard Shortcuts
           </h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)] transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-black)] hover:bg-[var(--polar-mist)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -113,7 +113,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
           <div className="space-y-6">
             {sections.map((section) => (
               <div key={section.title}>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
                   {section.title}
                 </h3>
                 <div className="space-y-2">
@@ -122,14 +122,14 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
                       key={idx}
                       className="flex items-center justify-between py-1.5"
                     >
-                      <span className="text-sm text-[var(--text-secondary)]">
+                      <span className="text-sm text-[var(--ink-dark)]">
                         {shortcut.description}
                       </span>
                       <div className="flex items-center gap-1">
                         {shortcut.keys.map((key, keyIdx) => (
                           <React.Fragment key={keyIdx}>
                             {keyIdx > 0 && (
-                              <span className="text-[var(--text-muted)] text-xs">+</span>
+                              <span className="text-[var(--ink-muted)] text-xs">+</span>
                             )}
                             <Kbd>{key}</Kbd>
                           </React.Fragment>
@@ -144,8 +144,8 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-[var(--border-subtle)] bg-[var(--obsidian-elevated)]">
-          <p className="text-xs text-[var(--text-muted)] text-center">
+        <div className="px-5 py-3 border-t border-[var(--polar-frost)] bg-[var(--polar-ice)]">
+          <p className="text-xs text-[var(--ink-muted)] text-center">
             Press <Kbd>?</Kbd> to toggle this overlay
           </p>
         </div>

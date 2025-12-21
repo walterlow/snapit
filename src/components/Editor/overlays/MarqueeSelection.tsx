@@ -31,10 +31,10 @@ export const MarqueeSelection: React.FC<MarqueeSelectionProps> = React.memo(({
       y={y}
       width={width}
       height={height}
-      stroke="#3b82f6"
+      stroke="#F97066"
       strokeWidth={1 / zoom}
       dash={[4 / zoom, 4 / zoom]}
-      fill="rgba(59, 130, 246, 0.1)"
+      fill="rgba(249, 112, 102, 0.1)"
       listening={false}
     />
   );

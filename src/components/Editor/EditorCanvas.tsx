@@ -30,10 +30,10 @@ import {
 // Utility functions
 import { getSelectionBounds, getVisibleBounds } from '../../utils/canvasGeometry';
 
-// Checkerboard pattern for transparency
+// Checkerboard pattern for transparency (softer for light theme)
 const CHECKER_SIZE = 10;
-const CHECKER_LIGHT = '#e0e0e0';
-const CHECKER_DARK = '#c0c0c0';
+const CHECKER_LIGHT = '#f5f5f5';
+const CHECKER_DARK = '#e8e8e8';
 
 const createCheckerPattern = (): HTMLImageElement => {
   const canvas = document.createElement('canvas');
@@ -55,6 +55,7 @@ interface EditorCanvasProps {
   selectedTool: Tool;
   onToolChange: (tool: Tool) => void;
   strokeColor: string;
+  fillColor: string;
   strokeWidth: number;
   shapes: CanvasShape[];
   onShapesChange: (shapes: CanvasShape[]) => void;
@@ -66,6 +67,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   selectedTool,
   onToolChange,
   strokeColor,
+  fillColor,
   strokeWidth,
   shapes,
   onShapesChange,
@@ -145,6 +147,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     selectedTool,
     onToolChange,
     strokeColor,
+    fillColor,
     strokeWidth,
     blurType,
     blurAmount,
@@ -217,9 +220,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       // Handle crop tool
       if (selectedTool === 'crop') return;
 
-      // Handle select tool - start marquee or click on stage
+      // Handle select tool - start marquee or click on stage/image
       if (selectedTool === 'select') {
-        const clickedOnEmpty = e.target === e.target.getStage();
+        // Consider clicking on stage or background image as "empty"
+        const clickedOnStage = e.target === e.target.getStage();
+        const clickedOnBackground = e.target.name() === 'background';
+        const clickedOnEmpty = clickedOnStage || clickedOnBackground;
+
         if (clickedOnEmpty) {
           setSelectedIds([]);
           const stage = stageRef.current;
@@ -362,7 +369,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       ref={navigation.containerRef}
       className="h-full w-full overflow-hidden relative"
       style={{
-        backgroundColor: 'var(--obsidian-base)',
+        backgroundColor: 'var(--polar-mist)',
         cursor: pan.isPanning ? 'grabbing' : 'default',
       }}
       onMouseDown={pan.handleMiddleMouseDown}
@@ -437,11 +444,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               y={visibleBounds.y - 2}
               width={visibleBounds.width + 4}
               height={visibleBounds.height + 4}
-              fill="rgba(0,0,0,0.3)"
+              fill="rgba(0,0,0,0.15)"
               cornerRadius={4}
               shadowColor="black"
-              shadowBlur={20}
-              shadowOpacity={0.5}
+              shadowBlur={24}
+              shadowOpacity={0.25}
               listening={false}
             />
           )}

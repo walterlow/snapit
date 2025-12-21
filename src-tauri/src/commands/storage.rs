@@ -64,6 +64,7 @@ pub struct CaptureListItem {
     pub capture_type: String,
     pub dimensions: Dimensions,
     pub thumbnail_path: String,
+    pub image_path: String,
     pub has_annotations: bool,
     pub tags: Vec<String>,
     pub favorite: bool,
@@ -314,6 +315,11 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
                             .join(format!("{}_thumb.png", &project.id))
                             .to_string_lossy()
                             .to_string();
+                        let image_path = base_dir
+                            .join("captures")
+                            .join(&project.original_image)
+                            .to_string_lossy()
+                            .to_string();
 
                         captures.push(CaptureListItem {
                             id: project.id,
@@ -322,6 +328,7 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
                             capture_type: project.capture_type,
                             dimensions: project.dimensions,
                             thumbnail_path,
+                            image_path,
                             has_annotations: !project.annotations.is_empty(),
                             tags: project.tags,
                             favorite: project.favorite,

@@ -139,7 +139,7 @@ interface EditorState {
   stepCount: number;
   compositorSettings: CompositorSettings;
   showCompositor: boolean;
-  
+
   // Blur tool settings
   blurType: BlurType;
   blurAmount: number;

@@ -43,6 +43,7 @@ export interface CaptureListItem {
   capture_type: string;
   dimensions: Dimensions;
   thumbnail_path: string;
+  image_path: string;
   has_annotations: boolean;
   tags: string[];
   favorite: boolean;
@@ -72,7 +73,7 @@ export interface StorageStats {
   storage_path: string;
 }
 
-export type Tool = 'select' | 'arrow' | 'rect' | 'circle' | 'text' | 'blur' | 'highlight' | 'steps' | 'crop' | 'pen';
+export type Tool = 'select' | 'arrow' | 'rect' | 'circle' | 'text' | 'blur' | 'highlight' | 'steps' | 'crop' | 'pen' | 'background';
 
 export interface CanvasShape {
   id: string;

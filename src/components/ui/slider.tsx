@@ -44,10 +44,10 @@ const Slider = React.forwardRef<HTMLDivElement, SliderProps>(
         className={cn('relative flex w-full touch-none select-none items-center h-5', className)}
       >
         <BaseSlider.Control className="relative flex items-center w-full h-full">
-          <BaseSlider.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-[var(--obsidian-elevated)]">
-            <BaseSlider.Indicator className="absolute h-full bg-amber-400" />
+          <BaseSlider.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-[var(--polar-mist)]">
+            <BaseSlider.Indicator className="absolute h-full bg-[var(--coral-400)]" />
           </BaseSlider.Track>
-          <BaseSlider.Thumb className="block h-4 w-4 rounded-full border border-amber-400/50 bg-amber-400 ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 cursor-pointer" />
+          <BaseSlider.Thumb className="block h-4 w-4 rounded-full border-2 border-[var(--coral-400)] bg-white shadow-md ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--coral-glow)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 cursor-pointer hover:scale-110" />
         </BaseSlider.Control>
       </BaseSlider.Root>
     );

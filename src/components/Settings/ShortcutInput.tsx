@@ -207,25 +207,25 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
     // When editing, show pending state
     if (hasPendingChanges) {
       if (conflictStatus === 'internal_conflict') return 'border-red-500/70';
-      if (conflictStatus === 'checking') return 'border-amber-400/50';
-      return 'border-amber-400/70';
+      if (conflictStatus === 'checking') return 'border-[var(--coral-400)]/50';
+      return 'border-[var(--coral-400)]/70';
     }
-    
+
     // Override ON = always green (we're forcing it anyway)
-    if (allowOverride) return 'border-green-600/50';
-    
+    if (allowOverride) return 'border-emerald-500/50';
+
     // Override OFF = show actual status
-    if (status === 'registered') return 'border-green-600/50';
+    if (status === 'registered') return 'border-emerald-500/50';
     if (status === 'conflict' || status === 'error') return 'border-red-500/50';
-    return 'border-[var(--border-subtle)]';
+    return 'border-[var(--polar-frost)]';
   };
 
   return (
     <div className="space-y-2">
-      <div 
+      <div
         className={cn(
           'flex items-center gap-1.5 p-2 rounded-lg border transition-colors',
-          'bg-[var(--obsidian-base)]',
+          'bg-white',
           getBorderClass(),
           disabled && 'opacity-50'
         )}
@@ -239,20 +239,20 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
             disabled={disabled}
             className={cn(
               'w-4 h-4 rounded border cursor-pointer appearance-none',
-              'border-[var(--border-default)] bg-[var(--obsidian-elevated)]',
-              'checked:bg-amber-500 checked:border-amber-500',
-              'focus:ring-2 focus:ring-amber-400/50 focus:ring-offset-0',
+              'border-[var(--polar-frost)] bg-[var(--polar-ice)]',
+              'checked:bg-[var(--coral-400)] checked:border-[var(--coral-400)]',
+              'focus:ring-2 focus:ring-[var(--coral-400)]/30 focus:ring-offset-0',
               'relative',
               'checked:after:content-["✓"] checked:after:absolute checked:after:inset-0',
               'checked:after:flex checked:after:items-center checked:after:justify-center',
               'checked:after:text-[10px] checked:after:text-white checked:after:font-bold'
             )}
           />
-          <span className="text-xs text-[var(--text-secondary)]">Ctrl</span>
+          <span className="text-xs text-[var(--ink-dark)]">Ctrl</span>
         </label>
-        
-        <span className="text-[var(--text-muted)] text-xs px-0.5">+</span>
-        
+
+        <span className="text-[var(--ink-muted)] text-xs px-0.5">+</span>
+
         {/* Shift checkbox */}
         <label className="flex items-center gap-1 cursor-pointer select-none">
           <input
@@ -262,20 +262,20 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
             disabled={disabled}
             className={cn(
               'w-4 h-4 rounded border cursor-pointer appearance-none',
-              'border-[var(--border-default)] bg-[var(--obsidian-elevated)]',
-              'checked:bg-amber-500 checked:border-amber-500',
-              'focus:ring-2 focus:ring-amber-400/50 focus:ring-offset-0',
+              'border-[var(--polar-frost)] bg-[var(--polar-ice)]',
+              'checked:bg-[var(--coral-400)] checked:border-[var(--coral-400)]',
+              'focus:ring-2 focus:ring-[var(--coral-400)]/30 focus:ring-offset-0',
               'relative',
               'checked:after:content-["✓"] checked:after:absolute checked:after:inset-0',
               'checked:after:flex checked:after:items-center checked:after:justify-center',
               'checked:after:text-[10px] checked:after:text-white checked:after:font-bold'
             )}
           />
-          <span className="text-xs text-[var(--text-secondary)]">Shift</span>
+          <span className="text-xs text-[var(--ink-dark)]">Shift</span>
         </label>
-        
-        <span className="text-[var(--text-muted)] text-xs px-0.5">+</span>
-        
+
+        <span className="text-[var(--ink-muted)] text-xs px-0.5">+</span>
+
         {/* Alt checkbox */}
         <label className="flex items-center gap-1 cursor-pointer select-none">
           <input
@@ -285,94 +285,94 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
             disabled={disabled}
             className={cn(
               'w-4 h-4 rounded border cursor-pointer appearance-none',
-              'border-[var(--border-default)] bg-[var(--obsidian-elevated)]',
-              'checked:bg-amber-500 checked:border-amber-500',
-              'focus:ring-2 focus:ring-amber-400/50 focus:ring-offset-0',
+              'border-[var(--polar-frost)] bg-[var(--polar-ice)]',
+              'checked:bg-[var(--coral-400)] checked:border-[var(--coral-400)]',
+              'focus:ring-2 focus:ring-[var(--coral-400)]/30 focus:ring-offset-0',
               'relative',
               'checked:after:content-["✓"] checked:after:absolute checked:after:inset-0',
               'checked:after:flex checked:after:items-center checked:after:justify-center',
               'checked:after:text-[10px] checked:after:text-white checked:after:font-bold'
             )}
           />
-          <span className="text-xs text-[var(--text-secondary)]">Alt</span>
+          <span className="text-xs text-[var(--ink-dark)]">Alt</span>
         </label>
         
-        <span className="text-[var(--text-muted)] text-xs px-0.5">+</span>
-        
+        <span className="text-[var(--ink-muted)] text-xs px-0.5">+</span>
+
         {/* Key dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild disabled={disabled}>
             <button
               className={cn(
                 'flex items-center justify-between gap-2 h-7 px-2 min-w-[100px]',
-                'rounded border text-xs',
-                'bg-[var(--obsidian-elevated)] border-[var(--border-subtle)]',
-                'hover:bg-[var(--obsidian-hover)] hover:border-[var(--border-default)]',
-                'focus:outline-none focus:ring-1 focus:ring-amber-400/50',
+                'rounded-lg border text-xs',
+                'bg-[var(--polar-ice)] border-[var(--polar-frost)]',
+                'hover:bg-[var(--polar-mist)] hover:border-[var(--ink-subtle)]',
+                'focus:outline-none focus:ring-2 focus:ring-[var(--coral-400)]/30',
                 disabled && 'pointer-events-none opacity-50'
               )}
             >
-              <span className="text-[var(--text-primary)]">{getKeyLabel(localKey)}</span>
-              <ChevronDown className="w-3 h-3 text-[var(--text-muted)]" />
+              <span className="text-[var(--ink-black)]">{getKeyLabel(localKey)}</span>
+              <ChevronDown className="w-3 h-3 text-[var(--ink-muted)]" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent 
-            className="max-h-[300px] overflow-y-auto bg-[var(--obsidian-float)] border-[var(--border-default)]"
+          <DropdownMenuContent
+            className="max-h-[300px] overflow-y-auto bg-white border-[var(--polar-frost)]"
             align="start"
           >
             <DropdownMenuRadioGroup value={localKey || 'none'} onValueChange={handleKeyChange}>
-              <DropdownMenuRadioItem value="none" className="text-xs text-[var(--text-muted)]">
+              <DropdownMenuRadioItem value="none" className="text-xs text-[var(--ink-muted)]">
                 None
               </DropdownMenuRadioItem>
-              
+
               <DropdownMenuSeparator />
-              
-              <DropdownMenuLabel className="text-xs text-amber-400">Special</DropdownMenuLabel>
+
+              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Special</DropdownMenuLabel>
               {KEY_GROUPS.special.map(opt => (
                 <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
                   {opt.label}
                 </DropdownMenuRadioItem>
               ))}
-              
+
               <DropdownMenuSeparator />
-              
-              <DropdownMenuLabel className="text-xs text-amber-400">Letters</DropdownMenuLabel>
+
+              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Letters</DropdownMenuLabel>
               {KEY_GROUPS.letters.map(opt => (
                 <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
                   {opt.label}
                 </DropdownMenuRadioItem>
               ))}
-              
+
               <DropdownMenuSeparator />
-              
-              <DropdownMenuLabel className="text-xs text-amber-400">Numbers</DropdownMenuLabel>
+
+              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Numbers</DropdownMenuLabel>
               {KEY_GROUPS.numbers.map(opt => (
                 <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
                   {opt.label}
                 </DropdownMenuRadioItem>
               ))}
-              
+
               <DropdownMenuSeparator />
-              
-              <DropdownMenuLabel className="text-xs text-amber-400">Function Keys</DropdownMenuLabel>
+
+              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Function Keys</DropdownMenuLabel>
               {KEY_GROUPS.functionKeys.map(opt => (
                 <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
                   {opt.label}
                 </DropdownMenuRadioItem>
               ))}
-              
+
               <DropdownMenuSeparator />
-              
-              <DropdownMenuLabel className="text-xs text-amber-400">Navigation</DropdownMenuLabel>
+
+              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Navigation</DropdownMenuLabel>
               {KEY_GROUPS.navigation.map(opt => (
                 <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
                   {opt.label}
                 </DropdownMenuRadioItem>
               ))}
-              
+
               <DropdownMenuSeparator />
-              
-              <DropdownMenuLabel className="text-xs text-amber-400">Arrows</DropdownMenuLabel>
+
+              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Arrows</DropdownMenuLabel>
               {KEY_GROUPS.arrows.map(opt => (
                 <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
                   {opt.label}
@@ -384,15 +384,15 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
         
         {/* Conflict status indicator */}
         {conflictStatus === 'checking' && (
-          <Loader2 className="w-4 h-4 text-amber-400 animate-spin ml-1" />
+          <Loader2 className="w-4 h-4 text-[var(--coral-400)] animate-spin ml-1" />
         )}
         {conflictStatus === 'available' && hasPendingChanges && (
-          <Check className="w-4 h-4 text-green-500 ml-1" />
+          <Check className="w-4 h-4 text-emerald-500 ml-1" />
         )}
         {(conflictStatus === 'conflict' || conflictStatus === 'internal_conflict') && (
           <AlertTriangle className="w-4 h-4 text-red-500 ml-1" />
         )}
-        
+
         {/* Apply button - for available shortcuts OR conflicts when override is already enabled */}
         {hasPendingChanges && conflictStatus !== 'internal_conflict' && (conflictStatus !== 'conflict' || allowOverride) && (
           <Button
@@ -400,14 +400,14 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
             size="sm"
             onClick={handleApply}
             disabled={disabled || !isValid || conflictStatus === 'checking'}
-            className="h-7 px-2 ml-1 text-xs bg-amber-500 hover:bg-amber-600 text-white"
+            className="h-7 px-2 ml-1 text-xs bg-[var(--coral-400)] hover:bg-[var(--coral-500)] text-white"
             title="Apply shortcut"
           >
             <Check className="w-3 h-3 mr-1" />
             Apply
           </Button>
         )}
-        
+
         {/* Apply Override button - for external conflicts when override is OFF */}
         {hasPendingChanges && conflictStatus === 'conflict' && !allowOverride && (
           <Button
@@ -422,7 +422,7 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
             Apply Override
           </Button>
         )}
-        
+
         {/* Reset button */}
         {showReset && isModifiedFromDefault && !hasPendingChanges && (
           <Button
@@ -430,29 +430,29 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
             size="icon"
             onClick={onReset}
             disabled={disabled}
-            className="h-7 w-7 ml-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="h-7 w-7 ml-1 text-[var(--ink-muted)] hover:text-[var(--ink-black)]"
             title="Reset to default"
           >
             <RotateCcw className="w-3 h-3" />
           </Button>
         )}
       </div>
-      
+
       {/* Conflict warning message */}
       {conflictStatus === 'conflict' && (
-        <p className="text-xs text-red-400 flex items-center gap-1">
+        <p className="text-xs text-red-500 flex items-center gap-1">
           <AlertTriangle className="w-3 h-3" />
           Shortcut in use by another app.
         </p>
       )}
       {conflictStatus === 'internal_conflict' && (
-        <p className="text-xs text-red-400 flex items-center gap-1">
+        <p className="text-xs text-red-500 flex items-center gap-1">
           <AlertTriangle className="w-3 h-3" />
           This shortcut is already used by another SnapIt action
         </p>
       )}
       {conflictStatus === 'available' && hasPendingChanges && (
-        <p className="text-xs text-green-400 flex items-center gap-1">
+        <p className="text-xs text-emerald-500 flex items-center gap-1">
           <Check className="w-3 h-3" />
           Shortcut is available
         </p>

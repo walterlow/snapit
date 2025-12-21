@@ -12,6 +12,7 @@ interface UseShapeDrawingProps {
   selectedTool: Tool;
   onToolChange: (tool: Tool) => void;
   strokeColor: string;
+  fillColor: string;
   strokeWidth: number;
   blurType: BlurType;
   blurAmount: number;
@@ -38,6 +39,7 @@ export const useShapeDrawing = ({
   selectedTool,
   onToolChange,
   strokeColor,
+  fillColor,
   strokeWidth,
   blurType,
   blurAmount,
@@ -78,7 +80,7 @@ export const useShapeDrawing = ({
             height: endPos.y - startPos.y,
             stroke: strokeColor,
             strokeWidth,
-            fill: 'transparent',
+            fill: fillColor,
           };
         case 'circle': {
           const radiusX = Math.abs(endPos.x - startPos.x) / 2;
@@ -94,10 +96,17 @@ export const useShapeDrawing = ({
             radiusY,
             stroke: strokeColor,
             strokeWidth,
-            fill: 'transparent',
+            fill: fillColor,
           };
         }
-        case 'highlight':
+        case 'highlight': {
+          // Convert strokeColor to rgba with 40% opacity
+          const hexToRgba = (hex: string, alpha: number) => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+          };
           return {
             id,
             type: 'highlight',
@@ -105,8 +114,9 @@ export const useShapeDrawing = ({
             y: startPos.y,
             width: endPos.x - startPos.x,
             height: endPos.y - startPos.y,
-            fill: 'rgba(255, 255, 0, 0.4)',
+            fill: hexToRgba(strokeColor, 0.4),
           };
+        }
         case 'blur':
           return {
             id,
@@ -131,7 +141,7 @@ export const useShapeDrawing = ({
           return null;
       }
     },
-    [selectedTool, strokeColor, strokeWidth, blurType, blurAmount]
+    [selectedTool, strokeColor, fillColor, strokeWidth, blurType, blurAmount]
   );
 
   // Handle mouse down for drawing

@@ -59,6 +59,7 @@ pub fn run() {
             commands::image::save_png_bytes,
             commands::image::copy_to_clipboard,
             commands::image::copy_rgba_to_clipboard,
+            commands::image::copy_image_to_clipboard,
             commands::image::crop_image,
             commands::image::apply_blur_region,
             // Storage commands

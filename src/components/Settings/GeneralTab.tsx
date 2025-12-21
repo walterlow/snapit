@@ -94,16 +94,16 @@ export const GeneralTab: React.FC = () => {
     <div className="space-y-6">
       {/* Startup Section */}
       <section>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
           Startup
         </h3>
-        <div className="p-4 rounded-lg bg-[var(--obsidian-elevated)] border border-[var(--border-subtle)]">
+        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)]">
           <label className="flex items-center justify-between cursor-pointer">
             <div>
-              <p className="text-sm text-[var(--text-primary)]">
+              <p className="text-sm text-[var(--ink-black)]">
                 Launch when Windows starts
               </p>
-              <p className="text-xs text-[var(--text-muted)] mt-0.5">
+              <p className="text-xs text-[var(--ink-muted)] mt-0.5">
                 SnapIt will start minimized in the system tray
               </p>
             </div>
@@ -118,13 +118,13 @@ export const GeneralTab: React.FC = () => {
 
       {/* Save Options Section */}
       <section>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
           Save Options
         </h3>
-        <div className="p-4 rounded-lg bg-[var(--obsidian-elevated)] border border-[var(--border-subtle)] space-y-4">
+        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)] space-y-4">
           {/* Default Save Location */}
           <div>
-            <label className="text-sm text-[var(--text-primary)] mb-2 block">
+            <label className="text-sm text-[var(--ink-black)] mb-2 block">
               Default save location
             </label>
             <div className="flex gap-2">
@@ -132,13 +132,13 @@ export const GeneralTab: React.FC = () => {
                 value={general.defaultSaveDir || ''}
                 placeholder="Click Browse to select..."
                 readOnly
-                className="flex-1 text-sm bg-[var(--obsidian-base)]"
+                className="flex-1 text-sm bg-white"
               />
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleBrowseSaveDir}
-                className="shrink-0"
+                className="shrink-0 bg-white border-[var(--polar-frost)] text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
               >
                 <FolderOpen className="w-4 h-4 mr-1" />
                 Browse
@@ -149,7 +149,7 @@ export const GeneralTab: React.FC = () => {
                   size="icon"
                   onClick={handleOpenSaveDir}
                   title="Open in Explorer"
-                  className="shrink-0"
+                  className="shrink-0 text-[var(--ink-muted)] hover:text-[var(--ink-black)] hover:bg-[var(--polar-mist)]"
                 >
                   <ExternalLink className="w-4 h-4" />
                 </Button>
@@ -160,7 +160,7 @@ export const GeneralTab: React.FC = () => {
                 variant="link"
                 size="sm"
                 onClick={handleSetDefaultDir}
-                className="text-xs text-amber-400 p-0 h-auto mt-1"
+                className="text-xs text-[var(--coral-400)] hover:text-[var(--coral-500)] p-0 h-auto mt-1"
               >
                 Use default (Pictures/SnapIt)
               </Button>
@@ -169,14 +169,14 @@ export const GeneralTab: React.FC = () => {
 
           {/* Image Format */}
           <div>
-            <label className="text-sm text-[var(--text-primary)] mb-2 block">
+            <label className="text-sm text-[var(--ink-black)] mb-2 block">
               Default image format
             </label>
             <Select
               value={general.imageFormat}
               onValueChange={(value) => handleFormatChange(value as ImageFormat)}
             >
-              <SelectTrigger className="w-full max-w-[200px] bg-[var(--obsidian-base)]">
+              <SelectTrigger className="w-full max-w-[200px] bg-white border-[var(--polar-frost)] text-[var(--ink-black)]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -191,10 +191,10 @@ export const GeneralTab: React.FC = () => {
           {general.imageFormat === 'jpg' && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm text-[var(--text-primary)]">
+                <label className="text-sm text-[var(--ink-black)]">
                   JPG Quality
                 </label>
-                <span className="text-sm text-[var(--text-muted)]">
+                <span className="text-sm text-[var(--ink-muted)]">
                   {general.jpgQuality}%
                 </span>
               </div>
@@ -206,7 +206,7 @@ export const GeneralTab: React.FC = () => {
                 step={5}
                 className="w-full"
               />
-              <p className="text-xs text-[var(--text-muted)] mt-1">
+              <p className="text-xs text-[var(--ink-muted)] mt-1">
                 Higher quality = larger file size
               </p>
             </div>

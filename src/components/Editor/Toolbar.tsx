@@ -11,15 +11,14 @@ import {
   Download,
   ArrowLeft,
   Check,
-  Palette,
-  Minus,
   Undo2,
   Redo2,
   Sparkles,
-  Droplets,
   Crop,
   Loader2,
   Pencil,
+  FileImage,
+  Share2,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { Tool } from '../../types';
@@ -36,18 +35,17 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
 
 interface ToolbarProps {
   selectedTool: Tool;
   onToolChange: (tool: Tool) => void;
-  strokeColor: string;
-  onStrokeColorChange: (color: string) => void;
-  strokeWidth: number;
-  onStrokeWidthChange: (width: number) => void;
   onCopy: () => void;
   onSave: () => void;
+  onSaveAs?: (format: 'png' | 'jpg' | 'webp') => void;
   onBack: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -66,37 +64,15 @@ const toolDefs: { id: Tool; Icon: typeof MousePointer2; label: string; shortcut:
   { id: 'blur', Icon: Grid3X3, label: 'Blur', shortcut: 'B' },
   { id: 'steps', Icon: Hash, label: 'Steps', shortcut: 'S' },
   { id: 'pen', Icon: Pencil, label: 'Pen', shortcut: 'P' },
-];
-
-const colors = [
-  { value: '#EF4444', name: 'Red' },
-  { value: '#F97316', name: 'Orange' },
-  { value: '#FBBF24', name: 'Amber' },
-  { value: '#22C55E', name: 'Green' },
-  { value: '#3B82F6', name: 'Blue' },
-  { value: '#8B5CF6', name: 'Purple' },
-  { value: '#EC4899', name: 'Pink' },
-  { value: '#FFFFFF', name: 'White' },
-  { value: '#000000', name: 'Black' },
-];
-
-const strokeWidths = [
-  { value: 2, label: 'Thin' },
-  { value: 3, label: 'Regular' },
-  { value: 4, label: 'Medium' },
-  { value: 6, label: 'Bold' },
-  { value: 8, label: 'Heavy' },
+  { id: 'background', Icon: Sparkles, label: 'Background', shortcut: 'G' },
 ];
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   selectedTool,
   onToolChange,
-  strokeColor,
-  onStrokeColorChange,
-  strokeWidth,
-  onStrokeWidthChange,
   onCopy,
   onSave,
+  onSaveAs,
   onBack,
   onUndo,
   onRedo,
@@ -109,9 +85,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   // Get undo/redo state from store
   const canUndo = useEditorStore((state) => state.canUndo);
   const canRedo = useEditorStore((state) => state.canRedo);
-
-  // Compositor state
-  const { compositorSettings, toggleCompositor, blurType, setBlurType, blurAmount, setBlurAmount } = useEditorStore();
 
   useEffect(() => {
     const checkSize = () => {
@@ -133,7 +106,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex items-center justify-center p-3 bg-[var(--obsidian-raised)] border-t border-[var(--border-subtle)]">
+      <div className="flex items-center justify-center p-3 bg-[var(--polar-ice)] border-t border-[var(--polar-frost)]">
         <div className="floating-toolbar animate-scale-in">
           {/* Back Button */}
           <Tooltip>
@@ -142,17 +115,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 variant="ghost"
                 size="icon"
                 onClick={onBack}
-                className={`${buttonSize} rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]`}
+                className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)]`}
               >
                 <ArrowLeft className={iconSize} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top" >
+            <TooltipContent side="top">
               <p className="text-xs">Back to Library</p>
             </TooltipContent>
           </Tooltip>
 
-          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--border-default)]" />
+          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--polar-frost)]" />
 
           {/* Undo/Redo Buttons */}
           <Tooltip>
@@ -162,12 +135,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 size="icon"
                 onClick={onUndo}
                 disabled={!canUndo}
-                className={`${buttonSize} rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)] disabled:opacity-30 disabled:cursor-not-allowed`}
+                className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)] disabled:opacity-30 disabled:cursor-not-allowed`}
               >
                 <Undo2 className={iconSize} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top" >
+            <TooltipContent side="top">
               <div className="flex items-center gap-2">
                 <span className="text-xs">Undo</span>
                 <kbd className="kbd text-[10px] px-1.5 py-0.5">Ctrl+Z</kbd>
@@ -182,12 +155,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 size="icon"
                 onClick={onRedo}
                 disabled={!canRedo}
-                className={`${buttonSize} rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)] disabled:opacity-30 disabled:cursor-not-allowed`}
+                className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)] disabled:opacity-30 disabled:cursor-not-allowed`}
               >
                 <Redo2 className={iconSize} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top" >
+            <TooltipContent side="top">
               <div className="flex items-center gap-2">
                 <span className="text-xs">Redo</span>
                 <kbd className="kbd text-[10px] px-1.5 py-0.5">Ctrl+Y</kbd>
@@ -195,7 +168,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </TooltipContent>
           </Tooltip>
 
-          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--border-default)]" />
+          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--polar-frost)]" />
 
           {/* Tool Buttons */}
           <div className="flex items-center gap-0.5">
@@ -209,7 +182,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     <tool.Icon className={`${iconSize} relative z-10`} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top" >
+                <TooltipContent side="top">
                   <div className="flex items-center gap-2">
                     <span className="text-xs">{tool.label}</span>
                     <kbd className="kbd text-[10px] px-1.5 py-0.5">{tool.shortcut}</kbd>
@@ -219,213 +192,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             ))}
           </div>
 
-          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--border-default)]" />
+          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--polar-frost)]" />
 
-          {/* Color Picker */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={`${buttonSize} rounded-lg hover:bg-[var(--obsidian-hover)] relative`}
-                  >
-                    <Palette className={`${iconSize} text-[var(--text-secondary)]`} />
-                    <div
-                      className="absolute bottom-1.5 right-1.5 w-2.5 h-2.5 rounded-full border border-white/20"
-                      style={{ backgroundColor: strokeColor }}
-                    />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="top" >
-                <p className="text-xs">Color</p>
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent
-              side="top"
-              align="center"
-              className="p-3 bg-[var(--obsidian-float)] border-[var(--border-default)] animate-scale-in"
-            >
-              <div className="color-picker">
-                {colors.map((color) => (
-                  <button
-                    key={color.value}
-                    onClick={() => onStrokeColorChange(color.value)}
-                    className={`color-swatch ${strokeColor === color.value ? 'active' : ''}`}
-                    style={{ backgroundColor: color.value }}
-                    title={color.name}
-                  />
-                ))}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Stroke Width */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={`${buttonSize} rounded-lg hover:bg-[var(--obsidian-hover)]`}
-                  >
-                    <Minus className={`${iconSize} text-[var(--text-secondary)]`} style={{ strokeWidth: strokeWidth }} />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="top" >
-                <p className="text-xs">Stroke Width</p>
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent
-              side="top"
-              align="center"
-              className="p-3 bg-[var(--obsidian-float)] border-[var(--border-default)] animate-scale-in"
-            >
-              <div className="flex items-center gap-2">
-                {strokeWidths.map((sw) => (
-                  <Tooltip key={sw.value}>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => onStrokeWidthChange(sw.value)}
-                        className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-                          strokeWidth === sw.value
-                            ? 'bg-[var(--amber-glow)] border border-[var(--amber-400)]'
-                            : 'hover:bg-[var(--obsidian-hover)]'
-                        }`}
-                      >
-                        <div
-                          className="rounded-full bg-white"
-                          style={{
-                            width: Math.min(sw.value * 2, 16),
-                            height: Math.min(sw.value * 2, 16),
-                          }}
-                        />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      <p className="text-xs">{sw.label}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Blur Type Toggle - only shown when blur tool is selected */}
-          {selectedTool === 'blur' && (
-            <>
-              <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--border-default)]" />
-              <div className="flex items-center gap-1 px-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setBlurType('pixelate')}
-                      className={`${buttonSize} rounded-lg flex items-center justify-center transition-all ${
-                        blurType === 'pixelate'
-                          ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]'
-                      }`}
-                    >
-                      <Grid3X3 className={iconSize} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" >
-                    <p className="text-xs">Pixelate</p>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setBlurType('gaussian')}
-                      className={`${buttonSize} rounded-lg flex items-center justify-center transition-all ${
-                        blurType === 'gaussian'
-                          ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]'
-                      }`}
-                    >
-                      <Droplets className={iconSize} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" >
-                    <p className="text-xs">Gaussian Blur</p>
-                  </TooltipContent>
-                </Tooltip>
-                {/* Blur Amount Slider */}
-                <DropdownMenu>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <DropdownMenuTrigger asChild>
-                        <button className={`${buttonSize} rounded-lg flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]`}>
-                          <span className="text-xs font-mono">{blurAmount}</span>
-                        </button>
-                      </DropdownMenuTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" >
-                      <p className="text-xs">Blur Amount</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <DropdownMenuContent
-                    side="top"
-                    align="center"
-                    className="p-3 bg-[var(--obsidian-float)] border-[var(--border-default)] animate-scale-in"
-                  >
-                    <div className="flex items-center gap-2">
-                      {[5, 10, 15, 20, 30].map((amount) => (
-                        <Tooltip key={amount}>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => setBlurAmount(amount)}
-                              className={`w-9 h-9 rounded-lg flex items-center justify-center text-xs font-mono transition-all ${
-                                blurAmount === amount
-                                  ? 'bg-[var(--amber-glow)] border border-[var(--amber-400)] text-amber-400'
-                                  : 'hover:bg-[var(--obsidian-hover)] text-[var(--text-secondary)]'
-                              }`}
-                            >
-                              {amount}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            <p className="text-xs">{blurType === 'pixelate' ? 'Pixel size' : 'Blur radius'}: {amount}px</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ))}
-                    </div>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </>
-          )}
-
-          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--border-default)]" />
-
-          {/* Background Compositor Toggle */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleCompositor}
-                className={`${buttonSize} rounded-lg transition-all ${
-                  compositorSettings.enabled
-                    ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]'
-                }`}
-              >
-                <Sparkles className={iconSize} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top" >
-              <p className="text-xs">{compositorSettings.enabled ? 'Disable' : 'Enable'} Background</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--border-default)]" />
-
-          {/* Copy Button */}
+          {/* Quick Copy Button */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -435,8 +204,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 disabled={isCopying}
                 className={`${buttonSize} rounded-lg transition-all ${
                   copied
-                    ? 'bg-emerald-500/15 text-emerald-400'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)]'
+                    ? 'bg-emerald-50 text-emerald-500'
+                    : 'text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)]'
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {isCopying ? (
@@ -448,32 +217,67 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top" >
-              <p className="text-xs">{isCopying ? 'Copying...' : copied ? 'Copied!' : 'Copy to Clipboard'}</p>
+            <TooltipContent side="top">
+              <div className="flex items-center gap-2">
+                <span className="text-xs">{isCopying ? 'Copying...' : copied ? 'Copied!' : 'Copy'}</span>
+                <kbd className="kbd text-[10px] px-1.5 py-0.5">Ctrl+C</kbd>
+              </div>
             </TooltipContent>
           </Tooltip>
 
-          {/* Save Button */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onSave}
-                disabled={isSaving}
-                className={`${buttonSize} rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)] disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {isSaving ? (
-                  <Loader2 className={`${iconSize} animate-spin`} />
-                ) : (
-                  <Download className={iconSize} />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top" >
-              <p className="text-xs">{isSaving ? 'Saving...' : 'Save to File'}</p>
-            </TooltipContent>
-          </Tooltip>
+          {/* Export Dropdown */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    disabled={isSaving}
+                    className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)] disabled:opacity-50`}
+                  >
+                    {isSaving ? (
+                      <Loader2 className={`${iconSize} animate-spin`} />
+                    ) : (
+                      <div className="flex items-center">
+                        <Share2 className={iconSize} />
+                      </div>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs">{isSaving ? 'Saving...' : 'Export'}</span>
+                  <kbd className="kbd text-[10px] px-1.5 py-0.5">Ctrl+S</kbd>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent
+              side="top"
+              align="end"
+              className="w-48"
+            >
+              <DropdownMenuItem onClick={onSave} className="gap-2">
+                <Download className="w-4 h-4" />
+                <span>Save to File</span>
+                <span className="ml-auto text-[10px] text-[var(--ink-muted)]">Ctrl+S</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onSaveAs?.('png')} className="gap-2">
+                <FileImage className="w-4 h-4" />
+                <span>Save as PNG</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onSaveAs?.('jpg')} className="gap-2">
+                <FileImage className="w-4 h-4" />
+                <span>Save as JPG</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onSaveAs?.('webp')} className="gap-2">
+                <FileImage className="w-4 h-4" />
+                <span>Save as WebP</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </TooltipProvider>

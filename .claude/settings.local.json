@@ -8,7 +8,8 @@
       "WebFetch(domain:v2.tauri.app)",
       "Bash(npm run build:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:base-ui.com)"
+      "WebFetch(domain:base-ui.com)",
+      "WebFetch(domain:fonts.googleapis.com)"
     ]
   }
 }

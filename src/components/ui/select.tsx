@@ -29,14 +29,14 @@ const SelectTrigger = React.forwardRef<
   <BaseSelect.Trigger
     ref={ref}
     className={cn(
-      'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-lg border border-[var(--border-subtle)] bg-[var(--obsidian-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] ring-offset-background placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-amber-400/50 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+      'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-lg border border-[var(--polar-frost)] bg-white px-3 py-2 text-sm text-[var(--ink-black)] ring-offset-background placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--coral-400)]/30 focus:border-[var(--coral-400)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 transition-colors',
       className
     )}
     {...props}
   >
     {children}
     <BaseSelect.Icon>
-      <ChevronDown className="h-4 w-4 opacity-50" />
+      <ChevronDown className="h-4 w-4 text-[var(--ink-muted)]" />
     </BaseSelect.Icon>
   </BaseSelect.Trigger>
 ));
@@ -52,7 +52,7 @@ const SelectContent = React.forwardRef<
     <BaseSelect.Positioner ref={ref} sideOffset={4} {...props}>
       <BaseSelect.Popup
         className={cn(
-          'relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--obsidian-float)] text-[var(--text-primary)] shadow-xl p-1 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          'relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-[var(--polar-frost)] bg-white text-[var(--ink-black)] shadow-lg p-1 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
           className
         )}
       >
@@ -74,13 +74,13 @@ const SelectItem = React.forwardRef<HTMLDivElement, SelectItemProps>(
     <BaseSelect.Item
       ref={ref}
       className={cn(
-        'relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-2 pr-8 text-sm outline-none data-[highlighted]:bg-[var(--obsidian-hover)] data-[highlighted]:text-[var(--text-primary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'relative flex w-full cursor-default select-none items-center rounded-lg py-1.5 pl-2 pr-8 text-sm outline-none data-[highlighted]:bg-[var(--polar-ice)] data-[highlighted]:text-[var(--ink-black)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 transition-colors',
         className
       )}
       {...props}
     >
       <BaseSelect.ItemIndicator className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
-        <Check className="h-4 w-4 text-amber-400" />
+        <Check className="h-4 w-4 text-[var(--coral-400)]" />
       </BaseSelect.ItemIndicator>
       <BaseSelect.ItemText>{children}</BaseSelect.ItemText>
     </BaseSelect.Item>

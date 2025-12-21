@@ -36,21 +36,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
       onClick={onClose}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
       {/* Modal */}
       <div
-        className="relative bg-[var(--obsidian-base)] border border-[var(--border-default)] rounded-xl shadow-2xl w-[560px] mx-4 max-h-[85vh] overflow-hidden animate-scale-in"
+        className="relative bg-white border border-[var(--polar-frost)] rounded-xl shadow-2xl w-[560px] mx-4 max-h-[85vh] overflow-hidden animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--polar-frost)] bg-[var(--polar-ice)]">
+          <h2 className="text-lg font-semibold text-[var(--ink-black)]">
             Settings
           </h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--obsidian-hover)] transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-black)] hover:bg-[var(--polar-mist)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -63,17 +63,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
             onValueChange={(value) => setActiveTab(value as 'shortcuts' | 'general')}
             className="w-full"
           >
-            <div className="px-5 pt-4 border-b border-[var(--border-subtle)]">
+            <div className="px-5 pt-4 border-b border-[var(--polar-frost)]">
               <TabsList className="w-full justify-start bg-transparent p-0 h-auto">
                 <TabsTrigger
                   value="shortcuts"
-                  className="px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-amber-400 data-[state=active]:text-amber-400 data-[state=active]:bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  className="px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--coral-400)] data-[state=active]:text-[var(--coral-500)] data-[state=active]:bg-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-colors"
                 >
                   Shortcuts
                 </TabsTrigger>
                 <TabsTrigger
                   value="general"
-                  className="px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-amber-400 data-[state=active]:text-amber-400 data-[state=active]:bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  className="px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--coral-400)] data-[state=active]:text-[var(--coral-500)] data-[state=active]:bg-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-colors"
                 >
                   General
                 </TabsTrigger>

@@ -44,8 +44,9 @@ function App() {
   const { shapes, setShapes, clearEditor, compositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize } = useEditorStore();
 
   // Local editor UI state
-  const [selectedTool, setSelectedTool] = useState<Tool>('select');
+  const [selectedTool, setSelectedTool] = useState<Tool>('rect');
   const [strokeColor, setStrokeColor] = useState('#ef4444');
+  const [fillColor, setFillColor] = useState('transparent');
   const [strokeWidth, setStrokeWidth] = useState(3);
   const stageRef = useRef<Konva.Stage>(null);
   
@@ -460,6 +461,106 @@ function App() {
     }
   };
 
+  // Save to file with specific format
+  const handleSaveAs = async (format: 'png' | 'jpg' | 'webp') => {
+    if (!stageRef.current || !currentImageData) return;
+
+    setIsSaving(true);
+    try {
+      const stage = stageRef.current;
+      const layer = stage.findOne('Layer') as Konva.Layer;
+      if (!layer) return;
+
+      // Get content dimensions
+      const imageNode = stage.findOne('[name=background]') as Konva.Image | undefined;
+      const contentWidth = canvasBounds?.width || imageNode?.width() || 800;
+      const contentHeight = canvasBounds?.height || imageNode?.height() || 600;
+      const contentX = canvasBounds ? -canvasBounds.imageOffsetX : 0;
+      const contentY = canvasBounds ? -canvasBounds.imageOffsetY : 0;
+
+      // Calculate export bounds
+      let exportX: number, exportY: number, exportWidth: number, exportHeight: number;
+
+      if (compositorSettings.enabled) {
+        const avgDimension = (contentWidth + contentHeight) / 2;
+        const padding = avgDimension * (compositorSettings.padding / 100);
+        exportX = Math.round(contentX - padding);
+        exportY = Math.round(contentY - padding);
+        exportWidth = Math.round(contentWidth + padding * 2);
+        exportHeight = Math.round(contentHeight + padding * 2);
+      } else {
+        exportX = Math.round(contentX);
+        exportY = Math.round(contentY);
+        exportWidth = Math.round(contentWidth);
+        exportHeight = Math.round(contentHeight);
+      }
+
+      // Get format info
+      const formatInfo = {
+        png: { ext: 'png', mime: 'image/png', name: 'PNG' },
+        jpg: { ext: 'jpg', mime: 'image/jpeg', name: 'JPEG' },
+        webp: { ext: 'webp', mime: 'image/webp', name: 'WebP' },
+      }[format];
+
+      // Ask user for save location
+      const filePath = await save({
+        defaultPath: `capture_${Date.now()}.${formatInfo.ext}`,
+        filters: [{ name: formatInfo.name, extensions: [formatInfo.ext] }],
+      });
+
+      if (filePath) {
+        // Save and reset transform
+        const savedScale = { x: stage.scaleX(), y: stage.scaleY() };
+        const savedPosition = { x: stage.x(), y: stage.y() };
+        stage.scale({ x: 1, y: 1 });
+        stage.position({ x: 0, y: 0 });
+
+        // Hide editor-only elements
+        const checkerboard = stage.findOne('[name=checkerboard]');
+        const editorShadow = stage.findOne('[name=editor-shadow]');
+        const transformer = stage.findOne('Transformer');
+        if (checkerboard) checkerboard.hide();
+        if (editorShadow) editorShadow.hide();
+        if (transformer) transformer.hide();
+
+        // Export from Konva
+        const outputCanvas = layer.toCanvas({
+          x: exportX,
+          y: exportY,
+          width: exportWidth,
+          height: exportHeight,
+          pixelRatio: 1,
+        });
+
+        // Restore immediately
+        stage.scale(savedScale);
+        stage.position(savedPosition);
+        if (checkerboard) checkerboard.show();
+        if (editorShadow) editorShadow.show();
+        if (transformer) transformer.show();
+
+        // Create blob with correct format
+        const quality = format === 'jpg' ? 0.92 : format === 'webp' ? 0.9 : undefined;
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          outputCanvas.toBlob((b) => {
+            if (b) resolve(b);
+            else reject(new Error('Failed to create blob'));
+          }, formatInfo.mime, quality);
+        });
+
+        // Write file
+        const arrayBuffer = await blob.arrayBuffer();
+        await writeFile(filePath, new Uint8Array(arrayBuffer));
+        toast.success(`Image saved as ${formatInfo.name}`);
+      }
+    } catch (err) {
+      console.error('Save failed:', err);
+      toast.error(`Failed to save image: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Go back to library
   const handleBack = async () => {
     // Save annotations before going back (including crop bounds)
@@ -492,15 +593,16 @@ function App() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[var(--obsidian-base)] overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-[var(--polar-snow)] overflow-hidden">
       {/* Toast Notifications */}
-      <Toaster 
+      <Toaster
         position="top-center"
         toastOptions={{
           style: {
-            background: 'var(--obsidian-elevated)',
-            border: '1px solid var(--border-default)',
-            color: 'var(--text-primary)',
+            background: 'white',
+            border: '1px solid var(--polar-frost)',
+            color: 'var(--ink-black)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
           },
         }}
       />
@@ -533,6 +635,7 @@ function App() {
                     selectedTool={selectedTool}
                     onToolChange={setSelectedTool}
                     strokeColor={strokeColor}
+                    fillColor={fillColor}
                     strokeWidth={strokeWidth}
                     shapes={shapes}
                     onShapesChange={handleShapesChange}
@@ -542,19 +645,24 @@ function App() {
               </div>
 
               {/* Properties Sidebar - always visible */}
-              <PropertiesPanel />
+              <PropertiesPanel
+                selectedTool={selectedTool}
+                strokeColor={strokeColor}
+                onStrokeColorChange={setStrokeColor}
+                fillColor={fillColor}
+                onFillColorChange={setFillColor}
+                strokeWidth={strokeWidth}
+                onStrokeWidthChange={setStrokeWidth}
+              />
             </div>
 
             {/* Toolbar */}
             <Toolbar
               selectedTool={selectedTool}
               onToolChange={setSelectedTool}
-              strokeColor={strokeColor}
-              onStrokeColorChange={setStrokeColor}
-              strokeWidth={strokeWidth}
-              onStrokeWidthChange={setStrokeWidth}
               onCopy={handleCopy}
               onSave={handleSave}
+              onSaveAs={handleSaveAs}
               onBack={handleBack}
               onUndo={handleUndo}
               onRedo={handleRedo}

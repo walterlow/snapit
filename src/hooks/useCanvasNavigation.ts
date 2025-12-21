@@ -167,6 +167,16 @@ export const useCanvasNavigation = ({
     setPosition({ x, y });
   }, [image, containerSize, getCompositionSize, getContentDimensions]);
 
+  // Recenter canvas (keeps current zoom, just updates position)
+  const recenterCanvas = useCallback(() => {
+    if (!image) return;
+
+    const { width, height, cropX, cropY } = getContentDimensions();
+    const x = (containerSize.width - width * zoom) / 2 - cropX * zoom;
+    const y = (containerSize.height - height * zoom) / 2 - cropY * zoom;
+    setPosition({ x, y });
+  }, [image, containerSize, zoom, getContentDimensions]);
+
   // Initial fit and resize handling
   useEffect(() => {
     if (image && containerSize.width > 0 && containerSize.height > 0) {
@@ -183,18 +193,20 @@ export const useCanvasNavigation = ({
       }
 
       const prevSize = prevContainerSizeRef.current;
-      const widthDiff = Math.abs(containerSize.width - prevSize.width);
-      const heightDiff = Math.abs(containerSize.height - prevSize.height);
-      const isSignificantChange = widthDiff > 100 || heightDiff > 100;
+      const hasChanged = prevSize.width !== containerSize.width || prevSize.height !== containerSize.height;
 
-      if (isInitialFit || isSignificantChange) {
+      if (isInitialFit) {
+        // Initial load - fit to size
         handleFitToSize();
-        if (isInitialFit) setIsInitialFit(false);
+        setIsInitialFit(false);
+      } else if (hasChanged) {
+        // On resize - just recenter, keep current zoom
+        recenterCanvas();
       }
 
       prevContainerSizeRef.current = containerSize;
     }
-  }, [image, containerSize, isInitialFit, handleFitToSize, canvasBounds, setCanvasBounds, setOriginalImageSize]);
+  }, [image, containerSize, isInitialFit, handleFitToSize, recenterCanvas, canvasBounds, setCanvasBounds, setOriginalImageSize]);
 
   // Fit when exiting crop mode
   useEffect(() => {
@@ -282,23 +294,34 @@ export const useCanvasNavigation = ({
     setPosition({ x, y });
   }, [image, containerSize, getContentDimensions]);
 
-  // Mouse wheel zoom handler
+  // Mouse wheel zoom handler (mouse-anchored)
   const handleWheel = useCallback(
     (e: Konva.KonvaEventObject<WheelEvent>) => {
       e.evt.preventDefault();
       if (!image) return;
 
+      const stage = e.target.getStage();
+      if (!stage) return;
+
       const direction = e.evt.deltaY > 0 ? -1 : 1;
       const newZoom = Math.min(Math.max(zoom + direction * ZOOM_STEP, MIN_ZOOM), MAX_ZOOM);
 
-      const { width, height, cropX, cropY } = getContentDimensions();
-      const x = (containerSize.width - width * newZoom) / 2 - cropX * newZoom;
-      const y = (containerSize.height - height * newZoom) / 2 - cropY * newZoom;
+      // Get mouse position relative to the stage container
+      const pointerPos = stage.getPointerPosition();
+      if (!pointerPos) return;
+
+      // Calculate mouse position in canvas coordinates (before zoom)
+      const mouseCanvasX = (pointerPos.x - position.x) / zoom;
+      const mouseCanvasY = (pointerPos.y - position.y) / zoom;
+
+      // Calculate new position so the same canvas point stays under the mouse
+      const newX = pointerPos.x - mouseCanvasX * newZoom;
+      const newY = pointerPos.y - mouseCanvasY * newZoom;
 
       setZoom(newZoom);
-      setPosition({ x, y });
+      setPosition({ x: newX, y: newY });
     },
-    [zoom, image, containerSize, getContentDimensions]
+    [zoom, position, image]
   );
 
   return {

@@ -24,7 +24,10 @@ tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# Screen capture
+# Screen capture - primary (Windows Graphics Capture API with transparency support)
+windows-capture = "1.4"
+
+# Screen capture - fallback
 xcap = "0.7"
 
 # Image processing
@@ -54,7 +57,8 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
-    "Win32_System_Threading"
+    "Win32_Graphics_Dwm",
+    "Win32_System_Threading",
 ] }
 
 [profile.release]

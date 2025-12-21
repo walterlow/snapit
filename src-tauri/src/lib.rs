@@ -35,13 +35,13 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            // Screenshot commands
-            commands::screenshot::capture_region,
-            commands::screenshot::capture_fullscreen,
-            commands::screenshot::capture_window,
-            commands::screenshot::get_monitors,
-            commands::screenshot::get_windows,
-            commands::screenshot::get_window_at_point,
+            // Capture commands (with transparency support)
+            commands::capture::capture_region,
+            commands::capture::capture_fullscreen,
+            commands::capture::capture_window,
+            commands::capture::get_monitors,
+            commands::capture::get_windows,
+            commands::capture::get_window_at_point,
             // Window commands
             commands::window::show_overlay,
             commands::window::hide_overlay,
@@ -108,7 +108,7 @@ fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
             "capture_full" => {
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Ok(result) = commands::screenshot::capture_fullscreen().await {
+                    if let Ok(result) = commands::capture::capture_fullscreen().await {
                         let _ = commands::window::open_editor(app_handle, result.image_data).await;
                     }
                 });
@@ -157,7 +157,7 @@ fn setup_global_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
             if event.state == ShortcutState::Pressed {
                 let app_clone = app_handle2.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Ok(result) = commands::screenshot::capture_fullscreen().await {
+                    if let Ok(result) = commands::capture::capture_fullscreen().await {
                         let _ = commands::window::open_editor(app_clone, result.image_data).await;
                     }
                 });

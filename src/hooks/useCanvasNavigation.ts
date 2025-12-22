@@ -89,7 +89,7 @@ export const useCanvasNavigation = ({
   }, [imageData]);
 
   // Calculate transform coefficients when compositor settings or bounds change
-  // Formula: compositor left = position.x + Kx * zoom, where Kx = visibleBounds.x - avgDimension * paddingPercent
+  // Formula: compositor left = position.x + Kx * zoom, where Kx = visibleBounds.x - padding
   useEffect(() => {
     if (!image || !canvasBounds || !compositorSettings.enabled) {
       transformCoeffsRef.current = { kx: 0, ky: 0 };
@@ -98,27 +98,23 @@ export const useCanvasNavigation = ({
 
     // Calculate visible bounds (same logic as getVisibleBounds)
     const isCropMode = selectedTool === 'crop';
-    let visibleX: number, visibleY: number, visibleWidth: number, visibleHeight: number;
+    let visibleX: number, visibleY: number;
 
     if (isCropMode) {
       visibleX = 0;
       visibleY = 0;
-      visibleWidth = image.width;
-      visibleHeight = image.height;
     } else {
       visibleX = -canvasBounds.imageOffsetX;
       visibleY = -canvasBounds.imageOffsetY;
-      visibleWidth = canvasBounds.width;
-      visibleHeight = canvasBounds.height;
     }
 
-    const avgDimension = (visibleWidth + visibleHeight) / 2;
-    const paddingPercent = compositorSettings.padding / 100;
+    // Padding is now in pixels
+    const padding = compositorSettings.padding;
 
     // Kx and Ky: the coefficients that relate zoom to compositor position offset
     transformCoeffsRef.current = {
-      kx: visibleX - avgDimension * paddingPercent,
-      ky: visibleY - avgDimension * paddingPercent,
+      kx: visibleX - padding,
+      ky: visibleY - padding,
     };
   }, [image, canvasBounds, compositorSettings.enabled, compositorSettings.padding, selectedTool]);
 
@@ -134,11 +130,11 @@ export const useCanvasNavigation = ({
     renderedPositionRef.current = position;
   }, [zoom, position, compositorBgRef]);
 
-  // Cleanup timeouts on unmount
+  // Cleanup RAF handles on unmount
   useEffect(() => {
     return () => {
       if (zoomSyncTimeoutRef.current) {
-        clearTimeout(zoomSyncTimeoutRef.current);
+        cancelAnimationFrame(zoomSyncTimeoutRef.current);
       }
       if (fitRequestRef.current) {
         cancelAnimationFrame(fitRequestRef.current);
@@ -151,8 +147,7 @@ export const useCanvasNavigation = ({
     if (!compositorSettings.enabled) {
       return { width: contentWidth, height: contentHeight };
     }
-    const avgDimension = (contentWidth + contentHeight) / 2;
-    const padding = avgDimension * (compositorSettings.padding / 100);
+    const padding = compositorSettings.padding;
     return {
       width: contentWidth + padding * 2,
       height: contentHeight + padding * 2,
@@ -476,14 +471,14 @@ export const useCanvasNavigation = ({
         compositorBgRef.current.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleRatio})`;
       }
 
-      // Debounce React state sync - only sync after zooming stops
+      // Sync React state immediately via RAF - no delay to avoid flash
       if (zoomSyncTimeoutRef.current) {
-        clearTimeout(zoomSyncTimeoutRef.current);
+        cancelAnimationFrame(zoomSyncTimeoutRef.current);
       }
-      zoomSyncTimeoutRef.current = window.setTimeout(() => {
+      zoomSyncTimeoutRef.current = requestAnimationFrame(() => {
         syncZoomState(newZoom, { x: newX, y: newY });
         zoomSyncTimeoutRef.current = null;
-      }, 100);
+      });
     },
     [image, compositorBgRef, compositorSettings.enabled, syncZoomState]
   );

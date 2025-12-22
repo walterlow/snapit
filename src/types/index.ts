@@ -126,7 +126,7 @@ export interface CompositorSettings {
   gradientAngle: number; // degrees
   gradientStops: GradientStop[];
   backgroundImage: string | null; // base64 or URL
-  padding: number; // percentage 0-50
+  padding: number; // pixels (direct, no conversion)
   borderRadius: number; // pixels
   shadowEnabled: boolean;
   shadowIntensity: number; // 0-1
@@ -143,7 +143,7 @@ export const DEFAULT_COMPOSITOR_SETTINGS: CompositorSettings = {
     { color: '#764ba2', position: 100 },
   ],
   backgroundImage: null,
-  padding: 10,
+  padding: 64,
   borderRadius: 12,
   shadowEnabled: true,
   shadowIntensity: 0.5,

@@ -302,8 +302,7 @@ function App() {
       let exportX: number, exportY: number, exportWidth: number, exportHeight: number;
       
       if (compositorSettings.enabled) {
-        const avgDimension = (contentWidth + contentHeight) / 2;
-        const padding = avgDimension * (compositorSettings.padding / 100);
+        const padding = compositorSettings.padding;
         exportX = Math.round(contentX - padding);
         exportY = Math.round(contentY - padding);
         exportWidth = Math.round(contentWidth + padding * 2);
@@ -419,10 +418,9 @@ function App() {
 
         // Calculate export bounds (with compositor padding if enabled)
         let exportX: number, exportY: number, exportWidth: number, exportHeight: number;
-        
+
         if (compositorSettings.enabled) {
-          const avgDimension = (contentWidth + contentHeight) / 2;
-          const padding = avgDimension * (compositorSettings.padding / 100);
+          const padding = compositorSettings.padding;
           exportX = Math.round(contentX - padding);
           exportY = Math.round(contentY - padding);
           exportWidth = Math.round(contentWidth + padding * 2);
@@ -506,8 +504,7 @@ function App() {
       let exportX: number, exportY: number, exportWidth: number, exportHeight: number;
 
       if (compositorSettings.enabled) {
-        const avgDimension = (contentWidth + contentHeight) / 2;
-        const padding = avgDimension * (compositorSettings.padding / 100);
+        const padding = compositorSettings.padding;
         exportX = Math.round(contentX - padding);
         exportY = Math.round(contentY - padding);
         exportWidth = Math.round(contentWidth + padding * 2);

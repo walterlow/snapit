@@ -151,20 +151,16 @@ export const getVisibleBounds = (
 export const getCompositionSize = (
   contentWidth: number,
   contentHeight: number,
-  paddingPercent: number,
+  paddingPx: number,
   compositorEnabled: boolean
 ): { width: number; height: number } => {
   if (!compositorEnabled) {
     return { width: contentWidth, height: contentHeight };
   }
 
-  // Uniform padding based on average dimension
-  const avgDimension = (contentWidth + contentHeight) / 2;
-  const padding = avgDimension * (paddingPercent / 100);
-
   return {
-    width: contentWidth + padding * 2,
-    height: contentHeight + padding * 2,
+    width: contentWidth + paddingPx * 2,
+    height: contentHeight + paddingPx * 2,
   };
 };
 

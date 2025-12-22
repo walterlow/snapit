@@ -133,12 +133,23 @@ export const recordAction = (action: () => void) => {
   commitSnapshot();
 };
 
+// Preview state for smooth slider interactions (only affects CSS preview, not Konva)
+export interface CompositorPreview {
+  padding?: number;
+  borderRadius?: number;
+  shadowIntensity?: number;
+  gradientAngle?: number;
+}
+
 interface EditorState {
   shapes: CanvasShape[];
   selectedIds: string[];
   stepCount: number;
   compositorSettings: CompositorSettings;
   showCompositor: boolean;
+
+  // Preview state for smooth slider updates (CSS-only, no Konva re-render)
+  compositorPreview: CompositorPreview | null;
 
   // Blur tool settings
   blurType: BlurType;
@@ -160,6 +171,7 @@ interface EditorState {
   resetStepCount: () => void;
   clearEditor: () => void;
   setCompositorSettings: (settings: Partial<CompositorSettings>) => void;
+  setCompositorPreview: (preview: CompositorPreview | null) => void;
   toggleCompositor: () => void;
   setShowCompositor: (show: boolean) => void;
   setBlurType: (type: BlurType) => void;
@@ -175,6 +187,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   stepCount: 1,
   compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS },
   showCompositor: false,
+  compositorPreview: null,
   blurType: 'pixelate' as BlurType,
   blurAmount: 10,
   canvasBounds: null,
@@ -197,6 +210,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     stepCount: 1,
     compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS },
     showCompositor: false,
+    compositorPreview: null,
     blurType: 'pixelate' as BlurType,
     blurAmount: 10,
     canvasBounds: null,
@@ -205,8 +219,11 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   setCompositorSettings: (settings) => {
     set((state) => ({
       compositorSettings: { ...state.compositorSettings, ...settings },
+      // Clear preview when settings are committed
+      compositorPreview: null,
     }));
   },
+  setCompositorPreview: (preview) => set({ compositorPreview: preview }),
   toggleCompositor: () => {
     set((state) => ({
       compositorSettings: {

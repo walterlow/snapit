@@ -112,6 +112,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const resetCanvasBounds = useEditorStore((state) => state.resetCanvasBounds);
   const originalImageSize = useEditorStore((state) => state.originalImageSize);
 
+
   // Load image
   const imageUrl = `data:image/png;base64,${imageData}`;
   const [image] = useImage(imageUrl);
@@ -321,21 +322,20 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     }
   }, [drawing, marquee]);
 
-  // Composition box dimensions (for preview background)
+  // Composition box dimensions (for CSS preview background)
   const compositionBox = useMemo(() => {
     if (!compositorSettings.enabled || !visibleBounds) return null;
 
     const contentWidth = visibleBounds.width;
     const contentHeight = visibleBounds.height;
 
-    const paddingPercent = compositorSettings.padding / 100;
-    const avgDimension = (contentWidth + contentHeight) / 2;
-    const padding = avgDimension * navigation.zoom * paddingPercent;
+    // Padding is now in pixels - just scale by zoom
+    const padding = compositorSettings.padding * navigation.zoom;
 
-    const left = Math.floor(navigation.position.x + visibleBounds.x * navigation.zoom - padding) - 1;
-    const top = Math.floor(navigation.position.y + visibleBounds.y * navigation.zoom - padding) - 1;
-    const width = Math.ceil(contentWidth * navigation.zoom + padding * 2) + 2;
-    const height = Math.ceil(contentHeight * navigation.zoom + padding * 2) + 2;
+    const left = navigation.position.x + visibleBounds.x * navigation.zoom - padding - 1;
+    const top = navigation.position.y + visibleBounds.y * navigation.zoom - padding - 1;
+    const width = contentWidth * navigation.zoom + padding * 2 + 2;
+    const height = contentHeight * navigation.zoom + padding * 2 + 2;
 
     return { width, height, left, top };
   }, [compositorSettings.enabled, compositorSettings.padding, visibleBounds, navigation.zoom, navigation.position]);
@@ -344,16 +344,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const baseCompositionSize = useMemo(() => {
     if (!visibleBounds) return { width: 0, height: 0 };
 
-    const contentWidth = visibleBounds.width;
-    const contentHeight = visibleBounds.height;
-
-    const avgDimension = (contentWidth + contentHeight) / 2;
-    const paddingPercent = compositorSettings.padding / 100;
-    const padding = avgDimension * paddingPercent;
+    const padding = compositorSettings.padding;
 
     return {
-      width: contentWidth + padding * 2,
-      height: contentHeight + padding * 2,
+      width: visibleBounds.width + padding * 2,
+      height: visibleBounds.height + padding * 2,
     };
   }, [visibleBounds, compositorSettings.padding]);
 
@@ -506,14 +501,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
           {/* Compositor background (with padding) */}
           {compositorSettings.enabled && visibleBounds && baseCompositionSize.width > 0 && (() => {
-            const avgDimension = (visibleBounds.width + visibleBounds.height) / 2;
-            const padding = avgDimension * (compositorSettings.padding / 100);
+            // Padding is now in pixels - use directly
+            const padding = compositorSettings.padding;
 
             const compBounds = {
-              x: Math.round(visibleBounds.x - padding) - 1,
-              y: Math.round(visibleBounds.y - padding) - 1,
-              width: Math.round(visibleBounds.width + padding * 2) + 2,
-              height: Math.round(visibleBounds.height + padding * 2) + 2,
+              x: visibleBounds.x - padding - 1,
+              y: visibleBounds.y - padding - 1,
+              width: visibleBounds.width + padding * 2 + 2,
+              height: visibleBounds.height + padding * 2 + 2,
             };
 
             return (
@@ -536,10 +531,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     <Rect
                       key={`shadow-${i}`}
                       name={`content-shadow-${i}`}
-                      x={Math.round(visibleBounds.x)}
-                      y={Math.round(visibleBounds.y)}
-                      width={Math.round(visibleBounds.width)}
-                      height={Math.round(visibleBounds.height)}
+                      x={visibleBounds.x}
+                      y={visibleBounds.y}
+                      width={visibleBounds.width}
+                      height={visibleBounds.height}
                       fill="black"
                       cornerRadius={compositorSettings.borderRadius}
                       shadowColor="black"
@@ -556,10 +551,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   <CompositorBackground
                     settings={compositorSettings}
                     bounds={{
-                      x: Math.round(visibleBounds.x) - 1,
-                      y: Math.round(visibleBounds.y) - 1,
-                      width: Math.round(visibleBounds.width) + 2,
-                      height: Math.round(visibleBounds.height) + 2,
+                      x: visibleBounds.x - 1,
+                      y: visibleBounds.y - 1,
+                      width: visibleBounds.width + 2,
+                      height: visibleBounds.height + 2,
                     }}
                     borderRadius={compositorSettings.borderRadius}
                   />

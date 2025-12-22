@@ -109,9 +109,8 @@ export function calculateCompositorDimensions(
     };
   }
 
-  // Calculate uniform padding based on average dimension
-  const avgDimension = (contentWidth + contentHeight) / 2;
-  const padding = avgDimension * (settings.padding / 100);
+  // Padding is now in pixels
+  const padding = settings.padding;
 
   // For auto aspect ratio, just add padding
   let outputWidth = contentWidth + padding * 2;

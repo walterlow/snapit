@@ -202,10 +202,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 setLocalGradientAngle(value);
                 setCompositorSettings({ gradientAngle: value });
               }}
-              onValueCommit={([value]) => setCompositorSettings({ gradientAngle: value })}
               min={0}
               max={360}
-              step={15}
+              step={5}
               className="w-full"
             />
           </div>
@@ -289,7 +288,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Padding</Label>
-          <span className="text-xs text-[var(--ink-dark)] font-mono">{localPadding}%</span>
+          <span className="text-xs text-[var(--ink-dark)] font-mono">{localPadding}px</span>
         </div>
         <Slider
           value={[localPadding]}
@@ -297,9 +296,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             setLocalPadding(value);
             setCompositorSettings({ padding: value });
           }}
-          onValueCommit={([value]) => setCompositorSettings({ padding: value })}
           min={0}
-          max={30}
+          max={200}
           step={1}
           className="w-full"
         />
@@ -320,10 +318,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             setLocalBorderRadius(value);
             setCompositorSettings({ borderRadius: value });
           }}
-          onValueCommit={([value]) => setCompositorSettings({ borderRadius: value })}
           min={0}
           max={48}
-          step={2}
+          step={1}
           className="w-full"
         />
       </div>
@@ -352,10 +349,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 setLocalShadowIntensity(value / 100);
                 setCompositorSettings({ shadowIntensity: value / 100 });
               }}
-              onValueCommit={([value]) => setCompositorSettings({ shadowIntensity: value / 100 })}
               min={0}
               max={100}
-              step={5}
+              step={2}
               className="w-full"
             />
           </div>

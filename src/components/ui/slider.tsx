@@ -17,6 +17,8 @@ const Slider = React.forwardRef<HTMLDivElement, SliderProps>(
     // Local state for smooth visual updates during drag
     const [localValue, setLocalValue] = React.useState(value[0]);
     const isDragging = React.useRef(false);
+    const rafRef = React.useRef<number | null>(null);
+    const pendingValueRef = React.useRef<number | null>(null);
 
     // Sync local state when external value changes (not during drag)
     React.useEffect(() => {
@@ -25,17 +27,45 @@ const Slider = React.forwardRef<HTMLDivElement, SliderProps>(
       }
     }, [value]);
 
+    // Cleanup RAF on unmount
+    React.useEffect(() => {
+      return () => {
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current);
+        }
+      };
+    }, []);
+
+    // RAF-throttled callback for smooth preview updates
+    const scheduleValueChange = React.useCallback((val: number) => {
+      pendingValueRef.current = val;
+
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          if (pendingValueRef.current !== null) {
+            onValueChange?.([pendingValueRef.current]);
+          }
+        });
+      }
+    }, [onValueChange]);
+
     return (
       <BaseSlider.Root
         ref={ref}
         value={localValue}
         onValueChange={(val) => {
           isDragging.current = true;
-          setLocalValue(val);
-          onValueChange?.([val]);
+          setLocalValue(val); // Immediate local update for thumb position
+          scheduleValueChange(val); // RAF-throttled callback
         }}
         onValueCommitted={(val) => {
           isDragging.current = false;
+          // Cancel any pending RAF and call commit directly
+          if (rafRef.current !== null) {
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = null;
+          }
           onValueCommit?.([val]);
         }}
         min={min}

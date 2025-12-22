@@ -109,15 +109,12 @@ fn encode_rgba_to_png(data: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>,
 
 /// Attempt a single WGC capture.
 fn try_capture_window(hwnd: isize, timeout: Duration) -> Result<(Vec<u8>, u32, u32), CaptureError> {
-    let start = std::time::Instant::now();
     let window = WgcWindow::from_raw_hwnd(hwnd as *mut std::ffi::c_void);
 
     // Validate window
     if !window.is_valid() {
-        println!("[TIMING] WGC window invalid");
         return Err(CaptureError::WindowNotFound);
     }
-    println!("[TIMING] WGC window valid: {:?}", start.elapsed());
 
     let (tx, rx) = mpsc::sync_channel::<CaptureMessage>(1);
 
@@ -133,28 +130,18 @@ fn try_capture_window(hwnd: isize, timeout: Duration) -> Result<(Vec<u8>, u32, u
     );
 
     // Run capture in a separate thread (WGC may need specific thread requirements)
-    let thread_start = std::time::Instant::now();
     let handle = std::thread::spawn(move || {
-        let result = SingleFrameCapture::start(settings);
-        println!("[TIMING] WGC thread completed: {:?}, result: {:?}", thread_start.elapsed(), result.is_ok());
-        result
+        SingleFrameCapture::start(settings)
     });
 
     // Wait for result with shorter timeout (500ms should be plenty for a single frame)
     let result = rx
         .recv_timeout(timeout)
-        .map_err(|e| {
-            println!("[TIMING] WGC recv_timeout failed after {:?}: {:?}", start.elapsed(), e);
-            CaptureError::CaptureFailed("Capture timeout".into())
-        })?
-        .map_err(|e| {
-            println!("[TIMING] WGC capture error: {}", e);
-            CaptureError::CaptureFailed(e)
-        })?;
+        .map_err(|_| CaptureError::CaptureFailed("Capture timeout".into()))?
+        .map_err(|e| CaptureError::CaptureFailed(e))?;
 
     // Wait for capture thread to finish
     let _ = handle.join();
-    println!("[TIMING] WGC total: {:?}", start.elapsed());
 
     Ok(result)
 }
@@ -189,7 +176,6 @@ pub fn should_skip_wgc_window_capture() -> bool {
 pub fn capture_window_raw(hwnd: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
     // Skip WGC if it has been consistently failing
     if should_skip_wgc_window_capture() {
-        println!("[TIMING] WGC skipped (too many failures without success)");
         return Err(CaptureError::CaptureFailed("WGC disabled due to repeated failures".into()));
     }
 
@@ -214,7 +200,6 @@ pub fn capture_window_raw(hwnd: isize) -> Result<(Vec<u8>, u32, u32), CaptureErr
             // Success! Reset failure count and mark as having succeeded
             WGC_WINDOW_CONSECUTIVE_FAILURES.store(0, Ordering::Relaxed);
             WGC_WINDOW_EVER_SUCCEEDED.store(true, Ordering::Relaxed);
-            println!("[TIMING] WGC window capture succeeded");
             Ok((rgba_data, width, height))
         }
         Err(e) => {

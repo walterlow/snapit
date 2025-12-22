@@ -237,11 +237,8 @@ pub fn capture_window(window_id: u32) -> Result<CaptureResult, CaptureError> {
 
 /// Capture a screen region by coordinates (for elevated window fallback).
 fn capture_screen_region(x: i32, y: i32, width: u32, height: u32) -> Result<RgbaImage, CaptureError> {
-    let start = std::time::Instant::now();
-
     let monitors = Monitor::all()
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get monitors: {}", e)))?;
-    println!("[TIMING] xcap Monitor::all(): {:?}", start.elapsed());
 
     // Find which monitor contains the window
     let target_monitor = monitors
@@ -256,12 +253,9 @@ fn capture_screen_region(x: i32, y: i32, width: u32, height: u32) -> Result<Rgba
         .or_else(|| monitors.first())
         .ok_or(CaptureError::MonitorNotFound)?;
 
-    let capture_start = std::time::Instant::now();
     let full_image = target_monitor
         .capture_image()
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture screen: {}", e)))?;
-    println!("[TIMING] xcap monitor.capture_image(): {:?} ({}x{})",
-        capture_start.elapsed(), full_image.width(), full_image.height());
 
     // Get scale factor - input coordinates are in logical pixels,
     // but capture_image() returns physical pixels
@@ -289,9 +283,7 @@ fn capture_screen_region(x: i32, y: i32, width: u32, height: u32) -> Result<Rgba
 
     // Fast crop using direct memory copy instead of image crate's crop
     // This avoids DynamicImage conversion overhead
-    let crop_start = std::time::Instant::now();
     let cropped = fast_crop(&full_image, rel_x, rel_y, crop_width, crop_height);
-    println!("[TIMING] xcap crop: {:?}", crop_start.elapsed());
 
     Ok(cropped)
 }
@@ -403,35 +395,26 @@ pub fn capture_fullscreen() -> Result<CaptureResult, CaptureError> {
 
 /// Capture a window and return raw RGBA data.
 pub fn capture_window_raw(window_id: u32) -> Result<(Vec<u8>, u32, u32), CaptureError> {
-    let total_start = std::time::Instant::now();
-
     // Get window bounds directly from Windows API first (faster than enumerating all windows)
-    let win_rect_start = std::time::Instant::now();
     let (win_x, win_y, win_width, win_height) = get_window_rect_win32(window_id)
         .ok_or(CaptureError::WindowNotFound)?;
-    println!("[TIMING] xcap get_window_rect_win32: {:?}", win_rect_start.elapsed());
 
     // Try monitor capture + crop first - it's often faster and more reliable
-    let monitor_start = std::time::Instant::now();
     match capture_screen_region(win_x, win_y, win_width, win_height) {
         Ok(image) => {
-            println!("[TIMING] xcap monitor+crop capture: {:?}", monitor_start.elapsed());
             let width = image.width();
             let height = image.height();
             let rgba_data = image.into_raw();
-            println!("[TIMING] xcap capture_window_raw TOTAL: {:?}", total_start.elapsed());
             return Ok((rgba_data, width, height));
         }
-        Err(e) => {
-            println!("[TIMING] xcap monitor+crop failed: {:?}, trying direct capture", e);
+        Err(_) => {
+            // Fall through to direct capture
         }
     }
 
     // Fallback: enumerate windows and use direct capture
-    let enum_start = std::time::Instant::now();
     let windows =
         Window::all().map_err(|e| CaptureError::CaptureFailed(format!("Failed to get windows: {}", e)))?;
-    println!("[TIMING] xcap Window::all(): {:?} ({} windows)", enum_start.elapsed(), windows.len());
 
     let target_window = windows
         .into_iter()
@@ -443,22 +426,14 @@ pub fn capture_window_raw(window_id: u32) -> Result<(Vec<u8>, u32, u32), Capture
     }
 
     // Try direct window capture
-    let capture_start = std::time::Instant::now();
     let image = match target_window.capture_image() {
-        Ok(img) if !is_capture_invalid(&img) => {
-            println!("[TIMING] xcap direct capture_image: {:?}", capture_start.elapsed());
-            img
-        },
-        _ => {
-            println!("[TIMING] xcap direct capture failed, using screen region");
-            capture_screen_region(win_x, win_y, win_width, win_height)?
-        }
+        Ok(img) if !is_capture_invalid(&img) => img,
+        _ => capture_screen_region(win_x, win_y, win_width, win_height)?
     };
 
     let width = image.width();
     let height = image.height();
     let rgba_data = image.into_raw();
-    println!("[TIMING] xcap capture_window_raw TOTAL: {:?}", total_start.elapsed());
 
     Ok((rgba_data, width, height))
 }
@@ -535,8 +510,6 @@ pub fn capture_fullscreen_raw() -> Result<(Vec<u8>, u32, u32), CaptureError> {
 /// Capture a region that may span multiple monitors.
 /// Uses screen coordinates (virtual desktop space) and stitches monitor captures together.
 pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Vec<u8>, u32, u32), CaptureError> {
-    let start = std::time::Instant::now();
-
     let monitors = Monitor::all()
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get monitors: {}", e)))?;
 
@@ -570,8 +543,6 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
         return Err(CaptureError::InvalidRegion);
     }
 
-    println!("[TIMING] Multi-monitor: {} monitors overlap selection", overlapping.len());
-
     // If only one monitor overlaps, use the fast single-monitor path
     if overlapping.len() == 1 {
         let monitor = overlapping[0];
@@ -579,11 +550,9 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
         let mx = monitor.x().unwrap_or(0);
         let my = monitor.y().unwrap_or(0);
 
-        let capture_start = std::time::Instant::now();
         let full_image = monitor
             .capture_image()
             .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture: {}", e)))?;
-        println!("[TIMING] Single monitor capture: {:?}", capture_start.elapsed());
 
         // Calculate crop region relative to monitor (in physical pixels)
         let rel_x = ((sel_left - mx).max(0) as f32 * scale).round() as u32;
@@ -601,7 +570,6 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
         }
 
         let cropped = fast_crop(&full_image, rel_x, rel_y, crop_width, crop_height);
-        println!("[TIMING] capture_screen_region_raw TOTAL: {:?}", start.elapsed());
 
         return Ok((cropped.into_raw(), crop_width, crop_height));
     }
@@ -624,15 +592,12 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
         let my = monitor.y().unwrap_or(0);
         let monitor_scale = monitor.scale_factor().unwrap_or(1.0) as f32;
 
-        let capture_start = std::time::Instant::now();
         let monitor_image = match monitor.capture_image() {
             Ok(img) => img,
-            Err(e) => {
-                println!("[WARN] Failed to capture monitor: {}", e);
+            Err(_) => {
                 continue;
             }
         };
-        println!("[TIMING] Monitor capture: {:?}", capture_start.elapsed());
 
         // Calculate the intersection between selection and this monitor
         let mw = monitor.width().unwrap_or(0) as i32;
@@ -684,6 +649,5 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
         }
     }
 
-    println!("[TIMING] capture_screen_region_raw TOTAL: {:?}", start.elapsed());
     Ok((output, output_width, output_height))
 }

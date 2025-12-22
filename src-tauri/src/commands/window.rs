@@ -67,8 +67,6 @@ pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
 
 /// Trigger the capture overlay - just show pre-created windows (fast!)
 pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
-    let start = std::time::Instant::now();
-
     let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
     let current_monitor_count = monitors.len();
 
@@ -78,9 +76,6 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
     drop(labels); // Release lock before potential recreation
 
     if !OVERLAYS_CREATED.load(Ordering::SeqCst) || existing_overlay_count != current_monitor_count {
-        println!("[TIMING] Overlays need (re)creation: existing={}, monitors={}",
-            existing_overlay_count, current_monitor_count);
-
         // Close any existing overlays first
         let labels = OVERLAY_LABELS.lock().unwrap();
         for label in labels.iter() {
@@ -92,9 +87,7 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
 
         // Reset the flag and recreate
         OVERLAYS_CREATED.store(false, Ordering::SeqCst);
-        let create_start = std::time::Instant::now();
         precreate_overlays(app)?;
-        println!("[TIMING] Overlay recreation: {:?}", create_start.elapsed());
     }
 
     let labels = OVERLAY_LABELS.lock().unwrap();
@@ -107,7 +100,6 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
     }
 
     // Show and position pre-created overlays (fast - no window creation!)
-    let show_start = std::time::Instant::now();
     for (idx, label) in labels.iter().enumerate() {
         if let Some(window) = app.get_webview_window(label) {
             if let Some(monitor) = monitors.get(idx) {
@@ -128,8 +120,6 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
             }
         }
     }
-    println!("[TIMING] Show overlays: {:?} (count: {})", show_start.elapsed(), labels.len());
-    println!("[TIMING] trigger_capture TOTAL: {:?}", start.elapsed());
 
     Ok(())
 }
@@ -153,7 +143,6 @@ fn flush_compositor() {
 /// Move all overlays off-screen (instant, synchronous) - call before capture
 #[command]
 pub async fn move_overlays_offscreen(app: AppHandle) -> Result<(), String> {
-    let start = std::time::Instant::now();
     let labels = OVERLAY_LABELS.lock().unwrap();
 
     for label in labels.iter() {
@@ -166,13 +155,10 @@ pub async fn move_overlays_offscreen(app: AppHandle) -> Result<(), String> {
     }
 
     // Flush DWM compositor to ensure the position change is rendered
-    let flush_start = std::time::Instant::now();
     flush_compositor();
-    println!("[TIMING] DWM flush: {:?}", flush_start.elapsed());
 
     // Minimal delay for GPU to process
     std::thread::sleep(std::time::Duration::from_millis(8));
-    println!("[TIMING] move_overlays_offscreen TOTAL: {:?}", start.elapsed());
 
     Ok(())
 }
@@ -184,7 +170,6 @@ pub async fn show_overlay(app: AppHandle) -> Result<(), String> {
 
 #[command]
 pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
-    let start = std::time::Instant::now();
     let labels = OVERLAY_LABELS.lock().unwrap();
 
     // Hide overlays instead of closing (fast - can reuse!)
@@ -207,7 +192,6 @@ pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
             let _ = main_window.set_focus();
         }
     }
-    println!("[TIMING] hide_overlay: {:?}", start.elapsed());
 
     Ok(())
 }
@@ -249,13 +233,10 @@ pub async fn open_editor_fast(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    let start = std::time::Instant::now();
-
     // Close all overlays
     hide_overlay(app.clone()).await?;
 
     // Show main window with the capture file path
-    let show_start = std::time::Instant::now();
     if let Some(main_window) = app.get_webview_window("main") {
         let _ = main_window.unminimize();
 
@@ -269,8 +250,6 @@ pub async fn open_editor_fast(
             .set_focus()
             .map_err(|e| format!("Failed to focus window: {}", e))?;
 
-        println!("[TIMING] Show main window: {:?}", show_start.elapsed());
-
         // Emit a different event for fast capture with file path
         let payload = serde_json::json!({
             "file_path": file_path,
@@ -282,7 +261,6 @@ pub async fn open_editor_fast(
             .emit("capture-complete-fast", payload)
             .map_err(|e| format!("Failed to emit event: {}", e))?;
     }
-    println!("[TIMING] open_editor_fast TOTAL: {:?}", start.elapsed());
 
     Ok(())
 }

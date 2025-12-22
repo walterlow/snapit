@@ -415,21 +415,11 @@ fn write_rgba_to_temp_file(rgba_data: &[u8], width: u32, height: u32) -> Result<
 /// Skips PNG encoding for ~300-500ms savings on large captures.
 #[command]
 pub async fn capture_window_fast(window_id: u32) -> Result<FastCaptureResult, String> {
-    let total_start = std::time::Instant::now();
-
     // Try WGC first for transparency support
     if wgc::is_available() {
-        let wgc_start = std::time::Instant::now();
         match wgc::capture_window_raw(window_id as isize) {
             Ok((rgba_data, width, height)) => {
-                println!("[TIMING] WGC capture: {:?}", wgc_start.elapsed());
-
-                let write_start = std::time::Instant::now();
                 let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-                println!("[TIMING] File write ({}x{}, {} bytes): {:?}",
-                    width, height, rgba_data.len(), write_start.elapsed());
-
-                println!("[TIMING] capture_window_fast TOTAL: {:?}", total_start.elapsed());
                 return Ok(FastCaptureResult {
                     file_path,
                     width,
@@ -437,24 +427,15 @@ pub async fn capture_window_fast(window_id: u32) -> Result<FastCaptureResult, St
                     has_transparency: true,
                 });
             }
-            Err(e) => {
-                println!("[TIMING] WGC failed: {:?}, falling back", e);
-            }
+            Err(_) => {}
         }
     }
 
     // Fallback to xcap (still need to get raw data)
-    let xcap_start = std::time::Instant::now();
     fallback::capture_window_raw(window_id)
         .map_err(|e| e.to_string())
         .and_then(|(rgba_data, width, height)| {
-            println!("[TIMING] xcap capture: {:?}", xcap_start.elapsed());
-
-            let write_start = std::time::Instant::now();
             let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            println!("[TIMING] File write: {:?}", write_start.elapsed());
-
-            println!("[TIMING] capture_window_fast TOTAL: {:?}", total_start.elapsed());
             Ok(FastCaptureResult {
                 file_path,
                 width,
@@ -467,20 +448,10 @@ pub async fn capture_window_fast(window_id: u32) -> Result<FastCaptureResult, St
 /// Fast capture of a region - returns file path instead of base64.
 #[command]
 pub async fn capture_region_fast(selection: RegionSelection) -> Result<FastCaptureResult, String> {
-    let total_start = std::time::Instant::now();
-
-    let capture_start = std::time::Instant::now();
-    let result = fallback::capture_region_raw(selection);
-    println!("[TIMING] Region capture: {:?}", capture_start.elapsed());
-
-    result
+    fallback::capture_region_raw(selection)
         .map_err(|e| e.to_string())
         .and_then(|(rgba_data, width, height)| {
-            let write_start = std::time::Instant::now();
             let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            println!("[TIMING] File write: {:?}", write_start.elapsed());
-            println!("[TIMING] capture_region_fast TOTAL: {:?}", total_start.elapsed());
-
             Ok(FastCaptureResult {
                 file_path,
                 width,
@@ -494,20 +465,10 @@ pub async fn capture_region_fast(selection: RegionSelection) -> Result<FastCaptu
 /// Uses absolute screen coordinates and can stitch captures from multiple monitors.
 #[command]
 pub async fn capture_screen_region_fast(selection: ScreenRegionSelection) -> Result<FastCaptureResult, String> {
-    let total_start = std::time::Instant::now();
-
-    let capture_start = std::time::Instant::now();
-    let result = fallback::capture_screen_region_raw(selection);
-    println!("[TIMING] Screen region capture: {:?}", capture_start.elapsed());
-
-    result
+    fallback::capture_screen_region_raw(selection)
         .map_err(|e| e.to_string())
         .and_then(|(rgba_data, width, height)| {
-            let write_start = std::time::Instant::now();
             let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            println!("[TIMING] File write: {:?}", write_start.elapsed());
-            println!("[TIMING] capture_screen_region_fast TOTAL: {:?}", total_start.elapsed());
-
             Ok(FastCaptureResult {
                 file_path,
                 width,
@@ -520,8 +481,6 @@ pub async fn capture_screen_region_fast(selection: ScreenRegionSelection) -> Res
 /// Fast capture of fullscreen - returns file path instead of base64.
 #[command]
 pub async fn capture_fullscreen_fast() -> Result<FastCaptureResult, String> {
-    let total_start = std::time::Instant::now();
-
     // Try WGC first
     if wgc::is_available() {
         let monitors = fallback::get_monitors().map_err(|e| e.to_string())?;
@@ -530,16 +489,9 @@ pub async fn capture_fullscreen_fast() -> Result<FastCaptureResult, String> {
             .position(|m| m.is_primary)
             .unwrap_or(0);
 
-        let wgc_start = std::time::Instant::now();
         match wgc::capture_monitor_raw(primary_index) {
             Ok((rgba_data, width, height)) => {
-                println!("[TIMING] WGC fullscreen capture: {:?}", wgc_start.elapsed());
-
-                let write_start = std::time::Instant::now();
                 let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-                println!("[TIMING] File write: {:?}", write_start.elapsed());
-                println!("[TIMING] capture_fullscreen_fast TOTAL: {:?}", total_start.elapsed());
-
                 return Ok(FastCaptureResult {
                     file_path,
                     width,
@@ -552,17 +504,10 @@ pub async fn capture_fullscreen_fast() -> Result<FastCaptureResult, String> {
     }
 
     // Fallback to xcap
-    let xcap_start = std::time::Instant::now();
     fallback::capture_fullscreen_raw()
         .map_err(|e| e.to_string())
         .and_then(|(rgba_data, width, height)| {
-            println!("[TIMING] xcap fullscreen capture: {:?}", xcap_start.elapsed());
-
-            let write_start = std::time::Instant::now();
             let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            println!("[TIMING] File write: {:?}", write_start.elapsed());
-            println!("[TIMING] capture_fullscreen_fast TOTAL: {:?}", total_start.elapsed());
-
             Ok(FastCaptureResult {
                 file_path,
                 width,

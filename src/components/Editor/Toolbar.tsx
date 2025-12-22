@@ -5,7 +5,7 @@ import {
   Circle,
   Type,
   Highlighter,
-  Grid3X3,
+  Droplet,
   Hash,
   Copy,
   Download,
@@ -19,6 +19,7 @@ import {
   Pencil,
   FileImage,
   Share2,
+  Trash2,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { Tool } from '../../types';
@@ -49,6 +50,7 @@ interface ToolbarProps {
   onBack: () => void;
   onUndo: () => void;
   onRedo: () => void;
+  onDelete: () => void;
   isCopying?: boolean;
   isSaving?: boolean;
 }
@@ -61,7 +63,7 @@ const toolDefs: { id: Tool; Icon: typeof MousePointer2; label: string; shortcut:
   { id: 'circle', Icon: Circle, label: 'Ellipse', shortcut: 'E' },
   { id: 'text', Icon: Type, label: 'Text', shortcut: 'T' },
   { id: 'highlight', Icon: Highlighter, label: 'Highlight', shortcut: 'H' },
-  { id: 'blur', Icon: Grid3X3, label: 'Blur', shortcut: 'B' },
+  { id: 'blur', Icon: Droplet, label: 'Blur', shortcut: 'B' },
   { id: 'steps', Icon: Hash, label: 'Steps', shortcut: 'S' },
   { id: 'pen', Icon: Pencil, label: 'Pen', shortcut: 'P' },
   { id: 'background', Icon: Sparkles, label: 'Background', shortcut: 'G' },
@@ -76,6 +78,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onBack,
   onUndo,
   onRedo,
+  onDelete,
   isCopying = false,
   isSaving = false,
 }) => {
@@ -278,6 +281,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Delete Button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onDelete}
+                className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-red-500 hover:bg-red-50`}
+              >
+                <Trash2 className={iconSize} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p className="text-xs">Delete Capture</p>
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
     </TooltipProvider>

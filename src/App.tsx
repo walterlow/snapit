@@ -7,6 +7,7 @@ import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
+import { DeleteDialog } from './components/Library/components/DeleteDialog';
 import { EditorCanvas } from './components/Editor/EditorCanvas';
 import { Toolbar } from './components/Editor/Toolbar';
 import { PropertiesPanel } from './components/Editor/PropertiesPanel';
@@ -41,6 +42,7 @@ function App() {
     updateAnnotations,
     setHasUnsavedChanges,
     loadCaptures,
+    deleteCapture,
   } = useCaptureStore();
 
   // Editor state from store
@@ -60,6 +62,9 @@ function App() {
   // Keyboard shortcuts help modal
   const [showShortcuts, setShowShortcuts] = useState(false);
 
+  // Delete confirmation dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
   // Auto-update checker (runs 5s after app starts)
   useUpdater(true);
 
@@ -70,6 +75,28 @@ function App() {
 
   const handleRedo = useCallback(() => {
     redo();
+  }, []);
+
+  // Delete handlers
+  const handleRequestDelete = useCallback(() => {
+    setDeleteDialogOpen(true);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!currentProject) return;
+    try {
+      await deleteCapture(currentProject.id);
+      toast.success('Capture deleted');
+      setView('library');
+    } catch (error) {
+      console.error('Failed to delete:', error);
+      toast.error('Failed to delete capture');
+    }
+    setDeleteDialogOpen(false);
+  }, [currentProject, deleteCapture, setView]);
+
+  const handleCancelDelete = useCallback(() => {
+    setDeleteDialogOpen(false);
   }, []);
 
   // Keyboard shortcuts for undo/redo, compositor, and tools
@@ -628,12 +655,22 @@ function App() {
               onBack={handleBack}
               onUndo={handleUndo}
               onRedo={handleRedo}
+              onDelete={handleRequestDelete}
               isCopying={isCopying}
               isSaving={isSaving}
             />
           </>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        count={1}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </div>
   );
 }

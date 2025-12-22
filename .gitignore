@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 .claude/
 nul
+
+# Tauri signing keys
+~/.tauri/
+*.key
+*.key.pub

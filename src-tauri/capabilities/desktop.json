@@ -72,6 +72,12 @@
     "fs:allow-download-write-recursive",
     "fs:allow-picture-write-recursive",
     "fs:allow-home-write-recursive",
-    "fs:allow-appdata-write-recursive"
+    "fs:allow-appdata-write-recursive",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:default",
+    "process:allow-restart",
+    "process:allow-exit"
   ]
 }

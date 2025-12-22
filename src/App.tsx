@@ -16,6 +16,7 @@ import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore, undo, redo, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
+import { useUpdater } from './hooks/useUpdater';
 import type { Tool, CanvasShape, Annotation } from './types';
 
 // Settings Modal Container - uses store for open/close state
@@ -56,6 +57,9 @@ function App() {
   
   // Keyboard shortcuts help modal
   const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Auto-update checker (runs 5s after app starts)
+  useUpdater(true);
 
   // Undo/Redo handlers
   const handleUndo = useCallback(() => {

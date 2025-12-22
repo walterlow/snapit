@@ -899,3 +899,11 @@ body.overlay-window #root {
   font-size: 12px;
   box-shadow: var(--shadow-lg);
 }
+
+/* Instant tooltips - no delay/animation for subsequent tooltips
+   When hovering between tooltips quickly, skip the entrance animation */
+[data-state="instant-open"] {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}

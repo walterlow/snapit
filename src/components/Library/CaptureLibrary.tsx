@@ -424,7 +424,7 @@ export const CaptureLibrary: React.FC = () => {
   };
 
   return (
-    <TooltipProvider delayDuration={300}>
+    <TooltipProvider delayDuration={300} skipDelayDuration={300}>
       <div
         className="flex flex-col h-full bg-[var(--polar-snow)] relative"
         onDragEnter={handleDragEnter}

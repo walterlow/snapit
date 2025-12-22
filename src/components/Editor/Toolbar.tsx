@@ -105,7 +105,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const iconSize = isCompact ? 'w-4 h-4' : 'w-[18px] h-[18px]';
 
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delayDuration={200} skipDelayDuration={300}>
       <div className="flex items-center justify-center p-3 bg-[var(--polar-ice)] border-t border-[var(--polar-frost)]">
         <div className="floating-toolbar animate-scale-in">
           {/* Back Button */}

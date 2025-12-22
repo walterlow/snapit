@@ -321,57 +321,12 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
               top: windowHighlight.y,
               width: windowHighlight.width,
               height: windowHighlight.height,
-              outline: '3px solid #3B82F6',
+              outline: '3px solid #F97066',
               outlineOffset: '-2px',
-              boxShadow: 'inset 0 0 0 1px rgba(59, 130, 246, 0.5), 0 0 20px rgba(59, 130, 246, 0.3)',
+              boxShadow: 'inset 0 0 0 1px rgba(249, 112, 102, 0.5), 0 0 20px rgba(249, 112, 102, 0.3)',
             }}
           />
 
-          {/* Window title badge */}
-          {hoveredWindow && (() => {
-            // Clean up app name - remove .exe suffix and path
-            const rawAppName = hoveredWindow.app_name || '';
-            const appName = rawAppName
-              .replace(/\.exe$/i, '')
-              .split(/[/\\]/).pop() || 'Unknown';
-            
-            // If title equals app name (case-insensitive), don't show subtitle
-            const showTitle = hoveredWindow.title && 
-              hoveredWindow.title.toLowerCase() !== appName.toLowerCase();
-            
-            return (
-              <div
-                className="absolute pointer-events-none px-3 py-1.5 rounded-lg"
-                style={{
-                  left: windowHighlight.x,
-                  top: Math.max(8, windowHighlight.y - (showTitle ? 44 : 32)),
-                  background: 'rgba(0, 0, 0, 0.85)',
-                  backdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(59, 130, 246, 0.5)',
-                  color: 'white',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  maxWidth: '400px',
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>
-                  {appName}
-                </div>
-                {showTitle && (
-                  <div style={{ 
-                    color: 'rgba(255,255,255,0.7)', 
-                    fontSize: '11px',
-                    marginTop: '2px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {hoveredWindow.title}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
         </>
       )}
 

@@ -1,9 +1,12 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
 
 // Unique session counter to avoid window label conflicts
 static OVERLAY_SESSION: AtomicU64 = AtomicU64::new(0);
+
+// Track if main window was visible before capture started
+static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
 /// Trigger the capture overlay - called from tray or hotkey
 pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
@@ -18,8 +21,10 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
     // Create overlay windows
     create_overlay_windows(app)?;
 
-    // Hide main window
+    // Track if main window was visible before hiding it
     if let Some(main_window) = app.get_webview_window("main") {
+        let was_visible = main_window.is_visible().unwrap_or(false);
+        MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
         let _ = main_window.hide();
     }
 
@@ -97,10 +102,18 @@ pub async fn show_overlay(app: AppHandle) -> Result<(), String> {
 #[command]
 pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
     let windows = app.webview_windows();
-    
+
     for (label, window) in windows {
         if label.starts_with("ov_") || label.starts_with("overlay_") {
             let _ = window.close();
+        }
+    }
+
+    // Restore main window if it was visible before capture started
+    if MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.show();
+            let _ = main_window.set_focus();
         }
     }
 

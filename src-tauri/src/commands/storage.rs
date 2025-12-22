@@ -9,6 +9,46 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{command, AppHandle, Manager};
 
+/// Get the user's configured save directory from settings, falling back to Pictures/SnapIt
+fn get_captures_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = get_app_data_dir(app)?;
+    let settings_path = app_data_dir.join("settings.json");
+
+    // Try to read settings file
+    if let Ok(content) = fs::read_to_string(&settings_path) {
+        if let Ok(settings) = serde_json::from_str::<serde_json::Value>(&content) {
+            // Get the "general" object and then "defaultSaveDir"
+            if let Some(general) = settings.get("general") {
+                if let Some(default_dir) = general.get("defaultSaveDir") {
+                    if let Some(dir_str) = default_dir.as_str() {
+                        let path = PathBuf::from(dir_str);
+                        // Ensure directory exists
+                        if !path.exists() {
+                            fs::create_dir_all(&path)
+                                .map_err(|e| format!("Failed to create save directory: {}", e))?;
+                        }
+                        return Ok(path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to Pictures/SnapIt
+    let pictures_dir = app
+        .path()
+        .picture_dir()
+        .map_err(|e| format!("Failed to get pictures directory: {}", e))?;
+    let snapit_path = pictures_dir.join("SnapIt");
+
+    if !snapit_path.exists() {
+        fs::create_dir_all(&snapit_path)
+            .map_err(|e| format!("Failed to create SnapIt directory: {}", e))?;
+    }
+
+    Ok(snapit_path)
+}
+
 const THUMBNAIL_SIZE: u32 = 200;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -99,8 +139,7 @@ fn get_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[command]
 pub fn get_library_folder(app: AppHandle) -> Result<String, String> {
-    let base_dir = get_app_data_dir(&app)?;
-    let captures_dir = base_dir.join("captures");
+    let captures_dir = get_captures_dir(&app)?;
     Ok(captures_dir.to_string_lossy().to_string())
 }
 
@@ -155,6 +194,7 @@ pub async fn save_capture(
     request: SaveCaptureRequest,
 ) -> Result<SaveCaptureResponse, String> {
     let base_dir = ensure_directories(&app)?;
+    let captures_dir = get_captures_dir(&app)?;
     let id = generate_id();
     let now = Utc::now();
 
@@ -171,14 +211,13 @@ pub async fn save_capture(
     let original_filename = format!("{}_{}.png", date_str, &id);
     let thumbnail_filename = format!("{}_thumb.png", &id);
 
-    // Save original image
-    let captures_dir = base_dir.join("captures");
+    // Save original image to user's configured directory
     let original_path = captures_dir.join(&original_filename);
     image
         .save(&original_path)
         .map_err(|e| format!("Failed to save image: {}", e))?;
 
-    // Generate and save thumbnail
+    // Generate and save thumbnail (always in app data dir)
     let thumbnail = generate_thumbnail(&image)?;
     let thumbnails_dir = base_dir.join("thumbnails");
     let thumbnail_path = thumbnails_dir.join(&thumbnail_filename);
@@ -186,14 +225,14 @@ pub async fn save_capture(
         .save(&thumbnail_path)
         .map_err(|e| format!("Failed to save thumbnail: {}", e))?;
 
-    // Create project data
+    // Create project data - store full path to image
     let project = CaptureProject {
         id: id.clone(),
         created_at: now,
         updated_at: now,
         capture_type: request.capture_type,
         source: request.source,
-        original_image: original_filename,
+        original_image: original_path.to_string_lossy().to_string(),
         dimensions: Dimensions { width, height },
         annotations: Vec::new(),
         tags: Vec::new(),
@@ -315,11 +354,19 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
                             .join(format!("{}_thumb.png", &project.id))
                             .to_string_lossy()
                             .to_string();
-                        let image_path = base_dir
-                            .join("captures")
-                            .join(&project.original_image)
-                            .to_string_lossy()
-                            .to_string();
+
+                        // Handle both old format (filename only) and new format (full path)
+                        let original_path = PathBuf::from(&project.original_image);
+                        let image_path = if original_path.is_absolute() {
+                            project.original_image.clone()
+                        } else {
+                            // Legacy: construct path from app data dir
+                            base_dir
+                                .join("captures")
+                                .join(&project.original_image)
+                                .to_string_lossy()
+                                .to_string()
+                        };
 
                         captures.push(CaptureListItem {
                             id: project.id,
@@ -383,7 +430,14 @@ pub async fn get_project_image(app: AppHandle, project_id: String) -> Result<Str
     let project: CaptureProject =
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse project: {}", e))?;
 
-    let image_path = base_dir.join("captures").join(&project.original_image);
+    // Handle both old format (filename only) and new format (full path)
+    let original_path = PathBuf::from(&project.original_image);
+    let image_path = if original_path.is_absolute() {
+        original_path
+    } else {
+        base_dir.join("captures").join(&project.original_image)
+    };
+
     let image_data =
         fs::read(&image_path).map_err(|e| format!("Failed to read image: {}", e))?;
 
@@ -400,7 +454,13 @@ pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), St
     if project_file.exists() {
         if let Ok(content) = fs::read_to_string(&project_file) {
             if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
-                let image_path = base_dir.join("captures").join(&project.original_image);
+                // Handle both old format (filename only) and new format (full path)
+                let original_path = PathBuf::from(&project.original_image);
+                let image_path = if original_path.is_absolute() {
+                    original_path
+                } else {
+                    base_dir.join("captures").join(&project.original_image)
+                };
                 let _ = fs::remove_file(image_path);
             }
         }

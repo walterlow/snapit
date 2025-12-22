@@ -1,4 +1,5 @@
 pub mod capture;
+pub mod fonts;
 pub mod image;
 pub mod keyboard_hook;
 pub mod settings;

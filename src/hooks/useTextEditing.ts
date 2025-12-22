@@ -12,7 +12,14 @@ interface UseTextEditingProps {
 interface TextareaPosition {
   left: number;
   top: number;
+  width: number;
+  height: number;
   fontSize: number;
+  fontFamily: string;
+  fontStyle: string;
+  textDecoration: string;
+  align: string;
+  verticalAlign: string;
   color: string;
 }
 
@@ -88,7 +95,14 @@ export const useTextEditing = ({
     return {
       left: screenX,
       top: screenY,
-      fontSize: (shape.fontSize || 16) * zoom,
+      width: (shape.width || 100) * zoom,
+      height: (shape.height || 50) * zoom,
+      fontSize: (shape.fontSize || 36) * zoom,
+      fontFamily: shape.fontFamily || 'Arial',
+      fontStyle: shape.fontStyle || 'normal',
+      textDecoration: shape.textDecoration || '',
+      align: shape.align || 'left',
+      verticalAlign: shape.verticalAlign || 'top',
       color: shape.fill || '#000',
     };
   }, [editingTextId, shapes, position, zoom, containerRef]);

@@ -118,6 +118,8 @@ pub fn run() {
             commands::settings::get_default_save_dir,
             commands::settings::update_tray_shortcut,
             commands::settings::set_close_to_tray,
+            // Font commands
+            commands::fonts::get_system_fonts,
             // Keyboard hook commands (Windows shortcut override)
             commands::keyboard_hook::register_shortcut_with_hook,
             commands::keyboard_hook::unregister_shortcut_hook,

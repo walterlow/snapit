@@ -155,6 +155,9 @@ interface EditorState {
   blurType: BlurType;
   blurAmount: number;
 
+  // Text tool settings
+  fontSize: number;
+
   // Canvas bounds (null = use image size, no crop/expand)
   canvasBounds: CanvasBounds | null;
   originalImageSize: { width: number; height: number } | null;
@@ -176,6 +179,7 @@ interface EditorState {
   setShowCompositor: (show: boolean) => void;
   setBlurType: (type: BlurType) => void;
   setBlurAmount: (amount: number) => void;
+  setFontSize: (size: number) => void;
   setCanvasBounds: (bounds: CanvasBounds | null) => void;
   setOriginalImageSize: (size: { width: number; height: number }) => void;
   resetCanvasBounds: () => void;
@@ -190,6 +194,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   compositorPreview: null,
   blurType: 'pixelate' as BlurType,
   blurAmount: 15,
+  fontSize: 36,
   canvasBounds: null,
   originalImageSize: null,
   canUndo: false,
@@ -213,6 +218,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     compositorPreview: null,
     blurType: 'pixelate' as BlurType,
     blurAmount: 15,
+    fontSize: 36,
     canvasBounds: null,
     originalImageSize: null,
   }),
@@ -235,6 +241,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   setShowCompositor: (show) => set({ showCompositor: show }),
   setBlurType: (type) => set({ blurType: type }),
   setBlurAmount: (amount) => set({ blurAmount: amount }),
+  setFontSize: (size) => set({ fontSize: size }),
   setCanvasBounds: (bounds) => set({ canvasBounds: bounds }),
   setOriginalImageSize: (size) => set({ originalImageSize: size }),
   resetCanvasBounds: () => {

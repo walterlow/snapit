@@ -160,6 +160,7 @@ const MemoizedShape = React.memo<{
         <TextShape
           {...commonProps}
           isEditing={editingTextId === shape.id}
+          zoom={zoom}
           onStartEdit={handleTextStartEdit}
         />
       );

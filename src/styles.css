@@ -126,13 +126,10 @@ body {
    FOCUS & SELECTION
    ======================================== */
 
-*:focus {
-  outline: none;
-}
-
+*:focus,
 *:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--polar-snow), 0 0 0 4px var(--coral-400);
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 ::selection {

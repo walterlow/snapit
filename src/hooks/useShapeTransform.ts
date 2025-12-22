@@ -175,6 +175,61 @@ export const useShapeTransform = ({
         });
         onShapesChange(updatedShapes);
       }
+      // For text shapes, read final dimensions from node (scale was reset during transform)
+      else if (shape?.type === 'text') {
+        const rawWidth = node.width();
+        const rawHeight = node.height();
+        let finalX = node.x();
+        let finalY = node.y();
+
+        // Normalize negative dimensions (from crossover) to positive with position adjustment
+        const finalWidth = Math.max(50, Math.abs(rawWidth));
+        const finalHeight = Math.max(24, Math.abs(rawHeight));
+
+        // Adjust position if dimensions were negative
+        if (rawWidth < 0) {
+          finalX += rawWidth;
+        }
+        if (rawHeight < 0) {
+          finalY += rawHeight;
+        }
+
+        // Reset child positions (they were offset during drag for negative dimensions)
+        const group = node as unknown as Konva.Group;
+        const border = group.findOne?.('.text-box-border');
+        const textContent = group.findOne?.('.text-content');
+        if (border) {
+          border.x(0);
+          border.y(0);
+          border.width(finalWidth);
+          border.height(finalHeight);
+        }
+        if (textContent) {
+          textContent.x(0);
+          textContent.y(0);
+          textContent.width(finalWidth);
+          textContent.height(finalHeight);
+        }
+
+        // Update node dimensions
+        node.x(finalX);
+        node.y(finalY);
+        node.width(finalWidth);
+        node.height(finalHeight);
+
+        const updatedShapes = shapes.map(s => {
+          if (s.id !== id) return s;
+          return {
+            ...s,
+            x: finalX,
+            y: finalY,
+            width: finalWidth,
+            height: finalHeight,
+            rotation: node.rotation(),
+          };
+        });
+        onShapesChange(updatedShapes);
+      }
       // For step shapes, bake scale into radius
       else if (shape?.type === 'step') {
         const scaleX = node.scaleX();

@@ -14,6 +14,7 @@ interface UseShapeDrawingProps {
   strokeColor: string;
   fillColor: string;
   strokeWidth: number;
+  fontSize: number;
   blurType: BlurType;
   blurAmount: number;
   shapes: CanvasShape[];
@@ -21,6 +22,7 @@ interface UseShapeDrawingProps {
   setSelectedIds: (ids: string[]) => void;
   stageRef: React.RefObject<Konva.Stage | null>;
   getCanvasPosition: (screenPos: { x: number; y: number }) => { x: number; y: number };
+  onTextShapeCreated?: (shapeId: string) => void;
 }
 
 interface UseShapeDrawingReturn {
@@ -40,6 +42,7 @@ export const useShapeDrawing = ({
   strokeColor,
   fillColor,
   strokeWidth,
+  fontSize,
   blurType,
   blurAmount,
   shapes,
@@ -47,6 +50,7 @@ export const useShapeDrawing = ({
   setSelectedIds,
   stageRef,
   getCanvasPosition,
+  onTextShapeCreated,
 }: UseShapeDrawingProps): UseShapeDrawingReturn => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState({ x: 0, y: 0 });
@@ -138,11 +142,33 @@ export const useShapeDrawing = ({
             stroke: strokeColor,
             strokeWidth,
           };
+        case 'text': {
+          const width = Math.max(50, Math.abs(endPos.x - startPos.x));
+          const height = Math.max(fontSize * 1.5, Math.abs(endPos.y - startPos.y));
+          return {
+            id,
+            type: 'text',
+            x: Math.min(startPos.x, endPos.x),
+            y: Math.min(startPos.y, endPos.y),
+            width,
+            height,
+            text: '',
+            fontSize,
+            fontFamily: 'Arial',
+            fontStyle: 'normal',
+            textDecoration: '',
+            align: 'left',
+            wrap: 'word',
+            fill: strokeColor,
+            stroke: 'transparent',
+            strokeWidth: 0,
+          };
+        }
         default:
           return null;
       }
     },
-    [selectedTool, strokeColor, fillColor, strokeWidth, blurType, blurAmount]
+    [selectedTool, strokeColor, fillColor, strokeWidth, fontSize, blurType, blurAmount]
   );
 
   // Handle mouse down for drawing
@@ -159,24 +185,7 @@ export const useShapeDrawing = ({
       // Select tool doesn't draw
       if (selectedTool === 'select') return false;
 
-      // Click-to-place tools (text, steps)
-      if (selectedTool === 'text') {
-        const id = `shape_${Date.now()}`;
-        const newShape: CanvasShape = {
-          id,
-          type: 'text',
-          x: pos.x,
-          y: pos.y,
-          text: 'Double-click to edit',
-          fontSize: 16,
-          fill: strokeColor,
-        };
-        recordAction(() => onShapesChange([...shapes, newShape]));
-        setSelectedIds([id]);
-        onToolChange('select');
-        return true;
-      }
-
+      // Click-to-place tools (steps only - text is now drag-to-draw)
       if (selectedTool === 'steps') {
         // Find the next available step number (fill gaps first, then continue series)
         const existingNumbers = shapes
@@ -309,12 +318,34 @@ export const useShapeDrawing = ({
           liveShapeRef.current = { ...liveShape, points: newPoints };
           break;
         }
+        case 'text': {
+          // Text uses a Group containing Rect + Text, find the Rect to resize
+          const group = node as Konva.Group;
+          const rect = group.findOne('.text-box-border') as Konva.Rect;
+          const textNode = group.findOne('.text-content') as Konva.Text;
+          const width = Math.max(50, Math.abs(pos.x - drawStart.x));
+          const height = Math.max(fontSize * 1.5, Math.abs(pos.y - drawStart.y));
+          const x = Math.min(drawStart.x, pos.x);
+          const y = Math.min(drawStart.y, pos.y);
+          group.x(x);
+          group.y(y);
+          if (rect) {
+            rect.width(width);
+            rect.height(height);
+          }
+          if (textNode) {
+            textNode.width(width);
+            textNode.height(height);
+          }
+          liveShapeRef.current = { ...liveShape, x, y, width, height };
+          break;
+        }
       }
 
       // Trigger Konva layer redraw (much faster than React re-render)
       node.getLayer()?.batchDraw();
     },
-    [isDrawing, shapeSpawned, drawStart, createShapeAtPosition, setSelectedIds, stageRef, onShapesChange]
+    [isDrawing, shapeSpawned, drawStart, fontSize, createShapeAtPosition, setSelectedIds, stageRef, onShapesChange]
   );
 
   // Handle mouse up - finalize drawing and sync React state
@@ -330,6 +361,10 @@ export const useShapeDrawing = ({
       if (!TOOLS_RETAIN_MODE.has(selectedTool)) {
         onToolChange('select');
       }
+      // If text shape was created, trigger editor to open immediately
+      if (finalShape.type === 'text' && onTextShapeCreated) {
+        onTextShapeCreated(finalShape.id);
+      }
     }
 
     // Clean up refs
@@ -337,7 +372,7 @@ export const useShapeDrawing = ({
     shapesBeforeDrawRef.current = [];
     setIsDrawing(false);
     setShapeSpawned(false);
-  }, [isDrawing, shapeSpawned, selectedTool, onToolChange, onShapesChange]);
+  }, [isDrawing, shapeSpawned, selectedTool, onToolChange, onShapesChange, onTextShapeCreated]);
 
   return {
     isDrawing,

@@ -104,6 +104,13 @@ export interface CanvasShape {
   radiusY?: number; // Ellipse vertical radius
   text?: string;
   fontSize?: number;
+  fontFamily?: string;
+  fontStyle?: string; // 'normal' | 'bold' | 'italic' | 'bold italic'
+  textDecoration?: string; // '' | 'underline' | 'line-through'
+  align?: string; // 'left' | 'center' | 'right'
+  verticalAlign?: string; // 'top' | 'middle' | 'bottom'
+  wrap?: string; // 'word' | 'char' | 'none'
+  lineHeight?: number;
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
@@ -226,6 +233,17 @@ export const WALLPAPER_THUMBNAILS = [
 
 // Blur effect types
 export type BlurType = 'pixelate' | 'gaussian';
+
+// Default font families (fallback if system fonts not loaded)
+export const DEFAULT_FONT_FAMILIES = [
+  'Arial',
+  'Georgia',
+  'Times New Roman',
+  'Courier New',
+  'Verdana',
+] as const;
+
+export type FontFamily = string;
 
 // ============================================
 // Settings Types

@@ -181,6 +181,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     setSelectedIds,
   });
 
+  // Font size state for text tool
+  const fontSize = useEditorStore((state) => state.fontSize);
+
   // Shape drawing hook
   const drawing = useShapeDrawing({
     selectedTool,
@@ -188,6 +191,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     strokeColor,
     fillColor,
     strokeWidth,
+    fontSize,
     blurType,
     blurAmount,
     shapes,
@@ -195,6 +199,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     setSelectedIds,
     stageRef,
     getCanvasPosition: navigation.getCanvasPosition,
+    onTextShapeCreated: (shapeId) => {
+      // Open text editor immediately after drawing text box
+      const shape = shapes.find(s => s.id === shapeId);
+      if (shape) {
+        textEditing.startEditing(shapeId, shape.text || '');
+      }
+    },
   });
 
   // Marquee selection hook
@@ -239,8 +250,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   useEffect(() => {
     if (!transformerRef.current || !layerRef.current) return;
 
-    // Hide transformer while drawing
-    if (drawing.isDrawing) {
+    // Hide transformer while drawing or editing text
+    if (drawing.isDrawing || textEditing.editingTextId) {
       transformerRef.current.nodes([]);
       transformerRef.current.getLayer()?.batchDraw();
       return;
@@ -257,7 +268,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
     transformerRef.current.nodes(nodes);
     transformerRef.current.getLayer()?.batchDraw();
-  }, [selectedIds, shapes, drawing.isDrawing]);
+  }, [selectedIds, shapes, drawing.isDrawing, textEditing.editingTextId]);
 
   // Handle mouse events
   const handleMouseDown = React.useCallback(
@@ -730,6 +741,52 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               return newBox;
             }}
             onTransformStart={() => takeSnapshot()}
+            onTransform={() => {
+              // For text shapes, convert scale to width/height in real-time to prevent stretching
+              const nodes = transformerRef.current?.nodes() || [];
+              nodes.forEach(node => {
+                const shape = shapes.find(s => s.id === node.id());
+                if (shape?.type === 'text') {
+                  const scaleX = node.scaleX();
+                  const scaleY = node.scaleY();
+
+                  // Read current dimensions from node (not React state)
+                  const currentWidth = node.width();
+                  const currentHeight = node.height();
+
+                  // Allow negative dimensions for crossover (like rect behavior)
+                  // Don't clamp to minimum during drag - only at the end
+                  const newWidth = currentWidth * scaleX;
+                  const newHeight = currentHeight * scaleY;
+
+                  // Update Group dimensions and reset scale
+                  node.width(newWidth);
+                  node.height(newHeight);
+                  node.scaleX(1);
+                  node.scaleY(1);
+
+                  // Also update child elements with absolute values for rendering
+                  const group = node as Konva.Group;
+                  const border = group.findOne('.text-box-border');
+                  const textContent = group.findOne('.text-content');
+                  const absWidth = Math.abs(newWidth);
+                  const absHeight = Math.abs(newHeight);
+                  if (border) {
+                    border.width(absWidth);
+                    border.height(absHeight);
+                    // Offset for negative dimensions
+                    border.x(newWidth < 0 ? newWidth : 0);
+                    border.y(newHeight < 0 ? newHeight : 0);
+                  }
+                  if (textContent) {
+                    textContent.width(absWidth);
+                    textContent.height(absHeight);
+                    textContent.x(newWidth < 0 ? newWidth : 0);
+                    textContent.y(newHeight < 0 ? newHeight : 0);
+                  }
+                }
+              });
+            }}
           />
         </Layer>
       </Stage>

@@ -17,13 +17,13 @@ use windows::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{
         Input::KeyboardAndMouse::{
-            RegisterHotKey, UnregisterHotKey, 
+            RegisterHotKey, UnregisterHotKey,
             MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, HOT_KEY_MODIFIERS,
         },
         WindowsAndMessaging::{
-            CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, 
-            PostQuitMessage, RegisterClassW, TranslateMessage, 
-            CS_HREDRAW, CS_VREDRAW, HMENU, MSG, 
+            CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
+            PostMessageW, PostQuitMessage, RegisterClassW, TranslateMessage,
+            CS_HREDRAW, CS_VREDRAW, HMENU, MSG, WM_USER,
             WINDOW_EX_STYLE, WM_DESTROY, WM_HOTKEY, WNDCLASSW, WS_OVERLAPPED,
         },
     },
@@ -35,10 +35,27 @@ const VK_SNAPSHOT: u32 = 0x2C; // PrintScreen
 // Special hotkey IDs for system keys
 const IDHOT_SNAPDESKTOP: i32 = -2; // Overrides PrintScreen
 
+// Custom window messages for thread-safe registration
+#[cfg(target_os = "windows")]
+const WM_REGISTER_HOTKEY: u32 = WM_USER + 1;
+#[cfg(target_os = "windows")]
+const WM_UNREGISTER_HOTKEY: u32 = WM_USER + 2;
+
 #[derive(Clone)]
 struct RegisteredHotkey {
+    #[allow(dead_code)]
     id: String,
     hotkey_id: i32, // Windows hotkey ID
+    #[allow(dead_code)]
+    modifiers: u32,
+    #[allow(dead_code)]
+    key_code: u32,
+}
+
+struct PendingRegistration {
+    #[allow(dead_code)]
+    id: String,
+    hotkey_id: i32,
     modifiers: u32,
     key_code: u32,
 }
@@ -49,6 +66,8 @@ struct HotkeyState {
     app_handle: Option<AppHandle>,
     running: bool,
     next_id: i32,
+    pending_registrations: Vec<PendingRegistration>,
+    pending_unregistrations: Vec<i32>,
 }
 
 static HOTKEY_STATE: OnceLock<Arc<Mutex<HotkeyState>>> = OnceLock::new();
@@ -61,6 +80,8 @@ fn get_state() -> &'static Arc<Mutex<HotkeyState>> {
             app_handle: None,
             running: false,
             next_id: 1, // Start at 1, reserve negative IDs for special keys
+            pending_registrations: Vec::new(),
+            pending_unregistrations: Vec::new(),
         }))
     })
 }
@@ -129,7 +150,7 @@ unsafe extern "system" fn wnd_proc(
     match msg {
         WM_HOTKEY => {
             let hotkey_id = w_param.0 as i32;
-            
+
             // Find the shortcut ID for this hotkey
             if let Ok(state) = get_state().try_lock() {
                 for (id, hotkey) in &state.hotkeys {
@@ -137,7 +158,7 @@ unsafe extern "system" fn wnd_proc(
                         if let Some(app) = &state.app_handle {
                             let event_name = format!("shortcut-{}", id);
                             let app_clone = app.clone();
-                            
+
                             // Emit on a separate task to avoid blocking the message loop
                             std::thread::spawn(move || {
                                 let _ = app_clone.emit(&event_name, ());
@@ -145,6 +166,38 @@ unsafe extern "system" fn wnd_proc(
                         }
                         break;
                     }
+                }
+            }
+            LRESULT(0)
+        }
+        x if x == WM_REGISTER_HOTKEY => {
+            // Process pending registrations from the message loop thread
+            if let Ok(mut state) = get_state().try_lock() {
+                // First, process any pending unregistrations
+                let pending_unregs = std::mem::take(&mut state.pending_unregistrations);
+                for hotkey_id in pending_unregs {
+                    let _ = UnregisterHotKey(hwnd, hotkey_id);
+                }
+
+                // Then process registrations
+                let pending = std::mem::take(&mut state.pending_registrations);
+                for reg in pending {
+                    let (actual_id, actual_mods) = if reg.key_code == VK_SNAPSHOT && reg.modifiers == 0 {
+                        (IDHOT_SNAPDESKTOP, 0)
+                    } else {
+                        (reg.hotkey_id, reg.modifiers | MOD_NOREPEAT.0)
+                    };
+                    let _ = RegisterHotKey(hwnd, actual_id, HOT_KEY_MODIFIERS(actual_mods), reg.key_code);
+                }
+            }
+            LRESULT(0)
+        }
+        x if x == WM_UNREGISTER_HOTKEY => {
+            // Process pending unregistrations from the message loop thread
+            if let Ok(mut state) = get_state().try_lock() {
+                let pending = std::mem::take(&mut state.pending_unregistrations);
+                for hotkey_id in pending {
+                    let _ = UnregisterHotKey(hwnd, hotkey_id);
                 }
             }
             LRESULT(0)
@@ -265,23 +318,6 @@ fn start_message_loop(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
-fn register_hotkey_internal(hwnd: HWND, id: &str, hotkey_id: i32, modifiers: u32, key_code: u32) -> Result<(), String> {
-    unsafe {
-        // For bare PrintScreen, use IDHOT_SNAPDESKTOP to override clipboard behavior
-        let (actual_id, actual_mods) = if key_code == VK_SNAPSHOT && modifiers == 0 {
-            (IDHOT_SNAPDESKTOP, 0)
-        } else {
-            (hotkey_id, modifiers | MOD_NOREPEAT.0)
-        };
-
-        RegisterHotKey(hwnd, actual_id, HOT_KEY_MODIFIERS(actual_mods), key_code)
-            .map_err(|e| format!("RegisterHotKey failed for {}: {}", id, e))?;
-
-        Ok(())
-    }
-}
-
 #[tauri::command]
 pub async fn register_shortcut_with_hook(
     app: AppHandle,
@@ -313,11 +349,9 @@ pub async fn register_shortcut_with_hook(
 
         // Remove existing registration if any
         if let Some(old) = state.hotkeys.remove(&id) {
-            if let Some(hwnd_val) = state.hwnd {
-                let hwnd = HWND(hwnd_val as *mut _);
-                unsafe {
-                    let _ = UnregisterHotKey(hwnd, old.hotkey_id);
-                }
+            if state.hwnd.is_some() {
+                // Queue unregistration to be processed by the message loop thread
+                state.pending_unregistrations.push(old.hotkey_id);
             }
         }
 
@@ -329,10 +363,21 @@ pub async fn register_shortcut_with_hook(
             key_code: key,
         });
 
-        // If we have a window, register immediately
+        // If we have a window, queue registration to be processed by the message loop thread
         if let Some(hwnd_val) = state.hwnd {
+            state.pending_registrations.push(PendingRegistration {
+                id: id.clone(),
+                hotkey_id,
+                modifiers,
+                key_code: key,
+            });
+
+            // Post a message to trigger registration on the correct thread
             let hwnd = HWND(hwnd_val as *mut _);
-            register_hotkey_internal(hwnd, &id, hotkey_id, modifiers, key)?;
+            drop(state); // Release lock before PostMessage
+            unsafe {
+                let _ = PostMessageW(hwnd, WM_REGISTER_HOTKEY, WPARAM(0), LPARAM(0));
+            }
         }
 
         Ok(())
@@ -350,16 +395,21 @@ pub async fn unregister_shortcut_hook(id: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let mut state = get_state().lock().map_err(|e| e.to_string())?;
-        
+
         if let Some(hotkey) = state.hotkeys.remove(&id) {
             if let Some(hwnd_val) = state.hwnd {
+                // Queue unregistration to be processed by the message loop thread
+                state.pending_unregistrations.push(hotkey.hotkey_id);
+
+                // Post a message to trigger unregistration on the correct thread
                 let hwnd = HWND(hwnd_val as *mut _);
+                drop(state); // Release lock before PostMessage
                 unsafe {
-                    let _ = UnregisterHotKey(hwnd, hotkey.hotkey_id);
+                    let _ = PostMessageW(hwnd, WM_UNREGISTER_HOTKEY, WPARAM(0), LPARAM(0));
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -375,18 +425,26 @@ pub async fn unregister_all_hooks() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let mut state = get_state().lock().map_err(|e| e.to_string())?;
-        
+
         if let Some(hwnd_val) = state.hwnd {
-            let hwnd = HWND(hwnd_val as *mut _);
-            for hotkey in state.hotkeys.values() {
-                unsafe {
-                    let _ = UnregisterHotKey(hwnd, hotkey.hotkey_id);
-                }
+            // Collect hotkey IDs first to avoid borrow conflict
+            let hotkey_ids: Vec<i32> = state.hotkeys.values().map(|h| h.hotkey_id).collect();
+            // Queue all hotkeys for unregistration
+            for hotkey_id in hotkey_ids {
+                state.pending_unregistrations.push(hotkey_id);
             }
+
+            // Post a message to trigger unregistration on the correct thread
+            let hwnd = HWND(hwnd_val as *mut _);
+            state.hotkeys.clear();
+            drop(state); // Release lock before PostMessage
+            unsafe {
+                let _ = PostMessageW(hwnd, WM_UNREGISTER_HOTKEY, WPARAM(0), LPARAM(0));
+            }
+        } else {
+            state.hotkeys.clear();
         }
-        
-        state.hotkeys.clear();
-        
+
         Ok(())
     }
 

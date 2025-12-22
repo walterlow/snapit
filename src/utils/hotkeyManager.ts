@@ -229,11 +229,8 @@ export async function registerShortcut(
   const updateStatus = store.updateShortcutStatus;
   const allowOverride = store.settings.general.allowOverride;
 
-  console.log(`[HOTKEY DEBUG] registerShortcut: id=${id}, shortcut=${currentShortcut}, allowOverride=${allowOverride}`);
-
   // When allowOverride is ON, use hooks directly (can override other apps)
   if (allowOverride) {
-    console.log(`[HOTKEY DEBUG] Using HOOK path for ${id}`);
     try {
       // Remove any existing listener for this shortcut
       const existingListener = hookListeners.get(id);
@@ -244,7 +241,6 @@ export async function registerShortcut(
 
       // Set up listener for events from Rust hook
       const unlisten = await listen(`shortcut-${id}`, () => {
-        console.log(`[HOTKEY DEBUG] Received event: shortcut-${id}`);
         const handler = shortcutHandlers.get(id);
         if (handler) {
           handler();
@@ -253,20 +249,16 @@ export async function registerShortcut(
       hookListeners.set(id, unlisten);
 
       // Register the hook with Rust
-      console.log(`[HOTKEY DEBUG] Calling invoke('register_shortcut_with_hook', { id: '${id}', shortcut: '${currentShortcut}' })`);
       await invoke('register_shortcut_with_hook', { id, shortcut: currentShortcut });
-      console.log(`[HOTKEY DEBUG] invoke succeeded for ${id}`);
       updateStatus(id, 'registered');
       return 'registered';
-    } catch (error) {
-      console.error(`[HOTKEY DEBUG] invoke FAILED for ${id}:`, error);
+    } catch {
       updateStatus(id, 'conflict');
       return 'conflict';
     }
   }
 
   // When allowOverride is OFF, use normal registration (respects other apps)
-  console.log(`[HOTKEY DEBUG] Using NORMAL registration path for ${id}`);
   try {
     const alreadyRegistered = await isRegistered(currentShortcut);
     if (alreadyRegistered) {

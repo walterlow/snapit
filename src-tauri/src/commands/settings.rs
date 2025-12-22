@@ -100,7 +100,7 @@ pub async fn open_path_in_explorer(path: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| format!("Failed to open explorer: {}", e))?;
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
@@ -108,7 +108,7 @@ pub async fn open_path_in_explorer(path: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| format!("Failed to open Finder: {}", e))?;
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
@@ -116,7 +116,41 @@ pub async fn open_path_in_explorer(path: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| format!("Failed to open file manager: {}", e))?;
     }
-    
+
+    Ok(())
+}
+
+/// Reveal a file in the file explorer (opens containing folder and selects the file)
+#[tauri::command]
+pub async fn reveal_file_in_explorer(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open explorer: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open Finder: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux doesn't have a standard way to select a file, so open the parent folder
+        let path = std::path::Path::new(&path);
+        let parent = path.parent().map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        std::process::Command::new("xdg-open")
+            .arg(&parent)
+            .spawn()
+            .map_err(|e| format!("Failed to open file manager: {}", e))?;
+    }
+
     Ok(())
 }
 

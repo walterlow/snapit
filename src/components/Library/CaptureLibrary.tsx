@@ -197,6 +197,28 @@ export const CaptureLibrary: React.FC = () => {
     setDeleteDialogOpen(true);
   }, [selectedIds.size]);
 
+  // Keyboard shortcut for deleting selected captures
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in an input field
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      // Delete or Backspace to delete selected captures
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0) {
+        e.preventDefault();
+        handleRequestDeleteSelected();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIds.size, handleRequestDeleteSelected]);
+
   const handleConfirmDelete = async () => {
     try {
       if (pendingBulkDelete) {
@@ -224,7 +246,7 @@ export const CaptureLibrary: React.FC = () => {
 
   const handleOpenInFolder = useCallback(async (capture: CaptureListItem) => {
     try {
-      await invoke('open_path_in_explorer', { path: capture.image_path });
+      await invoke('reveal_file_in_explorer', { path: capture.image_path });
     } catch (error) {
       console.error('Failed to open in folder:', error);
       toast.error('Failed to open file location');

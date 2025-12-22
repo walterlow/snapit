@@ -115,6 +115,7 @@ pub fn run() {
             commands::settings::set_autostart,
             commands::settings::is_autostart_enabled,
             commands::settings::open_path_in_explorer,
+            commands::settings::reveal_file_in_explorer,
             commands::settings::get_default_save_dir,
             commands::settings::update_tray_shortcut,
             commands::settings::set_close_to_tray,

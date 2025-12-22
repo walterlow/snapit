@@ -15,6 +15,7 @@ interface CropOverlayProps {
   zoom: number;
   position: { x: number; y: number };
   isShiftHeld: boolean;
+  isPanning: boolean;
   snapGuides: SnapGuide[];
   onCenterDragStart: (x: number, y: number) => void;
   onCenterDragMove: (x: number, y: number) => { x: number; y: number };
@@ -40,6 +41,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
   zoom,
   position,
   isShiftHeld,
+  isPanning,
   snapGuides,
   onCenterDragStart,
   onCenterDragMove,
@@ -98,8 +100,13 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
         width={baseBounds.width}
         height={baseBounds.height}
         fill="transparent"
-        draggable
+        draggable={!isPanning}
         onDragStart={(e) => {
+          // Ignore middle mouse button (used for panning)
+          if (e.evt.button === 1) {
+            e.target.stopDrag();
+            return;
+          }
           const node = e.target;
           onCenterDragStart(node.x(), node.y());
         }}
@@ -136,7 +143,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
           height={handle.height}
           fill="#fbbf24"
           cornerRadius={2 / zoom}
-          draggable
+          draggable={!isPanning}
           dragBoundFunc={(pos) => {
             if (handle.id === 't' || handle.id === 'b') {
               return { x: handle.x * zoom + position.x, y: pos.y };
@@ -144,7 +151,14 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
               return { x: pos.x, y: handle.y * zoom + position.y };
             }
           }}
-          onDragStart={() => onEdgeDragStart(handle.id)}
+          onDragStart={(e) => {
+            // Ignore middle mouse button (used for panning)
+            if (e.evt.button === 1) {
+              e.target.stopDrag();
+              return;
+            }
+            onEdgeDragStart(handle.id);
+          }}
           onDragMove={(e) => onEdgeDragMove(handle.id, e.target.x(), e.target.y())}
           onDragEnd={(e) => onEdgeDragEnd(handle.id, e.target.x(), e.target.y())}
           onMouseEnter={(e) => {
@@ -168,8 +182,15 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
           fill="#fbbf24"
           stroke="#000"
           strokeWidth={1 / zoom}
-          draggable
-          onDragStart={() => onCornerDragStart(handle.id)}
+          draggable={!isPanning}
+          onDragStart={(e) => {
+            // Ignore middle mouse button (used for panning)
+            if (e.evt.button === 1) {
+              e.target.stopDrag();
+              return;
+            }
+            onCornerDragStart(handle.id);
+          }}
           onDragMove={(e) => onCornerDragMove(handle.id, e.target.x(), e.target.y())}
           onDragEnd={(e) => onCornerDragEnd(handle.id, e.target.x(), e.target.y())}
           onMouseEnter={(e) => {

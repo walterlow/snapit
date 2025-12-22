@@ -660,6 +660,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               zoom={navigation.zoom}
               position={navigation.position}
               isShiftHeld={isShiftHeld}
+              isPanning={pan.isPanning}
               snapGuides={crop.snapGuides}
               onCenterDragStart={crop.handleCenterDragStart}
               onCenterDragMove={crop.handleCenterDragMove}

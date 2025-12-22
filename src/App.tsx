@@ -41,7 +41,7 @@ function App() {
   } = useCaptureStore();
 
   // Editor state from store
-  const { shapes, setShapes, clearEditor, compositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize } = useEditorStore();
+  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize } = useEditorStore();
 
   // Local editor UI state
   const [selectedTool, setSelectedTool] = useState<Tool>('select');
@@ -231,10 +231,13 @@ function App() {
   // Load annotations when project changes
   useEffect(() => {
     if (currentProject?.annotations) {
-      // Separate crop bounds from shape annotations
+      // Separate special annotations from shape annotations
       const cropBoundsAnn = currentProject.annotations.find((ann) => ann.type === '__crop_bounds__');
-      const shapeAnnotations = currentProject.annotations.filter((ann) => ann.type !== '__crop_bounds__');
-      
+      const compositorAnn = currentProject.annotations.find((ann) => ann.type === '__compositor_settings__');
+      const shapeAnnotations = currentProject.annotations.filter(
+        (ann) => ann.type !== '__crop_bounds__' && ann.type !== '__compositor_settings__'
+      );
+
       // Load crop bounds if present
       if (cropBoundsAnn) {
         setCanvasBounds({
@@ -244,7 +247,14 @@ function App() {
           imageOffsetY: cropBoundsAnn.imageOffsetY as number,
         });
       }
-      
+
+      // Load compositor settings if present
+      if (compositorAnn) {
+        setCompositorSettings({
+          enabled: compositorAnn.enabled as boolean,
+        });
+      }
+
       // Set original image size for reset functionality
       if (currentProject.dimensions) {
         setOriginalImageSize({
@@ -252,7 +262,7 @@ function App() {
           height: currentProject.dimensions.height,
         });
       }
-      
+
       // Convert annotations to shapes
       const projectShapes: CanvasShape[] = shapeAnnotations.map((ann) => ({
         ...ann,
@@ -263,7 +273,7 @@ function App() {
     } else {
       setShapes([]);
     }
-  }, [currentProject, setCanvasBounds, setOriginalImageSize, setShapes]);
+  }, [currentProject, setCanvasBounds, setCompositorSettings, setOriginalImageSize, setShapes]);
 
   // Handle shapes change
   const handleShapesChange = (newShapes: CanvasShape[]) => {
@@ -366,7 +376,7 @@ function App() {
         const shapeAnnotations: Annotation[] = shapes.map((shape) => ({
           ...shape,
         } as Annotation));
-        
+
         const annotations = [...shapeAnnotations];
         if (canvasBounds) {
           annotations.push({
@@ -378,7 +388,14 @@ function App() {
             imageOffsetY: canvasBounds.imageOffsetY,
           } as Annotation);
         }
-        
+
+        // Save compositor enabled state
+        annotations.push({
+          id: '__compositor_settings__',
+          type: '__compositor_settings__',
+          enabled: compositorSettings.enabled,
+        } as Annotation);
+
         await updateAnnotations(annotations);
       }
 
@@ -570,12 +587,12 @@ function App() {
 
   // Go back to library
   const handleBack = async () => {
-    // Save annotations before going back (including crop bounds)
+    // Save annotations before going back (including crop bounds and compositor settings)
     if (currentProject) {
       const shapeAnnotations: Annotation[] = shapes.map((shape) => ({
         ...shape,
       } as Annotation));
-      
+
       // Add crop bounds as special annotation if modified
       const annotations = [...shapeAnnotations];
       if (canvasBounds) {
@@ -588,7 +605,14 @@ function App() {
           imageOffsetY: canvasBounds.imageOffsetY,
         } as Annotation);
       }
-      
+
+      // Save compositor enabled state
+      annotations.push({
+        id: '__compositor_settings__',
+        type: '__compositor_settings__',
+        enabled: compositorSettings.enabled,
+      } as Annotation);
+
       await updateAnnotations(annotations);
     }
 

@@ -5,6 +5,7 @@ import { isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, format, form
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection } from '../../types';
 
 import { useMarqueeSelection, useDragDropImport } from './hooks';
@@ -79,6 +80,8 @@ export const CaptureLibrary: React.FC = () => {
     filterFavorites,
     setFilterFavorites,
   } = useCaptureStore();
+
+  const { settings } = useSettingsStore();
 
   const captures = useFilteredCaptures();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -167,7 +170,12 @@ export const CaptureLibrary: React.FC = () => {
 
   const handleOpenLibraryFolder = async () => {
     try {
-      const libraryPath = await invoke<string>('get_library_folder');
+      // Use cached settings from store instead of re-reading from disk
+      const libraryPath = settings.general.defaultSaveDir;
+      if (!libraryPath) {
+        toast.error('No save directory configured');
+        return;
+      }
       await invoke('open_path_in_explorer', { path: libraryPath });
     } catch (error) {
       console.error('Failed to open library folder:', error);

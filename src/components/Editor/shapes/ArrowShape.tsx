@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useMemo } from 'react';
+import React, { useRef, useCallback, useMemo, useEffect } from 'react';
 import { Arrow, Circle } from 'react-konva';
 import Konva from 'konva';
 import type { CanvasShape } from '../../../types';
@@ -51,9 +51,9 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
   // points[] = anchor positions (where handles sit)
   const anchors = shape.points || [0, 0, 0, 0];
   const strokeWidth = shape.strokeWidth || 2;
-  const handleSize = Math.min(6, Math.max(5, strokeWidth * 0.5)) / zoom;
-  const tailOffset = strokeWidth + 2;  // Small offset for tail
-  const headOffset = strokeWidth + 6;  // Larger offset for arrowhead
+  const handleSize = Math.min(6, Math.max(4, strokeWidth * 0.2)) / zoom;
+  const tailOffset = strokeWidth + 1;  // Offset for tail, accounts for stroke
+  const headOffset = strokeWidth + 6;        // Larger offset for arrowhead
 
   // Compute arrow visual endpoints (offset inward from anchors)
   const arrowPoints = useMemo(() =>
@@ -65,6 +65,17 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
   const arrowRef = useRef<Konva.Arrow>(null);
   const startHandleRef = useRef<Konva.Circle>(null);
   const endHandleRef = useRef<Konva.Circle>(null);
+
+  // Smooth handle size transitions on zoom
+  const handleStrokeWidth = 1.5 / zoom;
+  useEffect(() => {
+    if (startHandleRef.current && isSelected) {
+      startHandleRef.current.to({ radius: handleSize, strokeWidth: handleStrokeWidth, duration: 0.1 });
+    }
+    if (endHandleRef.current && isSelected) {
+      endHandleRef.current.to({ radius: handleSize, strokeWidth: handleStrokeWidth, duration: 0.1 });
+    }
+  }, [handleSize, handleStrokeWidth, isSelected]);
 
   // Arrow drag handlers
   const handleArrowDragStart = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {

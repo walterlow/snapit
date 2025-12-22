@@ -159,8 +159,9 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             isOpen ? 'border-[var(--coral-400)] ring-2 ring-[var(--coral-glow)]' : 'border-[var(--polar-frost)]'
           )}
           style={{
-            backgroundColor: value === 'transparent' ? undefined : displayHex,
-            background: value === 'transparent' ? 'repeating-conic-gradient(#d4d4d4 0% 25%, transparent 0% 50%) 50% / 8px 8px' : undefined,
+            background: value === 'transparent'
+              ? 'repeating-conic-gradient(#d4d4d4 0% 25%, transparent 0% 50%) 50% / 8px 8px'
+              : displayHex,
           }}
         />
 

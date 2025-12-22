@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore';
 import type { CaptureListItem } from '../../types';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,6 +53,52 @@ import {
 } from '@/components/ui/context-menu';
 
 type ViewMode = 'grid' | 'list';
+
+interface DateGroup {
+  label: string;
+  captures: CaptureListItem[];
+}
+
+// Group captures by date periods
+function groupCapturesByDate(captures: CaptureListItem[]): DateGroup[] {
+  const groups: Map<string, CaptureListItem[]> = new Map();
+  const groupOrder: string[] = [];
+
+  // Sort captures by created_at descending first
+  const sorted = [...captures].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  for (const capture of sorted) {
+    const date = new Date(capture.created_at);
+    let label: string;
+
+    if (isToday(date)) {
+      label = 'Today';
+    } else if (isYesterday(date)) {
+      label = 'Yesterday';
+    } else if (isThisWeek(date, { weekStartsOn: 1 })) {
+      label = 'This Week';
+    } else if (isThisMonth(date)) {
+      label = 'This Month';
+    } else if (isThisYear(date)) {
+      label = format(date, 'MMMM');
+    } else {
+      label = format(date, 'MMMM yyyy');
+    }
+
+    if (!groups.has(label)) {
+      groups.set(label, []);
+      groupOrder.push(label);
+    }
+    groups.get(label)!.push(capture);
+  }
+
+  return groupOrder.map(label => ({
+    label,
+    captures: groups.get(label)!,
+  }));
+}
 
 export const CaptureLibrary: React.FC = () => {
   const {
@@ -614,44 +660,84 @@ export const CaptureLibrary: React.FC = () => {
           ) : captures.length === 0 ? (
             <EmptyState onNewCapture={handleNewCapture} />
           ) : viewMode === 'grid' ? (
-            <div
-              className="grid gap-5 stagger-grid"
-              style={{
-                gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-              }}
-            >
-              {captures.map((capture, index) => (
-                <CaptureCard
-                  key={capture.id}
-                  capture={capture}
-                  selected={selectedIds.has(capture.id)}
-                  staggerIndex={index}
-                  onSelect={handleSelect}
-                  onToggleFavorite={() => toggleFavorite(capture.id)}
-                  onDelete={() => handleRequestDeleteSingle(capture.id)}
-                  onOpenInFolder={() => handleOpenInFolder(capture)}
-                  onCopyToClipboard={() => handleCopyToClipboard(capture)}
-                  formatDate={formatDate}
-                />
-              ))}
-            </div>
+            (() => {
+              const dateGroups = groupCapturesByDate(captures);
+              let staggerIndex = 0;
+              return (
+                <div className="space-y-0">
+                  {dateGroups.map((group, groupIndex) => (
+                    <div key={group.label}>
+                      <DateHeader
+                        label={group.label}
+                        count={group.captures.length}
+                        isFirst={groupIndex === 0}
+                      />
+                      <div
+                        className="grid gap-5 stagger-grid"
+                        style={{
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                        }}
+                      >
+                        {group.captures.map((capture) => {
+                          const currentIndex = staggerIndex++;
+                          return (
+                            <CaptureCard
+                              key={capture.id}
+                              capture={capture}
+                              selected={selectedIds.has(capture.id)}
+                              staggerIndex={currentIndex}
+                              onSelect={handleSelect}
+                              onToggleFavorite={() => toggleFavorite(capture.id)}
+                              onDelete={() => handleRequestDeleteSingle(capture.id)}
+                              onOpenInFolder={() => handleOpenInFolder(capture)}
+                              onCopyToClipboard={() => handleCopyToClipboard(capture)}
+                              formatDate={formatDate}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()
           ) : (
-            <div className="flex flex-col gap-2 stagger-grid">
-              {captures.map((capture, index) => (
-                <CaptureRow
-                  key={capture.id}
-                  capture={capture}
-                  selected={selectedIds.has(capture.id)}
-                  staggerIndex={index}
-                  onSelect={handleSelect}
-                  onToggleFavorite={() => toggleFavorite(capture.id)}
-                  onDelete={() => handleRequestDeleteSingle(capture.id)}
-                  onOpenInFolder={() => handleOpenInFolder(capture)}
-                  onCopyToClipboard={() => handleCopyToClipboard(capture)}
-                  formatDate={formatDate}
-                />
-              ))}
-            </div>
+            (() => {
+              const dateGroups = groupCapturesByDate(captures);
+              let staggerIndex = 0;
+              return (
+                <div className="space-y-0">
+                  {dateGroups.map((group, groupIndex) => (
+                    <div key={group.label}>
+                      <DateHeader
+                        label={group.label}
+                        count={group.captures.length}
+                        isFirst={groupIndex === 0}
+                      />
+                      <div className="flex flex-col gap-2 stagger-grid">
+                        {group.captures.map((capture) => {
+                          const currentIndex = staggerIndex++;
+                          return (
+                            <CaptureRow
+                              key={capture.id}
+                              capture={capture}
+                              selected={selectedIds.has(capture.id)}
+                              staggerIndex={currentIndex}
+                              onSelect={handleSelect}
+                              onToggleFavorite={() => toggleFavorite(capture.id)}
+                              onDelete={() => handleRequestDeleteSingle(capture.id)}
+                              onOpenInFolder={() => handleOpenInFolder(capture)}
+                              onCopyToClipboard={() => handleCopyToClipboard(capture)}
+                              formatDate={formatDate}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()
           )}
         </div>
 
@@ -688,6 +774,19 @@ export const CaptureLibrary: React.FC = () => {
     </TooltipProvider>
   );
 };
+
+// Date section header with divider
+const DateHeader: React.FC<{ label: string; count: number; isFirst?: boolean }> = ({ label, count, isFirst }) => (
+  <div className={`flex items-center gap-4 ${isFirst ? 'mb-4' : 'mt-8 mb-4'}`}>
+    <h3 className="text-sm font-semibold text-[var(--ink-dark)] whitespace-nowrap">
+      {label}
+    </h3>
+    <div className="flex-1 h-px bg-[var(--polar-frost)]" />
+    <span className="text-xs text-[var(--ink-subtle)] tabular-nums">
+      {count} {count === 1 ? 'capture' : 'captures'}
+    </span>
+  </div>
+);
 
 const EmptyState: React.FC<{ onNewCapture: () => void }> = ({ onNewCapture }) => (
   <div className="flex flex-col items-center justify-center py-16 animate-fade-in">

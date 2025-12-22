@@ -198,6 +198,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     canvasBounds,
     setCanvasBounds,
     isShiftHeld,
+    originalImageSize,
   });
 
   // Visible bounds for clipping
@@ -662,6 +663,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               zoom={navigation.zoom}
               position={navigation.position}
               isShiftHeld={isShiftHeld}
+              snapGuides={crop.snapGuides}
               onCenterDragStart={crop.handleCenterDragStart}
               onCenterDragMove={crop.handleCenterDragMove}
               onCenterDragEnd={crop.handleCenterDragEnd}

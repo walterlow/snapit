@@ -328,13 +328,17 @@ export const useCanvasNavigation = ({
     prevToolRef.current = selectedTool;
   }, [selectedTool, handleFitToSize]);
 
-  // Auto-refit on compositor padding change
+  // Track padding changes without auto-refitting (keeps view stable)
   useEffect(() => {
-    if (compositorSettings.enabled && compositorSettings.padding !== prevPaddingRef.current) {
-      prevPaddingRef.current = compositorSettings.padding;
-      handleFitToSize();
-    }
-  }, [compositorSettings.enabled, compositorSettings.padding, handleFitToSize]);
+    prevPaddingRef.current = compositorSettings.padding;
+  }, [compositorSettings.padding]);
+
+  // Listen for fit-to-center event (F key)
+  useEffect(() => {
+    const handleFitEvent = () => handleFitToSize();
+    window.addEventListener('fit-to-center', handleFitEvent);
+    return () => window.removeEventListener('fit-to-center', handleFitEvent);
+  }, [handleFitToSize]);
 
   // Auto-refit on canvas bounds change (skip during crop mode)
   useEffect(() => {

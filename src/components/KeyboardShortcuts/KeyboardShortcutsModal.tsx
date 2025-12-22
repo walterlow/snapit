@@ -47,6 +47,8 @@ const sections: ShortcutSection[] = [
   {
     title: 'Editor',
     shortcuts: [
+      { keys: ['G'], description: 'Toggle compositor' },
+      { keys: ['F'], description: 'Fit to center' },
       { keys: ['Double-click'], description: 'Edit text' },
       { keys: ['Shift', 'Drag'], description: 'Proportional resize' },
       { keys: ['Middle Mouse'], description: 'Pan canvas' },

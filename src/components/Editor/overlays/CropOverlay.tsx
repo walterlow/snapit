@@ -1,5 +1,6 @@
 import React from 'react';
-import { Rect, Circle } from 'react-konva';
+import { Rect, Circle, Line } from 'react-konva';
+import type { SnapGuide } from '../../../hooks/useCropTool';
 
 interface CropBounds {
   x: number;
@@ -14,13 +15,14 @@ interface CropOverlayProps {
   zoom: number;
   position: { x: number; y: number };
   isShiftHeld: boolean;
+  snapGuides: SnapGuide[];
   onCenterDragStart: (x: number, y: number) => void;
   onCenterDragMove: (x: number, y: number) => { x: number; y: number };
   onCenterDragEnd: (x: number, y: number) => void;
-  onEdgeDragStart: () => void;
+  onEdgeDragStart: (handleId: string) => void;
   onEdgeDragMove: (handleId: string, x: number, y: number) => void;
   onEdgeDragEnd: (handleId: string, x: number, y: number) => void;
-  onCornerDragStart: () => void;
+  onCornerDragStart: (handleId: string) => void;
   onCornerDragMove: (handleId: string, x: number, y: number) => void;
   onCornerDragEnd: (handleId: string, x: number, y: number) => void;
 }
@@ -38,6 +40,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
   zoom,
   position,
   isShiftHeld,
+  snapGuides,
   onCenterDragStart,
   onCenterDragMove,
   onCenterDragEnd,
@@ -141,7 +144,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
               return { x: pos.x, y: handle.y * zoom + position.y };
             }
           }}
-          onDragStart={onEdgeDragStart}
+          onDragStart={() => onEdgeDragStart(handle.id)}
           onDragMove={(e) => onEdgeDragMove(handle.id, e.target.x(), e.target.y())}
           onDragEnd={(e) => onEdgeDragEnd(handle.id, e.target.x(), e.target.y())}
           onMouseEnter={(e) => {
@@ -166,7 +169,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
           stroke="#000"
           strokeWidth={1 / zoom}
           draggable
-          onDragStart={onCornerDragStart}
+          onDragStart={() => onCornerDragStart(handle.id)}
           onDragMove={(e) => onCornerDragMove(handle.id, e.target.x(), e.target.y())}
           onDragEnd={(e) => onCornerDragEnd(handle.id, e.target.x(), e.target.y())}
           onMouseEnter={(e) => {
@@ -179,6 +182,38 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
           }}
         />
       ))}
+
+      {/* Snap guide lines */}
+      {snapGuides.map((guide, index) => {
+        // Calculate line extent - extend well beyond visible area
+        const lineExtent = 10000;
+        const strokeWidth = 1 / zoom;
+        const dashSize = 4 / zoom;
+
+        if (guide.type === 'vertical') {
+          return (
+            <Line
+              key={`snap-v-${index}`}
+              points={[guide.position, -lineExtent, guide.position, lineExtent]}
+              stroke="#F97066"
+              strokeWidth={strokeWidth}
+              dash={[dashSize, dashSize]}
+              listening={false}
+            />
+          );
+        } else {
+          return (
+            <Line
+              key={`snap-h-${index}`}
+              points={[-lineExtent, guide.position, lineExtent, guide.position]}
+              stroke="#F97066"
+              strokeWidth={strokeWidth}
+              dash={[dashSize, dashSize]}
+              listening={false}
+            />
+          );
+        }
+      })}
     </>
   );
 };

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import Konva from 'konva';
 import type { Tool, CanvasShape, BlurType } from '../types';
 import { takeSnapshot, commitSnapshot, recordAction } from '../stores/editorStore';
@@ -32,6 +32,7 @@ interface UseShapeDrawingReturn {
 
 /**
  * Hook for shape drawing - handles drag-to-draw and click-to-place tools
+ * Uses refs for live drawing to avoid re-renders on every mouse move
  */
 export const useShapeDrawing = ({
   selectedTool,
@@ -50,6 +51,10 @@ export const useShapeDrawing = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState({ x: 0, y: 0 });
   const [shapeSpawned, setShapeSpawned] = useState(false);
+
+  // Refs for live drawing without re-renders
+  const liveShapeRef = useRef<CanvasShape | null>(null);
+  const shapesBeforeDrawRef = useRef<CanvasShape[]>([]);
 
   // Create a new shape based on tool type
   const createShapeAtPosition = useCallback(
@@ -209,6 +214,8 @@ export const useShapeDrawing = ({
 
       // For drag-to-draw tools, snapshot before drawing starts
       takeSnapshot();
+      shapesBeforeDrawRef.current = shapes;
+      liveShapeRef.current = null;
       setIsDrawing(true);
       setDrawStart(pos);
       setShapeSpawned(false);
@@ -226,10 +233,13 @@ export const useShapeDrawing = ({
     ]
   );
 
-  // Handle mouse move during drawing
+  // Handle mouse move during drawing - uses Konva directly to avoid React re-renders
   const handleDrawingMouseMove = useCallback(
     (pos: { x: number; y: number }) => {
       if (!isDrawing) return;
+
+      const stage = stageRef.current;
+      if (!stage) return;
 
       // Calculate distance from start
       const distance = Math.sqrt(
@@ -241,73 +251,80 @@ export const useShapeDrawing = ({
         if (distance < MIN_SHAPE_SIZE) {
           return;
         }
-        // Spawn the shape
+        // Spawn the shape - this requires a React state update
         const newShape = createShapeAtPosition(drawStart, pos);
         if (newShape) {
-          onShapesChange([...shapes, newShape]);
+          liveShapeRef.current = newShape;
+          onShapesChange([...shapesBeforeDrawRef.current, newShape]);
           setSelectedIds([newShape.id]);
           setShapeSpawned(true);
         }
         return;
       }
 
-      // Update existing shape
-      const lastShape = shapes[shapes.length - 1];
-      if (!lastShape) return;
+      // Update existing shape via Konva directly (no React re-render)
+      const liveShape = liveShapeRef.current;
+      if (!liveShape) return;
 
-      const updatedShapes = [...shapes];
-      const shapeIndex = updatedShapes.length - 1;
+      const node = stage.findOne(`#${liveShape.id}`);
+      if (!node) return;
 
-      switch (lastShape.type) {
-        case 'arrow':
-          updatedShapes[shapeIndex] = {
-            ...lastShape,
-            points: [drawStart.x, drawStart.y, pos.x, pos.y],
-          };
+      switch (liveShape.type) {
+        case 'arrow': {
+          const line = node as Konva.Arrow;
+          const newPoints = [drawStart.x, drawStart.y, pos.x, pos.y];
+          line.points(newPoints);
+          liveShapeRef.current = { ...liveShape, points: newPoints };
           break;
+        }
         case 'rect':
         case 'highlight':
-        case 'blur':
-          updatedShapes[shapeIndex] = {
-            ...lastShape,
-            width: pos.x - drawStart.x,
-            height: pos.y - drawStart.y,
-          };
+        case 'blur': {
+          const rect = node as Konva.Rect;
+          const width = pos.x - drawStart.x;
+          const height = pos.y - drawStart.y;
+          rect.width(width);
+          rect.height(height);
+          liveShapeRef.current = { ...liveShape, width, height };
           break;
+        }
         case 'circle': {
+          const ellipse = node as Konva.Ellipse;
           const radiusX = Math.abs(pos.x - drawStart.x) / 2;
           const radiusY = Math.abs(pos.y - drawStart.y) / 2;
           const centerX = Math.min(drawStart.x, pos.x) + radiusX;
           const centerY = Math.min(drawStart.y, pos.y) + radiusY;
-          updatedShapes[shapeIndex] = {
-            ...lastShape,
-            x: centerX,
-            y: centerY,
-            radiusX,
-            radiusY,
-          };
+          ellipse.x(centerX);
+          ellipse.y(centerY);
+          ellipse.radiusX(radiusX);
+          ellipse.radiusY(radiusY);
+          liveShapeRef.current = { ...liveShape, x: centerX, y: centerY, radiusX, radiusY };
           break;
         }
         case 'pen': {
-          const existingPoints = lastShape.points || [];
-          updatedShapes[shapeIndex] = {
-            ...lastShape,
-            points: [...existingPoints, pos.x, pos.y],
-          };
+          const line = node as Konva.Line;
+          const existingPoints = liveShape.points || [];
+          const newPoints = [...existingPoints, pos.x, pos.y];
+          line.points(newPoints);
+          liveShapeRef.current = { ...liveShape, points: newPoints };
           break;
         }
       }
 
-      onShapesChange(updatedShapes);
+      // Trigger Konva layer redraw (much faster than React re-render)
+      node.getLayer()?.batchDraw();
     },
-    [isDrawing, shapeSpawned, shapes, drawStart, onShapesChange, createShapeAtPosition, setSelectedIds]
+    [isDrawing, shapeSpawned, drawStart, createShapeAtPosition, setSelectedIds, stageRef, onShapesChange]
   );
 
-  // Handle mouse up - finalize drawing
+  // Handle mouse up - finalize drawing and sync React state
   const handleDrawingMouseUp = useCallback(() => {
     if (!isDrawing) return;
 
-    if (shapeSpawned) {
+    if (shapeSpawned && liveShapeRef.current) {
+      // Commit final shape to React state
+      const finalShape = liveShapeRef.current;
+      onShapesChange([...shapesBeforeDrawRef.current, finalShape]);
       commitSnapshot();
       // Switch to select mode unless tool retains mode
       if (!TOOLS_RETAIN_MODE.has(selectedTool)) {
@@ -315,9 +332,12 @@ export const useShapeDrawing = ({
       }
     }
 
+    // Clean up refs
+    liveShapeRef.current = null;
+    shapesBeforeDrawRef.current = [];
     setIsDrawing(false);
     setShapeSpawned(false);
-  }, [isDrawing, shapeSpawned, selectedTool, onToolChange]);
+  }, [isDrawing, shapeSpawned, selectedTool, onToolChange, onShapesChange]);
 
   return {
     isDrawing,

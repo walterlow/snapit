@@ -31,18 +31,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
 
       {/* Modal */}
-      <div
-        className="relative bg-white border border-[var(--polar-frost)] rounded-xl shadow-2xl w-[560px] mx-4 max-h-[85vh] overflow-hidden animate-scale-in"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="relative bg-white border border-[var(--polar-frost)] rounded-xl shadow-2xl w-[560px] mx-4 max-h-[85vh] overflow-hidden animate-scale-in">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--polar-frost)] bg-[var(--polar-ice)]">
           <h2 className="text-lg font-semibold text-[var(--ink-black)]">

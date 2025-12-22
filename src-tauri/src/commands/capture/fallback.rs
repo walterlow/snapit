@@ -265,10 +265,11 @@ fn capture_screen_region(x: i32, y: i32, width: u32, height: u32) -> Result<Rgba
     let monitor_y = target_monitor.y().unwrap_or(0);
 
     // Calculate relative position within monitor and scale to physical pixels
-    let rel_x = ((x - monitor_x).max(0) as f32 * scale_factor) as u32;
-    let rel_y = ((y - monitor_y).max(0) as f32 * scale_factor) as u32;
-    let scaled_width = (width as f32 * scale_factor) as u32;
-    let scaled_height = (height as f32 * scale_factor) as u32;
+    // Use rounding (not truncation) to prevent pixel misalignment at fractional scale factors
+    let rel_x = ((x - monitor_x).max(0) as f32 * scale_factor).round() as u32;
+    let rel_y = ((y - monitor_y).max(0) as f32 * scale_factor).round() as u32;
+    let scaled_width = (width as f32 * scale_factor).round() as u32;
+    let scaled_height = (height as f32 * scale_factor).round() as u32;
 
     // Clamp dimensions to monitor bounds
     let max_width = full_image.width().saturating_sub(rel_x);
@@ -311,10 +312,11 @@ pub fn capture_region(selection: RegionSelection) -> Result<CaptureResult, Captu
     let monitor_y = monitor.y().unwrap_or(0);
 
     // Scale coordinates from logical to physical pixels
-    let rel_x = ((selection.x - monitor_x).max(0) as f32 * scale_factor) as u32;
-    let rel_y = ((selection.y - monitor_y).max(0) as f32 * scale_factor) as u32;
-    let scaled_width = (selection.width as f32 * scale_factor) as u32;
-    let scaled_height = (selection.height as f32 * scale_factor) as u32;
+    // Use rounding (not truncation) to prevent pixel misalignment at fractional scale factors
+    let rel_x = ((selection.x - monitor_x).max(0) as f32 * scale_factor).round() as u32;
+    let rel_y = ((selection.y - monitor_y).max(0) as f32 * scale_factor).round() as u32;
+    let scaled_width = (selection.width as f32 * scale_factor).round() as u32;
+    let scaled_height = (selection.height as f32 * scale_factor).round() as u32;
 
     let max_width = dynamic_image.width().saturating_sub(rel_x);
     let max_height = dynamic_image.height().saturating_sub(rel_y);

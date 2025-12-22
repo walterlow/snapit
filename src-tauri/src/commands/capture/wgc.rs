@@ -100,8 +100,8 @@ fn encode_rgba_to_png(data: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>,
     Ok(buffer.into_inner())
 }
 
-/// Capture a window using Windows Graphics Capture API with full transparency support.
-pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
+/// Attempt a single WGC capture.
+fn try_capture_window(hwnd: isize, timeout: Duration) -> Result<(Vec<u8>, u32, u32), CaptureError> {
     let window = WgcWindow::from_raw_hwnd(hwnd as *mut std::ffi::c_void);
 
     // Validate window
@@ -118,7 +118,7 @@ pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
         SecondaryWindowSettings::Default,
         MinimumUpdateIntervalSettings::Default,
         DirtyRegionSettings::Default,
-        ColorFormat::Rgba8, // Full alpha channel support
+        ColorFormat::Rgba8,
         tx,
     );
 
@@ -127,32 +127,64 @@ pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
 
     // Wait for result with timeout
     let result = rx
-        .recv_timeout(Duration::from_secs(5))
+        .recv_timeout(timeout)
         .map_err(|_| CaptureError::CaptureFailed("Capture timeout".into()))?
         .map_err(|e| CaptureError::CaptureFailed(e))?;
 
     // Wait for capture thread to finish
     let _ = handle.join();
 
-    let (rgba_data, width, height) = result;
+    Ok(result)
+}
 
-    // Check if capture returned mostly transparent content (elevated window issue)
-    if is_mostly_transparent(&rgba_data, width, height) {
-        return Err(CaptureError::CaptureFailed(
-            "Captured content is mostly transparent (possible elevated window)".into(),
-        ));
+/// Capture a window using Windows Graphics Capture API with full transparency support.
+/// Includes retry logic for transient failures.
+pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
+    // Brief delay to let window state stabilize (helps with resize/animation)
+    std::thread::sleep(Duration::from_millis(16)); // ~1 frame
+
+    // Try capture with retry for transient failures
+    let mut last_error = None;
+    for attempt in 0..2 {
+        if attempt > 0 {
+            // Small delay between retries
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        match try_capture_window(hwnd, Duration::from_secs(3)) {
+            Ok((rgba_data, width, height)) => {
+                // Validate dimensions are reasonable
+                if width == 0 || height == 0 {
+                    last_error = Some(CaptureError::CaptureFailed("Invalid dimensions".into()));
+                    continue;
+                }
+
+                // Check if capture returned mostly transparent content (elevated window issue)
+                if is_mostly_transparent(&rgba_data, width, height) {
+                    // Don't retry for elevated windows - fall through to return error
+                    return Err(CaptureError::CaptureFailed(
+                        "Captured content is mostly transparent (possible elevated window)".into(),
+                    ));
+                }
+
+                // Note: Rounded corners are handled by the compositor/editor, not here
+                let png_data = encode_rgba_to_png(rgba_data, width, height)?;
+                let base64_data = STANDARD.encode(&png_data);
+
+                return Ok(CaptureResult {
+                    image_data: base64_data,
+                    width,
+                    height,
+                    has_transparency: true,
+                });
+            }
+            Err(e) => {
+                last_error = Some(e);
+            }
+        }
     }
 
-    // Note: Rounded corners are handled by the compositor/editor, not here
-    let png_data = encode_rgba_to_png(rgba_data, width, height)?;
-    let base64_data = STANDARD.encode(&png_data);
-
-    Ok(CaptureResult {
-        image_data: base64_data,
-        width,
-        height,
-        has_transparency: true,
-    })
+    Err(last_error.unwrap_or_else(|| CaptureError::CaptureFailed("Unknown error".into())))
 }
 
 /// Capture a monitor using Windows Graphics Capture API.

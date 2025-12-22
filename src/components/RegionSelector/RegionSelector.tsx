@@ -156,11 +156,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     // If we were in window mode and didn't drag, capture the window
     if (mode === 'window' && !isDragging && hoveredWindow) {
       try {
-        // Move overlays off-screen first - needed for screen-crop fallback
+        // Move overlays off-screen first - Rust handles DWM compositor sync
         await invoke('move_overlays_offscreen');
-        // Small delay to ensure overlay is moved
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
+
         const result = await invoke<{ image_data: string; width: number; height: number }>(
           'capture_window',
           { windowId: hoveredWindow.id }
@@ -229,6 +227,24 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       await invoke('hide_overlay');
     }
   }, [isSelecting, selection, getDisplayRect, monitorX, monitorY, monitorIndex, mode, isDragging, hoveredWindow]);
+
+  // Handle mouse leave - clear hovered window highlight
+  const handleMouseLeave = useCallback(() => {
+    // Clear any pending window detection
+    if (windowDetectTimeoutRef.current) {
+      clearTimeout(windowDetectTimeoutRef.current);
+      windowDetectTimeoutRef.current = null;
+    }
+    setHoveredWindow(null);
+    // Also handle any pending selection
+    if (isSelecting) {
+      setIsSelecting(false);
+      dragStartRef.current = null;
+      setSelection(null);
+      setIsDragging(false);
+      setMode('window');
+    }
+  }, [isSelecting]);
 
   // Handle escape key to cancel
   useEffect(() => {
@@ -305,7 +321,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Window highlight mode */}
       {windowHighlight && mode === 'window' && !isDragging && (

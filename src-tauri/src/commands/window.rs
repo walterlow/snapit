@@ -74,11 +74,27 @@ fn create_overlay_windows(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Flush DWM compositor to ensure window position changes are rendered
+#[cfg(target_os = "windows")]
+fn flush_compositor() {
+    use windows::Win32::Graphics::Dwm::DwmFlush;
+    unsafe {
+        // DwmFlush waits for the next vertical blank and ensures all pending
+        // composition operations are completed before returning
+        let _ = DwmFlush();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn flush_compositor() {
+    // No-op on non-Windows platforms
+}
+
 /// Move all overlays off-screen (instant, synchronous) - call before capture
 #[command]
 pub async fn move_overlays_offscreen(app: AppHandle) -> Result<(), String> {
     let windows = app.webview_windows();
-    
+
     for (label, window) in windows {
         if label.starts_with("ov_") || label.starts_with("overlay_") {
             // Move way off screen - this is instant and synchronous
@@ -87,10 +103,14 @@ pub async fn move_overlays_offscreen(app: AppHandle) -> Result<(), String> {
             ));
         }
     }
-    
-    // Small sync delay to ensure Windows compositor updates
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    
+
+    // Flush DWM compositor to ensure the position change is rendered
+    // This is more reliable than a fixed sleep as it waits for actual vsync
+    flush_compositor();
+
+    // Additional small delay for driver/GPU buffer flush
+    std::thread::sleep(std::time::Duration::from_millis(32)); // ~2 frames at 60fps
+
     Ok(())
 }
 

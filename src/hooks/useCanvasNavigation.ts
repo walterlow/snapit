@@ -188,8 +188,11 @@ export const useCanvasNavigation = ({
     [zoom, position]
   );
 
-  // Debounced container size update
+  // Throttled container size update - limits updates during resize drag
   useEffect(() => {
+    let lastUpdateTime = 0;
+    const THROTTLE_MS = 50; // Update at most every 50ms during resize
+
     const updateContainerSize = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
@@ -197,16 +200,34 @@ export const useCanvasNavigation = ({
       }
     };
 
-    const debouncedUpdate = () => {
+    const throttledUpdate = () => {
+      const now = performance.now();
+      const timeSinceLastUpdate = now - lastUpdateTime;
+
       if (resizeTimeoutRef.current) {
         cancelAnimationFrame(resizeTimeoutRef.current);
       }
-      resizeTimeoutRef.current = requestAnimationFrame(updateContainerSize);
+
+      if (timeSinceLastUpdate >= THROTTLE_MS) {
+        // Enough time passed, update immediately on next frame
+        resizeTimeoutRef.current = requestAnimationFrame(() => {
+          updateContainerSize();
+          lastUpdateTime = performance.now();
+        });
+      } else {
+        // Schedule update after throttle period
+        resizeTimeoutRef.current = requestAnimationFrame(() => {
+          setTimeout(() => {
+            updateContainerSize();
+            lastUpdateTime = performance.now();
+          }, THROTTLE_MS - timeSinceLastUpdate);
+        });
+      }
     };
 
     updateContainerSize();
 
-    const resizeObserver = new ResizeObserver(debouncedUpdate);
+    const resizeObserver = new ResizeObserver(throttledUpdate);
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
     }

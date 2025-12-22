@@ -620,11 +620,12 @@ export const CaptureLibrary: React.FC = () => {
                 gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
               }}
             >
-              {captures.map((capture) => (
+              {captures.map((capture, index) => (
                 <CaptureCard
                   key={capture.id}
                   capture={capture}
                   selected={selectedIds.has(capture.id)}
+                  staggerIndex={index}
                   onSelect={handleSelect}
                   onToggleFavorite={() => toggleFavorite(capture.id)}
                   onDelete={() => handleRequestDeleteSingle(capture.id)}
@@ -636,11 +637,12 @@ export const CaptureLibrary: React.FC = () => {
             </div>
           ) : (
             <div className="flex flex-col gap-2 stagger-grid">
-              {captures.map((capture) => (
+              {captures.map((capture, index) => (
                 <CaptureRow
                   key={capture.id}
                   capture={capture}
                   selected={selectedIds.has(capture.id)}
+                  staggerIndex={index}
                   onSelect={handleSelect}
                   onToggleFavorite={() => toggleFavorite(capture.id)}
                   onDelete={() => handleRequestDeleteSingle(capture.id)}
@@ -727,6 +729,7 @@ const EmptyState: React.FC<{ onNewCapture: () => void }> = ({ onNewCapture }) =>
 interface CaptureCardProps {
   capture: CaptureListItem;
   selected: boolean;
+  staggerIndex?: number;
   onSelect: (id: string, e: React.MouseEvent) => void;
   onToggleFavorite: () => void;
   onDelete: () => void;
@@ -741,13 +744,15 @@ const capturePropsAreEqual = (prev: CaptureCardProps, next: CaptureCardProps) =>
     prev.capture.id === next.capture.id &&
     prev.capture.favorite === next.capture.favorite &&
     prev.capture.thumbnail_path === next.capture.thumbnail_path &&
-    prev.selected === next.selected
+    prev.selected === next.selected &&
+    prev.staggerIndex === next.staggerIndex
   );
 };
 
 const CaptureCard: React.FC<CaptureCardProps> = memo(({
   capture,
   selected,
+  staggerIndex,
   onSelect,
   onToggleFavorite,
   onDelete,
@@ -762,6 +767,7 @@ const CaptureCard: React.FC<CaptureCardProps> = memo(({
       <ContextMenuTrigger asChild>
         <div
           className={`capture-card group ${selected ? 'selected' : ''}`}
+          style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
           data-capture-id={capture.id}
           onClick={(e) => onSelect(capture.id, e)}
         >
@@ -862,6 +868,7 @@ const CaptureCard: React.FC<CaptureCardProps> = memo(({
 const CaptureRow: React.FC<CaptureCardProps> = memo(({
   capture,
   selected,
+  staggerIndex,
   onSelect,
   onToggleFavorite,
   onDelete,
@@ -876,6 +883,7 @@ const CaptureRow: React.FC<CaptureCardProps> = memo(({
       <ContextMenuTrigger asChild>
         <div
           className={`capture-row group ${selected ? 'selected' : ''}`}
+          style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
           data-capture-id={capture.id}
           onClick={(e) => onSelect(capture.id, e)}
         >

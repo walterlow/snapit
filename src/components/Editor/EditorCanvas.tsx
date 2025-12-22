@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect } from 'react';
+import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { Stage, Layer, Image, Rect, Group, Transformer } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
@@ -78,6 +78,28 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const transformerRef = useRef<Konva.Transformer>(null);
   const compositorBgRef = useRef<HTMLDivElement>(null);
 
+  // Track device pixel ratio for crisp HiDPI rendering
+  const [pixelRatio, setPixelRatio] = useState(() => window.devicePixelRatio || 1);
+
+  // Update pixelRatio when DPI changes (e.g., window moved between monitors)
+  useEffect(() => {
+    const updatePixelRatio = () => {
+      const newRatio = window.devicePixelRatio || 1;
+      if (newRatio !== pixelRatio) {
+        setPixelRatio(newRatio);
+      }
+    };
+
+    // Listen for DPI changes
+    const mediaQuery = window.matchMedia(`(resolution: ${pixelRatio}dppx)`);
+    mediaQuery.addEventListener('change', updatePixelRatio);
+
+    return () => {
+      mediaQuery.removeEventListener('change', updatePixelRatio);
+    };
+  }, [pixelRatio]);
+
+
   // Store state
   const selectedIds = useEditorStore((state) => state.selectedIds);
   const setSelectedIds = useEditorStore((state) => state.setSelectedIds);
@@ -108,6 +130,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     selectedTool,
     compositorBgRef,
   });
+
 
   // Keyboard shortcuts hook
   const { isShiftHeld } = useKeyboardShortcuts({
@@ -444,6 +467,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         ref={stageRef}
         width={navigation.containerSize.width}
         height={navigation.containerSize.height}
+        pixelRatio={pixelRatio}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

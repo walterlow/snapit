@@ -317,8 +317,14 @@ body {
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  transition: all var(--duration-normal) var(--ease-smooth);
+  /* Specific properties to avoid transitions during grid reflow */
+  transition: transform var(--duration-normal) var(--ease-smooth),
+              box-shadow var(--duration-normal) var(--ease-smooth),
+              border-color var(--duration-normal) var(--ease-smooth);
   box-shadow: var(--shadow-card);
+  /* GPU acceleration for smooth animations */
+  will-change: transform;
+  contain: layout style;
 }
 
 .capture-card:hover {
@@ -648,24 +654,20 @@ body {
   animation: scaleIn var(--duration-normal) var(--ease-spring) forwards;
 }
 
-/* Staggered grid animation */
-.stagger-grid > * {
-  opacity: 0;
-  animation: slideUp var(--duration-slow) var(--ease-out) forwards;
+/* Staggered grid animation - uses CSS custom property for dynamic delay */
+.stagger-grid {
+  /* Scope layout recalculations to this container */
+  contain: layout style;
+  /* Default stagger interval */
+  --stagger-interval: 20ms;
 }
 
-.stagger-grid > *:nth-child(1) { animation-delay: 0ms; }
-.stagger-grid > *:nth-child(2) { animation-delay: 30ms; }
-.stagger-grid > *:nth-child(3) { animation-delay: 60ms; }
-.stagger-grid > *:nth-child(4) { animation-delay: 90ms; }
-.stagger-grid > *:nth-child(5) { animation-delay: 120ms; }
-.stagger-grid > *:nth-child(6) { animation-delay: 150ms; }
-.stagger-grid > *:nth-child(7) { animation-delay: 180ms; }
-.stagger-grid > *:nth-child(8) { animation-delay: 210ms; }
-.stagger-grid > *:nth-child(9) { animation-delay: 240ms; }
-.stagger-grid > *:nth-child(10) { animation-delay: 270ms; }
-.stagger-grid > *:nth-child(11) { animation-delay: 300ms; }
-.stagger-grid > *:nth-child(12) { animation-delay: 330ms; }
+.stagger-grid > * {
+  opacity: 0;
+  /* Use --stagger-index set inline, fallback to 0 */
+  animation: slideUp var(--duration-normal) var(--ease-out) forwards;
+  animation-delay: calc(var(--stagger-index, 0) * var(--stagger-interval));
+}
 
 /* ========================================
    CHECKBOX (Custom Selection)
@@ -707,8 +709,13 @@ body {
   border: 1px solid var(--polar-frost);
   border-radius: 12px;
   cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-smooth);
+  /* Specific properties to avoid transitions during layout reflow */
+  transition: transform var(--duration-fast) var(--ease-smooth),
+              background-color var(--duration-fast) var(--ease-smooth),
+              border-color var(--duration-fast) var(--ease-smooth);
   box-shadow: var(--shadow-sm);
+  will-change: transform;
+  contain: layout style;
 }
 
 .capture-row:hover {

@@ -257,18 +257,24 @@ fn capture_screen_region(x: i32, y: i32, width: u32, height: u32) -> Result<Rgba
         .capture_image()
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture screen: {}", e)))?;
 
+    // Get scale factor - input coordinates are in logical pixels,
+    // but capture_image() returns physical pixels
+    let scale_factor = target_monitor.scale_factor().unwrap_or(1.0) as f32;
+
     let monitor_x = target_monitor.x().unwrap_or(0);
     let monitor_y = target_monitor.y().unwrap_or(0);
-    
-    // Calculate relative position within monitor
-    let rel_x = (x - monitor_x).max(0) as u32;
-    let rel_y = (y - monitor_y).max(0) as u32;
-    
+
+    // Calculate relative position within monitor and scale to physical pixels
+    let rel_x = ((x - monitor_x).max(0) as f32 * scale_factor) as u32;
+    let rel_y = ((y - monitor_y).max(0) as f32 * scale_factor) as u32;
+    let scaled_width = (width as f32 * scale_factor) as u32;
+    let scaled_height = (height as f32 * scale_factor) as u32;
+
     // Clamp dimensions to monitor bounds
     let max_width = full_image.width().saturating_sub(rel_x);
     let max_height = full_image.height().saturating_sub(rel_y);
-    let crop_width = width.min(max_width);
-    let crop_height = height.min(max_height);
+    let crop_width = scaled_width.min(max_width);
+    let crop_height = scaled_height.min(max_height);
 
     if crop_width == 0 || crop_height == 0 {
         return Err(CaptureError::InvalidRegion);
@@ -297,15 +303,23 @@ pub fn capture_region(selection: RegionSelection) -> Result<CaptureResult, Captu
 
     let dynamic_image = DynamicImage::ImageRgba8(full_image);
 
+    // Get scale factor - selection coordinates are in logical pixels,
+    // but capture_image() returns physical pixels
+    let scale_factor = monitor.scale_factor().unwrap_or(1.0) as f32;
+
     let monitor_x = monitor.x().unwrap_or(0);
     let monitor_y = monitor.y().unwrap_or(0);
-    let rel_x = (selection.x - monitor_x).max(0) as u32;
-    let rel_y = (selection.y - monitor_y).max(0) as u32;
+
+    // Scale coordinates from logical to physical pixels
+    let rel_x = ((selection.x - monitor_x).max(0) as f32 * scale_factor) as u32;
+    let rel_y = ((selection.y - monitor_y).max(0) as f32 * scale_factor) as u32;
+    let scaled_width = (selection.width as f32 * scale_factor) as u32;
+    let scaled_height = (selection.height as f32 * scale_factor) as u32;
 
     let max_width = dynamic_image.width().saturating_sub(rel_x);
     let max_height = dynamic_image.height().saturating_sub(rel_y);
-    let crop_width = selection.width.min(max_width);
-    let crop_height = selection.height.min(max_height);
+    let crop_width = scaled_width.min(max_width);
+    let crop_height = scaled_height.min(max_height);
 
     if crop_width == 0 || crop_height == 0 {
         return Err(CaptureError::InvalidRegion);

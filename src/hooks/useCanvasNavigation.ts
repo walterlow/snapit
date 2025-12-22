@@ -43,6 +43,8 @@ interface UseCanvasNavigationReturn {
   renderedPositionRef: React.RefObject<{ x: number; y: number }>;
   renderedZoomRef: React.RefObject<number>;
   transformCoeffsRef: React.RefObject<{ kx: number; ky: number }>;
+  // Ready state - true after initial fit is complete
+  isReady: boolean;
 }
 
 /**
@@ -78,10 +80,12 @@ export const useCanvasNavigation = ({
   const [zoom, setZoom] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isInitialFit, setIsInitialFit] = useState(true);
+  const [isReady, setIsReady] = useState(false);
 
   // Reset initial fit when image changes
   useEffect(() => {
     setIsInitialFit(true);
+    setIsReady(false);
   }, [imageData]);
 
   // Calculate transform coefficients when compositor settings or bounds change
@@ -303,8 +307,14 @@ export const useCanvasNavigation = ({
       const hasChanged = prevSize.width !== containerSize.width || prevSize.height !== containerSize.height;
 
       if (isInitialFit) {
-        // Initial load - fit to size
-        handleFitToSize();
+        // Initial load - calculate and apply fit synchronously to avoid flash
+        const fit = calculateFitToSize();
+        if (fit) {
+          setZoom(fit.zoom);
+          setPosition(fit.position);
+          // Mark as ready after position is set (will render in next frame)
+          requestAnimationFrame(() => setIsReady(true));
+        }
         setIsInitialFit(false);
       } else if (hasChanged) {
         // On resize - just recenter, keep current zoom
@@ -313,7 +323,7 @@ export const useCanvasNavigation = ({
 
       prevContainerSizeRef.current = containerSize;
     }
-  }, [image, containerSize, isInitialFit, handleFitToSize, recenterCanvas, canvasBounds, setCanvasBounds, setOriginalImageSize]);
+  }, [image, containerSize, isInitialFit, calculateFitToSize, recenterCanvas, canvasBounds, setCanvasBounds, setOriginalImageSize]);
 
   // Fit when exiting crop mode
   useEffect(() => {
@@ -496,5 +506,7 @@ export const useCanvasNavigation = ({
     renderedPositionRef,
     renderedZoomRef,
     transformCoeffsRef,
+    // Ready state - true after initial fit is complete
+    isReady,
   };
 };

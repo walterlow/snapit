@@ -418,6 +418,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       onMouseUp={pan.handleMiddleMouseUp}
       onMouseLeave={pan.handleMiddleMouseUp}
     >
+      {/* Canvas content wrapper - fades in when ready to avoid position flash */}
+      <div
+        className="absolute inset-0 transition-opacity duration-150"
+        style={{
+          opacity: navigation.isReady ? 1 : 0,
+          pointerEvents: navigation.isReady ? 'auto' : 'none',
+        }}
+      >
       {/* Composition Preview Background */}
       {compositorSettings.enabled && compositionBox && visibleBounds && (
         <div
@@ -717,6 +725,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           />
         </Layer>
       </Stage>
+      </div>
 
       {/* Crop Controls */}
       {selectedTool === 'crop' && canvasBounds && (() => {

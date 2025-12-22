@@ -165,6 +165,13 @@ function App() {
     loadCaptures();
   }, [loadCaptures]);
 
+  // Reset to select tool when a new image is loaded
+  useEffect(() => {
+    if (currentImageData) {
+      setSelectedTool('select');
+    }
+  }, [currentImageData]);
+
   // Capture trigger functions
   const triggerRegionCapture = useCallback(async () => {
     try {

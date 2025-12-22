@@ -26,6 +26,8 @@ import { GRADIENT_PRESETS, DEFAULT_WALLPAPERS, WALLPAPER_THUMBNAILS, type Gradie
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import { ColorPicker } from '@/components/ui/color-picker';
 
 // Color presets for quick selection
 const COLOR_PRESETS = [
@@ -159,20 +161,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       {compositorSettings.backgroundType === 'solid' && (
         <div className="space-y-3">
           <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Color</Label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={compositorSettings.backgroundColor}
-              onChange={(e) => setCompositorSettings({ backgroundColor: e.target.value })}
-              className="w-10 h-10 rounded-lg cursor-pointer border-0 bg-transparent"
-            />
-            <input
-              type="text"
-              value={compositorSettings.backgroundColor}
-              onChange={(e) => setCompositorSettings({ backgroundColor: e.target.value })}
-              className="flex-1 h-9 px-3 rounded-lg bg-white border border-[var(--polar-frost)] text-sm text-[var(--ink-black)] font-mono focus:border-[var(--coral-400)] focus:ring-2 focus:ring-[var(--coral-glow)]"
-            />
-          </div>
+          <ColorPicker
+            value={compositorSettings.backgroundColor}
+            onChange={(color) => setCompositorSettings({ backgroundColor: color })}
+            presets={COLOR_PRESETS}
+          />
         </div>
       )}
 
@@ -449,9 +442,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   // Render tool-specific properties
   const renderToolProperties = () => {
-    const toolInfo = TOOL_INFO[effectiveTool];
-    const ToolIcon = toolInfo.icon;
-
     // Tools that use stroke color
     const strokeTools: Tool[] = ['arrow', 'rect', 'circle', 'pen'];
     // Tools that use fill color (text color)
@@ -461,12 +451,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
     return (
       <div className="space-y-5">
-        {/* Tool Info */}
-        <div className="flex items-center gap-2 text-[var(--ink-dark)]">
-          <ToolIcon className="w-4 h-4 text-[var(--coral-400)]" />
-          <span className="text-sm font-medium">{toolInfo.label} Tool</span>
-        </div>
-
         {/* Select Tool - show tip */}
         {effectiveTool === 'select' && (
           <div className="text-xs text-[var(--ink-muted)] leading-relaxed">
@@ -485,62 +469,28 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         {strokeTools.includes(effectiveTool) && (
           <div className="space-y-3">
             <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Stroke Color</Label>
-            <div className="flex flex-wrap gap-2">
-              {COLOR_PRESETS.map((color) => (
-                <button
-                  key={color}
-                  onClick={() => handleStrokeColorChange(color)}
-                  className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 ${
-                    strokeColor === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
-                  }`}
-                  style={{ backgroundColor: color, boxShadow: color === '#FFFFFF' ? 'inset 0 0 0 1px rgba(0,0,0,0.1)' : undefined }}
-                />
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={strokeColor}
-                onChange={(e) => handleStrokeColorChange(e.target.value)}
-                className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent"
-              />
-              <input
-                type="text"
-                value={strokeColor}
-                onChange={(e) => handleStrokeColorChange(e.target.value)}
-                className="flex-1 h-8 px-2 rounded-lg bg-white border border-[var(--polar-frost)] text-sm text-[var(--ink-black)] font-mono focus:border-[var(--coral-400)] focus:ring-2 focus:ring-[var(--coral-glow)]"
-              />
-            </div>
+            <ColorPicker
+              value={strokeColor}
+              onChange={handleStrokeColorChange}
+              presets={COLOR_PRESETS}
+            />
           </div>
         )}
 
         {/* Fill Color for rect and circle */}
         {(effectiveTool === 'rect' || effectiveTool === 'circle') && (
-          <div className="space-y-3">
-            <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Fill Color</Label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => handleFillColorChange('transparent')}
-                className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 flex items-center justify-center ${
-                  fillColor === 'transparent' ? 'border-[var(--ink-black)]' : 'border-[var(--polar-frost)]'
-                }`}
-                style={{ background: 'repeating-conic-gradient(#d4d4d4 0% 25%, transparent 0% 50%) 50% / 8px 8px' }}
-                title="No fill"
-              >
-                <X className="w-3 h-3 text-[var(--ink-muted)]" />
-              </button>
-              {COLOR_PRESETS.map((color) => (
-                <button
-                  key={color}
-                  onClick={() => handleFillColorChange(color)}
-                  className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 ${
-                    fillColor === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
-                  }`}
-                  style={{ backgroundColor: color, boxShadow: color === '#FFFFFF' ? 'inset 0 0 0 1px rgba(0,0,0,0.1)' : undefined }}
-                />
-              ))}
+          <>
+            <Separator className="bg-[var(--polar-frost)]" />
+            <div className="space-y-3">
+              <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Fill Color</Label>
+              <ColorPicker
+                value={fillColor}
+                onChange={handleFillColorChange}
+                presets={COLOR_PRESETS}
+                showTransparent
+              />
             </div>
-          </div>
+          </>
         )}
 
         {/* Fill/Text Color for text and steps tools */}
@@ -549,32 +499,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">
               {effectiveTool === 'text' ? 'Text Color' : 'Badge Color'}
             </Label>
-            <div className="flex flex-wrap gap-2">
-              {COLOR_PRESETS.map((color) => (
-                <button
-                  key={color}
-                  onClick={() => handleStrokeColorChange(color)}
-                  className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 ${
-                    strokeColor === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
-                  }`}
-                  style={{ backgroundColor: color, boxShadow: color === '#FFFFFF' ? 'inset 0 0 0 1px rgba(0,0,0,0.1)' : undefined }}
-                />
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={strokeColor}
-                onChange={(e) => handleStrokeColorChange(e.target.value)}
-                className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent"
-              />
-              <input
-                type="text"
-                value={strokeColor}
-                onChange={(e) => handleStrokeColorChange(e.target.value)}
-                className="flex-1 h-8 px-2 rounded-lg bg-white border border-[var(--polar-frost)] text-sm text-[var(--ink-black)] font-mono focus:border-[var(--coral-400)] focus:ring-2 focus:ring-[var(--coral-glow)]"
-              />
-            </div>
+            <ColorPicker
+              value={strokeColor}
+              onChange={handleStrokeColorChange}
+              presets={COLOR_PRESETS}
+            />
           </div>
         )}
 
@@ -589,35 +518,38 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           const allSame = hasSteps && radii.every(r => r === radii[0]);
 
           return (
-            <div className="space-y-3">
-              <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Size</Label>
-              <div className="flex gap-2">
-                {[
-                  { label: 'Smallest', targetRadius: minRadius },
-                  { label: 'Average', targetRadius: avgRadius },
-                  { label: 'Largest', targetRadius: maxRadius },
-                ].map(({ label, targetRadius }) => (
-                  <button
-                    key={label}
-                    disabled={!hasSteps || allSame}
-                    onClick={() => {
-                      recordAction(() => {
-                        stepShapes.forEach(shape => {
-                          updateShape(shape.id, { radius: targetRadius });
+            <>
+              <Separator className="bg-[var(--polar-frost)]" />
+              <div className="space-y-3">
+                <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Size</Label>
+                <div className="flex gap-2">
+                  {[
+                    { label: 'Smallest', targetRadius: minRadius },
+                    { label: 'Average', targetRadius: avgRadius },
+                    { label: 'Largest', targetRadius: maxRadius },
+                  ].map(({ label, targetRadius }) => (
+                    <button
+                      key={label}
+                      disabled={!hasSteps || allSame}
+                      onClick={() => {
+                        recordAction(() => {
+                          stepShapes.forEach(shape => {
+                            updateShape(shape.id, { radius: targetRadius });
+                          });
                         });
-                      });
-                    }}
-                    className={`flex-1 h-9 rounded-lg text-xs font-medium transition-all border ${
-                      !hasSteps || allSame
-                        ? 'bg-[var(--polar-ice)] text-[var(--ink-muted)] border-[var(--polar-frost)] opacity-50 cursor-not-allowed'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+                      }}
+                      className={`flex-1 h-9 rounded-lg text-xs font-medium transition-all border ${
+                        !hasSteps || allSame
+                          ? 'bg-[var(--polar-ice)] text-[var(--ink-muted)] border-[var(--polar-frost)] opacity-50 cursor-not-allowed'
+                          : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            </>
           );
         })()}
 
@@ -625,54 +557,51 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         {highlightTools.includes(effectiveTool) && (
           <div className="space-y-3">
             <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Highlight Color</Label>
-            <div className="flex flex-wrap gap-2">
-              {['#FFEB3B', '#FFC107', '#FF9800', '#4CAF50', '#00BCD4', '#E91E63'].map((color) => (
-                <button
-                  key={color}
-                  onClick={() => handleStrokeColorChange(color)}
-                  className={`w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 ${
-                    strokeColor === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
-                  }`}
-                  style={{ backgroundColor: color }}
-                />
-              ))}
-            </div>
+            <ColorPicker
+              value={strokeColor}
+              onChange={handleStrokeColorChange}
+              presets={['#FFEB3B', '#FFC107', '#FF9800', '#4CAF50', '#00BCD4', '#E91E63']}
+              showInput={false}
+            />
           </div>
         )}
 
         {/* Stroke Width */}
         {[...strokeTools, 'pen'].includes(effectiveTool) && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium flex items-center gap-1.5">
-                <Minus className="w-3.5 h-3.5" />
-                Stroke Width
-              </Label>
-              <span className="text-xs text-[var(--ink-dark)] font-mono">{strokeWidth}px</span>
+          <>
+            <Separator className="bg-[var(--polar-frost)]" />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium flex items-center gap-1.5">
+                  <Minus className="w-3.5 h-3.5" />
+                  Stroke Width
+                </Label>
+                <span className="text-xs text-[var(--ink-dark)] font-mono">{strokeWidth}px</span>
+              </div>
+              <div className="flex gap-2">
+                {STROKE_PRESETS.map((width) => (
+                  <button
+                    key={width}
+                    onClick={() => handleStrokeWidthChange(width)}
+                    className={`flex-1 h-8 rounded-lg flex items-center justify-center transition-all ${
+                      strokeWidth === width
+                        ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border border-[var(--coral-200)]'
+                        : 'bg-white text-[var(--ink-muted)] border border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                    }`}
+                  >
+                    <div
+                      className="rounded-full"
+                      style={{
+                        width: Math.min(width * 2, 12),
+                        height: Math.min(width * 2, 12),
+                        backgroundColor: strokeWidth === width ? 'var(--coral-400)' : 'var(--ink-muted)'
+                      }}
+                    />
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex gap-2">
-              {STROKE_PRESETS.map((width) => (
-                <button
-                  key={width}
-                  onClick={() => handleStrokeWidthChange(width)}
-                  className={`flex-1 h-8 rounded-lg flex items-center justify-center transition-all ${
-                    strokeWidth === width
-                      ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border border-[var(--coral-200)]'
-                      : 'bg-white text-[var(--ink-muted)] border border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
-                  }`}
-                >
-                  <div
-                    className="rounded-full"
-                    style={{
-                      width: Math.min(width * 2, 12),
-                      height: Math.min(width * 2, 12),
-                      backgroundColor: strokeWidth === width ? 'var(--coral-400)' : 'var(--ink-muted)'
-                    }}
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
+          </>
         )}
 
         {/* Blur Tool Settings */}
@@ -705,6 +634,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 </button>
               </div>
             </div>
+            <Separator className="bg-[var(--polar-frost)]" />
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">

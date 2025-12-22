@@ -1,4 +1,36 @@
+use std::sync::Mutex;
 use tauri::Manager;
+
+#[cfg(desktop)]
+use crate::TrayState;
+
+/// Update tray menu item text for a shortcut
+#[tauri::command]
+pub fn update_tray_shortcut(
+    app: tauri::AppHandle,
+    shortcut_id: String,
+    display_text: String,
+) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        let tray_state = app.state::<Mutex<TrayState>>();
+        let tray = tray_state
+            .lock()
+            .map_err(|e| format!("Failed to lock tray state: {}", e))?;
+
+        match shortcut_id.as_str() {
+            "region_capture" => tray
+                .update_region_capture_text(&display_text)
+                .map_err(|e| format!("Failed to update region capture text: {}", e))?,
+            "fullscreen_capture" => tray
+                .update_fullscreen_text(&display_text)
+                .map_err(|e| format!("Failed to update fullscreen text: {}", e))?,
+            _ => {} // Ignore unknown shortcut IDs (e.g., window_capture which isn't in tray)
+        }
+    }
+
+    Ok(())
+}
 
 /// Set autostart enabled/disabled
 #[tauri::command]

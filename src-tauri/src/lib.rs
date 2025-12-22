@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -8,9 +9,25 @@ use tauri::{
 #[cfg(desktop)]
 use tauri_plugin_autostart::MacosLauncher;
 
-
-
 mod commands;
+
+/// Holds references to tray menu items for dynamic updates
+#[cfg(desktop)]
+pub struct TrayState {
+    pub region_capture: MenuItem<tauri::Wry>,
+    pub fullscreen: MenuItem<tauri::Wry>,
+}
+
+#[cfg(desktop)]
+impl TrayState {
+    pub fn update_region_capture_text(&self, text: &str) -> Result<(), tauri::Error> {
+        self.region_capture.set_text(text)
+    }
+
+    pub fn update_fullscreen_text(&self, text: &str) -> Result<(), tauri::Error> {
+        self.fullscreen.set_text(text)
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -79,6 +96,7 @@ pub fn run() {
             commands::settings::is_autostart_enabled,
             commands::settings::open_path_in_explorer,
             commands::settings::get_default_save_dir,
+            commands::settings::update_tray_shortcut,
             // Keyboard hook commands (Windows shortcut override)
             commands::keyboard_hook::register_shortcut_with_hook,
             commands::keyboard_hook::unregister_shortcut_hook,
@@ -88,7 +106,8 @@ pub fn run() {
         .setup(|app| {
             #[cfg(desktop)]
             {
-                setup_system_tray(app)?;
+                let tray_state = setup_system_tray(app)?;
+                app.manage(Mutex::new(tray_state));
                 // Note: Shortcuts are now registered dynamically via frontend
                 // after settings are loaded. See commands::settings module.
             }
@@ -105,14 +124,14 @@ pub fn run() {
 }
 
 #[cfg(desktop)]
-fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::Error>> {
     use tauri::menu::PredefinedMenuItem;
 
     let quit = MenuItem::with_id(app, "quit", "Quit SnapIt", true, None::<&str>)?;
     let capture =
-        MenuItem::with_id(app, "capture", "Region Capture (Ctrl+Shift+S)", true, None::<&str>)?;
+        MenuItem::with_id(app, "capture", "Region Capture", true, None::<&str>)?;
     let capture_full =
-        MenuItem::with_id(app, "capture_full", "Fullscreen (Ctrl+Shift+F)", true, None::<&str>)?;
+        MenuItem::with_id(app, "capture_full", "Fullscreen", true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show Library", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
@@ -170,7 +189,10 @@ fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
         })
         .build(app)?;
 
-    Ok(())
+    Ok(TrayState {
+        region_capture: capture,
+        fullscreen: capture_full,
+    })
 }
 
 // Global shortcuts are now registered dynamically via commands::settings module

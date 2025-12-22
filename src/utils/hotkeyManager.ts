@@ -157,6 +157,43 @@ export function formatShortcutForDisplay(shortcut: string): string {
 }
 
 /**
+ * Tray menu display names for shortcuts
+ */
+const TRAY_MENU_NAMES: Record<string, string> = {
+  region_capture: 'Region Capture',
+  fullscreen_capture: 'Fullscreen',
+};
+
+/**
+ * Update tray menu item text for a shortcut
+ * @param id - The shortcut ID
+ * @param shortcut - The shortcut string
+ */
+export async function updateTrayShortcut(id: string, shortcut: string): Promise<void> {
+  const baseName = TRAY_MENU_NAMES[id];
+  if (!baseName) return; // Not a tray menu shortcut
+
+  const displayText = `${baseName} (${formatShortcutForDisplay(shortcut)})`;
+
+  try {
+    await invoke('update_tray_shortcut', { shortcutId: id, displayText });
+  } catch (error) {
+    console.error(`Failed to update tray shortcut for ${id}:`, error);
+  }
+}
+
+/**
+ * Update all tray menu shortcuts from current settings
+ */
+export async function updateAllTrayShortcuts(): Promise<void> {
+  const shortcuts = useSettingsStore.getState().settings.shortcuts;
+
+  for (const config of Object.values(shortcuts)) {
+    await updateTrayShortcut(config.id, config.currentShortcut);
+  }
+}
+
+/**
  * Shortcut action handlers mapped by ID
  */
 type ShortcutHandler = () => void | Promise<void>;
@@ -301,6 +338,9 @@ export async function registerAllShortcuts(): Promise<void> {
   for (const config of Object.values(shortcuts)) {
     await registerShortcut(config);
   }
+
+  // Sync tray menu with current shortcuts
+  await updateAllTrayShortcuts();
 }
 
 /**
@@ -367,7 +407,12 @@ export async function updateShortcut(
 
   // Register the new shortcut
   const updatedConfig = store.settings.shortcuts[id];
-  return await registerShortcut(updatedConfig);
+  const status = await registerShortcut(updatedConfig);
+
+  // Update tray menu to reflect the new shortcut
+  await updateTrayShortcut(id, newShortcut);
+
+  return status;
 }
 
 /**

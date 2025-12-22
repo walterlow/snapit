@@ -35,11 +35,11 @@ const updateHistoryState = () => {
 // Call this in onDragStart, onTransformStart, before shape creation, etc.
 export const takeSnapshot = () => {
   if (pendingSnapshot) return; // Already have a pending snapshot
-  
+
   const state = useEditorStore.getState();
   pendingSnapshot = {
-    shapes: JSON.parse(JSON.stringify(state.shapes)),
-    canvasBounds: state.canvasBounds ? JSON.parse(JSON.stringify(state.canvasBounds)) : null,
+    shapes: structuredClone(state.shapes),
+    canvasBounds: state.canvasBounds ? structuredClone(state.canvasBounds) : null,
   };
 };
 
@@ -78,13 +78,13 @@ export const discardSnapshot = () => {
 // Undo last action
 export const undo = () => {
   if (undoStack.length === 0) return false;
-  
+
   const state = useEditorStore.getState();
-  
+
   // Save current state to redo stack
   redoStack.push({
-    shapes: JSON.parse(JSON.stringify(state.shapes)),
-    canvasBounds: state.canvasBounds ? JSON.parse(JSON.stringify(state.canvasBounds)) : null,
+    shapes: structuredClone(state.shapes),
+    canvasBounds: state.canvasBounds ? structuredClone(state.canvasBounds) : null,
   });
   
   // Restore previous state
@@ -99,13 +99,13 @@ export const undo = () => {
 // Redo last undone action
 export const redo = () => {
   if (redoStack.length === 0) return false;
-  
+
   const state = useEditorStore.getState();
-  
+
   // Save current state to undo stack
   undoStack.push({
-    shapes: JSON.parse(JSON.stringify(state.shapes)),
-    canvasBounds: state.canvasBounds ? JSON.parse(JSON.stringify(state.canvasBounds)) : null,
+    shapes: structuredClone(state.shapes),
+    canvasBounds: state.canvasBounds ? structuredClone(state.canvasBounds) : null,
   });
   
   // Restore redo state

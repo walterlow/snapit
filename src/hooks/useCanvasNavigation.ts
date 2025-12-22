@@ -64,6 +64,7 @@ export const useCanvasNavigation = ({
   const prevToolRef = useRef(selectedTool);
   const prevPaddingRef = useRef(compositorSettings.padding);
   const prevBoundsRef = useRef<CanvasBounds | null>(null);
+  const fitRequestRef = useRef<number | null>(null);
 
   // Refs for smooth zoom - CSS transform approach
   const renderedZoomRef = useRef(1);
@@ -129,11 +130,14 @@ export const useCanvasNavigation = ({
     renderedPositionRef.current = position;
   }, [zoom, position, compositorBgRef]);
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (zoomSyncTimeoutRef.current) {
         clearTimeout(zoomSyncTimeoutRef.current);
+      }
+      if (fitRequestRef.current) {
+        cancelAnimationFrame(fitRequestRef.current);
       }
     };
   }, []);
@@ -215,9 +219,9 @@ export const useCanvasNavigation = ({
     };
   }, []);
 
-  // Fit to size handler
-  const handleFitToSize = useCallback(() => {
-    if (!image) return;
+  // Core fit calculation (no state updates)
+  const calculateFitToSize = useCallback(() => {
+    if (!image) return null;
 
     const { width, height, cropX, cropY } = getContentDimensions();
     const availableWidth = containerSize.width - VIEW_PADDING * 2;
@@ -231,9 +235,23 @@ export const useCanvasNavigation = ({
     const x = (containerSize.width - width * fitZoom) / 2 - cropX * fitZoom;
     const y = (containerSize.height - height * fitZoom) / 2 - cropY * fitZoom;
 
-    setZoom(fitZoom);
-    setPosition({ x, y });
+    return { zoom: fitZoom, position: { x, y } };
   }, [image, containerSize, getCompositionSize, getContentDimensions]);
+
+  // Fit to size handler - debounced to prevent multiple fits per frame
+  const handleFitToSize = useCallback(() => {
+    if (fitRequestRef.current) {
+      cancelAnimationFrame(fitRequestRef.current);
+    }
+    fitRequestRef.current = requestAnimationFrame(() => {
+      const fit = calculateFitToSize();
+      if (fit) {
+        setZoom(fit.zoom);
+        setPosition(fit.position);
+      }
+      fitRequestRef.current = null;
+    });
+  }, [calculateFitToSize]);
 
   // Recenter canvas (keeps current zoom, just updates position)
   const recenterCanvas = useCallback(() => {

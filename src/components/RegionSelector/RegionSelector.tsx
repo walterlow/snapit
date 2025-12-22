@@ -46,6 +46,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lastWindowDetectRef = useRef<number>(0);
+  const windowDetectTimeoutRef = useRef<number | null>(null);
 
   // Calculate display rect from selection
   const getDisplayRect = useCallback(() => {
@@ -59,16 +61,34 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     return { x, y, width, height };
   }, [selection]);
 
-  // Detect window under cursor
-  const detectWindowAtPoint = useCallback(async (screenX: number, screenY: number) => {
-    try {
-      const windowInfo = await invoke<WindowInfo | null>('get_window_at_point', {
-        x: screenX,
-        y: screenY,
-      });
-      setHoveredWindow(windowInfo);
-    } catch {
-      setHoveredWindow(null);
+  // Detect window under cursor (throttled to 100ms to prevent excessive Tauri calls)
+  const detectWindowAtPoint = useCallback((screenX: number, screenY: number) => {
+    const now = Date.now();
+    const THROTTLE_MS = 100;
+
+    // Clear any pending timeout
+    if (windowDetectTimeoutRef.current) {
+      clearTimeout(windowDetectTimeoutRef.current);
+      windowDetectTimeoutRef.current = null;
+    }
+
+    const timeSinceLastCall = now - lastWindowDetectRef.current;
+
+    if (timeSinceLastCall >= THROTTLE_MS) {
+      // Enough time passed, call immediately
+      lastWindowDetectRef.current = now;
+      invoke<WindowInfo | null>('get_window_at_point', { x: screenX, y: screenY })
+        .then(setHoveredWindow)
+        .catch(() => setHoveredWindow(null));
+    } else {
+      // Schedule a trailing call to ensure we get the final position
+      windowDetectTimeoutRef.current = window.setTimeout(() => {
+        lastWindowDetectRef.current = Date.now();
+        invoke<WindowInfo | null>('get_window_at_point', { x: screenX, y: screenY })
+          .then(setHoveredWindow)
+          .catch(() => setHoveredWindow(null));
+        windowDetectTimeoutRef.current = null;
+      }, THROTTLE_MS - timeSinceLastCall);
     }
   }, []);
 
@@ -220,6 +240,15 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Cleanup window detection timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (windowDetectTimeoutRef.current) {
+        clearTimeout(windowDetectTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Focus the window on mount

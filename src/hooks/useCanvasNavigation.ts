@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import Konva from 'konva';
 import type { CompositorSettings, Tool } from '../types';
 
@@ -22,6 +22,7 @@ interface UseCanvasNavigationProps {
   setCanvasBounds: (bounds: CanvasBounds) => void;
   setOriginalImageSize: (size: { width: number; height: number }) => void;
   selectedTool: Tool;
+  compositorBgRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 interface UseCanvasNavigationReturn {
@@ -38,6 +39,10 @@ interface UseCanvasNavigationReturn {
   handleActualSize: () => void;
   handleWheel: (e: Konva.KonvaEventObject<WheelEvent>) => void;
   getCanvasPosition: (screenPos: { x: number; y: number }) => { x: number; y: number };
+  // Refs for coordinating with pan hook (same baseline for CSS transforms)
+  renderedPositionRef: React.RefObject<{ x: number; y: number }>;
+  renderedZoomRef: React.RefObject<number>;
+  transformCoeffsRef: React.RefObject<{ kx: number; ky: number }>;
 }
 
 /**
@@ -51,6 +56,7 @@ export const useCanvasNavigation = ({
   setCanvasBounds,
   setOriginalImageSize,
   selectedTool,
+  compositorBgRef,
 }: UseCanvasNavigationProps): UseCanvasNavigationReturn => {
   const containerRef = useRef<HTMLDivElement>(null);
   const resizeTimeoutRef = useRef<number | null>(null);
@@ -58,6 +64,13 @@ export const useCanvasNavigation = ({
   const prevToolRef = useRef(selectedTool);
   const prevPaddingRef = useRef(compositorSettings.padding);
   const prevBoundsRef = useRef<CanvasBounds | null>(null);
+
+  // Refs for smooth zoom - CSS transform approach
+  const renderedZoomRef = useRef(1);
+  const renderedPositionRef = useRef({ x: 0, y: 0 });
+  const zoomSyncTimeoutRef = useRef<number | null>(null);
+  // Transform coefficients: compositor position = position + K * zoom
+  const transformCoeffsRef = useRef({ kx: 0, ky: 0 });
 
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
@@ -69,6 +82,61 @@ export const useCanvasNavigation = ({
   useEffect(() => {
     setIsInitialFit(true);
   }, [imageData]);
+
+  // Calculate transform coefficients when compositor settings or bounds change
+  // Formula: compositor left = position.x + Kx * zoom, where Kx = visibleBounds.x - avgDimension * paddingPercent
+  useEffect(() => {
+    if (!image || !canvasBounds || !compositorSettings.enabled) {
+      transformCoeffsRef.current = { kx: 0, ky: 0 };
+      return;
+    }
+
+    // Calculate visible bounds (same logic as getVisibleBounds)
+    const isCropMode = selectedTool === 'crop';
+    let visibleX: number, visibleY: number, visibleWidth: number, visibleHeight: number;
+
+    if (isCropMode) {
+      visibleX = 0;
+      visibleY = 0;
+      visibleWidth = image.width;
+      visibleHeight = image.height;
+    } else {
+      visibleX = -canvasBounds.imageOffsetX;
+      visibleY = -canvasBounds.imageOffsetY;
+      visibleWidth = canvasBounds.width;
+      visibleHeight = canvasBounds.height;
+    }
+
+    const avgDimension = (visibleWidth + visibleHeight) / 2;
+    const paddingPercent = compositorSettings.padding / 100;
+
+    // Kx and Ky: the coefficients that relate zoom to compositor position offset
+    transformCoeffsRef.current = {
+      kx: visibleX - avgDimension * paddingPercent,
+      ky: visibleY - avgDimension * paddingPercent,
+    };
+  }, [image, canvasBounds, compositorSettings.enabled, compositorSettings.padding, selectedTool]);
+
+  // Clear CSS transform AFTER React has rendered the new position
+  // useLayoutEffect runs synchronously after DOM mutations but before paint
+  useLayoutEffect(() => {
+    if (compositorBgRef?.current) {
+      compositorBgRef.current.style.transform = '';
+      compositorBgRef.current.style.transformOrigin = '';
+    }
+    // Sync refs with rendered state
+    renderedZoomRef.current = zoom;
+    renderedPositionRef.current = position;
+  }, [zoom, position, compositorBgRef]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (zoomSyncTimeoutRef.current) {
+        clearTimeout(zoomSyncTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Calculate composition size (with compositor padding)
   const getCompositionSize = useCallback((contentWidth: number, contentHeight: number) => {
@@ -294,7 +362,15 @@ export const useCanvasNavigation = ({
     setPosition({ x, y });
   }, [image, containerSize, getContentDimensions]);
 
+  // Sync zoom state to React (called after zoom gesture ends)
+  // Note: useLayoutEffect will clear the CSS transform after React renders
+  const syncZoomState = useCallback((newZoom: number, newPosition: { x: number; y: number }) => {
+    setZoom(newZoom);
+    setPosition(newPosition);
+  }, []);
+
   // Mouse wheel zoom handler (mouse-anchored)
+  // Updates Stage directly + CSS transform for compositor bg (no React re-renders during zoom)
   const handleWheel = useCallback(
     (e: Konva.KonvaEventObject<WheelEvent>) => {
       e.evt.preventDefault();
@@ -303,25 +379,64 @@ export const useCanvasNavigation = ({
       const stage = e.target.getStage();
       if (!stage) return;
 
+      // Use current stage values for smooth continuous zooming
+      const currentZoom = stage.scaleX();
+      const currentPos = stage.position();
+
       const direction = e.evt.deltaY > 0 ? -1 : 1;
-      const newZoom = Math.min(Math.max(zoom + direction * ZOOM_STEP, MIN_ZOOM), MAX_ZOOM);
+      const newZoom = Math.min(Math.max(currentZoom + direction * ZOOM_STEP, MIN_ZOOM), MAX_ZOOM);
+
+      // Skip if zoom didn't change
+      if (newZoom === currentZoom) return;
 
       // Get mouse position relative to the stage container
       const pointerPos = stage.getPointerPosition();
       if (!pointerPos) return;
 
       // Calculate mouse position in canvas coordinates (before zoom)
-      const mouseCanvasX = (pointerPos.x - position.x) / zoom;
-      const mouseCanvasY = (pointerPos.y - position.y) / zoom;
+      const mouseCanvasX = (pointerPos.x - currentPos.x) / currentZoom;
+      const mouseCanvasY = (pointerPos.y - currentPos.y) / currentZoom;
 
       // Calculate new position so the same canvas point stays under the mouse
       const newX = pointerPos.x - mouseCanvasX * newZoom;
       const newY = pointerPos.y - mouseCanvasY * newZoom;
 
-      setZoom(newZoom);
-      setPosition({ x: newX, y: newY });
+      // Update Stage directly (immediate visual feedback)
+      stage.scale({ x: newZoom, y: newZoom });
+      stage.position({ x: newX, y: newY });
+      stage.batchDraw();
+
+      // Apply CSS transform to compositor background for instant visual sync
+      // This avoids React re-renders during zoom gesture
+      if (compositorBgRef?.current && compositorSettings.enabled) {
+        const renderedZoom = renderedZoomRef.current;
+        const renderedPos = renderedPositionRef.current;
+        const { kx, ky } = transformCoeffsRef.current;
+
+        // Scale ratio
+        const scaleRatio = newZoom / renderedZoom;
+
+        // Calculate correct translation delta accounting for zoom-dependent offset
+        // Compositor position formula: left = position.x + Kx * zoom
+        // So: dx = (newPos.x - renderedPos.x) + Kx * (newZoom - renderedZoom)
+        const dx = (newX - renderedPos.x) + kx * (newZoom - renderedZoom);
+        const dy = (newY - renderedPos.y) + ky * (newZoom - renderedZoom);
+
+        // Apply transform: translate then scale from top-left
+        compositorBgRef.current.style.transformOrigin = '0 0';
+        compositorBgRef.current.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleRatio})`;
+      }
+
+      // Debounce React state sync - only sync after zooming stops
+      if (zoomSyncTimeoutRef.current) {
+        clearTimeout(zoomSyncTimeoutRef.current);
+      }
+      zoomSyncTimeoutRef.current = window.setTimeout(() => {
+        syncZoomState(newZoom, { x: newX, y: newY });
+        zoomSyncTimeoutRef.current = null;
+      }, 100);
     },
-    [zoom, position, image]
+    [image, compositorBgRef, compositorSettings.enabled, syncZoomState]
   );
 
   return {
@@ -338,5 +453,9 @@ export const useCanvasNavigation = ({
     handleActualSize,
     handleWheel,
     getCanvasPosition,
+    // Expose refs for pan hook coordination
+    renderedPositionRef,
+    renderedZoomRef,
+    transformCoeffsRef,
   };
 };

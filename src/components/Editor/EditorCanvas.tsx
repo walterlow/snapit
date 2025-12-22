@@ -76,6 +76,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   // Refs
   const layerRef = useRef<Konva.Layer>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
+  const compositorBgRef = useRef<HTMLDivElement>(null);
 
   // Store state
   const selectedIds = useEditorStore((state) => state.selectedIds);
@@ -105,6 +106,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     setCanvasBounds,
     setOriginalImageSize,
     selectedTool,
+    compositorBgRef,
   });
 
   // Keyboard shortcuts hook
@@ -120,6 +122,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     position: navigation.position,
     setPosition: (pos) => navigation.setPosition(pos),
     containerRef: navigation.containerRef as React.RefObject<HTMLDivElement>,
+    stageRef,
+    compositorBgRef,
+    // Pass refs for coordinated CSS transforms with zoom
+    renderedPositionRef: navigation.renderedPositionRef,
+    renderedZoomRef: navigation.renderedZoomRef,
+    transformCoeffsRef: navigation.transformCoeffsRef,
   });
 
   // Text editing hook
@@ -390,6 +398,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       {/* Composition Preview Background */}
       {compositorSettings.enabled && compositionBox && visibleBounds && (
         <div
+          ref={compositorBgRef}
           className="absolute pointer-events-none"
           style={{
             left: compositionBox.left,
@@ -397,7 +406,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             width: compositionBox.width,
             height: compositionBox.height,
             zIndex: 0,
-            willChange: 'transform, width, height',
+            willChange: 'transform',
             contain: 'layout style paint',
             ...compositionBackgroundStyle,
           }}
@@ -594,6 +603,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   zoom={navigation.zoom}
                   sourceImage={image}
                   isDrawing={drawing.isDrawing}
+                  isPanning={pan.isPanning}
                   editingTextId={textEditing.editingTextId}
                   onShapeClick={transform.handleShapeClick}
                   onShapeSelect={(id) => setSelectedIds([id])}

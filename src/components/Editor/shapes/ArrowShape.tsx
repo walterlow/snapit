@@ -9,9 +9,9 @@ interface ArrowShapeProps {
   isSelected: boolean;
   isDraggable: boolean;
   zoom: number;
-  onSelect: () => void;
+  onSelect: (e?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onClick: (e: Konva.KonvaEventObject<MouseEvent>) => void;
-  onDragStart: () => void;
+  onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>, newPoints: number[]) => void;
   onEndpointDragEnd: (endpointIndex: 0 | 1, newPoints: number[]) => void;
 }
@@ -34,8 +34,8 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
   const startHandleRef = useRef<Konva.Circle>(null);
   const endHandleRef = useRef<Konva.Circle>(null);
 
-  const handleArrowDragStart = useCallback(() => {
-    onDragStart();
+  const handleArrowDragStart = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    onDragStart(e);
   }, [onDragStart]);
 
   const handleArrowDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {

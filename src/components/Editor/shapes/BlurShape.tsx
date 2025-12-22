@@ -10,8 +10,8 @@ interface BlurShapeProps {
   isSelected: boolean;
   isDraggable: boolean;
   isActivelyDrawing: boolean;
-  onSelect: () => void;
-  onDragStart: () => void;
+  onSelect: (e?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
+  onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformStart: () => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;

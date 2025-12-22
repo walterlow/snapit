@@ -7,9 +7,9 @@ interface RectShapeProps {
   shape: CanvasShape;
   isSelected: boolean;
   isDraggable: boolean;
-  onSelect: () => void;
+  onSelect: (e?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onClick: (e: Konva.KonvaEventObject<MouseEvent>) => void;
-  onDragStart: () => void;
+  onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformStart: () => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;

@@ -8,9 +8,9 @@ interface TextShapeProps {
   isSelected: boolean;
   isDraggable: boolean;
   isEditing: boolean;
-  onSelect: () => void;
+  onSelect: (e?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onClick: (e: Konva.KonvaEventObject<MouseEvent>) => void;
-  onDragStart: () => void;
+  onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformStart: () => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;

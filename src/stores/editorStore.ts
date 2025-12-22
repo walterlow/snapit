@@ -2,6 +2,28 @@ import { create } from 'zustand';
 import type { CanvasShape, CompositorSettings, BlurType } from '../types';
 import { DEFAULT_COMPOSITOR_SETTINGS } from '../types';
 
+// Persistence key for compositor enabled state
+const COMPOSITOR_ENABLED_KEY = 'snapit-compositor-enabled';
+
+// Load persisted compositor enabled state
+const getPersistedCompositorEnabled = (): boolean => {
+  try {
+    const stored = localStorage.getItem(COMPOSITOR_ENABLED_KEY);
+    return stored !== null ? JSON.parse(stored) : DEFAULT_COMPOSITOR_SETTINGS.enabled;
+  } catch {
+    return DEFAULT_COMPOSITOR_SETTINGS.enabled;
+  }
+};
+
+// Save compositor enabled state
+const persistCompositorEnabled = (enabled: boolean) => {
+  try {
+    localStorage.setItem(COMPOSITOR_ENABLED_KEY, JSON.stringify(enabled));
+  } catch {
+    // Ignore storage errors
+  }
+};
+
 // Canvas bounds for non-destructive crop/expand
 export interface CanvasBounds {
   width: number;
@@ -173,7 +195,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   shapes: [],
   selectedIds: [],
   stepCount: 1,
-  compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS },
+  compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS, enabled: getPersistedCompositorEnabled() },
   showCompositor: false,
   blurType: 'pixelate' as BlurType,
   blurAmount: 10,
@@ -195,22 +217,31 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     shapes: [],
     selectedIds: [],
     stepCount: 1,
-    compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS },
+    compositorSettings: { ...DEFAULT_COMPOSITOR_SETTINGS, enabled: getPersistedCompositorEnabled() },
     showCompositor: false,
     blurType: 'pixelate' as BlurType,
     blurAmount: 10,
     canvasBounds: null,
     originalImageSize: null,
   }),
-  setCompositorSettings: (settings) => set((state) => ({
-    compositorSettings: { ...state.compositorSettings, ...settings },
-  })),
-  toggleCompositor: () => set((state) => ({
-    compositorSettings: {
-      ...state.compositorSettings,
-      enabled: !state.compositorSettings.enabled
-    },
-  })),
+  setCompositorSettings: (settings) => {
+    if (settings.enabled !== undefined) {
+      persistCompositorEnabled(settings.enabled);
+    }
+    set((state) => ({
+      compositorSettings: { ...state.compositorSettings, ...settings },
+    }));
+  },
+  toggleCompositor: () => {
+    const newEnabled = !get().compositorSettings.enabled;
+    persistCompositorEnabled(newEnabled);
+    set((state) => ({
+      compositorSettings: {
+        ...state.compositorSettings,
+        enabled: newEnabled
+      },
+    }));
+  },
   setShowCompositor: (show) => set({ showCompositor: show }),
   setBlurType: (type) => set({ blurType: type }),
   setBlurAmount: (amount) => set({ blurAmount: amount }),

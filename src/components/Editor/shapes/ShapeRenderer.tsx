@@ -17,10 +17,11 @@ interface ShapeRendererProps {
   zoom: number;
   sourceImage: HTMLImageElement | undefined;
   isDrawing: boolean;
+  isPanning: boolean;
   editingTextId: string | null;
   onShapeClick: (shapeId: string, e: Konva.KonvaEventObject<MouseEvent>) => void;
   onShapeSelect: (shapeId: string) => void;
-  onDragStart: (shapeId: string) => void;
+  onDragStart: (shapeId: string, e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (shapeId: string, e: Konva.KonvaEventObject<DragEvent>) => void;
   onArrowDragEnd: (shapeId: string, newPoints: number[]) => void;
   onTransformStart: () => void;
@@ -39,6 +40,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({
   zoom,
   sourceImage,
   isDrawing,
+  isPanning,
   editingTextId,
   onShapeClick,
   onShapeSelect,
@@ -50,7 +52,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({
   onArrowEndpointDragEnd,
   onTextStartEdit,
 }) => {
-  const isDraggable = selectedTool === 'select';
+  const isDraggable = selectedTool === 'select' && !isPanning;
 
   return (
     <>
@@ -63,9 +65,21 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({
           shape,
           isSelected,
           isDraggable,
-          onSelect: () => onShapeSelect(shape.id),
-          onClick: (e: Konva.KonvaEventObject<MouseEvent>) => onShapeClick(shape.id, e),
-          onDragStart: () => onDragStart(shape.id),
+          onSelect: (e?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+            // Block selection while panning or on middle mouse button
+            if (isPanning) return;
+            const evt = e?.evt as MouseEvent | undefined;
+            if (evt?.button === 1) return;
+            onShapeSelect(shape.id);
+          },
+          onClick: (e: Konva.KonvaEventObject<MouseEvent>) => {
+            if (isPanning) return;
+            onShapeClick(shape.id, e);
+          },
+          onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => {
+            if (isPanning) return;
+            onDragStart(shape.id, e);
+          },
           onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => onDragEnd(shape.id, e),
           onTransformStart,
           onTransformEnd: (e: Konva.KonvaEventObject<Event>) => onTransformEnd(shape.id, e),
@@ -99,8 +113,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({
                 isSelected={isSelected}
                 isDraggable={isDraggable}
                 isActivelyDrawing={isActivelyDrawing}
-                onSelect={() => onShapeSelect(shape.id)}
-                onDragStart={() => onDragStart(shape.id)}
+                onSelect={commonProps.onSelect}
+                onDragStart={(e) => onDragStart(shape.id, e)}
                 onDragEnd={(e) => onDragEnd(shape.id, e)}
                 onTransformStart={onTransformStart}
                 onTransformEnd={(e) => onTransformEnd(shape.id, e)}

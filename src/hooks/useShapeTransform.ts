@@ -11,7 +11,7 @@ interface UseShapeTransformProps {
 }
 
 interface UseShapeTransformReturn {
-  handleShapeDragStart: (id: string) => void;
+  handleShapeDragStart: (id: string, e: Konva.KonvaEventObject<DragEvent>) => void;
   handleShapeDragEnd: (id: string, e: Konva.KonvaEventObject<DragEvent>) => void;
   handleArrowDragEnd: (id: string, newPoints: number[]) => void;
   handleTransformStart: () => void;
@@ -32,7 +32,13 @@ export const useShapeTransform = ({
 }: UseShapeTransformProps): UseShapeTransformReturn => {
 
   // Pause history at drag start to batch all drag updates
-  const handleShapeDragStart = useCallback((id: string) => {
+  const handleShapeDragStart = useCallback((id: string, e: Konva.KonvaEventObject<DragEvent>) => {
+    // Ignore middle mouse button (used for panning)
+    if (e.evt.button === 1) {
+      e.evt.preventDefault();
+      return;
+    }
+
     // Add to selection if not already selected
     if (!selectedIds.includes(id)) {
       setSelectedIds([id]);
@@ -240,6 +246,9 @@ export const useShapeTransform = ({
   // Handle shape click with shift for multi-select
   const handleShapeClick = useCallback(
     (shapeId: string, e: Konva.KonvaEventObject<MouseEvent>) => {
+      // Ignore middle mouse button (used for panning)
+      if (e.evt.button === 1) return;
+
       if (e.evt.shiftKey) {
         // Toggle selection with shift
         if (selectedIds.includes(shapeId)) {

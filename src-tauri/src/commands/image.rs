@@ -29,6 +29,7 @@ pub async fn save_image(image_data: String, file_path: String, format: String) -
         "jpg" | "jpeg" => image::ImageFormat::Jpeg,
         "webp" => image::ImageFormat::WebP,
         "gif" => image::ImageFormat::Gif,
+        "bmp" => image::ImageFormat::Bmp,
         _ => image::ImageFormat::Png,
     };
 

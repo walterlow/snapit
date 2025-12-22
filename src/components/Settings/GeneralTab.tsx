@@ -38,6 +38,21 @@ export const GeneralTab: React.FC = () => {
     loadAutostartStatus();
   }, []);
 
+  // Set default save directory if not configured
+  useEffect(() => {
+    const initDefaultSaveDir = async () => {
+      if (!general.defaultSaveDir) {
+        try {
+          const defaultDir = await invoke<string>('get_default_save_dir');
+          updateGeneralSettings({ defaultSaveDir: defaultDir });
+        } catch (error) {
+          console.error('Failed to set default save dir:', error);
+        }
+      }
+    };
+    initDefaultSaveDir();
+  }, []);
+
   const handleAutostartChange = async (enabled: boolean) => {
     try {
       await invoke('set_autostart', { enabled });
@@ -70,15 +85,6 @@ export const GeneralTab: React.FC = () => {
       } catch (error) {
         console.error('Failed to open directory:', error);
       }
-    }
-  };
-
-  const handleSetDefaultDir = async () => {
-    try {
-      const defaultDir = await invoke<string>('get_default_save_dir');
-      updateGeneralSettings({ defaultSaveDir: defaultDir });
-    } catch (error) {
-      console.error('Failed to get default save dir:', error);
     }
   };
 
@@ -155,16 +161,6 @@ export const GeneralTab: React.FC = () => {
                 </Button>
               )}
             </div>
-            {!general.defaultSaveDir && (
-              <Button
-                variant="link"
-                size="sm"
-                onClick={handleSetDefaultDir}
-                className="text-xs text-[var(--coral-400)] hover:text-[var(--coral-500)] p-0 h-auto mt-1"
-              >
-                Use default (Pictures/SnapIt)
-              </Button>
-            )}
           </div>
 
           {/* Image Format */}
@@ -180,9 +176,11 @@ export const GeneralTab: React.FC = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="png">PNG (lossless)</SelectItem>
-                <SelectItem value="jpg">JPG (smaller file)</SelectItem>
-                <SelectItem value="webp">WebP (modern)</SelectItem>
+                <SelectItem value="png">PNG - Lossless</SelectItem>
+                <SelectItem value="jpg">JPG - Compressed</SelectItem>
+                <SelectItem value="webp">WebP - Modern</SelectItem>
+                <SelectItem value="gif">GIF - Legacy</SelectItem>
+                <SelectItem value="bmp">BMP - Uncompressed</SelectItem>
               </SelectContent>
             </Select>
           </div>

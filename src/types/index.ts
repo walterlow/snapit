@@ -228,7 +228,7 @@ export interface ShortcutConfig {
 }
 
 // Image format options
-export type ImageFormat = 'png' | 'jpg' | 'webp';
+export type ImageFormat = 'png' | 'jpg' | 'webp' | 'gif' | 'bmp';
 
 // General application settings
 export interface GeneralSettings {

@@ -61,7 +61,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   isLoading: false,
   isInitialized: false,
   settingsModalOpen: false,
-  activeTab: 'shortcuts',
+  activeTab: 'general',
 
   loadSettings: async () => {
     set({ isLoading: true });

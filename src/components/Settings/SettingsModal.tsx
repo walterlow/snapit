@@ -31,7 +31,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -39,9 +39,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
       />
 
       {/* Modal */}
-      <div className="relative bg-white border border-[var(--polar-frost)] rounded-xl shadow-2xl w-[560px] mx-4 max-h-[85vh] overflow-hidden animate-scale-in">
+      <div className="relative bg-white border border-[var(--polar-frost)] rounded-lg shadow-2xl w-[560px] mx-4 max-h-[80vh] flex flex-col overflow-hidden animate-scale-in">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--polar-frost)] bg-[var(--polar-ice)]">
+        <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-[var(--polar-frost)] bg-[var(--polar-ice)]">
           <h2 className="text-lg font-semibold text-[var(--ink-black)]">
             Settings
           </h2>
@@ -54,39 +54,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(85vh-80px)]">
-          <Tabs
-            value={activeTab}
-            onValueChange={(value) => setActiveTab(value as 'shortcuts' | 'general')}
-            className="w-full"
-          >
-            <div className="px-5 pt-4 border-b border-[var(--polar-frost)]">
-              <TabsList className="w-full justify-start bg-transparent p-0 h-auto">
-                <TabsTrigger
-                  value="shortcuts"
-                  className="px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--coral-400)] data-[state=active]:text-[var(--coral-500)] data-[state=active]:bg-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-colors"
-                >
-                  Shortcuts
-                </TabsTrigger>
-                <TabsTrigger
-                  value="general"
-                  className="px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--coral-400)] data-[state=active]:text-[var(--coral-500)] data-[state=active]:bg-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-colors"
-                >
-                  General
-                </TabsTrigger>
-              </TabsList>
-            </div>
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as 'shortcuts' | 'general')}
+          className="flex-1 min-h-0 flex flex-col"
+        >
+          {/* Sticky Tabs */}
+          <div className="flex-shrink-0 px-5 pt-4 border-b border-[var(--polar-frost)] bg-white">
+            <TabsList className="relative w-full justify-start bg-transparent p-0 h-auto">
+              <TabsTrigger
+                value="general"
+                className="relative px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--coral-400)] data-[state=active]:text-[var(--coral-500)] data-[state=active]:bg-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-all duration-200 data-[state=active]:scale-[1.02] hover:scale-[1.01]"
+              >
+                General
+              </TabsTrigger>
+              <TabsTrigger
+                value="shortcuts"
+                className="relative px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--coral-400)] data-[state=active]:text-[var(--coral-500)] data-[state=active]:bg-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-all duration-200 data-[state=active]:scale-[1.02] hover:scale-[1.01]"
+              >
+                Shortcuts
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-            <div className="p-5">
-              <TabsContent value="shortcuts" className="m-0 focus-visible:outline-none">
-                <ShortcutsTab />
-              </TabsContent>
-              <TabsContent value="general" className="m-0 focus-visible:outline-none">
-                <GeneralTab />
-              </TabsContent>
-            </div>
-          </Tabs>
-        </div>
+          {/* Scrollable Content */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-5">
+            <TabsContent value="general" className="m-0 focus-visible:outline-none animate-in fade-in-0 slide-in-from-top-2 duration-200">
+              <GeneralTab />
+            </TabsContent>
+            <TabsContent value="shortcuts" className="m-0 focus-visible:outline-none animate-in fade-in-0 slide-in-from-top-2 duration-200">
+              <ShortcutsTab />
+            </TabsContent>
+          </div>
+        </Tabs>
       </div>
     </div>
   );

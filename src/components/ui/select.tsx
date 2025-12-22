@@ -49,10 +49,10 @@ const SelectContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof BaseSelect.Positioner> & { className?: string }
 >(({ className, children, ...props }, ref) => (
   <BaseSelect.Portal>
-    <BaseSelect.Positioner ref={ref} sideOffset={4} {...props}>
+    <BaseSelect.Positioner ref={ref} sideOffset={4} className="z-[200]" {...props}>
       <BaseSelect.Popup
         className={cn(
-          'relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-[var(--polar-frost)] bg-white text-[var(--ink-black)] shadow-lg p-1 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          'max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-[var(--polar-frost)] bg-white text-[var(--ink-black)] shadow-lg p-1 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
           className
         )}
       >

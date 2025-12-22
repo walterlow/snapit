@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Scan, Monitor, AppWindow, Check, AlertTriangle } from 'lucide-react';
+import { Scan, Monitor, ScreenShare, Check, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { ShortcutInput } from './ShortcutInput';
@@ -8,9 +8,9 @@ import { updateShortcut, hasInternalConflict, registerAllShortcuts } from '@/uti
 import type { ShortcutConfig } from '@/types';
 
 const SHORTCUT_ICONS: Record<string, React.ReactNode> = {
-  region_capture: <Scan className="w-5 h-5" />,
+  new_capture: <Scan className="w-5 h-5" />,
   fullscreen_capture: <Monitor className="w-5 h-5" />,
-  window_capture: <AppWindow className="w-5 h-5" />,
+  all_monitors_capture: <ScreenShare className="w-5 h-5" />,
 };
 
 interface ShortcutItemProps {

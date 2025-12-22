@@ -267,10 +267,10 @@ export interface AppSettings {
 
 // Default shortcut configurations
 export const DEFAULT_SHORTCUTS: Record<string, ShortcutConfig> = {
-  region_capture: {
-    id: 'region_capture',
-    name: 'Region Capture',
-    description: 'Capture a selected area of the screen',
+  new_capture: {
+    id: 'new_capture',
+    name: 'New Capture',
+    description: 'Capture a window or region of the screen',
     defaultShortcut: 'PrintScreen',
     currentShortcut: 'PrintScreen',
     status: 'pending',
@@ -279,16 +279,16 @@ export const DEFAULT_SHORTCUTS: Record<string, ShortcutConfig> = {
   fullscreen_capture: {
     id: 'fullscreen_capture',
     name: 'Fullscreen Capture',
-    description: 'Capture the entire screen',
+    description: 'Capture the current monitor',
     defaultShortcut: 'Shift+PrintScreen',
     currentShortcut: 'Shift+PrintScreen',
     status: 'pending',
     useHook: true,
   },
-  window_capture: {
-    id: 'window_capture',
-    name: 'Window Capture',
-    description: 'Capture a specific window',
+  all_monitors_capture: {
+    id: 'all_monitors_capture',
+    name: 'All Monitors',
+    description: 'Capture all monitors combined',
     defaultShortcut: 'Ctrl+PrintScreen',
     currentShortcut: 'Ctrl+PrintScreen',
     status: 'pending',

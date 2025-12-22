@@ -34,13 +34,16 @@ pub fn update_tray_shortcut(
             .map_err(|e| format!("Failed to lock tray state: {}", e))?;
 
         match shortcut_id.as_str() {
-            "region_capture" => tray
-                .update_region_capture_text(&display_text)
-                .map_err(|e| format!("Failed to update region capture text: {}", e))?,
+            "new_capture" => tray
+                .update_new_capture_text(&display_text)
+                .map_err(|e| format!("Failed to update new capture text: {}", e))?,
             "fullscreen_capture" => tray
                 .update_fullscreen_text(&display_text)
                 .map_err(|e| format!("Failed to update fullscreen text: {}", e))?,
-            _ => {} // Ignore unknown shortcut IDs (e.g., window_capture which isn't in tray)
+            "all_monitors_capture" => tray
+                .update_all_monitors_text(&display_text)
+                .map_err(|e| format!("Failed to update all monitors text: {}", e))?,
+            _ => {} // Ignore unknown shortcut IDs
         }
     }
 

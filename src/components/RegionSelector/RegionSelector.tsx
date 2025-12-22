@@ -304,40 +304,18 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       return;
     }
 
-    // If we were in window mode but no window detected, capture ALL monitors (full virtual desktop)
+    // If we were in window mode but no window detected, capture current monitor only
     if (mode === 'window' && !isDragging && !hoveredWindow) {
       try {
         // Move overlays off-screen first (instant, reliable)
         await invoke('move_overlays_offscreen');
 
-        // Get all monitors to calculate full virtual desktop bounds
-        const monitors = await invoke<Array<{
-          x: number;
-          y: number;
-          width: number;
-          height: number;
-        }>>('get_monitors');
-
-        if (monitors.length === 0) {
-          await invoke('hide_overlay');
-          return;
-        }
-
-        // Calculate bounding box of all monitors
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const mon of monitors) {
-          minX = Math.min(minX, mon.x);
-          minY = Math.min(minY, mon.y);
-          maxX = Math.max(maxX, mon.x + mon.width);
-          maxY = Math.max(maxY, mon.y + mon.height);
-        }
-
-        // Capture full virtual desktop using screen region (supports multi-monitor stitching)
+        // Capture just this monitor
         const screenSelection: ScreenRegionSelection = {
-          x: minX,
-          y: minY,
-          width: maxX - minX,
-          height: maxY - minY,
+          x: monitorX,
+          y: monitorY,
+          width: monitorWidth,
+          height: monitorHeight,
         };
 
         const result = await invoke<{ file_path: string; width: number; height: number }>(
@@ -351,7 +329,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
           height: result.height,
         });
       } catch (e) {
-        console.error('Failed to capture all monitors:', e);
+        console.error('Failed to capture monitor:', e);
         await invoke('hide_overlay');
       }
       return;
@@ -393,7 +371,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     } catch {
       await invoke('hide_overlay');
     }
-  }, [isSelecting, selection, getDisplayRect, monitorX, monitorY, mode, isDragging, hoveredWindow, sharedSelection, emitSelectionUpdate]);
+  }, [isSelecting, selection, getDisplayRect, monitorX, monitorY, monitorWidth, monitorHeight, mode, isDragging, hoveredWindow, sharedSelection, emitSelectionUpdate]);
 
   // Handle pointer enter - pick up active drag from another monitor
   const handlePointerEnter = useCallback((e: React.PointerEvent) => {
@@ -890,7 +868,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         {mode === 'window' && !isDragging ? (
           <>
             <span style={{ color: '#ffffff' }}>
-              {hoveredWindow ? 'Click to capture window' : 'Hover over a window'}
+              {hoveredWindow ? 'Click to capture window' : 'Click for fullscreen'}
             </span>
             <span style={{ margin: '0 10px', color: 'rgba(255, 255, 255, 0.5)' }}>•</span>
             <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Drag to select region</span>

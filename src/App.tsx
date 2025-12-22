@@ -180,7 +180,7 @@ function App() {
   }, [currentImageData]);
 
   // Capture trigger functions
-  const triggerRegionCapture = useCallback(async () => {
+  const triggerNewCapture = useCallback(async () => {
     try {
       await invoke('show_overlay');
     } catch {
@@ -202,13 +202,50 @@ function App() {
     }
   }, [saveNewCapture, clearEditor]);
 
-  const triggerWindowCapture = useCallback(async () => {
-    // For now, window capture uses the same overlay as region capture
-    // The user can then select a window from the overlay
+  const triggerAllMonitorsCapture = useCallback(async () => {
     try {
-      await invoke('show_overlay');
+      // Get all monitors to calculate full virtual desktop bounds
+      const monitors = await invoke<Array<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }>>('get_monitors');
+
+      if (monitors.length === 0) {
+        toast.error('No monitors found');
+        return;
+      }
+
+      // Calculate bounding box of all monitors
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const mon of monitors) {
+        minX = Math.min(minX, mon.x);
+        minY = Math.min(minY, mon.y);
+        maxX = Math.max(maxX, mon.x + mon.width);
+        maxY = Math.max(maxY, mon.y + mon.height);
+      }
+
+      // Capture full virtual desktop using screen region
+      const result = await invoke<{ file_path: string; width: number; height: number }>(
+        'capture_screen_region_fast',
+        {
+          selection: {
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+          }
+        }
+      );
+
+      await invoke('open_editor_fast', {
+        filePath: result.file_path,
+        width: result.width,
+        height: result.height,
+      });
     } catch {
-      toast.error('Failed to start capture');
+      toast.error('Failed to capture all monitors');
     }
   }, []);
 
@@ -223,16 +260,16 @@ function App() {
       await invoke('set_close_to_tray', { enabled: updatedSettings.general.minimizeToTray });
 
       // Set up shortcut handlers - these trigger actual captures
-      setShortcutHandler('region_capture', triggerRegionCapture);
+      setShortcutHandler('new_capture', triggerNewCapture);
       setShortcutHandler('fullscreen_capture', triggerFullscreenCapture);
-      setShortcutHandler('window_capture', triggerWindowCapture);
+      setShortcutHandler('all_monitors_capture', triggerAllMonitorsCapture);
 
       // Register all shortcuts from settings
       await registerAllShortcuts();
     };
 
     initSettings();
-  }, [triggerRegionCapture, triggerFullscreenCapture, triggerWindowCapture]);
+  }, [triggerNewCapture, triggerFullscreenCapture, triggerAllMonitorsCapture]);
 
   // Listen for open-settings event from tray menu
   useEffect(() => {

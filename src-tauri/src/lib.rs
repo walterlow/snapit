@@ -14,18 +14,23 @@ mod commands;
 /// Holds references to tray menu items for dynamic updates
 #[cfg(desktop)]
 pub struct TrayState {
-    pub region_capture: MenuItem<tauri::Wry>,
+    pub new_capture: MenuItem<tauri::Wry>,
     pub fullscreen: MenuItem<tauri::Wry>,
+    pub all_monitors: MenuItem<tauri::Wry>,
 }
 
 #[cfg(desktop)]
 impl TrayState {
-    pub fn update_region_capture_text(&self, text: &str) -> Result<(), tauri::Error> {
-        self.region_capture.set_text(text)
+    pub fn update_new_capture_text(&self, text: &str) -> Result<(), tauri::Error> {
+        self.new_capture.set_text(text)
     }
 
     pub fn update_fullscreen_text(&self, text: &str) -> Result<(), tauri::Error> {
         self.fullscreen.set_text(text)
+    }
+
+    pub fn update_all_monitors_text(&self, text: &str) -> Result<(), tauri::Error> {
+        self.all_monitors.set_text(text)
     }
 }
 
@@ -157,16 +162,18 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
 
     let quit = MenuItem::with_id(app, "quit", "Quit SnapIt", true, None::<&str>)?;
     let capture =
-        MenuItem::with_id(app, "capture", "Region Capture", true, None::<&str>)?;
+        MenuItem::with_id(app, "capture", "New Capture", true, None::<&str>)?;
     let capture_full =
         MenuItem::with_id(app, "capture_full", "Fullscreen", true, None::<&str>)?;
+    let capture_all =
+        MenuItem::with_id(app, "capture_all", "All Monitors", true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show Library", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
 
     let menu = Menu::with_items(
         app,
-        &[&capture, &capture_full, &separator, &show, &settings, &separator, &quit],
+        &[&capture, &capture_full, &capture_all, &separator, &show, &settings, &separator, &quit],
     )?;
 
     // Load custom tray icon (32x32 is standard for system tray)
@@ -193,6 +200,42 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                             result.width,
                             result.height,
                         ).await;
+                    }
+                });
+            }
+            "capture_all" => {
+                // Capture all monitors combined
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(monitors) = commands::capture::get_monitors().await {
+                        if monitors.is_empty() {
+                            return;
+                        }
+                        // Calculate bounding box of all monitors
+                        let mut min_x = i32::MAX;
+                        let mut min_y = i32::MAX;
+                        let mut max_x = i32::MIN;
+                        let mut max_y = i32::MIN;
+                        for mon in &monitors {
+                            min_x = min_x.min(mon.x);
+                            min_y = min_y.min(mon.y);
+                            max_x = max_x.max(mon.x + mon.width as i32);
+                            max_y = max_y.max(mon.y + mon.height as i32);
+                        }
+                        let selection = commands::capture::ScreenRegionSelection {
+                            x: min_x,
+                            y: min_y,
+                            width: (max_x - min_x) as u32,
+                            height: (max_y - min_y) as u32,
+                        };
+                        if let Ok(result) = commands::capture::capture_screen_region_fast(selection).await {
+                            let _ = commands::window::open_editor_fast(
+                                app_handle,
+                                result.file_path,
+                                result.width,
+                                result.height,
+                            ).await;
+                        }
                     }
                 });
             }
@@ -229,8 +272,9 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
         .build(app)?;
 
     Ok(TrayState {
-        region_capture: capture,
+        new_capture: capture,
         fullscreen: capture_full,
+        all_monitors: capture_all,
     })
 }
 

@@ -52,17 +52,6 @@ pub struct RegionSelection {
     pub monitor_id: u32,
 }
 
-/// The capture method used for a particular operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CaptureMethod {
-    /// Windows Graphics Capture API - best for windows with transparency.
-    WindowsGraphicsCapture,
-    /// DXGI Desktop Duplication - best for monitors/regions, high performance.
-    DxgiDuplication,
-    /// xcap fallback - compatibility mode.
-    Fallback,
-}
-
 /// Errors that can occur during capture operations.
 #[derive(Debug)]
 pub enum CaptureError {

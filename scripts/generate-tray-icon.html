@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generate Tray Icon</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      padding: 40px;
+      background: #1a1a1a;
+      color: white;
+    }
+    .preview {
+      display: flex;
+      gap: 40px;
+      align-items: center;
+      margin: 20px 0;
+    }
+    .icon-box {
+      background: #333;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .icon-box canvas, .icon-box svg {
+      display: block;
+      margin: 0 auto 10px;
+    }
+    button {
+      background: #F97066;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 20px;
+    }
+    button:hover {
+      background: #F04438;
+    }
+    .instructions {
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 30px;
+    }
+    code {
+      background: #333;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>SnapIt Tray Icon Generator</h1>
+
+  <div class="preview">
+    <div class="icon-box">
+      <!-- Exact Lucide Aperture with gradient background -->
+      <svg id="svg-icon" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <defs>
+          <linearGradient id="coral-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#F97066"/>
+            <stop offset="100%" style="stop-color:#F04438"/>
+          </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="24" height="24" rx="5" fill="url(#coral-gradient)"/>
+        <g transform="translate(2, 2) scale(0.833)">
+          <!-- Exact Lucide Aperture paths -->
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="m14.31 8 5.74 9.94"></path>
+          <path d="M9.69 8h11.48"></path>
+          <path d="m7.38 12 5.74-9.94"></path>
+          <path d="M9.69 16 3.95 6.06"></path>
+          <path d="M14.31 16H2.83"></path>
+          <path d="m16.62 12-5.74 9.94"></path>
+        </g>
+      </svg>
+      <div>SVG (128px preview)</div>
+    </div>
+
+    <div class="icon-box">
+      <canvas id="canvas-16" width="16" height="16"></canvas>
+      <div>16x16</div>
+    </div>
+
+    <div class="icon-box">
+      <canvas id="canvas-32" width="32" height="32"></canvas>
+      <div>32x32 (tray)</div>
+    </div>
+
+    <div class="icon-box">
+      <canvas id="canvas-48" width="48" height="48"></canvas>
+      <div>48x48</div>
+    </div>
+
+    <div class="icon-box">
+      <canvas id="canvas-128" width="128" height="128"></canvas>
+      <div>128x128</div>
+    </div>
+
+    <div class="icon-box">
+      <canvas id="canvas-256" width="256" height="256"></canvas>
+      <div>256x256</div>
+    </div>
+  </div>
+
+  <div style="margin: 20px 0;">
+    <button onclick="download16()">16x16</button>
+    <button onclick="download32()">32x32</button>
+    <button onclick="download48()">48x48</button>
+    <button onclick="download128()">128x128</button>
+    <button onclick="download256()">256x256</button>
+    <button onclick="downloadAll()">Download All PNGs</button>
+  </div>
+
+  <div class="instructions">
+    <h3>Files to replace in <code>src-tauri/icons/</code>:</h3>
+    <table style="width:100%; text-align:left; margin: 10px 0;">
+      <tr><td><code>icon.png</code></td><td><strong>Taskbar icon</strong> (dev mode)</td></tr>
+      <tr><td><code>32x32.png</code></td><td>System tray icon</td></tr>
+      <tr><td><code>128x128.png</code></td><td>App icon</td></tr>
+      <tr><td><code>128x128@2x.png</code></td><td>High-DPI app icon (use 256x256)</td></tr>
+      <tr><td><code>icon.ico</code></td><td>Windows taskbar (production build)</td></tr>
+      <tr><td><code>icon.icns</code></td><td>macOS app icon</td></tr>
+    </table>
+    <p style="margin-top: 15px; color: #aaa;">
+      Use <a href="https://icoconvert.com/" target="_blank" style="color: #F97066;">icoconvert.com</a> or
+      <a href="https://cloudconvert.com/png-to-ico" target="_blank" style="color: #F97066;">cloudconvert.com</a>
+      to create <code>icon.ico</code> from the PNG files.
+    </p>
+  </div>
+
+  <script>
+    const coral = '#F97066';
+
+    // Exact Lucide Aperture icon coordinates (viewBox 0 0 24 24)
+    const LUCIDE_APERTURE = {
+      circle: { cx: 12, cy: 12, r: 10 },
+      // Paths from lucide: m14.31 8 5.74 9.94, M9.69 8h11.48, etc.
+      lines: [
+        [14.31, 8, 20.05, 17.94],    // m14.31 8 5.74 9.94
+        [9.69, 8, 21.17, 8],          // M9.69 8h11.48
+        [7.38, 12, 13.12, 2.06],      // m7.38 12 5.74-9.94
+        [9.69, 16, 3.95, 6.06],       // M9.69 16 3.95 6.06
+        [14.31, 16, 2.83, 16],        // M14.31 16H2.83
+        [16.62, 12, 10.88, 21.94]     // m16.62 12-5.74 9.94
+      ]
+    };
+
+    function drawAperture(ctx, size, strokeWidth, withBackground = true) {
+      ctx.clearRect(0, 0, size, size);
+
+      // Padding for icon within background
+      const padding = withBackground ? size * 0.16 : 0;
+      const iconSize = size - (padding * 2);
+      const scale = iconSize / 24;
+
+      if (withBackground) {
+        // Draw rounded square gradient background
+        const radius = size * 0.22; // Corner radius
+        const gradient = ctx.createLinearGradient(0, 0, size, size);
+        gradient.addColorStop(0, '#F97066'); // coral-400
+        gradient.addColorStop(1, '#F04438'); // coral-500
+
+        ctx.beginPath();
+        ctx.roundRect(0, 0, size, size, radius);
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // White icon on gradient background
+        ctx.strokeStyle = 'white';
+      } else {
+        ctx.strokeStyle = coral;
+      }
+
+      // Translate to add padding
+      ctx.save();
+      ctx.translate(padding, padding);
+
+      ctx.lineWidth = strokeWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // Draw circle (exact Lucide coordinates)
+      const { cx, cy, r } = LUCIDE_APERTURE.circle;
+      ctx.beginPath();
+      ctx.arc(cx * scale, cy * scale, r * scale, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Draw aperture blades (exact Lucide coordinates)
+      LUCIDE_APERTURE.lines.forEach(([x1, y1, x2, y2]) => {
+        ctx.beginPath();
+        ctx.moveTo(x1 * scale, y1 * scale);
+        ctx.lineTo(x2 * scale, y2 * scale);
+        ctx.stroke();
+      });
+
+      ctx.restore();
+    }
+
+    // Draw on all canvases with appropriate stroke widths
+    const sizes = [
+      { id: 'canvas-16', size: 16, stroke: 1.0 },
+      { id: 'canvas-32', size: 32, stroke: 1.8 },
+      { id: 'canvas-48', size: 48, stroke: 2.5 },
+      { id: 'canvas-128', size: 128, stroke: 6 },
+      { id: 'canvas-256', size: 256, stroke: 12 },
+    ];
+
+    sizes.forEach(({ id, size, stroke }) => {
+      const ctx = document.getElementById(id).getContext('2d');
+      drawAperture(ctx, size, stroke);
+    });
+
+    function downloadCanvas(id, filename) {
+      const canvas = document.getElementById(id);
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    function download16() { downloadCanvas('canvas-16', '16x16.png'); }
+    function download32() { downloadCanvas('canvas-32', '32x32.png'); }
+    function download48() { downloadCanvas('canvas-48', '48x48.png'); }
+    function download128() { downloadCanvas('canvas-128', '128x128.png'); }
+    function download256() { downloadCanvas('canvas-256', '128x128@2x.png'); }
+    function downloadIcon() { downloadCanvas('canvas-256', 'icon.png'); }
+
+    function downloadAll() {
+      download16();
+      setTimeout(download32, 100);
+      setTimeout(download48, 200);
+      setTimeout(download128, 300);
+      setTimeout(download256, 400);
+      setTimeout(downloadIcon, 500);
+    }
+  </script>
+</body>
+</html>

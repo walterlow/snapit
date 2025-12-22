@@ -112,8 +112,12 @@ pub fn run() {
                 // after settings are loaded. See commands::settings module.
             }
 
-            // Show main window after setup
+            // Set window icon and show main window
             if let Some(window) = app.get_webview_window("main") {
+                // Set the taskbar icon
+                let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                    .expect("Failed to load window icon");
+                let _ = window.set_icon(icon);
                 let _ = window.show();
             }
 

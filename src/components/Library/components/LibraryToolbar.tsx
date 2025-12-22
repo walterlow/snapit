@@ -8,6 +8,7 @@ import {
   Plus,
   X,
   FolderOpen,
+  Monitor,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +33,7 @@ interface LibraryToolbarProps {
   onDeleteSelected: () => void;
   onClearSelection: () => void;
   onOpenLibraryFolder: () => void;
+  onAllMonitorsCapture: () => void;
   onNewCapture: () => void;
 }
 
@@ -46,6 +48,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
   onDeleteSelected,
   onClearSelection,
   onOpenLibraryFolder,
+  onAllMonitorsCapture,
   onNewCapture,
 }) => {
   return (
@@ -161,6 +164,14 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
             >
               <FolderOpen className="w-3.5 h-3.5" />
               Open Folder
+            </Button>
+            <Button
+              onClick={onAllMonitorsCapture}
+              variant="outline"
+              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-white border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+            >
+              <Monitor className="w-3.5 h-3.5" />
+              All Monitors
             </Button>
             <Button
               onClick={onNewCapture}

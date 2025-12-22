@@ -232,7 +232,17 @@ export async function registerShortcut(
   // When allowOverride is ON, use hooks directly (can override other apps)
   if (allowOverride) {
     try {
-      // Remove any existing listener for this shortcut
+      // First, clean up any tauri plugin registration to prevent duplicates
+      try {
+        const pluginRegistered = await isRegistered(currentShortcut);
+        if (pluginRegistered) {
+          await unregister(currentShortcut);
+        }
+      } catch {
+        // Ignore errors during cleanup
+      }
+
+      // Remove any existing hook listener for this shortcut
       const existingListener = hookListeners.get(id);
       if (existingListener) {
         existingListener();
@@ -260,6 +270,18 @@ export async function registerShortcut(
 
   // When allowOverride is OFF, use normal registration (respects other apps)
   try {
+    // First, clean up any hook registration to prevent duplicates
+    try {
+      const existingListener = hookListeners.get(id);
+      if (existingListener) {
+        existingListener();
+        hookListeners.delete(id);
+      }
+      await invoke('unregister_shortcut_hook', { id });
+    } catch {
+      // Ignore errors during cleanup
+    }
+
     const alreadyRegistered = await isRegistered(currentShortcut);
     if (alreadyRegistered) {
       await unregister(currentShortcut);
@@ -281,7 +303,7 @@ export async function registerShortcut(
       updateStatus(id, 'registered');
       return 'registered';
     }
-    
+
     updateStatus(id, 'conflict');
     return 'conflict';
   } catch {
@@ -295,29 +317,31 @@ export async function registerShortcut(
  * @param config - The shortcut configuration
  */
 export async function unregisterShortcut(config: ShortcutConfig): Promise<void> {
-  const { id, currentShortcut, useHook } = config;
+  const { id, currentShortcut } = config;
 
-  if (useHook) {
-    try {
-      // Clean up event listener
-      const listener = hookListeners.get(id);
-      if (listener) {
-        listener();
-        hookListeners.delete(id);
-      }
-      await invoke('unregister_shortcut_hook', { id });
-    } catch (error) {
-      console.error(`Failed to unregister hook for ${id}:`, error);
+  // Clean up BOTH registration mechanisms to ensure complete cleanup
+  // regardless of which method was actually used
+
+  // Clean up hook-based registration
+  try {
+    const listener = hookListeners.get(id);
+    if (listener) {
+      listener();
+      hookListeners.delete(id);
     }
-  } else {
-    try {
-      const registered = await isRegistered(currentShortcut);
-      if (registered) {
-        await unregister(currentShortcut);
-      }
-    } catch (error) {
-      console.error(`Failed to unregister shortcut ${id}:`, error);
+    await invoke('unregister_shortcut_hook', { id });
+  } catch {
+    // Ignore errors during cleanup
+  }
+
+  // Clean up tauri plugin registration
+  try {
+    const registered = await isRegistered(currentShortcut);
+    if (registered) {
+      await unregister(currentShortcut);
     }
+  } catch {
+    // Ignore errors during cleanup
   }
 }
 

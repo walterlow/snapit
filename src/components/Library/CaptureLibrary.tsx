@@ -5,7 +5,7 @@ import { isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, format, form
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore';
-import type { CaptureListItem } from '../../types';
+import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection } from '../../types';
 
 import { useMarqueeSelection, useDragDropImport } from './hooks';
 import {
@@ -122,6 +122,46 @@ export const CaptureLibrary: React.FC = () => {
     } catch (error) {
       console.error('Failed to start capture:', error);
       toast.error('Failed to start capture');
+    }
+  };
+
+  const handleAllMonitorsCapture = async () => {
+    try {
+      const monitors = await invoke<MonitorInfo[]>('get_monitors');
+      if (monitors.length === 0) {
+        toast.error('No monitors found');
+        return;
+      }
+
+      // Calculate bounding box of all monitors
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      for (const mon of monitors) {
+        minX = Math.min(minX, mon.x);
+        minY = Math.min(minY, mon.y);
+        maxX = Math.max(maxX, mon.x + mon.width);
+        maxY = Math.max(maxY, mon.y + mon.height);
+      }
+
+      const selection: ScreenRegionSelection = {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+      };
+
+      const result = await invoke<FastCaptureResult>('capture_screen_region_fast', { selection });
+      await invoke('open_editor_fast', {
+        filePath: result.file_path,
+        width: result.width,
+        height: result.height,
+      });
+    } catch (error) {
+      console.error('Failed to capture all monitors:', error);
+      toast.error('Failed to capture all monitors');
     }
   };
 
@@ -301,6 +341,7 @@ export const CaptureLibrary: React.FC = () => {
           onDeleteSelected={handleRequestDeleteSelected}
           onClearSelection={clearSelection}
           onOpenLibraryFolder={handleOpenLibraryFolder}
+          onAllMonitorsCapture={handleAllMonitorsCapture}
           onNewCapture={handleNewCapture}
         />
 

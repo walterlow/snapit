@@ -449,6 +449,38 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     }
   };
 
+  // Handle blur type change - updates global state and selected blur shapes
+  const handleBlurTypeChange = (type: 'pixelate' | 'gaussian') => {
+    setBlurType(type);
+
+    // Update selected blur shapes
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'blur') {
+            updateShape(shape.id, { blurType: type });
+          }
+        });
+      });
+    }
+  };
+
+  // Handle blur amount change - updates global state and selected blur shapes
+  const handleBlurAmountChange = (amount: number) => {
+    setBlurAmount(amount);
+
+    // Update selected blur shapes
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'blur') {
+            updateShape(shape.id, { blurAmount: amount, pixelSize: amount });
+          }
+        });
+      });
+    }
+  };
+
   // Map shape type to corresponding tool
   const shapeTypeToTool = (shapeType: string): Tool => {
     const mapping: Record<string, Tool> = {
@@ -641,7 +673,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Blur Type</Label>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setBlurType('pixelate')}
+                  onClick={() => handleBlurTypeChange('pixelate')}
                   className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all border ${
                     blurType === 'pixelate'
                       ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
@@ -652,7 +684,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   Pixelate
                 </button>
                 <button
-                  onClick={() => setBlurType('gaussian')}
+                  onClick={() => handleBlurTypeChange('gaussian')}
                   className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all border ${
                     blurType === 'gaussian'
                       ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
@@ -666,24 +698,23 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
             <Separator className="bg-[var(--polar-frost)]" />
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">
-                  {blurType === 'pixelate' ? 'Pixel Size' : 'Blur Amount'}
-                </Label>
-                <span className="text-xs text-[var(--ink-dark)] font-mono">{blurAmount}px</span>
-              </div>
+              <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Intensity</Label>
               <div className="flex gap-2">
-                {[5, 10, 15, 20, 30].map((amount) => (
+                {[
+                  { label: 'Weak', value: 8 },
+                  { label: 'Medium', value: 15 },
+                  { label: 'Strong', value: 25 },
+                ].map(({ label, value }) => (
                   <button
-                    key={amount}
-                    onClick={() => setBlurAmount(amount)}
-                    className={`flex-1 h-8 rounded-lg text-xs font-mono transition-all ${
-                      blurAmount === amount
+                    key={label}
+                    onClick={() => handleBlurAmountChange(value)}
+                    className={`flex-1 h-8 rounded-lg text-xs font-medium transition-all ${
+                      blurAmount === value
                         ? 'bg-[var(--coral-50)] border border-[var(--coral-300)] text-[var(--coral-500)]'
                         : 'bg-white border border-[var(--polar-frost)] hover:bg-[var(--polar-ice)] text-[var(--ink-muted)]'
                     }`}
                   >
-                    {amount}
+                    {label}
                   </button>
                 ))}
               </div>

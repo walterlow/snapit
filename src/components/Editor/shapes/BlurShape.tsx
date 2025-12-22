@@ -18,9 +18,8 @@ interface BlurShapeProps {
 }
 
 /**
- * BlurShape component - renders blur/pixelate effect
- * Uses refs for drag/transform tracking to avoid re-renders during interaction
- * Only re-renders blur on interaction END for performance
+ * BlurShape component - renders blur/pixelate effect with LIVE preview
+ * Re-renders blur in real-time during drag and resize for accurate preview
  */
 export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
   shape,
@@ -39,13 +38,14 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
   const groupRef = useRef<Konva.Group>(null);
   const [blurResult, setBlurResult] = useState<BlurRenderResult | null>(null);
 
-  // Use refs for live tracking during drag/transform (no re-renders)
-  const isDraggingRef = useRef(false);
-  const isTransformingRef = useRef(false);
-  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  // Live position/size refs for real-time blur updates
+  const liveXRef = useRef(0);
+  const liveYRef = useRef(0);
+  const liveWidthRef = useRef(0);
+  const liveHeightRef = useRef(0);
 
   const blurType = shape.blurType || 'pixelate';
-  const blurAmount = shape.blurAmount || shape.pixelSize || 10;
+  const blurAmount = shape.blurAmount || shape.pixelSize || 15;
 
   // Normalized values for the shape bounds (handle negative dimensions)
   const shapeX = (shape.width || 0) < 0 ? (shape.x || 0) + (shape.width || 0) : (shape.x || 0);
@@ -53,14 +53,36 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
   const shapeWidth = Math.abs(shape.width || 0);
   const shapeHeight = Math.abs(shape.height || 0);
 
-  // Render blur only when shape dimensions/position change from props (not during drag)
+  // Keep live refs in sync with props
+  useEffect(() => {
+    liveXRef.current = shapeX;
+    liveYRef.current = shapeY;
+    liveWidthRef.current = shapeWidth;
+    liveHeightRef.current = shapeHeight;
+  }, [shapeX, shapeY, shapeWidth, shapeHeight]);
+
+  // Helper to render blur and update Konva image directly (no React state during interaction)
+  const renderBlurLive = useCallback((x: number, y: number, width: number, height: number) => {
+    if (!sourceImage || width < 1 || height < 1 || !imageRef.current) return;
+
+    const result = renderBlurCanvas(sourceImage, x, y, width, height, blurType, blurAmount);
+    if (!result) return;
+
+    // Update Konva image directly for performance
+    imageRef.current.image(result.canvas);
+    imageRef.current.x(result.x);
+    imageRef.current.y(result.y);
+    imageRef.current.width(result.width);
+    imageRef.current.height(result.height);
+    imageRef.current.getLayer()?.batchDraw();
+  }, [sourceImage, blurType, blurAmount]);
+
+  // Initial blur render from props
   useEffect(() => {
     if (!sourceImage || shapeWidth < 1 || shapeHeight < 1) {
       setBlurResult(null);
       return;
     }
-    // Don't re-render blur during active drag/transform - we'll do it on end
-    if (isDraggingRef.current || isTransformingRef.current) return;
 
     const result = renderBlurCanvas(
       sourceImage,
@@ -74,64 +96,59 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
     setBlurResult(result);
   }, [sourceImage, shapeX, shapeY, shapeWidth, shapeHeight, blurType, blurAmount]);
 
-  // Handle drag start - store initial offset between blur image and rect
+  // Handle drag start
   const handleDragStart = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
-    isDraggingRef.current = true;
-    // Store offset from rect to blur image for coordinated movement
-    if (blurResult && imageRef.current) {
-      dragOffsetRef.current = {
-        x: blurResult.x - shapeX,
-        y: blurResult.y - shapeY,
-      };
-    }
     onDragStart(e);
-  }, [onDragStart, blurResult, shapeX, shapeY]);
+  }, [onDragStart]);
 
-  // Move blur image along with rect during drag (no React state, pure Konva)
+  // Live blur update during drag
   const handleDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
-    if (!imageRef.current || !blurResult) return;
-
     const node = e.target;
     const newX = node.x();
     const newY = node.y();
 
-    // Move the blur image to match the rect position
-    imageRef.current.x(newX + dragOffsetRef.current.x);
-    imageRef.current.y(newY + dragOffsetRef.current.y);
-  }, [blurResult]);
+    // Re-render blur at new position
+    renderBlurLive(newX, newY, liveWidthRef.current, liveHeightRef.current);
+  }, [renderBlurLive]);
 
-  // Handle drag end - trigger blur re-render at new position
+  // Handle drag end
   const handleDragEndInternal = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
-    isDraggingRef.current = false;
-    // The parent will update shape props, which triggers blur re-render via useEffect
     onDragEnd(e);
   }, [onDragEnd]);
 
-  // Handle transform (resize) - update node dimensions but defer blur re-render
+  // Handle transform start
+  const handleTransformStartInternal = useCallback(() => {
+    onTransformStart();
+  }, [onTransformStart]);
+
+  // Live blur update during resize
   const handleTransformInternal = useCallback((e: Konva.KonvaEventObject<Event>) => {
-    isTransformingRef.current = true;
     const node = e.target;
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
 
-    const currentWidth = node.width();
-    const currentHeight = node.height();
+    const newWidth = Math.abs(node.width() * scaleX);
+    const newHeight = Math.abs(node.height() * scaleY);
+    const newX = node.x();
+    const newY = node.y();
 
-    const newWidth = Math.abs(currentWidth * scaleX);
-    const newHeight = Math.abs(currentHeight * scaleY);
-
-    // Reset scale and set actual dimensions on node (Konva only, no React state)
+    // Reset scale and set actual dimensions
     node.scaleX(1);
     node.scaleY(1);
     node.width(newWidth);
     node.height(newHeight);
-  }, []);
 
-  // Handle transform end - trigger blur re-render
+    // Update live refs
+    liveWidthRef.current = newWidth;
+    liveHeightRef.current = newHeight;
+
+    // Re-render blur at new size
+    renderBlurLive(newX, newY, newWidth, newHeight);
+  }, [renderBlurLive]);
+
+  // Handle transform end
   const handleTransformEndInternal = useCallback(
     (e: Konva.KonvaEventObject<Event>) => {
-      isTransformingRef.current = false;
-      // The parent will update shape props, which triggers blur re-render via useEffect
       onTransformEnd(e);
     },
     [onTransformEnd]
@@ -176,7 +193,7 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEndInternal}
-        onTransformStart={onTransformStart}
+        onTransformStart={handleTransformStartInternal}
         onTransform={handleTransformInternal}
         onTransformEnd={handleTransformEndInternal}
         onMouseEnter={(e) => {
@@ -228,7 +245,7 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEndInternal}
-        onTransformStart={onTransformStart}
+        onTransformStart={handleTransformStartInternal}
         onTransform={handleTransformInternal}
         onTransformEnd={handleTransformEndInternal}
         onMouseEnter={(e) => {

@@ -3,6 +3,7 @@ import { Arrow, Circle } from 'react-konva';
 import Konva from 'konva';
 import type { CanvasShape } from '../../../types';
 import { takeSnapshot, commitSnapshot } from '../../../stores/editorStore';
+import { useShapeCursor } from '../../../hooks/useShapeCursor';
 
 interface ArrowShapeProps {
   shape: CanvasShape;
@@ -48,6 +49,7 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
   onDragEnd,
   onEndpointDragEnd,
 }) => {
+  const cursorHandlers = useShapeCursor(isDraggable);
   // points[] = anchor positions (where handles sit)
   const anchors = shape.points || [0, 0, 0, 0];
   const strokeWidth = shape.strokeWidth || 2;
@@ -156,16 +158,7 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
         onDragStart={handleArrowDragStart}
         onDragMove={handleArrowDragMove}
         onDragEnd={handleArrowDragEnd}
-        onMouseEnter={(e) => {
-          if (isDraggable) {
-            const container = e.target.getStage()?.container();
-            if (container) container.style.cursor = 'move';
-          }
-        }}
-        onMouseLeave={(e) => {
-          const container = e.target.getStage()?.container();
-          if (container) container.style.cursor = 'default';
-        }}
+        {...cursorHandlers}
       />
       {isSelected && isDraggable && (
         <>

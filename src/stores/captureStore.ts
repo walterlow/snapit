@@ -63,6 +63,43 @@ interface CaptureState {
   setCurrentProject: (project: CaptureProject | null) => void;
 }
 
+// Helper: Create placeholder capture for optimistic updates
+function createPlaceholderCapture(
+  tempId: string,
+  now: string,
+  captureType: string,
+  dimensions: { width: number; height: number } = { width: 0, height: 0 }
+): CaptureListItem {
+  return {
+    id: tempId,
+    created_at: now,
+    updated_at: now,
+    capture_type: captureType,
+    dimensions,
+    thumbnail_path: '',
+    image_path: '',
+    has_annotations: false,
+    tags: [],
+    favorite: false,
+  };
+}
+
+// Helper: Create CaptureListItem from save response
+function createCaptureFromResponse(result: SaveCaptureResponse): CaptureListItem {
+  return {
+    id: result.id,
+    created_at: result.project.created_at,
+    updated_at: result.project.updated_at,
+    capture_type: result.project.capture_type,
+    dimensions: result.project.dimensions,
+    thumbnail_path: result.thumbnail_path,
+    image_path: result.image_path,
+    has_annotations: result.project.annotations.length > 0,
+    tags: result.project.tags,
+    favorite: result.project.favorite,
+  };
+}
+
 export const useCaptureStore = create<CaptureState>((set, get) => ({
   captures: [],
   loading: false,
@@ -112,28 +149,12 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
     source: CaptureSource,
     options?: { silent?: boolean }
   ) => {
-    // Generate temporary ID for optimistic update
     const tempId = `temp_${Date.now()}`;
     const now = new Date().toISOString();
-
-    // Extract dimensions from base64 image (approximate from data length)
-    // This is just for the placeholder - real dimensions come from the save response
-    const placeholderCapture: CaptureListItem = {
-      id: tempId,
-      created_at: now,
-      updated_at: now,
-      capture_type: captureType,
-      dimensions: { width: 0, height: 0 }, // Will be updated
-      thumbnail_path: '', // No thumbnail yet
-      image_path: '',
-      has_annotations: false,
-      tags: [],
-      favorite: false,
-    };
+    const placeholderCapture = createPlaceholderCapture(tempId, now, captureType);
 
     // Optimistically add to list immediately so card appears right away
-    const currentCaptures = get().captures;
-    set({ captures: [placeholderCapture, ...currentCaptures] });
+    set({ captures: [placeholderCapture, ...get().captures] });
 
     try {
       const result = await invoke<SaveCaptureResponse>('save_capture', {
@@ -144,20 +165,8 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
         },
       });
 
-      // Replace placeholder with real capture data (no full reload)
-      const realCapture: CaptureListItem = {
-        id: result.id,
-        created_at: result.project.created_at,
-        updated_at: result.project.updated_at,
-        capture_type: result.project.capture_type,
-        dimensions: result.project.dimensions,
-        thumbnail_path: result.thumbnail_path,
-        image_path: result.image_path,
-        has_annotations: result.project.annotations.length > 0,
-        tags: result.project.tags,
-        favorite: result.project.favorite,
-      };
-
+      // Replace placeholder with real capture data
+      const realCapture = createCaptureFromResponse(result);
       set({
         captures: get().captures.map(c => c.id === tempId ? realCapture : c),
       });
@@ -198,26 +207,12 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
     source: CaptureSource,
     options?: { silent?: boolean }
   ) => {
-    // Generate temporary ID for optimistic update
     const tempId = `temp_${Date.now()}`;
     const now = new Date().toISOString();
-
-    const placeholderCapture: CaptureListItem = {
-      id: tempId,
-      created_at: now,
-      updated_at: now,
-      capture_type: captureType,
-      dimensions: { width, height },
-      thumbnail_path: '',
-      image_path: '',
-      has_annotations: false,
-      tags: [],
-      favorite: false,
-    };
+    const placeholderCapture = createPlaceholderCapture(tempId, now, captureType, { width, height });
 
     // Optimistically add to list immediately
-    const currentCaptures = get().captures;
-    set({ captures: [placeholderCapture, ...currentCaptures] });
+    set({ captures: [placeholderCapture, ...get().captures] });
 
     try {
       const result = await invoke<SaveCaptureResponse>('save_capture_from_file', {
@@ -228,20 +223,8 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
         source,
       });
 
-      // Replace placeholder with real capture data (no full reload)
-      const realCapture: CaptureListItem = {
-        id: result.id,
-        created_at: result.project.created_at,
-        updated_at: result.project.updated_at,
-        capture_type: result.project.capture_type,
-        dimensions: result.project.dimensions,
-        thumbnail_path: result.thumbnail_path,
-        image_path: result.image_path,
-        has_annotations: result.project.annotations.length > 0,
-        tags: result.project.tags,
-        favorite: result.project.favorite,
-      };
-
+      // Replace placeholder with real capture data
+      const realCapture = createCaptureFromResponse(result);
       set({
         captures: get().captures.map(c => c.id === tempId ? realCapture : c),
       });

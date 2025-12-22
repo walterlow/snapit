@@ -312,3 +312,22 @@ export const DEFAULT_SETTINGS: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS,
   general: DEFAULT_GENERAL_SETTINGS,
 };
+
+// ============================================
+// Shape Component Types
+// ============================================
+
+import type Konva from 'konva';
+
+// Base props shared by all shape components
+export interface BaseShapeProps {
+  shape: CanvasShape;
+  isSelected: boolean;
+  isDraggable: boolean;
+  onSelect: (e?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
+  onClick: (e: Konva.KonvaEventObject<MouseEvent>) => void;
+  onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => void;
+  onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
+  onTransformStart: () => void;
+  onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
+}

@@ -1,0 +1,51 @@
+import React from 'react';
+import { Star, Trash2, Copy, ExternalLink } from 'lucide-react';
+import {
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+} from '@/components/ui/context-menu';
+
+interface CaptureContextMenuProps {
+  favorite: boolean;
+  onCopyToClipboard: () => void;
+  onOpenInFolder: () => void;
+  onToggleFavorite: () => void;
+  onDelete: () => void;
+}
+
+export const CaptureContextMenu: React.FC<CaptureContextMenuProps> = ({
+  favorite,
+  onCopyToClipboard,
+  onOpenInFolder,
+  onToggleFavorite,
+  onDelete,
+}) => {
+  return (
+    <ContextMenuContent>
+      <ContextMenuItem onClick={onCopyToClipboard}>
+        <Copy className="w-4 h-4 mr-2" />
+        Copy to Clipboard
+      </ContextMenuItem>
+      <ContextMenuItem onClick={onOpenInFolder}>
+        <ExternalLink className="w-4 h-4 mr-2" />
+        Show in Folder
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={onToggleFavorite}>
+        <Star className="w-4 h-4 mr-2" fill={favorite ? 'currentColor' : 'none'} />
+        {favorite ? 'Remove from Favorites' : 'Add to Favorites'}
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        onClick={onDelete}
+        className="text-red-500 focus:text-red-500 focus:bg-red-50"
+      >
+        <Trash2 className="w-4 h-4 mr-2" />
+        Delete
+        <ContextMenuShortcut>Del</ContextMenuShortcut>
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+};

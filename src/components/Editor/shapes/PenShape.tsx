@@ -1,21 +1,9 @@
 import React from 'react';
 import { Line } from 'react-konva';
-import Konva from 'konva';
-import type { CanvasShape } from '../../../types';
+import type { BaseShapeProps } from '../../../types';
+import { useShapeCursor } from '../../../hooks/useShapeCursor';
 
-interface PenShapeProps {
-  shape: CanvasShape;
-  isSelected: boolean;
-  isDraggable: boolean;
-  onSelect: (e?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
-  onClick: (e: Konva.KonvaEventObject<MouseEvent>) => void;
-  onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => void;
-  onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
-  onTransformStart: () => void;
-  onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
-}
-
-export const PenShape: React.FC<PenShapeProps> = React.memo(({
+export const PenShape: React.FC<BaseShapeProps> = React.memo(({
   shape,
   isDraggable,
   onClick,
@@ -25,6 +13,8 @@ export const PenShape: React.FC<PenShapeProps> = React.memo(({
   onTransformStart,
   onTransformEnd,
 }) => {
+  const cursorHandlers = useShapeCursor(isDraggable);
+
   return (
     <Line
       id={shape.id}
@@ -43,16 +33,7 @@ export const PenShape: React.FC<PenShapeProps> = React.memo(({
       onDragEnd={onDragEnd}
       onTransformStart={onTransformStart}
       onTransformEnd={onTransformEnd}
-      onMouseEnter={(e) => {
-        if (isDraggable) {
-          const container = e.target.getStage()?.container();
-          if (container) container.style.cursor = 'move';
-        }
-      }}
-      onMouseLeave={(e) => {
-        const container = e.target.getStage()?.container();
-        if (container) container.style.cursor = 'default';
-      }}
+      {...cursorHandlers}
     />
   );
 });

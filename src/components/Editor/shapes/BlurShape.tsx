@@ -3,6 +3,7 @@ import { Group, Image, Rect } from 'react-konva';
 import Konva from 'konva';
 import type { CanvasShape } from '../../../types';
 import { renderBlurCanvas, BlurRenderResult } from '../../../utils/blurRenderer';
+import { useShapeCursor } from '../../../hooks/useShapeCursor';
 
 interface BlurShapeProps {
   shape: CanvasShape;
@@ -33,6 +34,7 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
   onTransformStart,
   onTransformEnd,
 }) => {
+  const cursorHandlers = useShapeCursor(isDraggable);
   const rectRef = useRef<Konva.Rect>(null);
   const imageRef = useRef<Konva.Image>(null);
   const groupRef = useRef<Konva.Group>(null);
@@ -196,16 +198,7 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
         onTransformStart={handleTransformStartInternal}
         onTransform={handleTransformInternal}
         onTransformEnd={handleTransformEndInternal}
-        onMouseEnter={(e) => {
-          if (isDraggable) {
-            const container = e.target.getStage()?.container();
-            if (container) container.style.cursor = 'move';
-          }
-        }}
-        onMouseLeave={(e) => {
-          const container = e.target.getStage()?.container();
-          if (container) container.style.cursor = 'default';
-        }}
+        {...cursorHandlers}
       />
     );
   }
@@ -248,16 +241,7 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
         onTransformStart={handleTransformStartInternal}
         onTransform={handleTransformInternal}
         onTransformEnd={handleTransformEndInternal}
-        onMouseEnter={(e) => {
-          if (isDraggable) {
-            const container = e.target.getStage()?.container();
-            if (container) container.style.cursor = 'move';
-          }
-        }}
-        onMouseLeave={(e) => {
-          const container = e.target.getStage()?.container();
-          if (container) container.style.cursor = 'default';
-        }}
+        {...cursorHandlers}
       />
     </Group>
   );

@@ -1,20 +1,14 @@
 import React, { memo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, Check, Copy, ExternalLink } from 'lucide-react';
+import { Star, Trash2, Check } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuShortcut,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
+import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { CaptureContextMenu } from './CaptureContextMenu';
 import type { CaptureCardProps } from './types';
 import { capturePropsAreEqual } from './types';
 
@@ -113,30 +107,13 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onClick={onCopyToClipboard}>
-            <Copy className="w-4 h-4 mr-2" />
-            Copy to Clipboard
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onOpenInFolder}>
-            <ExternalLink className="w-4 h-4 mr-2" />
-            Show in Folder
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={onToggleFavorite}>
-            <Star className="w-4 h-4 mr-2" fill={capture.favorite ? 'currentColor' : 'none'} />
-            {capture.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={onDelete}
-            className="text-red-500 focus:text-red-500 focus:bg-red-50"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Delete
-            <ContextMenuShortcut>Del</ContextMenuShortcut>
-          </ContextMenuItem>
-        </ContextMenuContent>
+        <CaptureContextMenu
+          favorite={capture.favorite}
+          onCopyToClipboard={onCopyToClipboard}
+          onOpenInFolder={onOpenInFolder}
+          onToggleFavorite={onToggleFavorite}
+          onDelete={onDelete}
+        />
       </ContextMenu>
     );
   },

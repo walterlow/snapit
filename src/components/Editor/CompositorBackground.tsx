@@ -131,17 +131,14 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
         <Group
           name={name}
           clipFunc={(ctx) => {
+            // Use arcTo for circular corners (matches Konva Rect cornerRadius)
             const r = Math.min(borderRadius, bounds.width / 2, bounds.height / 2);
             ctx.beginPath();
             ctx.moveTo(bounds.x + r, bounds.y);
-            ctx.lineTo(bounds.x + bounds.width - r, bounds.y);
-            ctx.quadraticCurveTo(bounds.x + bounds.width, bounds.y, bounds.x + bounds.width, bounds.y + r);
-            ctx.lineTo(bounds.x + bounds.width, bounds.y + bounds.height - r);
-            ctx.quadraticCurveTo(bounds.x + bounds.width, bounds.y + bounds.height, bounds.x + bounds.width - r, bounds.y + bounds.height);
-            ctx.lineTo(bounds.x + r, bounds.y + bounds.height);
-            ctx.quadraticCurveTo(bounds.x, bounds.y + bounds.height, bounds.x, bounds.y + bounds.height - r);
-            ctx.lineTo(bounds.x, bounds.y + r);
-            ctx.quadraticCurveTo(bounds.x, bounds.y, bounds.x + r, bounds.y);
+            ctx.arcTo(bounds.x + bounds.width, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height, r);
+            ctx.arcTo(bounds.x + bounds.width, bounds.y + bounds.height, bounds.x, bounds.y + bounds.height, r);
+            ctx.arcTo(bounds.x, bounds.y + bounds.height, bounds.x, bounds.y, r);
+            ctx.arcTo(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y, r);
             ctx.closePath();
           }}
         >

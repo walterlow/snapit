@@ -120,10 +120,18 @@ function App() {
         return;
       }
 
-      // G: Toggle compositor
+      // G: Toggle background tool and compositor
       if (e.key.toLowerCase() === 'g') {
         e.preventDefault();
-        setCompositorSettings({ enabled: !compositorSettings.enabled });
+        // If already on background tool, toggle the effect off and switch to select
+        if (selectedTool === 'background') {
+          setCompositorSettings({ enabled: false });
+          setSelectedTool('select');
+        } else {
+          // Switch to background tool and enable effect
+          setSelectedTool('background');
+          setCompositorSettings({ enabled: true });
+        }
         return;
       }
 
@@ -150,7 +158,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings]);
+  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings, selectedTool]);
 
   // Load captures on mount
   useEffect(() => {

@@ -552,12 +552,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   <CompositorBackground
                     settings={compositorSettings}
                     bounds={{
-                      x: visibleBounds.x - 1,
-                      y: visibleBounds.y - 1,
-                      width: visibleBounds.width + 2,
-                      height: visibleBounds.height + 2,
+                      x: visibleBounds.x - 2,
+                      y: visibleBounds.y - 2,
+                      width: visibleBounds.width + 4,
+                      height: visibleBounds.height + 4,
                     }}
-                    borderRadius={compositorSettings.borderRadius}
+                    borderRadius={compositorSettings.borderRadius + 2}
                   />
                 )}
               </>
@@ -576,17 +576,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               <Group
                 clipFunc={(ctx) => {
                   if (radius > 0) {
+                    // Use arcTo for circular corners (matches Konva Rect cornerRadius)
                     const r = Math.min(radius, clipW / 2, clipH / 2);
                     ctx.beginPath();
                     ctx.moveTo(clipX + r, clipY);
-                    ctx.lineTo(clipX + clipW - r, clipY);
-                    ctx.quadraticCurveTo(clipX + clipW, clipY, clipX + clipW, clipY + r);
-                    ctx.lineTo(clipX + clipW, clipY + clipH - r);
-                    ctx.quadraticCurveTo(clipX + clipW, clipY + clipH, clipX + clipW - r, clipY + clipH);
-                    ctx.lineTo(clipX + r, clipY + clipH);
-                    ctx.quadraticCurveTo(clipX, clipY + clipH, clipX, clipY + clipH - r);
-                    ctx.lineTo(clipX, clipY + r);
-                    ctx.quadraticCurveTo(clipX, clipY, clipX + r, clipY);
+                    ctx.arcTo(clipX + clipW, clipY, clipX + clipW, clipY + clipH, r);
+                    ctx.arcTo(clipX + clipW, clipY + clipH, clipX, clipY + clipH, r);
+                    ctx.arcTo(clipX, clipY + clipH, clipX, clipY, r);
+                    ctx.arcTo(clipX, clipY, clipX + clipW, clipY, r);
                     ctx.closePath();
                   } else {
                     ctx.rect(clipX, clipY, clipW, clipH);

@@ -16,6 +16,21 @@ pub struct CaptureResult {
     pub has_transparency: bool,
 }
 
+/// Fast capture result - returns file path instead of base64 data.
+/// This avoids expensive PNG encoding and base64 serialization for editor display.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FastCaptureResult {
+    /// Path to temporary file containing raw RGBA pixel data.
+    pub file_path: String,
+    /// Width of the captured image in pixels.
+    pub width: u32,
+    /// Height of the captured image in pixels.
+    pub height: u32,
+    /// Indicates if the capture has meaningful transparency (alpha channel).
+    #[serde(default)]
+    pub has_transparency: bool,
+}
+
 /// Information about a display monitor.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MonitorInfo {
@@ -42,7 +57,7 @@ pub struct WindowInfo {
     pub is_minimized: bool,
 }
 
-/// Region selection for capturing a specific area.
+/// Region selection for capturing a specific area (monitor-relative coordinates).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RegionSelection {
     pub x: i32,
@@ -50,6 +65,19 @@ pub struct RegionSelection {
     pub width: u32,
     pub height: u32,
     pub monitor_id: u32,
+}
+
+/// Region selection using absolute screen coordinates (spans multiple monitors).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScreenRegionSelection {
+    /// X coordinate in virtual screen space
+    pub x: i32,
+    /// Y coordinate in virtual screen space
+    pub y: i32,
+    /// Width of the selection
+    pub width: u32,
+    /// Height of the selection
+    pub height: u32,
 }
 
 /// Errors that can occur during capture operations.

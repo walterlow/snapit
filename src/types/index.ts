@@ -55,6 +55,22 @@ export interface CaptureResult {
   height: number;
 }
 
+// Fast capture result - returns file path instead of base64 data
+export interface FastCaptureResult {
+  file_path: string;
+  width: number;
+  height: number;
+  has_transparency: boolean;
+}
+
+// Screen region selection using absolute screen coordinates (multi-monitor support)
+export interface ScreenRegionSelection {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface MonitorInfo {
   id: number;
   name: string;
@@ -109,6 +125,8 @@ export interface SaveCaptureRequest {
 export interface SaveCaptureResponse {
   id: string;
   project: CaptureProject;
+  thumbnail_path: string;
+  image_path: string;
 }
 
 // Compositor types for background effects

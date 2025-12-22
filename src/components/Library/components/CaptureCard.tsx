@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, Check, Copy, ExternalLink } from 'lucide-react';
+import { Star, Trash2, Check, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -24,7 +24,9 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     onCopyToClipboard,
     formatDate,
   }) => {
-    const thumbnailSrc = convertFileSrc(capture.thumbnail_path);
+    // Check if this is a placeholder (optimistic update, saving in progress)
+    const isPlaceholder = capture.id.startsWith('temp_') || !capture.thumbnail_path;
+    const thumbnailSrc = isPlaceholder ? '' : convertFileSrc(capture.thumbnail_path);
 
     return (
       <ContextMenu>
@@ -37,7 +39,13 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
           >
             {/* Thumbnail */}
             <div className="thumbnail">
-              <img src={thumbnailSrc} alt="Capture" loading="lazy" />
+              {isPlaceholder ? (
+                <div className="w-full h-full flex items-center justify-center bg-[var(--polar-mist)]">
+                  <Loader2 className="w-8 h-8 text-[var(--ink-subtle)] animate-spin" />
+                </div>
+              ) : (
+                <img src={thumbnailSrc} alt="Capture" loading="lazy" />
+              )}
 
               {/* Selection Checkbox */}
               <div
@@ -69,38 +77,40 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
             <div className="card-footer flex items-center justify-between">
               <div className="flex flex-col gap-1">
                 <span className="text-[11px] text-[var(--ink-subtle)]">
-                  {formatDate(capture.created_at)}
+                  {isPlaceholder ? 'Saving...' : formatDate(capture.created_at)}
                 </span>
                 <span className="pill font-mono text-[10px]">
-                  {capture.dimensions.width} × {capture.dimensions.height}
+                  {isPlaceholder ? '-- × --' : `${capture.dimensions.width} × ${capture.dimensions.height}`}
                 </span>
               </div>
-              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleFavorite();
-                  }}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--polar-mist)] transition-colors"
-                >
-                  <Star
-                    className="w-4 h-4 transition-colors"
-                    fill={capture.favorite ? 'currentColor' : 'none'}
-                    style={{
-                      color: capture.favorite ? 'var(--coral-400)' : 'var(--ink-subtle)',
+              {!isPlaceholder && (
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavorite();
                     }}
-                  />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete();
-                  }}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-red-500 hover:bg-red-50 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+                    className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--polar-mist)] transition-colors"
+                  >
+                    <Star
+                      className="w-4 h-4 transition-colors"
+                      fill={capture.favorite ? 'currentColor' : 'none'}
+                      style={{
+                        color: capture.favorite ? 'var(--coral-400)' : 'var(--ink-subtle)',
+                      }}
+                    />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete();
+                    }}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </ContextMenuTrigger>

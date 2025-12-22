@@ -13,9 +13,10 @@ pub mod fallback;
 pub mod types;
 pub mod wgc;
 
-pub use types::{CaptureResult, MonitorInfo, RegionSelection, WindowInfo};
+pub use types::{CaptureResult, FastCaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection, WindowInfo};
 
 use tauri::command;
+use std::io::Write;
 
 /// Get all available monitors.
 #[command]
@@ -377,4 +378,253 @@ pub async fn get_window_at_point(x: i32, y: i32) -> Result<Option<WindowInfo>, S
         height: w.height().unwrap_or(0),
         is_minimized: w.is_minimized().unwrap_or(false),
     }))
+}
+
+// ============================================================================
+// Fast Capture Commands (skip PNG encoding for editor display)
+// ============================================================================
+
+/// Write raw RGBA bytes to a temporary file and return the path.
+fn write_rgba_to_temp_file(rgba_data: &[u8], width: u32, height: u32) -> Result<String, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let temp_dir = std::env::temp_dir();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+
+    let file_name = format!("snapit_capture_{}_{}.rgba", timestamp, std::process::id());
+    let file_path = temp_dir.join(file_name);
+
+    let mut file = std::fs::File::create(&file_path)
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    // Write a simple header: width (4 bytes), height (4 bytes), then RGBA data
+    file.write_all(&width.to_le_bytes())
+        .map_err(|e| format!("Failed to write width: {}", e))?;
+    file.write_all(&height.to_le_bytes())
+        .map_err(|e| format!("Failed to write height: {}", e))?;
+    file.write_all(rgba_data)
+        .map_err(|e| format!("Failed to write RGBA data: {}", e))?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+/// Fast capture of a window - returns file path instead of base64.
+/// Skips PNG encoding for ~300-500ms savings on large captures.
+#[command]
+pub async fn capture_window_fast(window_id: u32) -> Result<FastCaptureResult, String> {
+    let total_start = std::time::Instant::now();
+
+    // Try WGC first for transparency support
+    if wgc::is_available() {
+        let wgc_start = std::time::Instant::now();
+        match wgc::capture_window_raw(window_id as isize) {
+            Ok((rgba_data, width, height)) => {
+                println!("[TIMING] WGC capture: {:?}", wgc_start.elapsed());
+
+                let write_start = std::time::Instant::now();
+                let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+                println!("[TIMING] File write ({}x{}, {} bytes): {:?}",
+                    width, height, rgba_data.len(), write_start.elapsed());
+
+                println!("[TIMING] capture_window_fast TOTAL: {:?}", total_start.elapsed());
+                return Ok(FastCaptureResult {
+                    file_path,
+                    width,
+                    height,
+                    has_transparency: true,
+                });
+            }
+            Err(e) => {
+                println!("[TIMING] WGC failed: {:?}, falling back", e);
+            }
+        }
+    }
+
+    // Fallback to xcap (still need to get raw data)
+    let xcap_start = std::time::Instant::now();
+    fallback::capture_window_raw(window_id)
+        .map_err(|e| e.to_string())
+        .and_then(|(rgba_data, width, height)| {
+            println!("[TIMING] xcap capture: {:?}", xcap_start.elapsed());
+
+            let write_start = std::time::Instant::now();
+            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+            println!("[TIMING] File write: {:?}", write_start.elapsed());
+
+            println!("[TIMING] capture_window_fast TOTAL: {:?}", total_start.elapsed());
+            Ok(FastCaptureResult {
+                file_path,
+                width,
+                height,
+                has_transparency: false,
+            })
+        })
+}
+
+/// Fast capture of a region - returns file path instead of base64.
+#[command]
+pub async fn capture_region_fast(selection: RegionSelection) -> Result<FastCaptureResult, String> {
+    let total_start = std::time::Instant::now();
+
+    let capture_start = std::time::Instant::now();
+    let result = fallback::capture_region_raw(selection);
+    println!("[TIMING] Region capture: {:?}", capture_start.elapsed());
+
+    result
+        .map_err(|e| e.to_string())
+        .and_then(|(rgba_data, width, height)| {
+            let write_start = std::time::Instant::now();
+            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+            println!("[TIMING] File write: {:?}", write_start.elapsed());
+            println!("[TIMING] capture_region_fast TOTAL: {:?}", total_start.elapsed());
+
+            Ok(FastCaptureResult {
+                file_path,
+                width,
+                height,
+                has_transparency: false,
+            })
+        })
+}
+
+/// Fast capture of a screen region (multi-monitor support).
+/// Uses absolute screen coordinates and can stitch captures from multiple monitors.
+#[command]
+pub async fn capture_screen_region_fast(selection: ScreenRegionSelection) -> Result<FastCaptureResult, String> {
+    let total_start = std::time::Instant::now();
+
+    let capture_start = std::time::Instant::now();
+    let result = fallback::capture_screen_region_raw(selection);
+    println!("[TIMING] Screen region capture: {:?}", capture_start.elapsed());
+
+    result
+        .map_err(|e| e.to_string())
+        .and_then(|(rgba_data, width, height)| {
+            let write_start = std::time::Instant::now();
+            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+            println!("[TIMING] File write: {:?}", write_start.elapsed());
+            println!("[TIMING] capture_screen_region_fast TOTAL: {:?}", total_start.elapsed());
+
+            Ok(FastCaptureResult {
+                file_path,
+                width,
+                height,
+                has_transparency: false,
+            })
+        })
+}
+
+/// Fast capture of fullscreen - returns file path instead of base64.
+#[command]
+pub async fn capture_fullscreen_fast() -> Result<FastCaptureResult, String> {
+    let total_start = std::time::Instant::now();
+
+    // Try WGC first
+    if wgc::is_available() {
+        let monitors = fallback::get_monitors().map_err(|e| e.to_string())?;
+        let primary_index = monitors
+            .iter()
+            .position(|m| m.is_primary)
+            .unwrap_or(0);
+
+        let wgc_start = std::time::Instant::now();
+        match wgc::capture_monitor_raw(primary_index) {
+            Ok((rgba_data, width, height)) => {
+                println!("[TIMING] WGC fullscreen capture: {:?}", wgc_start.elapsed());
+
+                let write_start = std::time::Instant::now();
+                let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+                println!("[TIMING] File write: {:?}", write_start.elapsed());
+                println!("[TIMING] capture_fullscreen_fast TOTAL: {:?}", total_start.elapsed());
+
+                return Ok(FastCaptureResult {
+                    file_path,
+                    width,
+                    height,
+                    has_transparency: false,
+                });
+            }
+            Err(_) => {}
+        }
+    }
+
+    // Fallback to xcap
+    let xcap_start = std::time::Instant::now();
+    fallback::capture_fullscreen_raw()
+        .map_err(|e| e.to_string())
+        .and_then(|(rgba_data, width, height)| {
+            println!("[TIMING] xcap fullscreen capture: {:?}", xcap_start.elapsed());
+
+            let write_start = std::time::Instant::now();
+            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+            println!("[TIMING] File write: {:?}", write_start.elapsed());
+            println!("[TIMING] capture_fullscreen_fast TOTAL: {:?}", total_start.elapsed());
+
+            Ok(FastCaptureResult {
+                file_path,
+                width,
+                height,
+                has_transparency: false,
+            })
+        })
+}
+
+/// Read raw RGBA data from a temp file (for converting to PNG when saving).
+#[command]
+pub async fn read_rgba_file(file_path: String) -> Result<CaptureResult, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use image::{DynamicImage, RgbaImage};
+    use std::io::{Cursor, Read};
+
+    let mut file = std::fs::File::open(&file_path)
+        .map_err(|e| format!("Failed to open temp file: {}", e))?;
+
+    // Read header
+    let mut width_bytes = [0u8; 4];
+    let mut height_bytes = [0u8; 4];
+    file.read_exact(&mut width_bytes)
+        .map_err(|e| format!("Failed to read width: {}", e))?;
+    file.read_exact(&mut height_bytes)
+        .map_err(|e| format!("Failed to read height: {}", e))?;
+
+    let width = u32::from_le_bytes(width_bytes);
+    let height = u32::from_le_bytes(height_bytes);
+
+    // Read RGBA data
+    let expected_size = (width * height * 4) as usize;
+    let mut rgba_data = vec![0u8; expected_size];
+    file.read_exact(&mut rgba_data)
+        .map_err(|e| format!("Failed to read RGBA data: {}", e))?;
+
+    // Encode to PNG
+    let image = RgbaImage::from_raw(width, height, rgba_data)
+        .ok_or_else(|| "Failed to create image from buffer".to_string())?;
+    let dynamic_image = DynamicImage::ImageRgba8(image);
+
+    let mut buffer = Cursor::new(Vec::new());
+    dynamic_image
+        .write_to(&mut buffer, image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+
+    let base64_data = STANDARD.encode(buffer.into_inner());
+
+    // Clean up temp file
+    let _ = std::fs::remove_file(&file_path);
+
+    Ok(CaptureResult {
+        image_data: base64_data,
+        width,
+        height,
+        has_transparency: true,
+    })
+}
+
+/// Clean up a temp RGBA file.
+#[command]
+pub async fn cleanup_rgba_file(file_path: String) -> Result<(), String> {
+    std::fs::remove_file(&file_path)
+        .map_err(|e| format!("Failed to delete temp file: {}", e))
 }

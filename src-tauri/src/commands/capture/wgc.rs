@@ -6,8 +6,15 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{DynamicImage, RgbaImage};
 use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
+
+/// Track consecutive WGC failures for window capture.
+/// If too many failures, we skip WGC entirely to save time.
+static WGC_WINDOW_CONSECUTIVE_FAILURES: AtomicU32 = AtomicU32::new(0);
+static WGC_WINDOW_EVER_SUCCEEDED: AtomicBool = AtomicBool::new(false);
+const WGC_MAX_CONSECUTIVE_FAILURES: u32 = 3;
 
 use windows_capture::{
     capture::{Context, GraphicsCaptureApiHandler},
@@ -102,12 +109,15 @@ fn encode_rgba_to_png(data: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>,
 
 /// Attempt a single WGC capture.
 fn try_capture_window(hwnd: isize, timeout: Duration) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+    let start = std::time::Instant::now();
     let window = WgcWindow::from_raw_hwnd(hwnd as *mut std::ffi::c_void);
 
     // Validate window
     if !window.is_valid() {
+        println!("[TIMING] WGC window invalid");
         return Err(CaptureError::WindowNotFound);
     }
+    println!("[TIMING] WGC window valid: {:?}", start.elapsed());
 
     let (tx, rx) = mpsc::sync_channel::<CaptureMessage>(1);
 
@@ -123,16 +133,28 @@ fn try_capture_window(hwnd: isize, timeout: Duration) -> Result<(Vec<u8>, u32, u
     );
 
     // Run capture in a separate thread (WGC may need specific thread requirements)
-    let handle = std::thread::spawn(move || SingleFrameCapture::start(settings));
+    let thread_start = std::time::Instant::now();
+    let handle = std::thread::spawn(move || {
+        let result = SingleFrameCapture::start(settings);
+        println!("[TIMING] WGC thread completed: {:?}, result: {:?}", thread_start.elapsed(), result.is_ok());
+        result
+    });
 
-    // Wait for result with timeout
+    // Wait for result with shorter timeout (500ms should be plenty for a single frame)
     let result = rx
         .recv_timeout(timeout)
-        .map_err(|_| CaptureError::CaptureFailed("Capture timeout".into()))?
-        .map_err(|e| CaptureError::CaptureFailed(e))?;
+        .map_err(|e| {
+            println!("[TIMING] WGC recv_timeout failed after {:?}: {:?}", start.elapsed(), e);
+            CaptureError::CaptureFailed("Capture timeout".into())
+        })?
+        .map_err(|e| {
+            println!("[TIMING] WGC capture error: {}", e);
+            CaptureError::CaptureFailed(e)
+        })?;
 
     // Wait for capture thread to finish
     let _ = handle.join();
+    println!("[TIMING] WGC total: {:?}", start.elapsed());
 
     Ok(result)
 }
@@ -140,55 +162,85 @@ fn try_capture_window(hwnd: isize, timeout: Duration) -> Result<(Vec<u8>, u32, u
 /// Capture a window using Windows Graphics Capture API with full transparency support.
 /// Includes retry logic for transient failures.
 pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
-    // Brief delay to let window state stabilize (helps with resize/animation)
-    std::thread::sleep(Duration::from_millis(16)); // ~1 frame
+    let (rgba_data, width, height) = capture_window_raw(hwnd)?;
 
-    // Try capture with retry for transient failures
-    let mut last_error = None;
-    for attempt in 0..2 {
-        if attempt > 0 {
-            // Small delay between retries
-            std::thread::sleep(Duration::from_millis(50));
-        }
+    // Encode to PNG and base64
+    let png_data = encode_rgba_to_png(rgba_data, width, height)?;
+    let base64_data = STANDARD.encode(&png_data);
 
-        match try_capture_window(hwnd, Duration::from_secs(3)) {
-            Ok((rgba_data, width, height)) => {
-                // Validate dimensions are reasonable
-                if width == 0 || height == 0 {
-                    last_error = Some(CaptureError::CaptureFailed("Invalid dimensions".into()));
-                    continue;
-                }
+    Ok(CaptureResult {
+        image_data: base64_data,
+        width,
+        height,
+        has_transparency: true,
+    })
+}
 
-                // Check if capture returned mostly transparent content (elevated window issue)
-                if is_mostly_transparent(&rgba_data, width, height) {
-                    // Don't retry for elevated windows - fall through to return error
-                    return Err(CaptureError::CaptureFailed(
-                        "Captured content is mostly transparent (possible elevated window)".into(),
-                    ));
-                }
+/// Check if WGC window capture should be skipped due to repeated failures.
+pub fn should_skip_wgc_window_capture() -> bool {
+    // If WGC has never succeeded and we've had too many failures, skip it
+    let never_succeeded = !WGC_WINDOW_EVER_SUCCEEDED.load(Ordering::Relaxed);
+    let too_many_failures = WGC_WINDOW_CONSECUTIVE_FAILURES.load(Ordering::Relaxed) >= WGC_MAX_CONSECUTIVE_FAILURES;
+    never_succeeded && too_many_failures
+}
 
-                // Note: Rounded corners are handled by the compositor/editor, not here
-                let png_data = encode_rgba_to_png(rgba_data, width, height)?;
-                let base64_data = STANDARD.encode(&png_data);
-
-                return Ok(CaptureResult {
-                    image_data: base64_data,
-                    width,
-                    height,
-                    has_transparency: true,
-                });
-            }
-            Err(e) => {
-                last_error = Some(e);
-            }
-        }
+/// Capture a window and return raw RGBA data (skips PNG encoding).
+/// This is the fast path for editor display.
+pub fn capture_window_raw(hwnd: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+    // Skip WGC if it has been consistently failing
+    if should_skip_wgc_window_capture() {
+        println!("[TIMING] WGC skipped (too many failures without success)");
+        return Err(CaptureError::CaptureFailed("WGC disabled due to repeated failures".into()));
     }
 
-    Err(last_error.unwrap_or_else(|| CaptureError::CaptureFailed("Unknown error".into())))
+    // Single attempt with short timeout - WGC either works quickly or doesn't work at all
+    // Reduced from 500ms to 150ms since we want to fail fast to xcap fallback
+    match try_capture_window(hwnd, Duration::from_millis(150)) {
+        Ok((rgba_data, width, height)) => {
+            // Validate dimensions are reasonable
+            if width == 0 || height == 0 {
+                WGC_WINDOW_CONSECUTIVE_FAILURES.fetch_add(1, Ordering::Relaxed);
+                return Err(CaptureError::CaptureFailed("Invalid dimensions".into()));
+            }
+
+            // Check if capture returned mostly transparent content (elevated window issue)
+            if is_mostly_transparent(&rgba_data, width, height) {
+                WGC_WINDOW_CONSECUTIVE_FAILURES.fetch_add(1, Ordering::Relaxed);
+                return Err(CaptureError::CaptureFailed(
+                    "Captured content is mostly transparent (possible elevated window)".into(),
+                ));
+            }
+
+            // Success! Reset failure count and mark as having succeeded
+            WGC_WINDOW_CONSECUTIVE_FAILURES.store(0, Ordering::Relaxed);
+            WGC_WINDOW_EVER_SUCCEEDED.store(true, Ordering::Relaxed);
+            println!("[TIMING] WGC window capture succeeded");
+            Ok((rgba_data, width, height))
+        }
+        Err(e) => {
+            WGC_WINDOW_CONSECUTIVE_FAILURES.fetch_add(1, Ordering::Relaxed);
+            Err(e)
+        }
+    }
 }
 
 /// Capture a monitor using Windows Graphics Capture API.
 pub fn capture_monitor(monitor_index: usize) -> Result<CaptureResult, CaptureError> {
+    let (rgba_data, width, height) = capture_monitor_raw(monitor_index)?;
+
+    let png_data = encode_rgba_to_png(rgba_data, width, height)?;
+    let base64_data = STANDARD.encode(&png_data);
+
+    Ok(CaptureResult {
+        image_data: base64_data,
+        width,
+        height,
+        has_transparency: false, // Monitor captures don't have meaningful transparency
+    })
+}
+
+/// Capture a monitor and return raw RGBA data (skips PNG encoding).
+pub fn capture_monitor_raw(monitor_index: usize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
     let monitors = WgcMonitor::enumerate()
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to enumerate monitors: {}", e)))?;
 
@@ -219,17 +271,7 @@ pub fn capture_monitor(monitor_index: usize) -> Result<CaptureResult, CaptureErr
 
     let _ = handle.join();
 
-    let (rgba_data, width, height) = result;
-
-    let png_data = encode_rgba_to_png(rgba_data, width, height)?;
-    let base64_data = STANDARD.encode(&png_data);
-
-    Ok(CaptureResult {
-        image_data: base64_data,
-        width,
-        height,
-        has_transparency: false, // Monitor captures don't have meaningful transparency
-    })
+    Ok(result)
 }
 
 /// Check if Windows Graphics Capture API is available.

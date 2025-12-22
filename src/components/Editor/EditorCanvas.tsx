@@ -2,6 +2,7 @@ import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { Stage, Layer, Image, Rect, Group, Transformer } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
+import { useFastImage } from '../../hooks/useFastImage';
 import type { Tool, CanvasShape } from '../../types';
 import { useEditorStore, takeSnapshot, commitSnapshot } from '../../stores/editorStore';
 import { CompositorBackground } from './CompositorBackground';
@@ -113,9 +114,18 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const originalImageSize = useEditorStore((state) => state.originalImageSize);
 
 
-  // Load image
-  const imageUrl = `data:image/png;base64,${imageData}`;
-  const [image] = useImage(imageUrl);
+  // Load image - use fast path for RGBA files, standard path for base64
+  const isRgbaFile = imageData.endsWith('.rgba');
+  const imageUrl = isRgbaFile ? null : `data:image/png;base64,${imageData}`;
+
+  // Use fast image hook for RGBA files (skips PNG encoding entirely!)
+  // Returns HTMLCanvasElement for RGBA, which Konva supports directly
+  const [fastImage] = useFastImage(isRgbaFile ? imageData : null);
+  // Use standard hook for base64 data
+  const [standardImage] = useImage(imageUrl ?? '');
+
+  // Use whichever image is loaded (Konva accepts both HTMLImageElement and HTMLCanvasElement)
+  const image = (isRgbaFile ? fastImage : standardImage) as HTMLImageElement | undefined;
 
   // Checkerboard pattern for transparency
   const [checkerPatternImage] = React.useState(() => createCheckerPattern());

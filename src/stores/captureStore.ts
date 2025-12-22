@@ -34,7 +34,16 @@ interface CaptureState {
   saveNewCapture: (
     imageData: string,
     captureType: string,
-    source: CaptureSource
+    source: CaptureSource,
+    options?: { silent?: boolean }
+  ) => Promise<string>;
+  saveNewCaptureFromFile: (
+    filePath: string,
+    width: number,
+    height: number,
+    captureType: string,
+    source: CaptureSource,
+    options?: { silent?: boolean }
   ) => Promise<string>;
   updateAnnotations: (annotations: Annotation[]) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
@@ -70,7 +79,9 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const captures = await invoke<CaptureListItem[]>('get_capture_list');
-      set({ captures, loading: false });
+      // Preserve any pending temp captures (optimistic updates in progress)
+      const pendingCaptures = get().captures.filter(c => c.id.startsWith('temp_'));
+      set({ captures: [...pendingCaptures, ...captures], loading: false });
     } catch (error) {
       set({ error: String(error), loading: false });
     }
@@ -98,8 +109,32 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   saveNewCapture: async (
     imageData: string,
     captureType: string,
-    source: CaptureSource
+    source: CaptureSource,
+    options?: { silent?: boolean }
   ) => {
+    // Generate temporary ID for optimistic update
+    const tempId = `temp_${Date.now()}`;
+    const now = new Date().toISOString();
+
+    // Extract dimensions from base64 image (approximate from data length)
+    // This is just for the placeholder - real dimensions come from the save response
+    const placeholderCapture: CaptureListItem = {
+      id: tempId,
+      created_at: now,
+      updated_at: now,
+      capture_type: captureType,
+      dimensions: { width: 0, height: 0 }, // Will be updated
+      thumbnail_path: '', // No thumbnail yet
+      image_path: '',
+      has_annotations: false,
+      tags: [],
+      favorite: false,
+    };
+
+    // Optimistically add to list immediately so card appears right away
+    const currentCaptures = get().captures;
+    set({ captures: [placeholderCapture, ...currentCaptures] });
+
     try {
       const result = await invoke<SaveCaptureResponse>('save_capture', {
         request: {
@@ -109,20 +144,128 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
         },
       });
 
-      // Reload captures list
-      await get().loadCaptures();
+      // Replace placeholder with real capture data (no full reload)
+      const realCapture: CaptureListItem = {
+        id: result.id,
+        created_at: result.project.created_at,
+        updated_at: result.project.updated_at,
+        capture_type: result.project.capture_type,
+        dimensions: result.project.dimensions,
+        thumbnail_path: result.thumbnail_path,
+        image_path: result.image_path,
+        has_annotations: result.project.annotations.length > 0,
+        tags: result.project.tags,
+        favorite: result.project.favorite,
+      };
 
-      // Set as current project
       set({
-        currentProject: result.project,
-        currentImageData: imageData,
-        hasUnsavedChanges: false,
-        view: 'editor',
+        captures: get().captures.map(c => c.id === tempId ? realCapture : c),
       });
+
+      // Set as current project (unless silent mode - used for background saves)
+      if (!options?.silent) {
+        set({
+          currentProject: result.project,
+          currentImageData: imageData,
+          hasUnsavedChanges: false,
+          view: 'editor',
+        });
+      } else {
+        // Silent mode: only update project metadata, don't touch imageData
+        set({
+          currentProject: result.project,
+          hasUnsavedChanges: false,
+        });
+      }
 
       return result.id;
     } catch (error) {
-      set({ error: String(error) });
+      // Remove placeholder on error
+      set({
+        captures: get().captures.filter(c => c.id !== tempId),
+        error: String(error)
+      });
+      throw error;
+    }
+  },
+
+  // Fast save directly from RGBA file - skips base64 encoding/decoding
+  saveNewCaptureFromFile: async (
+    filePath: string,
+    width: number,
+    height: number,
+    captureType: string,
+    source: CaptureSource,
+    options?: { silent?: boolean }
+  ) => {
+    // Generate temporary ID for optimistic update
+    const tempId = `temp_${Date.now()}`;
+    const now = new Date().toISOString();
+
+    const placeholderCapture: CaptureListItem = {
+      id: tempId,
+      created_at: now,
+      updated_at: now,
+      capture_type: captureType,
+      dimensions: { width, height },
+      thumbnail_path: '',
+      image_path: '',
+      has_annotations: false,
+      tags: [],
+      favorite: false,
+    };
+
+    // Optimistically add to list immediately
+    const currentCaptures = get().captures;
+    set({ captures: [placeholderCapture, ...currentCaptures] });
+
+    try {
+      const result = await invoke<SaveCaptureResponse>('save_capture_from_file', {
+        filePath,
+        width,
+        height,
+        captureType,
+        source,
+      });
+
+      // Replace placeholder with real capture data (no full reload)
+      const realCapture: CaptureListItem = {
+        id: result.id,
+        created_at: result.project.created_at,
+        updated_at: result.project.updated_at,
+        capture_type: result.project.capture_type,
+        dimensions: result.project.dimensions,
+        thumbnail_path: result.thumbnail_path,
+        image_path: result.image_path,
+        has_annotations: result.project.annotations.length > 0,
+        tags: result.project.tags,
+        favorite: result.project.favorite,
+      };
+
+      set({
+        captures: get().captures.map(c => c.id === tempId ? realCapture : c),
+      });
+
+      if (!options?.silent) {
+        set({
+          currentProject: result.project,
+          hasUnsavedChanges: false,
+          view: 'editor',
+        });
+      } else {
+        set({
+          currentProject: result.project,
+          hasUnsavedChanges: false,
+        });
+      }
+
+      return result.id;
+    } catch (error) {
+      // Remove placeholder on error
+      set({
+        captures: get().captures.filter(c => c.id !== tempId),
+        error: String(error)
+      });
       throw error;
     }
   },

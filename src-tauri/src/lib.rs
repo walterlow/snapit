@@ -71,10 +71,18 @@ pub fn run() {
             commands::capture::get_monitors,
             commands::capture::get_windows,
             commands::capture::get_window_at_point,
+            // Fast capture commands (skip PNG encoding for editor display)
+            commands::capture::capture_window_fast,
+            commands::capture::capture_region_fast,
+            commands::capture::capture_screen_region_fast,
+            commands::capture::capture_fullscreen_fast,
+            commands::capture::read_rgba_file,
+            commands::capture::cleanup_rgba_file,
             // Window commands
             commands::window::show_overlay,
             commands::window::hide_overlay,
             commands::window::open_editor,
+            commands::window::open_editor_fast,
             commands::window::move_overlays_offscreen,
             // Image commands
             commands::image::save_image,
@@ -86,6 +94,7 @@ pub fn run() {
             commands::image::apply_blur_region,
             // Storage commands
             commands::storage::save_capture,
+            commands::storage::save_capture_from_file,
             commands::storage::update_project_annotations,
             commands::storage::update_project_metadata,
             commands::storage::get_capture_list,
@@ -96,6 +105,7 @@ pub fn run() {
             commands::storage::export_project,
             commands::storage::get_storage_stats,
             commands::storage::get_library_folder,
+            commands::storage::startup_cleanup,
             // Settings commands
             commands::settings::set_autostart,
             commands::settings::is_autostart_enabled,
@@ -126,6 +136,14 @@ pub fn run() {
                 let _ = window.set_icon(icon);
                 let _ = window.show();
             }
+
+            // Pre-create overlay windows in background for instant capture later
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                // Small delay to let main window fully initialize first
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let _ = commands::window::precreate_overlays(&app_handle);
+            });
 
             Ok(())
         })
@@ -165,10 +183,16 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                 let _ = commands::window::trigger_capture(app);
             }
             "capture_full" => {
+                // Fast fullscreen capture - no overlay, no PNG encoding
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Ok(result) = commands::capture::capture_fullscreen().await {
-                        let _ = commands::window::open_editor(app_handle, result.image_data).await;
+                    if let Ok(result) = commands::capture::capture_fullscreen_fast().await {
+                        let _ = commands::window::open_editor_fast(
+                            app_handle,
+                            result.file_path,
+                            result.width,
+                            result.height,
+                        ).await;
                     }
                 });
             }

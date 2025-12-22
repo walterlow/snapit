@@ -64,9 +64,11 @@
     {
       "identifier": "fs:allow-read",
       "allow": [
-        { "path": "$APPDATA/**" }
+        { "path": "$APPDATA/**" },
+        { "path": "$TEMP/**" }
       ]
     },
+    "fs:allow-temp-read-recursive",
     "fs:allow-desktop-write-recursive",
     "fs:allow-document-write-recursive",
     "fs:allow-download-write-recursive",

@@ -121,6 +121,8 @@ pub struct SaveCaptureRequest {
 pub struct SaveCaptureResponse {
     pub id: String,
     pub project: CaptureProject,
+    pub thumbnail_path: String,
+    pub image_path: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -251,7 +253,103 @@ pub async fn save_capture(
     fs::write(&project_file, project_json)
         .map_err(|e| format!("Failed to write project file: {}", e))?;
 
-    Ok(SaveCaptureResponse { id, project })
+    Ok(SaveCaptureResponse {
+        id,
+        project,
+        thumbnail_path: thumbnail_path.to_string_lossy().to_string(),
+        image_path: original_path.to_string_lossy().to_string(),
+    })
+}
+
+/// Fast save capture from RGBA file path - skips base64 encoding/decoding
+#[command]
+pub async fn save_capture_from_file(
+    app: AppHandle,
+    file_path: String,
+    width: u32,
+    height: u32,
+    capture_type: String,
+    source: CaptureSource,
+) -> Result<SaveCaptureResponse, String> {
+    let base_dir = ensure_directories(&app)?;
+    let captures_dir = get_captures_dir(&app)?;
+    let id = generate_id();
+    let now = Utc::now();
+
+    // Read RGBA file - skip 8-byte header (width + height stored in file)
+    use std::io::Read;
+    let mut file = fs::File::open(&file_path)
+        .map_err(|e| format!("Failed to open RGBA file: {}", e))?;
+
+    // Skip the 8-byte header (4 bytes width + 4 bytes height)
+    let mut header = [0u8; 8];
+    file.read_exact(&mut header)
+        .map_err(|e| format!("Failed to read header: {}", e))?;
+
+    // Read RGBA data
+    let expected_size = (width * height * 4) as usize;
+    let mut rgba_data = vec![0u8; expected_size];
+    file.read_exact(&mut rgba_data)
+        .map_err(|e| format!("Failed to read RGBA data: {}", e))?;
+
+    // Create image from RGBA data
+    let image: DynamicImage = image::RgbaImage::from_raw(width, height, rgba_data)
+        .ok_or_else(|| "Failed to create image from RGBA data".to_string())?
+        .into();
+
+    let date_str = now.format("%Y-%m-%d_%H%M%S").to_string();
+    let original_filename = format!("{}_{}.png", date_str, &id);
+    let thumbnail_filename = format!("{}_thumb.png", &id);
+
+    // Save original image to user's configured directory
+    let original_path = captures_dir.join(&original_filename);
+    image
+        .save(&original_path)
+        .map_err(|e| format!("Failed to save image: {}", e))?;
+
+    // Generate and save thumbnail (always in app data dir)
+    let thumbnail = generate_thumbnail(&image)?;
+    let thumbnails_dir = base_dir.join("thumbnails");
+    let thumbnail_path = thumbnails_dir.join(&thumbnail_filename);
+    thumbnail
+        .save(&thumbnail_path)
+        .map_err(|e| format!("Failed to save thumbnail: {}", e))?;
+
+    // Clean up the temporary RGBA file
+    let _ = fs::remove_file(&file_path);
+
+    // Create project data - store full path to image
+    let project = CaptureProject {
+        id: id.clone(),
+        created_at: now,
+        updated_at: now,
+        capture_type,
+        source,
+        original_image: original_path.to_string_lossy().to_string(),
+        dimensions: Dimensions { width, height },
+        annotations: Vec::new(),
+        tags: Vec::new(),
+        favorite: false,
+    };
+
+    // Save project file
+    let projects_dir = base_dir.join("projects");
+    let project_dir = projects_dir.join(&id);
+    fs::create_dir_all(&project_dir)
+        .map_err(|e| format!("Failed to create project dir: {}", e))?;
+
+    let project_file = project_dir.join("project.json");
+    let project_json = serde_json::to_string_pretty(&project)
+        .map_err(|e| format!("Failed to serialize project: {}", e))?;
+    fs::write(&project_file, project_json)
+        .map_err(|e| format!("Failed to write project file: {}", e))?;
+
+    Ok(SaveCaptureResponse {
+        id,
+        project,
+        thumbnail_path: thumbnail_path.to_string_lossy().to_string(),
+        image_path: original_path.to_string_lossy().to_string(),
+    })
 }
 
 #[command]
@@ -561,4 +659,82 @@ pub async fn get_storage_stats(app: AppHandle) -> Result<StorageStats, String> {
         capture_count,
         storage_path: base_dir.to_string_lossy().to_string(),
     })
+}
+
+/// Startup cleanup: remove orphan temp files and regenerate missing thumbnails
+#[command]
+pub async fn startup_cleanup(app: AppHandle) -> Result<StartupCleanupResult, String> {
+    let mut temp_files_cleaned = 0;
+    let mut thumbnails_regenerated = 0;
+
+    // 1. Clean up orphan RGBA temp files
+    let temp_dir = std::env::temp_dir();
+    if let Ok(entries) = fs::read_dir(&temp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("snapit_capture_") && name.ends_with(".rgba") {
+                    if fs::remove_file(&path).is_ok() {
+                        temp_files_cleaned += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Regenerate missing thumbnails
+    let base_dir = get_app_data_dir(&app)?;
+    let projects_dir = base_dir.join("projects");
+    let thumbnails_dir = base_dir.join("thumbnails");
+
+    if projects_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&projects_dir) {
+            for entry in entries.flatten() {
+                let project_dir = entry.path();
+                if !project_dir.is_dir() {
+                    continue;
+                }
+
+                let project_id = project_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let thumbnail_path = thumbnails_dir.join(format!("{}_thumb.png", &project_id));
+
+                // Check if thumbnail is missing
+                if !thumbnail_path.exists() {
+                    // Try to read project.json to get the original image path
+                    let project_file = project_dir.join("project.json");
+                    if let Ok(content) = fs::read_to_string(&project_file) {
+                        if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
+                            // Try to regenerate thumbnail from original image
+                            let original_path = PathBuf::from(&project.original_image);
+                            if original_path.exists() {
+                                if let Ok(image) = image::open(&original_path) {
+                                    if let Ok(thumbnail) = generate_thumbnail(&image) {
+                                        if thumbnail.save(&thumbnail_path).is_ok() {
+                                            thumbnails_regenerated += 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(StartupCleanupResult {
+        temp_files_cleaned,
+        thumbnails_regenerated,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct StartupCleanupResult {
+    pub temp_files_cleaned: u32,
+    pub thumbnails_regenerated: u32,
 }

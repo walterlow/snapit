@@ -36,6 +36,7 @@ function App() {
     setCurrentImageData,
     setCurrentProject,
     saveNewCapture,
+    saveNewCaptureFromFile,
     updateAnnotations,
     setHasUnsavedChanges,
     loadCaptures,
@@ -165,6 +166,11 @@ function App() {
     loadCaptures();
   }, [loadCaptures]);
 
+  // Run startup cleanup (orphan temp files, missing thumbnails)
+  useEffect(() => {
+    invoke('startup_cleanup').catch(() => {});
+  }, []);
+
   // Reset to select tool when a new image is loaded
   useEffect(() => {
     if (currentImageData) {
@@ -241,7 +247,7 @@ function App() {
   // Note: Shortcut event listeners are now set up in hotkeyManager.ts
   // when registerShortcut is called with allowOverride=true
 
-  // Listen for capture-complete event from Rust
+  // Listen for capture-complete event from Rust (standard path with base64)
   useEffect(() => {
     const unlisten = listen<string>('capture-complete', async (event) => {
       const imageData = event.payload;
@@ -264,6 +270,44 @@ function App() {
       unlisten.then((fn) => fn());
     };
   }, [saveNewCapture, setCurrentImageData, setView, clearEditor]);
+
+  // Listen for capture-complete-fast event (fast path with file path)
+  useEffect(() => {
+    const unlisten = listen<{ file_path: string; width: number; height: number }>(
+      'capture-complete-fast',
+      async (event) => {
+        const { file_path } = event.payload;
+
+        // For fast capture, we show the editor immediately with the file path
+        // The useFastImage hook will handle loading and conversion
+        clearEditor();
+        clearHistory();
+
+        // Set the file path as image data - EditorCanvas handles both base64 and file paths
+        setCurrentImageData(file_path);
+        setView('editor');
+        toast.success('Screenshot captured');
+
+        // Save directly from RGBA file - no base64 conversion needed!
+        try {
+          await saveNewCaptureFromFile(
+            file_path,
+            event.payload.width,
+            event.payload.height,
+            'region',
+            {},
+            { silent: true }
+          );
+        } catch {
+          // Silently fail - the capture is already displayed
+        }
+      }
+    );
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [saveNewCaptureFromFile, setCurrentImageData, setView, clearEditor]);
 
   // Load annotations when project changes
   useEffect(() => {

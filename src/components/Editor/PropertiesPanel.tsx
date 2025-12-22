@@ -360,8 +360,26 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     </div>
   );
 
+  // Default fallback color when both stroke and fill would be transparent
+  const FALLBACK_COLOR = '#1A1A1A';
+
   // Handle stroke color change - updates global state and selected shapes
   const handleStrokeColorChange = (color: string) => {
+    // If setting stroke to transparent and fill is also transparent, set fill to solid
+    if (color === 'transparent' && fillColor === 'transparent') {
+      onFillColorChange(FALLBACK_COLOR);
+      // Also update selected shapes' fill
+      if (hasSelection) {
+        recordAction(() => {
+          selectedShapes.forEach(shape => {
+            if (shape.type === 'rect' || shape.type === 'circle') {
+              updateShape(shape.id, { fill: FALLBACK_COLOR });
+            }
+          });
+        });
+      }
+    }
+
     onStrokeColorChange(color);
 
     // Update selected shapes
@@ -386,6 +404,21 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   // Handle fill color change - updates global state and selected shapes
   const handleFillColorChange = (color: string) => {
+    // If setting fill to transparent and stroke is also transparent, set stroke to solid
+    if (color === 'transparent' && strokeColor === 'transparent') {
+      onStrokeColorChange(FALLBACK_COLOR);
+      // Also update selected shapes' stroke
+      if (hasSelection) {
+        recordAction(() => {
+          selectedShapes.forEach(shape => {
+            if (shape.type === 'rect' || shape.type === 'circle') {
+              updateShape(shape.id, { stroke: FALLBACK_COLOR });
+            }
+          });
+        });
+      }
+    }
+
     onFillColorChange(color);
 
     // Update selected shapes (rect and circle)
@@ -469,6 +502,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               value={strokeColor}
               onChange={handleStrokeColorChange}
               presets={COLOR_PRESETS}
+              showTransparent
             />
           </div>
         )}

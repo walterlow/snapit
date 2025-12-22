@@ -103,7 +103,7 @@ export const GeneralTab: React.FC = () => {
         <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
           Startup
         </h3>
-        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)]">
+        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)] space-y-4">
           <label className="flex items-center justify-between cursor-pointer">
             <div>
               <p className="text-sm text-[var(--ink-black)]">
@@ -117,6 +117,24 @@ export const GeneralTab: React.FC = () => {
               checked={isAutostartEnabled}
               onCheckedChange={handleAutostartChange}
               className={isLoadingAutostart ? 'opacity-50' : ''}
+            />
+          </label>
+
+          <label className="flex items-center justify-between cursor-pointer">
+            <div>
+              <p className="text-sm text-[var(--ink-black)]">
+                Close to system tray
+              </p>
+              <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+                Minimize to tray instead of quitting when closing the window
+              </p>
+            </div>
+            <Switch
+              checked={general.minimizeToTray}
+              onCheckedChange={(checked) => {
+                updateGeneralSettings({ minimizeToTray: checked });
+                invoke('set_close_to_tray', { enabled: checked });
+              }}
             />
           </label>
         </div>

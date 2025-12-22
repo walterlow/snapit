@@ -52,11 +52,14 @@ pub fn run() {
 
     builder
         .on_window_event(|window, event| {
-            // Minimize to tray instead of closing the main window
+            // Minimize to tray instead of closing the main window (if enabled)
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
-                    api.prevent_close();
-                    let _ = window.hide();
+                    if commands::settings::is_close_to_tray() {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                    // If close_to_tray is false, let the window close normally
                 }
             }
         })
@@ -99,6 +102,7 @@ pub fn run() {
             commands::settings::open_path_in_explorer,
             commands::settings::get_default_save_dir,
             commands::settings::update_tray_shortcut,
+            commands::settings::set_close_to_tray,
             // Keyboard hook commands (Windows shortcut override)
             commands::keyboard_hook::register_shortcut_with_hook,
             commands::keyboard_hook::unregister_shortcut_hook,
@@ -185,7 +189,12 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
                 let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();

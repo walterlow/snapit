@@ -1,8 +1,23 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
 #[cfg(desktop)]
 use crate::TrayState;
+
+/// Global state for close-to-tray behavior
+pub static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
+
+/// Set close-to-tray behavior
+#[tauri::command]
+pub fn set_close_to_tray(enabled: bool) {
+    CLOSE_TO_TRAY.store(enabled, Ordering::SeqCst);
+}
+
+/// Check if close-to-tray is enabled
+pub fn is_close_to_tray() -> bool {
+    CLOSE_TO_TRAY.load(Ordering::SeqCst)
+}
 
 /// Update tray menu item text for a shortcut
 #[tauri::command]

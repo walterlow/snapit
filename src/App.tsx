@@ -210,16 +210,20 @@ function App() {
     const initSettings = async () => {
       const { loadSettings } = useSettingsStore.getState();
       await loadSettings();
-      
+
+      // Sync close-to-tray setting with backend
+      const updatedSettings = useSettingsStore.getState().settings;
+      await invoke('set_close_to_tray', { enabled: updatedSettings.general.minimizeToTray });
+
       // Set up shortcut handlers - these trigger actual captures
       setShortcutHandler('region_capture', triggerRegionCapture);
       setShortcutHandler('fullscreen_capture', triggerFullscreenCapture);
       setShortcutHandler('window_capture', triggerWindowCapture);
-      
+
       // Register all shortcuts from settings
       await registerAllShortcuts();
     };
-    
+
     initSettings();
   }, [triggerRegionCapture, triggerFullscreenCapture, triggerWindowCapture]);
 

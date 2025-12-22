@@ -367,24 +367,26 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const compositionBackgroundStyle = useMemo((): React.CSSProperties => {
     if (!compositorSettings.enabled) return {};
 
-    let background: string;
+    let backgroundColor: string | undefined;
+    let backgroundImage: string | undefined;
     let backgroundSize: string = 'cover';
 
     switch (compositorSettings.backgroundType) {
       case 'solid':
-        background = compositorSettings.backgroundColor;
+        backgroundColor = compositorSettings.backgroundColor;
         break;
       case 'gradient': {
         const gradientStops = compositorSettings.gradientStops
           .map((s) => `${s.color} ${s.position}%`)
           .join(', ');
-        background = `linear-gradient(${compositorSettings.gradientAngle}deg, ${gradientStops})`;
+        backgroundImage = `linear-gradient(${compositorSettings.gradientAngle}deg, ${gradientStops})`;
         break;
       }
       case 'image':
-        background = compositorSettings.backgroundImage
+        backgroundImage = compositorSettings.backgroundImage
           ? `url(${compositorSettings.backgroundImage})`
-          : '#1a1a2e';
+          : undefined;
+        backgroundColor = compositorSettings.backgroundImage ? undefined : '#1a1a2e';
         if (compositorSettings.backgroundImage && baseCompositionSize.width > 0) {
           const bgWidth = baseCompositionSize.width * navigation.zoom;
           const bgHeight = baseCompositionSize.height * navigation.zoom;
@@ -392,11 +394,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         }
         break;
       default:
-        background = '#1a1a2e';
+        backgroundColor = '#1a1a2e';
     }
 
     return {
-      background,
+      backgroundColor,
+      backgroundImage,
       backgroundSize,
       backgroundPosition: 'center',
     };

@@ -17,7 +17,7 @@ import { useEditorStore, undo, redo, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import { useUpdater } from './hooks/useUpdater';
-import type { Tool, CanvasShape, Annotation } from './types';
+import type { Tool, CanvasShape, Annotation, CompositorSettings } from './types';
 
 // Settings Modal Container - uses store for open/close state
 const SettingsModalContainer: React.FC = () => {
@@ -333,6 +333,19 @@ function App() {
       if (compositorAnn) {
         setCompositorSettings({
           enabled: compositorAnn.enabled as boolean,
+          backgroundType: (compositorAnn.backgroundType as CompositorSettings['backgroundType']) ?? 'gradient',
+          backgroundColor: (compositorAnn.backgroundColor as string) ?? '#6366f1',
+          gradientAngle: (compositorAnn.gradientAngle as number) ?? 135,
+          gradientStops: (compositorAnn.gradientStops as CompositorSettings['gradientStops']) ?? [
+            { color: '#667eea', position: 0 },
+            { color: '#764ba2', position: 100 },
+          ],
+          backgroundImage: (compositorAnn.backgroundImage as string | null) ?? null,
+          padding: (compositorAnn.padding as number) ?? 64,
+          borderRadius: (compositorAnn.borderRadius as number) ?? 12,
+          shadowEnabled: (compositorAnn.shadowEnabled as boolean) ?? true,
+          shadowIntensity: (compositorAnn.shadowIntensity as number) ?? 0.5,
+          aspectRatio: (compositorAnn.aspectRatio as CompositorSettings['aspectRatio']) ?? 'auto',
         });
       }
 
@@ -445,39 +458,43 @@ function App() {
     }
   };
 
+  // Save all project annotations (shapes, crop bounds, compositor settings)
+  const saveProjectAnnotations = useCallback(async () => {
+    if (!currentProject) return;
+
+    const shapeAnnotations: Annotation[] = shapes.map((shape) => ({
+      ...shape,
+    } as Annotation));
+
+    const annotations = [...shapeAnnotations];
+    if (canvasBounds) {
+      annotations.push({
+        id: '__crop_bounds__',
+        type: '__crop_bounds__',
+        width: canvasBounds.width,
+        height: canvasBounds.height,
+        imageOffsetX: canvasBounds.imageOffsetX,
+        imageOffsetY: canvasBounds.imageOffsetY,
+      } as Annotation);
+    }
+
+    // Save all compositor settings
+    annotations.push({
+      id: '__compositor_settings__',
+      type: '__compositor_settings__',
+      ...compositorSettings,
+    } as Annotation);
+
+    await updateAnnotations(annotations);
+  }, [currentProject, shapes, canvasBounds, compositorSettings, updateAnnotations]);
+
   // Save to file (fast - exports directly from Konva)
   const handleSave = async () => {
     if (!stageRef.current || !currentImageData) return;
 
     setIsSaving(true);
     try {
-      // Save annotations first
-      if (currentProject) {
-        const shapeAnnotations: Annotation[] = shapes.map((shape) => ({
-          ...shape,
-        } as Annotation));
-
-        const annotations = [...shapeAnnotations];
-        if (canvasBounds) {
-          annotations.push({
-            id: '__crop_bounds__',
-            type: '__crop_bounds__',
-            width: canvasBounds.width,
-            height: canvasBounds.height,
-            imageOffsetX: canvasBounds.imageOffsetX,
-            imageOffsetY: canvasBounds.imageOffsetY,
-          } as Annotation);
-        }
-
-        // Save compositor enabled state
-        annotations.push({
-          id: '__compositor_settings__',
-          type: '__compositor_settings__',
-          enabled: compositorSettings.enabled,
-        } as Annotation);
-
-        await updateAnnotations(annotations);
-      }
+      await saveProjectAnnotations();
 
       // Ask user for save location first
       const filePath = await save({
@@ -665,35 +682,7 @@ function App() {
 
   // Go back to library
   const handleBack = async () => {
-    // Save annotations before going back (including crop bounds and compositor settings)
-    if (currentProject) {
-      const shapeAnnotations: Annotation[] = shapes.map((shape) => ({
-        ...shape,
-      } as Annotation));
-
-      // Add crop bounds as special annotation if modified
-      const annotations = [...shapeAnnotations];
-      if (canvasBounds) {
-        annotations.push({
-          id: '__crop_bounds__',
-          type: '__crop_bounds__',
-          width: canvasBounds.width,
-          height: canvasBounds.height,
-          imageOffsetX: canvasBounds.imageOffsetX,
-          imageOffsetY: canvasBounds.imageOffsetY,
-        } as Annotation);
-      }
-
-      // Save compositor enabled state
-      annotations.push({
-        id: '__compositor_settings__',
-        type: '__compositor_settings__',
-        enabled: compositorSettings.enabled,
-      } as Annotation);
-
-      await updateAnnotations(annotations);
-    }
-
+    await saveProjectAnnotations();
     clearEditor();
     clearHistory(); // Clear undo history
     setCurrentProject(null);

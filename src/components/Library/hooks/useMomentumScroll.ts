@@ -19,7 +19,7 @@ export function useMomentumScroll(
   containerRef: RefObject<HTMLElement | null>,
   options: MomentumScrollOptions = {}
 ) {
-  const { multiplier = 1.0, friction = 0.85, minVelocity = 0.5, disabled = false } = options;
+  const { multiplier = 1.0, friction = 0.92, minVelocity = 0.5, disabled = false } = options;
   
   const velocityRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -53,10 +53,10 @@ export function useMomentumScroll(
 
       // Add to velocity (allows scroll acceleration when scrolling fast)
       const scrollDelta = e.deltaY * multiplier;
-      velocityRef.current += scrollDelta * 0.15;
+      velocityRef.current += scrollDelta * 0.2;
 
       // Cap velocity to prevent crazy fast scrolling
-      const maxVelocity = 30;
+      const maxVelocity = 40;
       velocityRef.current = Math.max(-maxVelocity, Math.min(maxVelocity, velocityRef.current));
 
       // Start animation if not already running

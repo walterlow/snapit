@@ -2,8 +2,8 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react
 import Konva from 'konva';
 import type { CompositorSettings, Tool } from '../types';
 
-const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 5;
+const MIN_ZOOM = 0.5;  // 50%
+const MAX_ZOOM = 2;    // 200%
 const ZOOM_STEP = 0.05; // 5% per wheel tick
 const VIEW_PADDING = 48;
 
@@ -546,7 +546,7 @@ export const useCanvasNavigation = ({
 
       // Set small residual velocity for subtle momentum tail (doesn't accumulate)
       if (result) {
-        zoomVelocityRef.current = direction * ZOOM_STEP * 0.3;
+        zoomVelocityRef.current = direction * ZOOM_STEP * 0.5;
       }
 
       // Start momentum animation if not running

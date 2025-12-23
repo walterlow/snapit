@@ -432,6 +432,7 @@ body.resizing * {
 .library-scroll {
   contain: strict;
   overflow-anchor: none;
+  overflow-x: hidden;
 }
 
 .capture-grid {

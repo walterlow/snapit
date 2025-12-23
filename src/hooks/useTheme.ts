@@ -18,7 +18,19 @@ export function useTheme() {
     const root = document.documentElement;
     
     const applyTheme = (isDark: boolean) => {
+      // Disable ALL transitions during theme switch for instant change
+      root.style.setProperty('--theme-transition', 'none');
+      root.classList.add('no-transitions');
+      
       root.classList.toggle('dark', isDark);
+      
+      // Re-enable transitions after paint
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          root.classList.remove('no-transitions');
+          root.style.removeProperty('--theme-transition');
+        });
+      });
     };
 
     if (theme === 'system') {

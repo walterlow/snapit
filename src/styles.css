@@ -147,11 +147,12 @@
   box-sizing: border-box;
 }
 
-/* Theme transition - only animate when not in instant-switch mode */
-.theme-transition *,
-.theme-transition *::before,
-.theme-transition *::after {
-  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease !important;
+/* Disable ALL transitions during theme switch for instant change */
+.no-transitions,
+.no-transitions *,
+.no-transitions *::before,
+.no-transitions *::after {
+  transition: none !important;
 }
 
 /* Disable transitions for performance-critical elements */

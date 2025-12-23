@@ -147,14 +147,14 @@
   box-sizing: border-box;
 }
 
-/* Theme transition - smooth color changes */
-*, *::before, *::after {
-  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+/* Theme transition - only animate when not in instant-switch mode */
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease !important;
 }
 
-/* Disable theme transition for elements that shouldn't animate */
-.no-theme-transition,
-.no-theme-transition *,
+/* Disable transitions for performance-critical elements */
 canvas,
 img,
 video {
@@ -168,7 +168,6 @@ html {
 }
 
 body {
-  transition: background-color 150ms ease, color 150ms ease;
   font-family: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--polar-snow);
   color: var(--ink-black);

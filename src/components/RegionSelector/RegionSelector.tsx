@@ -89,23 +89,27 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
 
     const timeSinceLastCall = now - lastWindowDetectRef.current;
 
+    const doDetect = () => {
+      // Pass monitor index to Rust - it will track which monitor is active
+      // and return None if a different monitor has since made a request
+      invoke<WindowInfo | null>('get_window_at_point', { x: screenX, y: screenY, monitorIndex })
+        .then(setHoveredWindow)
+        .catch(() => setHoveredWindow(null));
+    };
+
     if (timeSinceLastCall >= THROTTLE_MS) {
       // Enough time passed, call immediately
       lastWindowDetectRef.current = now;
-      invoke<WindowInfo | null>('get_window_at_point', { x: screenX, y: screenY })
-        .then(setHoveredWindow)
-        .catch(() => setHoveredWindow(null));
+      doDetect();
     } else {
       // Schedule a trailing call to ensure we get the final position
       windowDetectTimeoutRef.current = window.setTimeout(() => {
         lastWindowDetectRef.current = Date.now();
-        invoke<WindowInfo | null>('get_window_at_point', { x: screenX, y: screenY })
-          .then(setHoveredWindow)
-          .catch(() => setHoveredWindow(null));
+        doDetect();
         windowDetectTimeoutRef.current = null;
       }, THROTTLE_MS - timeSinceLastCall);
     }
-  }, []);
+  }, [monitorIndex]);
 
   // Handle pointer down - start selection or prepare for window capture
   const handlePointerDown = useCallback(async (e: React.PointerEvent) => {
@@ -460,6 +464,27 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         } catch {
           // Failed to set cursor passthrough
         }
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [monitorIndex]);
+
+  // Listen for clear-hovered-window events from Rust
+  // When another monitor becomes active, Rust tells us to clear our hovered window
+  useEffect(() => {
+    const unlisten = listen<number>('clear-hovered-window', (event) => {
+      const targetMonitor = event.payload;
+
+      // Clear if this event is targeting our monitor
+      if (targetMonitor === monitorIndex) {
+        if (windowDetectTimeoutRef.current) {
+          clearTimeout(windowDetectTimeoutRef.current);
+          windowDetectTimeoutRef.current = null;
+        }
+        setHoveredWindow(null);
       }
     });
 

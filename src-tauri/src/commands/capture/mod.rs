@@ -15,8 +15,14 @@ pub mod wgc;
 
 pub use types::{CaptureResult, FastCaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection, WindowInfo};
 
-use tauri::command;
+use tauri::{command, Emitter};
 use std::io::Write;
+use std::sync::atomic::{AtomicI32, Ordering};
+
+// Track which monitor is currently detecting windows to prevent duplicate borders
+// When a monitor calls get_window_at_point, it becomes the "active" monitor
+// Other monitors' pending requests will return None
+static ACTIVE_WINDOW_DETECT_MONITOR: AtomicI32 = AtomicI32::new(-1);
 
 /// Get all available monitors.
 #[command]
@@ -85,15 +91,25 @@ pub async fn capture_fullscreen() -> Result<CaptureResult, String> {
 
 /// Get window at a specific screen coordinate.
 ///
-/// This function is re-exported from the screenshot module for backward compatibility.
+/// The monitor_index parameter is used to track which overlay is currently detecting windows.
+/// This prevents duplicate borders when rapidly switching between monitors - only the most
+/// recent monitor to request detection will receive results.
 #[cfg(target_os = "windows")]
 #[command]
-pub async fn get_window_at_point(x: i32, y: i32) -> Result<Option<WindowInfo>, String> {
+pub async fn get_window_at_point(app: tauri::AppHandle, x: i32, y: i32, monitor_index: i32) -> Result<Option<WindowInfo>, String> {
     use windows::Win32::{
         Foundation::POINT,
         System::Threading::GetCurrentProcessId,
         UI::WindowsAndMessaging::{GetAncestor, GetWindow, WindowFromPoint, GA_ROOT, GW_HWNDNEXT},
     };
+
+    // Mark this monitor as the active one for window detection
+    // If a different monitor was previously active, emit event to clear its hover state
+    let previous_monitor = ACTIVE_WINDOW_DETECT_MONITOR.swap(monitor_index, Ordering::SeqCst);
+    if previous_monitor != monitor_index && previous_monitor >= 0 {
+        // Tell the previous monitor to clear its hovered window
+        let _ = app.emit("clear-hovered-window", previous_monitor);
+    }
 
     let point = POINT { x, y };
 
@@ -116,6 +132,12 @@ pub async fn get_window_at_point(x: i32, y: i32) -> Result<Option<WindowInfo>, S
 
         loop {
             if let Some(info) = try_get_window_info(current_hwnd, current_process_id, point) {
+                // Before returning, check if we're still the active monitor
+                // If another monitor has since requested detection, return None
+                // to prevent duplicate borders
+                if ACTIVE_WINDOW_DETECT_MONITOR.load(Ordering::SeqCst) != monitor_index {
+                    return Ok(None);
+                }
                 return Ok(Some(info));
             }
 
@@ -345,8 +367,15 @@ fn is_point_in_hwnd(
 
 #[cfg(not(target_os = "windows"))]
 #[command]
-pub async fn get_window_at_point(x: i32, y: i32) -> Result<Option<WindowInfo>, String> {
+pub async fn get_window_at_point(app: tauri::AppHandle, x: i32, y: i32, monitor_index: i32) -> Result<Option<WindowInfo>, String> {
     use xcap::Window;
+
+    // Mark this monitor as the active one for window detection
+    // If a different monitor was previously active, emit event to clear its hover state
+    let previous_monitor = ACTIVE_WINDOW_DETECT_MONITOR.swap(monitor_index, Ordering::SeqCst);
+    if previous_monitor != monitor_index && previous_monitor >= 0 {
+        let _ = app.emit("clear-hovered-window", previous_monitor);
+    }
 
     let windows =
         Window::all().map_err(|e| format!("Failed to get windows: {}", e))?;
@@ -367,6 +396,11 @@ pub async fn get_window_at_point(x: i32, y: i32) -> Result<Option<WindowInfo>, S
         let height = w.height().unwrap_or(0) as i64;
         width * height
     });
+
+    // Check if we're still the active monitor before returning
+    if ACTIVE_WINDOW_DETECT_MONITOR.load(Ordering::SeqCst) != monitor_index {
+        return Ok(None);
+    }
 
     Ok(candidates.first().map(|w| WindowInfo {
         id: w.id().unwrap_or(0),

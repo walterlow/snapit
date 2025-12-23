@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { FolderOpen, ExternalLink } from 'lucide-react';
+import { FolderOpen, ExternalLink, RefreshCw } from 'lucide-react';
+import { useUpdater } from '@/hooks/useUpdater';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -22,6 +23,8 @@ export const GeneralTab: React.FC = () => {
 
   const [isAutostartEnabled, setIsAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(true);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const { version, available, checkForUpdates, downloadAndInstall, downloading } = useUpdater(false);
 
   // Load autostart status on mount
   useEffect(() => {
@@ -94,6 +97,12 @@ export const GeneralTab: React.FC = () => {
 
   const handleQualityChange = (value: number[]) => {
     updateGeneralSettings({ jpgQuality: value[0] });
+  };
+
+  const handleCheckForUpdates = async () => {
+    setIsCheckingUpdates(true);
+    await checkForUpdates(true);
+    setIsCheckingUpdates(false);
   };
 
   return (
@@ -227,6 +236,51 @@ export const GeneralTab: React.FC = () => {
               </p>
             </div>
           )}
+        </div>
+      </section>
+
+      {/* Updates Section */}
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
+          Updates
+        </h3>
+        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)] space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-[var(--ink-black)]">
+                Current version: v0.1.0
+              </p>
+              {available && version && (
+                <p className="text-xs text-[var(--coral-500)] mt-0.5">
+                  Update available: v{version}
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              {available ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={downloadAndInstall}
+                  disabled={downloading}
+                  className="bg-[var(--coral-500)] hover:bg-[var(--coral-600)] text-white"
+                >
+                  {downloading ? 'Installing...' : 'Install Update'}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCheckForUpdates}
+                  disabled={isCheckingUpdates}
+                  className="bg-white border-[var(--polar-frost)] text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-1 ${isCheckingUpdates ? 'animate-spin' : ''}`} />
+                  {isCheckingUpdates ? 'Checking...' : 'Check for Updates'}
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </section>
     </div>

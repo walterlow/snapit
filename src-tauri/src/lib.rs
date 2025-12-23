@@ -36,6 +36,16 @@ impl TrayState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Set WebView2 GPU optimization flags (Windows only)
+    // These improve resize performance by enabling GPU rasterization
+    #[cfg(target_os = "windows")]
+    {
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--enable-gpu-rasterization --enable-zero-copy",
+        );
+    }
+
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())

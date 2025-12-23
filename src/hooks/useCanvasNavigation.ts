@@ -4,8 +4,12 @@ import type { CompositorSettings, Tool } from '../types';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
-const ZOOM_STEP = 0.1;
+const ZOOM_STEP = 0.05; // 5% per wheel tick
 const VIEW_PADDING = 48;
+
+// Momentum zoom settings
+const ZOOM_MOMENTUM_FRICTION = 0.6; // Decay per frame (lower = stops faster)
+const ZOOM_MOMENTUM_MIN = 0.002; // Velocity threshold to stop animation
 
 interface CanvasBounds {
   width: number;
@@ -74,6 +78,12 @@ export const useCanvasNavigation = ({
   const zoomSyncTimeoutRef = useRef<number | null>(null);
   // Transform coefficients: compositor position = position + K * zoom
   const transformCoeffsRef = useRef({ kx: 0, ky: 0 });
+  
+  // Momentum zoom refs
+  const zoomVelocityRef = useRef(0);
+  const momentumRAFRef = useRef<number | null>(null);
+  const lastAnchorRef = useRef<{ x: number; y: number } | null>(null);
+  const stageRef = useRef<Konva.Stage | null>(null);
 
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
@@ -138,6 +148,9 @@ export const useCanvasNavigation = ({
       }
       if (fitRequestRef.current) {
         cancelAnimationFrame(fitRequestRef.current);
+      }
+      if (momentumRAFRef.current) {
+        cancelAnimationFrame(momentumRAFRef.current);
       }
     };
   }, []);
@@ -417,8 +430,97 @@ export const useCanvasNavigation = ({
     setPosition(newPosition);
   }, []);
 
-  // Mouse wheel zoom handler (mouse-anchored)
-  // Updates Stage directly + CSS transform for compositor bg (no React re-renders during zoom)
+  // Apply zoom at anchor point - shared by wheel handler and momentum animation (DRY)
+  const applyZoomAtAnchor = useCallback((
+    stage: Konva.Stage,
+    targetZoom: number,
+    anchor: { x: number; y: number }
+  ) => {
+    const currentZoom = stage.scaleX();
+    const currentPos = stage.position();
+    const newZoom = Math.min(Math.max(targetZoom, MIN_ZOOM), MAX_ZOOM);
+
+    // Skip if zoom didn't change or hit limits
+    if (newZoom === currentZoom) return null;
+
+    // Calculate anchor position in canvas coordinates
+    const anchorCanvasX = (anchor.x - currentPos.x) / currentZoom;
+    const anchorCanvasY = (anchor.y - currentPos.y) / currentZoom;
+
+    // Calculate new position so the same canvas point stays under the anchor
+    const newX = anchor.x - anchorCanvasX * newZoom;
+    const newY = anchor.y - anchorCanvasY * newZoom;
+
+    // Update Stage directly (immediate visual feedback)
+    stage.scale({ x: newZoom, y: newZoom });
+    stage.position({ x: newX, y: newY });
+    stage.batchDraw();
+
+    // Apply CSS transform to compositor background for instant visual sync
+    if (compositorBgRef?.current && compositorSettings.enabled) {
+      const renderedZoom = renderedZoomRef.current;
+      const renderedPos = renderedPositionRef.current;
+      const { kx, ky } = transformCoeffsRef.current;
+
+      const scaleRatio = newZoom / renderedZoom;
+      const dx = (newX - renderedPos.x) + kx * (newZoom - renderedZoom);
+      const dy = (newY - renderedPos.y) + ky * (newZoom - renderedZoom);
+
+      compositorBgRef.current.style.transformOrigin = '0 0';
+      compositorBgRef.current.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleRatio})`;
+    }
+
+    return { zoom: newZoom, position: { x: newX, y: newY } };
+  }, [compositorBgRef, compositorSettings.enabled]);
+
+  // Momentum animation loop
+  const runMomentum = useCallback(() => {
+    const stage = stageRef.current;
+    const anchor = lastAnchorRef.current;
+    
+    if (!stage || !anchor) {
+      zoomVelocityRef.current = 0;
+      return;
+    }
+
+    const velocity = zoomVelocityRef.current;
+    
+    // Stop if velocity is negligible
+    if (Math.abs(velocity) < ZOOM_MOMENTUM_MIN) {
+      zoomVelocityRef.current = 0;
+      momentumRAFRef.current = null;
+      
+      // Final sync to React state
+      const finalZoom = stage.scaleX();
+      const finalPos = stage.position();
+      syncZoomState(finalZoom, { x: finalPos.x, y: finalPos.y });
+      return;
+    }
+
+    // Apply velocity to zoom
+    const currentZoom = stage.scaleX();
+    const targetZoom = currentZoom + velocity;
+    const result = applyZoomAtAnchor(stage, targetZoom, anchor);
+
+    // Apply friction
+    zoomVelocityRef.current *= ZOOM_MOMENTUM_FRICTION;
+
+    // Stop if we hit zoom limits
+    if (!result) {
+      zoomVelocityRef.current = 0;
+      momentumRAFRef.current = null;
+      
+      const finalZoom = stage.scaleX();
+      const finalPos = stage.position();
+      syncZoomState(finalZoom, { x: finalPos.x, y: finalPos.y });
+      return;
+    }
+
+    // Continue animation
+    momentumRAFRef.current = requestAnimationFrame(runMomentum);
+  }, [applyZoomAtAnchor, syncZoomState]);
+
+  // Mouse wheel zoom handler (mouse-anchored with slight momentum)
   const handleWheel = useCallback(
     (e: Konva.KonvaEventObject<WheelEvent>) => {
       e.evt.preventDefault();
@@ -427,64 +529,32 @@ export const useCanvasNavigation = ({
       const stage = e.target.getStage();
       if (!stage) return;
 
-      // Use current stage values for smooth continuous zooming
-      const currentZoom = stage.scaleX();
-      const currentPos = stage.position();
-
-      const direction = e.evt.deltaY > 0 ? -1 : 1;
-      const newZoom = Math.min(Math.max(currentZoom + direction * ZOOM_STEP, MIN_ZOOM), MAX_ZOOM);
-
-      // Skip if zoom didn't change
-      if (newZoom === currentZoom) return;
-
       // Get mouse position relative to the stage container
       const pointerPos = stage.getPointerPosition();
       if (!pointerPos) return;
 
-      // Calculate mouse position in canvas coordinates (before zoom)
-      const mouseCanvasX = (pointerPos.x - currentPos.x) / currentZoom;
-      const mouseCanvasY = (pointerPos.y - currentPos.y) / currentZoom;
+      // Store stage and anchor for momentum animation
+      stageRef.current = stage;
+      lastAnchorRef.current = pointerPos;
 
-      // Calculate new position so the same canvas point stays under the mouse
-      const newX = pointerPos.x - mouseCanvasX * newZoom;
-      const newY = pointerPos.y - mouseCanvasY * newZoom;
+      // Calculate zoom direction
+      const direction = e.evt.deltaY > 0 ? -1 : 1;
+      
+      // Apply immediate zoom step
+      const currentZoom = stage.scaleX();
+      const result = applyZoomAtAnchor(stage, currentZoom + direction * ZOOM_STEP, pointerPos);
 
-      // Update Stage directly (immediate visual feedback)
-      stage.scale({ x: newZoom, y: newZoom });
-      stage.position({ x: newX, y: newY });
-      stage.batchDraw();
-
-      // Apply CSS transform to compositor background for instant visual sync
-      // This avoids React re-renders during zoom gesture
-      if (compositorBgRef?.current && compositorSettings.enabled) {
-        const renderedZoom = renderedZoomRef.current;
-        const renderedPos = renderedPositionRef.current;
-        const { kx, ky } = transformCoeffsRef.current;
-
-        // Scale ratio
-        const scaleRatio = newZoom / renderedZoom;
-
-        // Calculate correct translation delta accounting for zoom-dependent offset
-        // Compositor position formula: left = position.x + Kx * zoom
-        // So: dx = (newPos.x - renderedPos.x) + Kx * (newZoom - renderedZoom)
-        const dx = (newX - renderedPos.x) + kx * (newZoom - renderedZoom);
-        const dy = (newY - renderedPos.y) + ky * (newZoom - renderedZoom);
-
-        // Apply transform: translate then scale from top-left
-        compositorBgRef.current.style.transformOrigin = '0 0';
-        compositorBgRef.current.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleRatio})`;
+      // Set small residual velocity for subtle momentum tail (doesn't accumulate)
+      if (result) {
+        zoomVelocityRef.current = direction * ZOOM_STEP * 0.3;
       }
 
-      // Sync React state immediately via RAF - no delay to avoid flash
-      if (zoomSyncTimeoutRef.current) {
-        cancelAnimationFrame(zoomSyncTimeoutRef.current);
+      // Start momentum animation if not running
+      if (!momentumRAFRef.current) {
+        momentumRAFRef.current = requestAnimationFrame(runMomentum);
       }
-      zoomSyncTimeoutRef.current = requestAnimationFrame(() => {
-        syncZoomState(newZoom, { x: newX, y: newY });
-        zoomSyncTimeoutRef.current = null;
-      });
     },
-    [image, compositorBgRef, compositorSettings.enabled, syncZoomState]
+    [image, applyZoomAtAnchor, runMomentum]
   );
 
   return {

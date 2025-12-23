@@ -46,10 +46,19 @@ function App() {
   } = useCaptureStore();
 
   // Editor state from store
-  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize } = useEditorStore();
+  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize, setSelectedIds } = useEditorStore();
 
   // Local editor UI state
   const [selectedTool, setSelectedTool] = useState<Tool>('select');
+
+  // Wrapper to deselect elements when switching away from select tool
+  const handleToolChange = useCallback((newTool: Tool) => {
+    if (newTool !== selectedTool && selectedTool === 'select') {
+      setSelectedIds([]);
+    }
+    setSelectedTool(newTool);
+  }, [selectedTool, setSelectedIds]);
+
   const [strokeColor, setStrokeColor] = useState('#ef4444');
   const [fillColor, setFillColor] = useState('transparent');
   const [strokeWidth, setStrokeWidth] = useState(3);
@@ -145,7 +154,7 @@ function App() {
       const tool = toolShortcuts[e.key.toLowerCase()];
       if (tool) {
         e.preventDefault();
-        setSelectedTool(tool);
+        handleToolChange(tool);
         return;
       }
 
@@ -155,10 +164,10 @@ function App() {
         // If already on background tool, toggle the effect off and switch to select
         if (selectedTool === 'background') {
           setCompositorSettings({ enabled: false });
-          setSelectedTool('select');
+          handleToolChange('select');
         } else {
           // Switch to background tool and enable effect
-          setSelectedTool('background');
+          handleToolChange('background');
           setCompositorSettings({ enabled: true });
         }
         return;
@@ -174,7 +183,7 @@ function App() {
       // Escape: switch to select mode
       if (e.key === 'Escape') {
         e.preventDefault();
-        setSelectedTool('select');
+        handleToolChange('select');
         return;
       }
 
@@ -187,7 +196,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings, selectedTool]);
+  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings, selectedTool, handleToolChange]);
 
   // Load captures on mount
   useEffect(() => {
@@ -622,7 +631,7 @@ function App() {
                   <EditorCanvas
                     imageData={currentImageData}
                     selectedTool={selectedTool}
-                    onToolChange={setSelectedTool}
+                    onToolChange={handleToolChange}
                     strokeColor={strokeColor}
                     fillColor={fillColor}
                     strokeWidth={strokeWidth}
@@ -648,7 +657,7 @@ function App() {
             {/* Toolbar */}
             <Toolbar
               selectedTool={selectedTool}
-              onToolChange={setSelectedTool}
+              onToolChange={handleToolChange}
               onCopy={handleCopy}
               onSave={handleSave}
               onSaveAs={handleSaveAs}

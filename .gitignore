@@ -29,3 +29,11 @@ nul
 ~/.tauri/
 *.key
 *.key.pub
+
+# Certificates
+*.pfx
+*.p12
+
+# Environment files
+.env
+.env.*

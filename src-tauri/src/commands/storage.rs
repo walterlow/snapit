@@ -664,11 +664,17 @@ pub async fn get_storage_stats(app: AppHandle) -> Result<StorageStats, String> {
     })
 }
 
-/// Startup cleanup: remove orphan temp files and regenerate missing thumbnails
+/// Startup cleanup: ensure directories exist, remove orphan temp files and regenerate missing thumbnails
 #[command]
 pub async fn startup_cleanup(app: AppHandle) -> Result<StartupCleanupResult, String> {
     let mut temp_files_cleaned = 0;
     let mut thumbnails_regenerated = 0;
+
+    // 0. Pre-create storage directories so first capture isn't slow
+    ensure_directories(&app)?;
+
+    // Also pre-create the user's save directory (Pictures/SnapIt or custom)
+    let _ = get_captures_dir(&app);
 
     // 1. Clean up orphan RGBA temp files
     let temp_dir = std::env::temp_dir();

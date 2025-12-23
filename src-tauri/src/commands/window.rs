@@ -6,6 +6,9 @@ use xcap::Monitor;
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
+// Track if capture is currently in progress (overlays are showing)
+static CAPTURE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
 // Track if overlays have been pre-created
 static OVERLAYS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -92,11 +95,15 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
 
     let labels = OVERLAY_LABELS.lock().unwrap();
 
-    // Track if main window was visible before hiding it
-    if let Some(main_window) = app.get_webview_window("main") {
-        let was_visible = main_window.is_visible().unwrap_or(false);
-        MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
-        let _ = main_window.hide();
+    // Only track main window visibility if we're starting a NEW capture session
+    // This prevents overwriting the saved state if trigger_capture is called multiple times
+    if !CAPTURE_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        // This is a new capture session - save the current main window visibility
+        if let Some(main_window) = app.get_webview_window("main") {
+            let was_visible = main_window.is_visible().unwrap_or(false);
+            MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
+            let _ = main_window.hide();
+        }
     }
 
     // Show and position pre-created overlays (fast - no window creation!)
@@ -184,6 +191,9 @@ pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
             let _ = window.hide();
         }
     }
+
+    // Mark capture as no longer in progress
+    CAPTURE_IN_PROGRESS.store(false, Ordering::SeqCst);
 
     // Restore main window if it was visible before capture started
     if MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {

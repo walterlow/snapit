@@ -199,8 +199,14 @@ export function useMarqueeSelection({
         setSelectedIds(newSelected);
         lastClickedId.current = id;
       } else {
-        // Normal click: open project
-        onOpenProject(id);
+        // Normal click: open project (if not missing)
+        const capture = captures.find((c) => c.id === id);
+        if (capture?.is_missing) {
+          // Don't open missing captures - just select them
+          setSelectedIds(new Set([id]));
+        } else {
+          onOpenProject(id);
+        }
         lastClickedId.current = id;
       }
     },

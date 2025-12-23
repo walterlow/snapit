@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, Check } from 'lucide-react';
+import { Star, Trash2, Check, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
@@ -24,7 +24,8 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
     onCopyToClipboard,
     formatDate,
   }) => {
-    const thumbnailSrc = convertFileSrc(capture.thumbnail_path);
+    const isMissing = capture.is_missing;
+    const thumbnailSrc = isMissing ? '' : convertFileSrc(capture.thumbnail_path);
 
     return (
       <ContextMenu>
@@ -41,17 +42,26 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
             </div>
 
             {/* Thumbnail */}
-            <div className="row-thumbnail">
-              <img src={thumbnailSrc} alt="Capture" loading="lazy" />
+            <div className={`row-thumbnail ${isMissing ? 'opacity-60' : ''}`}>
+              {isMissing ? (
+                <div className="w-full h-full flex items-center justify-center bg-[var(--polar-mist)]">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                </div>
+              ) : (
+                <img src={thumbnailSrc} alt="Capture" loading="lazy" />
+              )}
             </div>
 
             {/* Info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm font-medium text-[var(--ink-black)] capitalize">
+                <span className={`text-sm font-medium capitalize ${isMissing ? 'text-[var(--ink-subtle)]' : 'text-[var(--ink-black)]'}`}>
                   {capture.capture_type} capture
                 </span>
-                {capture.has_annotations && (
+                {isMissing && (
+                  <Badge className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5">Missing</Badge>
+                )}
+                {capture.has_annotations && !isMissing && (
                   <Badge className="pill-coral text-[10px] px-2 py-0.5">Edited</Badge>
                 )}
               </div>
@@ -109,6 +119,7 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
         </ContextMenuTrigger>
         <CaptureContextMenu
           favorite={capture.favorite}
+          isMissing={isMissing}
           onCopyToClipboard={onCopyToClipboard}
           onOpenInFolder={onOpenInFolder}
           onToggleFavorite={onToggleFavorite}

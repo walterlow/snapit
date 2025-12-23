@@ -1,12 +1,41 @@
 import React from 'react';
 import { Aperture, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useShortcut } from '@/stores/settingsStore';
 
 interface EmptyStateProps {
   onNewCapture: () => void;
 }
 
-export const EmptyState: React.FC<EmptyStateProps> = ({ onNewCapture }) => (
+function parseShortcut(shortcut: string): string[] {
+  return shortcut.split('+').map(key => {
+    // Normalize key names for display
+    const normalized = key.trim();
+    switch (normalized.toLowerCase()) {
+      case 'printscreen':
+        return 'PrtSc';
+      case 'control':
+      case 'ctrl':
+        return 'Ctrl';
+      case 'shift':
+        return 'Shift';
+      case 'alt':
+        return 'Alt';
+      case 'meta':
+      case 'super':
+      case 'win':
+        return 'Win';
+      default:
+        return normalized;
+    }
+  });
+}
+
+export const EmptyState: React.FC<EmptyStateProps> = ({ onNewCapture }) => {
+  const shortcutConfig = useShortcut('new_capture');
+  const keys = parseShortcut(shortcutConfig?.currentShortcut || 'PrintScreen');
+
+  return (
   <div className="flex flex-col items-center justify-center py-16 animate-fade-in">
     {/* Illustration */}
     <div className="relative mb-6">
@@ -36,12 +65,14 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onNewCapture }) => (
     <div className="flex items-center gap-2 mt-5 text-xs text-[var(--ink-subtle)]">
       <span>or press</span>
       <div className="flex items-center gap-1">
-        <kbd className="kbd">Ctrl</kbd>
-        <span>+</span>
-        <kbd className="kbd">Shift</kbd>
-        <span>+</span>
-        <kbd className="kbd">S</kbd>
+        {keys.map((key, index) => (
+          <React.Fragment key={index}>
+            {index > 0 && <span>+</span>}
+            <kbd className="kbd">{key}</kbd>
+          </React.Fragment>
+        ))}
       </div>
     </div>
   </div>
-);
+  );
+};

@@ -108,6 +108,8 @@ pub struct CaptureListItem {
     pub has_annotations: bool,
     pub tags: Vec<String>,
     pub favorite: bool,
+    /// True if the original image file is missing from disk
+    pub is_missing: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -455,16 +457,16 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
 
                         // Handle both old format (filename only) and new format (full path)
                         let original_path = PathBuf::from(&project.original_image);
-                        let image_path = if original_path.is_absolute() {
-                            project.original_image.clone()
+                        let image_path_buf = if original_path.is_absolute() {
+                            original_path
                         } else {
                             // Legacy: construct path from app data dir
-                            base_dir
-                                .join("captures")
-                                .join(&project.original_image)
-                                .to_string_lossy()
-                                .to_string()
+                            base_dir.join("captures").join(&project.original_image)
                         };
+                        let image_path = image_path_buf.to_string_lossy().to_string();
+
+                        // Check if the original image file exists
+                        let is_missing = !image_path_buf.exists();
 
                         captures.push(CaptureListItem {
                             id: project.id,
@@ -477,6 +479,7 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
                             has_annotations: !project.annotations.is_empty(),
                             tags: project.tags,
                             favorite: project.favorite,
+                            is_missing,
                         });
                     }
                 }
@@ -737,4 +740,96 @@ pub async fn startup_cleanup(app: AppHandle) -> Result<StartupCleanupResult, Str
 pub struct StartupCleanupResult {
     pub temp_files_cleaned: u32,
     pub thumbnails_regenerated: u32,
+}
+
+/// Import an image from a file path (used for drag-drop import)
+#[command]
+pub async fn import_image_from_path(
+    app: AppHandle,
+    file_path: String,
+) -> Result<SaveCaptureResponse, String> {
+    let path = PathBuf::from(&file_path);
+
+    // Verify file exists and is an image
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    let valid_extensions = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+    if !valid_extensions.contains(&extension.as_str()) {
+        return Err(format!("Unsupported image format: {}", extension));
+    }
+
+    // Load image directly from file
+    let image = image::open(&path)
+        .map_err(|e| format!("Failed to load image: {}", e))?;
+
+    let (width, height) = image.dimensions();
+
+    let base_dir = ensure_directories(&app)?;
+    let captures_dir = get_captures_dir(&app)?;
+    let id = generate_id();
+    let now = Utc::now();
+
+    let date_str = now.format("%Y-%m-%d_%H%M%S").to_string();
+    let original_filename = format!("{}_{}.png", date_str, &id);
+    let thumbnail_filename = format!("{}_thumb.png", &id);
+
+    // Save as PNG to user's configured directory
+    let original_path = captures_dir.join(&original_filename);
+    image
+        .save(&original_path)
+        .map_err(|e| format!("Failed to save image: {}", e))?;
+
+    // Generate and save thumbnail
+    let thumbnail = generate_thumbnail(&image)?;
+    let thumbnails_dir = base_dir.join("thumbnails");
+    let thumbnail_path = thumbnails_dir.join(&thumbnail_filename);
+    thumbnail
+        .save(&thumbnail_path)
+        .map_err(|e| format!("Failed to save thumbnail: {}", e))?;
+
+    // Create project data
+    let project = CaptureProject {
+        id: id.clone(),
+        created_at: now,
+        updated_at: now,
+        capture_type: "import".to_string(),
+        source: CaptureSource {
+            monitor: None,
+            window_id: None,
+            window_title: None,
+            region: None,
+        },
+        original_image: original_path.to_string_lossy().to_string(),
+        dimensions: Dimensions { width, height },
+        annotations: Vec::new(),
+        tags: Vec::new(),
+        favorite: false,
+    };
+
+    // Save project file
+    let projects_dir = base_dir.join("projects");
+    let project_dir = projects_dir.join(&id);
+    fs::create_dir_all(&project_dir)
+        .map_err(|e| format!("Failed to create project dir: {}", e))?;
+
+    let project_file = project_dir.join("project.json");
+    let project_json = serde_json::to_string_pretty(&project)
+        .map_err(|e| format!("Failed to serialize project: {}", e))?;
+    fs::write(&project_file, project_json)
+        .map_err(|e| format!("Failed to write project file: {}", e))?;
+
+    Ok(SaveCaptureResponse {
+        id,
+        project,
+        thumbnail_path: thumbnail_path.to_string_lossy().to_string(),
+        image_path: original_path.to_string_lossy().to_string(),
+    })
 }

@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, Check, Loader2 } from 'lucide-react';
+import { Star, Trash2, Check, Loader2, AlertTriangle } from 'lucide-react';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CaptureContextMenu } from './CaptureContextMenu';
 import type { CaptureCardProps } from './types';
@@ -20,7 +20,8 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
   }) => {
     // Check if this is a placeholder (optimistic update, saving in progress)
     const isPlaceholder = capture.id.startsWith('temp_') || !capture.thumbnail_path;
-    const thumbnailSrc = isPlaceholder ? '' : convertFileSrc(capture.thumbnail_path);
+    const isMissing = capture.is_missing;
+    const thumbnailSrc = isPlaceholder || isMissing ? '' : convertFileSrc(capture.thumbnail_path);
 
     return (
       <ContextMenu>
@@ -32,10 +33,15 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
             onClick={(e) => onSelect(capture.id, e)}
           >
             {/* Thumbnail */}
-            <div className="thumbnail">
+            <div className={`thumbnail ${isMissing ? 'opacity-60' : ''}`}>
               {isPlaceholder ? (
                 <div className="w-full h-full flex items-center justify-center bg-[var(--polar-mist)]">
                   <Loader2 className="w-8 h-8 text-[var(--ink-subtle)] animate-spin" />
+                </div>
+              ) : isMissing ? (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--polar-mist)] gap-2">
+                  <AlertTriangle className="w-8 h-8 text-amber-500" />
+                  <span className="text-xs text-[var(--ink-subtle)]">File missing</span>
                 </div>
               ) : (
                 <img src={thumbnailSrc} alt="Capture" loading="lazy" />
@@ -110,6 +116,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
         </ContextMenuTrigger>
         <CaptureContextMenu
           favorite={capture.favorite}
+          isMissing={isMissing}
           onCopyToClipboard={onCopyToClipboard}
           onOpenInFolder={onOpenInFolder}
           onToggleFavorite={onToggleFavorite}

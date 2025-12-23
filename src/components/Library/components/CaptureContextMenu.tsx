@@ -9,6 +9,7 @@ import {
 
 interface CaptureContextMenuProps {
   favorite: boolean;
+  isMissing?: boolean;
   onCopyToClipboard: () => void;
   onOpenInFolder: () => void;
   onToggleFavorite: () => void;
@@ -17,6 +18,7 @@ interface CaptureContextMenuProps {
 
 export const CaptureContextMenu: React.FC<CaptureContextMenuProps> = ({
   favorite,
+  isMissing = false,
   onCopyToClipboard,
   onOpenInFolder,
   onToggleFavorite,
@@ -24,7 +26,11 @@ export const CaptureContextMenu: React.FC<CaptureContextMenuProps> = ({
 }) => {
   return (
     <ContextMenuContent>
-      <ContextMenuItem onClick={onCopyToClipboard}>
+      <ContextMenuItem
+        onClick={onCopyToClipboard}
+        disabled={isMissing}
+        className={isMissing ? 'opacity-50 cursor-not-allowed' : ''}
+      >
         <Copy className="w-4 h-4 mr-2" />
         Copy to Clipboard
       </ContextMenuItem>
@@ -43,7 +49,7 @@ export const CaptureContextMenu: React.FC<CaptureContextMenuProps> = ({
         className="text-red-500 focus:text-red-500 focus:bg-red-50"
       >
         <Trash2 className="w-4 h-4 mr-2" />
-        Delete
+        {isMissing ? 'Remove Entry' : 'Delete'}
         <ContextMenuShortcut>Del</ContextMenuShortcut>
       </ContextMenuItem>
     </ContextMenuContent>

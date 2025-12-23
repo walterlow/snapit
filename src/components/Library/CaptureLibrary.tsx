@@ -109,11 +109,10 @@ export const CaptureLibrary: React.FC = () => {
     onOpenProject: loadProject,
   });
 
-  // Drag & drop hook
-  const { isDragOver, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } =
-    useDragDropImport({
-      onImportComplete: loadCaptures,
-    });
+  // Drag & drop hook (uses Tauri's native drag-drop events)
+  const { isDragOver } = useDragDropImport({
+    onImportComplete: loadCaptures,
+  });
 
   useEffect(() => {
     loadCaptures();
@@ -349,13 +348,7 @@ export const CaptureLibrary: React.FC = () => {
 
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={300}>
-      <div
-        className="flex flex-col h-full bg-[var(--polar-snow)] relative"
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
+      <div className="flex flex-col h-full bg-[var(--polar-snow)] relative">
         {/* Drop Zone Overlay */}
         {isDragOver && <DropZoneOverlay />}
 

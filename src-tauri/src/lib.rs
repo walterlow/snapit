@@ -111,6 +111,7 @@ pub fn run() {
             commands::storage::get_storage_stats,
             commands::storage::get_library_folder,
             commands::storage::startup_cleanup,
+            commands::storage::import_image_from_path,
             // Settings commands
             commands::settings::set_autostart,
             commands::settings::is_autostart_enabled,

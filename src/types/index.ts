@@ -47,6 +47,8 @@ export interface CaptureListItem {
   has_annotations: boolean;
   tags: string[];
   favorite: boolean;
+  /** True if the original image file is missing from disk */
+  is_missing: boolean;
 }
 
 export interface CaptureResult {

@@ -43,7 +43,16 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build());
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            // Called when a second instance tries to start
+            // Bring the main window to front
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            println!("Second instance blocked. Args: {:?}, CWD: {:?}", args, cwd);
+        }));
 
     #[cfg(desktop)]
     {

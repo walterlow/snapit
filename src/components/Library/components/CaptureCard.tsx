@@ -87,7 +87,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
               {/* Favorite Badge */}
               {capture.favorite && (
                 <div className="absolute top-3 right-3 animate-scale-in">
-                  <div className="w-7 h-7 rounded-lg bg-white flex items-center justify-center border border-[var(--coral-200)] shadow-sm">
+                  <div className="w-7 h-7 rounded-lg bg-[var(--card)] flex items-center justify-center border border-[var(--coral-200)] shadow-sm">
                     <Star className="w-3.5 h-3.5 text-[var(--coral-400)]" fill="currentColor" />
                   </div>
                 </div>
@@ -98,7 +98,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
 
               {/* Loading Overlay - shown when opening this capture */}
               {isLoading && (
-                <div className="absolute inset-0 bg-white/95 flex items-center justify-center z-10 animate-fade-in">
+                <div className="absolute inset-0 bg-[var(--polar-snow)]/95 flex items-center justify-center z-10 animate-fade-in">
                   <Loader2 className="w-6 h-6 text-[var(--coral-400)] animate-spin" />
                 </div>
               )}

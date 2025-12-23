@@ -394,7 +394,7 @@ export const CaptureLibrary: React.FC = () => {
               {[...Array(6)].map((_, i) => (
                 <div
                   key={i}
-                  className="rounded-xl border border-[var(--polar-frost)] bg-white overflow-hidden"
+                  className="rounded-xl border border-[var(--polar-frost)] bg-[var(--card)] overflow-hidden"
                 >
                   <Skeleton className="aspect-video w-full" />
                   <div className="p-3 space-y-2">

@@ -201,7 +201,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             type="text"
             value={isDragging ? displayColor : value}
             onChange={handleInputChange}
-            className="flex-1 h-10 px-3 rounded-lg bg-white border border-[var(--polar-frost)] text-sm text-[var(--ink-black)] font-mono focus:border-[var(--coral-400)] focus:ring-2 focus:ring-[var(--coral-glow)] focus:outline-none"
+            className="flex-1 h-10 px-3 rounded-lg bg-[var(--card)] border border-[var(--polar-frost)] text-sm text-[var(--ink-black)] font-mono focus:border-[var(--coral-400)] focus:ring-2 focus:ring-[var(--coral-glow)] focus:outline-none"
             placeholder="#000000"
           />
         )}
@@ -211,7 +211,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
       {isOpen && (
         <div
           ref={wheelRef}
-          className="absolute z-50 mt-2 p-4 bg-white rounded-xl border border-[var(--polar-frost)] shadow-xl"
+          className="absolute z-50 mt-2 p-4 bg-[var(--card)] rounded-xl border border-[var(--polar-frost)] shadow-xl"
         >
           <Wheel
             color={displayHsva}

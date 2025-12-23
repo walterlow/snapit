@@ -225,7 +225,7 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
       <div
         className={cn(
           'flex items-center gap-1.5 p-2 rounded-lg border transition-colors',
-          'bg-white',
+          'bg-[var(--card)]',
           getBorderClass(),
           disabled && 'opacity-50'
         )}
@@ -317,7 +317,7 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="max-h-[300px] overflow-y-auto bg-white border-[var(--polar-frost)]"
+            className="max-h-[300px] overflow-y-auto bg-[var(--card)] border-[var(--polar-frost)]"
             align="start"
           >
             <DropdownMenuRadioGroup value={localKey || 'none'} onValueChange={handleKeyChange}>

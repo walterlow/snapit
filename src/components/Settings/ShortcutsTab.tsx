@@ -38,7 +38,7 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({ config }) => {
   return (
     <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)]">
       <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white flex items-center justify-center text-[var(--coral-400)] shadow-sm border border-[var(--polar-frost)]">
+        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-[var(--card)] flex items-center justify-center text-[var(--coral-400)] shadow-sm border border-[var(--polar-frost)]">
           {SHORTCUT_ICONS[config.id] || <Scan className="w-5 h-5" />}
         </div>
 
@@ -109,7 +109,7 @@ export const ShortcutsTab: React.FC = () => {
           variant="outline"
           size="sm"
           onClick={handleResetAll}
-          className="text-xs bg-white border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+          className="text-xs bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
         >
           Reset All to Defaults
         </Button>

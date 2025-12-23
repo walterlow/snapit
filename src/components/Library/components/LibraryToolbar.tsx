@@ -62,7 +62,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
             placeholder="Search captures..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="h-9 pl-9 pr-3 text-sm bg-white border-[var(--polar-frost)] focus:border-[var(--coral-400)] focus:ring-[var(--coral-glow)] text-[var(--ink-black)] placeholder:text-[var(--ink-subtle)]"
+            className="h-9 pl-9 pr-3 text-sm bg-[var(--card)] border-[var(--polar-frost)] focus:border-[var(--coral-400)] focus:ring-[var(--coral-glow)] text-[var(--ink-black)] placeholder:text-[var(--ink-subtle)]"
           />
         </div>
 
@@ -99,14 +99,14 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
             <ToggleGroupItem
               value="grid"
               aria-label="Grid view"
-              className="h-7 w-7 rounded-md data-[state=on]:bg-white data-[state=on]:text-[var(--coral-500)] data-[state=on]:shadow-sm"
+              className="h-7 w-7 rounded-md data-[state=on]:bg-[var(--card)] data-[state=on]:text-[var(--coral-500)] data-[state=on]:shadow-sm"
             >
               <LayoutGrid className="w-3.5 h-3.5" />
             </ToggleGroupItem>
             <ToggleGroupItem
               value="list"
               aria-label="List view"
-              className="h-7 w-7 rounded-md data-[state=on]:bg-white data-[state=on]:text-[var(--coral-500)] data-[state=on]:shadow-sm"
+              className="h-7 w-7 rounded-md data-[state=on]:bg-[var(--card)] data-[state=on]:text-[var(--coral-500)] data-[state=on]:shadow-sm"
             >
               <List className="w-3.5 h-3.5" />
             </ToggleGroupItem>
@@ -160,7 +160,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
             <Button
               onClick={onOpenLibraryFolder}
               variant="outline"
-              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-white border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
             >
               <FolderOpen className="w-3.5 h-3.5" />
               Open Folder
@@ -168,7 +168,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
             <Button
               onClick={onAllMonitorsCapture}
               variant="outline"
-              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-white border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
             >
               <Monitor className="w-3.5 h-3.5" />
               All Monitors

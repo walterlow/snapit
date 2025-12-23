@@ -18,6 +18,7 @@ import { useEditorStore, undo, redo, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import { useUpdater } from './hooks/useUpdater';
+import { useTheme } from './hooks/useTheme';
 import { getContentBounds, calculateExportBounds, exportCanvas } from './utils/canvasExport';
 import type { Tool, CanvasShape, Annotation, CompositorSettings } from './types';
 
@@ -47,6 +48,9 @@ function App() {
 
   // Editor state from store
   const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize, setSelectedIds } = useEditorStore();
+
+  // Initialize theme (applies theme class to document root)
+  useTheme();
 
   // Local editor UI state
   const [selectedTool, setSelectedTool] = useState<Tool>('select');
@@ -649,7 +653,7 @@ function App() {
         position="top-center"
         toastOptions={{
           style: {
-            background: 'white',
+            background: 'var(--card)',
             border: '1px solid var(--polar-frost)',
             color: 'var(--ink-black)',
             boxShadow: '0 4px 20px rgba(0,0,0,0.08)',

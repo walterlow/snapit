@@ -29,7 +29,7 @@ const SelectTrigger = React.forwardRef<
   <BaseSelect.Trigger
     ref={ref}
     className={cn(
-      'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-lg border border-[var(--polar-frost)] bg-white px-3 py-2 text-sm text-[var(--ink-black)] ring-offset-background placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--coral-400)]/30 focus:border-[var(--coral-400)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 transition-colors',
+      'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-lg border border-[var(--polar-frost)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--ink-black)] ring-offset-background placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--coral-400)]/30 focus:border-[var(--coral-400)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 transition-colors',
       className
     )}
     {...props}
@@ -52,7 +52,7 @@ const SelectContent = React.forwardRef<
     <BaseSelect.Positioner ref={ref} sideOffset={4} className="z-[200]" {...props}>
       <BaseSelect.Popup
         className={cn(
-          'max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-[var(--polar-frost)] bg-white text-[var(--ink-black)] shadow-lg p-1 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          'max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-[var(--polar-frost)] bg-[var(--card)] text-[var(--ink-black)] shadow-lg p-1 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
           className
         )}
       >

@@ -40,7 +40,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onNewCapture }) => {
     {/* Illustration */}
     <div className="relative mb-6">
       <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[var(--coral-50)] to-[var(--polar-ice)] flex items-center justify-center">
-        <div className="w-16 h-16 rounded-xl bg-white shadow-lg flex items-center justify-center border border-[var(--polar-frost)]">
+        <div className="w-16 h-16 rounded-xl bg-[var(--card)] shadow-lg flex items-center justify-center border border-[var(--polar-frost)]">
           <Aperture className="w-8 h-8 text-[var(--coral-400)]" />
         </div>
       </div>

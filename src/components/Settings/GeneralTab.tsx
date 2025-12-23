@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
-import { FolderOpen, ExternalLink, RefreshCw } from 'lucide-react';
+import { FolderOpen, ExternalLink, RefreshCw, Sun, Moon, Monitor } from 'lucide-react';
 import { useUpdater } from '@/hooks/useUpdater';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useSettingsStore } from '@/stores/settingsStore';
-import type { ImageFormat } from '@/types';
+import type { ImageFormat, Theme } from '@/types';
 
 export const GeneralTab: React.FC = () => {
   const { settings, updateGeneralSettings } = useSettingsStore();
@@ -106,6 +106,10 @@ export const GeneralTab: React.FC = () => {
     updateGeneralSettings({ jpgQuality: value[0] });
   };
 
+  const handleThemeChange = (theme: Theme) => {
+    updateGeneralSettings({ theme });
+  };
+
   const handleCheckForUpdates = async () => {
     setIsCheckingUpdates(true);
     await checkForUpdates(true);
@@ -114,6 +118,58 @@ export const GeneralTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Appearance Section */}
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
+          Appearance
+        </h3>
+        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)]">
+          <div>
+            <label className="text-sm text-[var(--ink-black)] mb-3 block">
+              Theme
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleThemeChange('light')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-all ${
+                  general.theme === 'light'
+                    ? 'bg-[var(--coral-400)] text-white border-[var(--coral-400)]'
+                    : 'bg-[var(--card)] text-[var(--ink-dark)] border-[var(--polar-frost)] hover:border-[var(--polar-steel)]'
+                }`}
+              >
+                <Sun className="w-4 h-4" />
+                <span className="text-sm font-medium">Light</span>
+              </button>
+              <button
+                onClick={() => handleThemeChange('dark')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-all ${
+                  general.theme === 'dark'
+                    ? 'bg-[var(--coral-400)] text-white border-[var(--coral-400)]'
+                    : 'bg-[var(--card)] text-[var(--ink-dark)] border-[var(--polar-frost)] hover:border-[var(--polar-steel)]'
+                }`}
+              >
+                <Moon className="w-4 h-4" />
+                <span className="text-sm font-medium">Dark</span>
+              </button>
+              <button
+                onClick={() => handleThemeChange('system')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-all ${
+                  general.theme === 'system'
+                    ? 'bg-[var(--coral-400)] text-white border-[var(--coral-400)]'
+                    : 'bg-[var(--card)] text-[var(--ink-dark)] border-[var(--polar-frost)] hover:border-[var(--polar-steel)]'
+                }`}
+              >
+                <Monitor className="w-4 h-4" />
+                <span className="text-sm font-medium">System</span>
+              </button>
+            </div>
+            <p className="text-xs text-[var(--ink-muted)] mt-2">
+              System follows your operating system&apos;s dark mode setting
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Startup Section */}
       <section>
         <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
@@ -172,13 +228,13 @@ export const GeneralTab: React.FC = () => {
                 value={general.defaultSaveDir || ''}
                 placeholder="Click Browse to select..."
                 readOnly
-                className="flex-1 text-sm bg-white"
+                className="flex-1 text-sm bg-[var(--card)]"
               />
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleBrowseSaveDir}
-                className="shrink-0 bg-white border-[var(--polar-frost)] text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+                className="shrink-0 bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
               >
                 <FolderOpen className="w-4 h-4 mr-1" />
                 Browse
@@ -206,7 +262,7 @@ export const GeneralTab: React.FC = () => {
               value={general.imageFormat}
               onValueChange={(value) => handleFormatChange(value as ImageFormat)}
             >
-              <SelectTrigger className="w-full max-w-[200px] bg-white border-[var(--polar-frost)] text-[var(--ink-black)]">
+              <SelectTrigger className="w-full max-w-[200px] bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-black)]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -280,7 +336,7 @@ export const GeneralTab: React.FC = () => {
                   size="sm"
                   onClick={handleCheckForUpdates}
                   disabled={isCheckingUpdates}
-                  className="bg-white border-[var(--polar-frost)] text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+                  className="bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
                 >
                   <RefreshCw className={`w-4 h-4 mr-1 ${isCheckingUpdates ? 'animate-spin' : ''}`} />
                   {isCheckingUpdates ? 'Checking...' : 'Check for Updates'}

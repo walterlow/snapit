@@ -23,7 +23,7 @@ export const CropControls: React.FC<CropControlsProps> = React.memo(({
   onCommit,
 }) => {
   return (
-    <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-white rounded-xl p-2 border border-[var(--polar-frost)] shadow-lg z-10">
+    <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-[var(--card)] rounded-xl p-2 border border-[var(--polar-frost)] shadow-lg z-10">
       <span className="text-xs text-[var(--ink-muted)] px-2 font-mono">
         {Math.round(width)} × {Math.round(height)}
       </span>

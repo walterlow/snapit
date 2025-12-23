@@ -155,7 +155,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all border ${
               compositorSettings.backgroundType === 'solid'
                 ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
+                : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
             }`}
           >
             <Palette className="w-3.5 h-3.5" />
@@ -166,7 +166,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all border ${
               compositorSettings.backgroundType === 'gradient'
                 ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
+                : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
             }`}
           >
             <Sun className="w-3.5 h-3.5" />
@@ -177,7 +177,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all border ${
               compositorSettings.backgroundType === 'image'
                 ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
+                : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
             }`}
           >
             <ImageIcon className="w-3.5 h-3.5" />
@@ -277,7 +277,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           {/* Custom Upload */}
           <div className="space-y-3">
             <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Or Upload Custom</Label>
-            <label className="flex flex-col items-center justify-center h-16 rounded-lg border-2 border-dashed border-[var(--polar-frost)] bg-white cursor-pointer hover:border-[var(--coral-300)] hover:bg-[var(--coral-50)] transition-colors">
+            <label className="flex flex-col items-center justify-center h-16 rounded-lg border-2 border-dashed border-[var(--polar-frost)] bg-[var(--card)] cursor-pointer hover:border-[var(--coral-300)] hover:bg-[var(--coral-50)] transition-colors">
               <div className="flex items-center gap-2">
                 <Upload className="w-4 h-4 text-[var(--ink-muted)]" />
                 <span className="text-xs text-[var(--ink-muted)]">Click to upload</span>
@@ -304,7 +304,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           {compositorSettings.backgroundImage && (
             <button
               onClick={() => setCompositorSettings({ backgroundImage: null })}
-              className="w-full py-2 px-3 rounded-lg text-xs font-medium text-[var(--ink-muted)] bg-white hover:bg-[var(--polar-ice)] border border-[var(--polar-frost)] transition-colors flex items-center justify-center gap-2"
+              className="w-full py-2 px-3 rounded-lg text-xs font-medium text-[var(--ink-muted)] bg-[var(--card)] hover:bg-[var(--polar-ice)] border border-[var(--polar-frost)] transition-colors flex items-center justify-center gap-2"
             >
               <X className="w-3 h-3" />
               Clear Background Image
@@ -675,7 +675,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   <PopoverTrigger asChild>
                     <button
                       disabled={!textShape}
-                      className="w-full h-9 px-3 pr-8 rounded-lg text-xs font-medium bg-white border border-[var(--polar-frost)] text-[var(--ink-dark)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between text-left relative"
+                      className="w-full h-9 px-3 pr-8 rounded-lg text-xs font-medium bg-[var(--card)] border border-[var(--polar-frost)] text-[var(--ink-dark)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between text-left relative"
                       style={{ fontFamily: currentFontFamily }}
                     >
                       <span className="truncate">{currentFontFamily}</span>
@@ -749,7 +749,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border ${
                       isBold
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     <Bold className="w-4 h-4" />
@@ -760,7 +760,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border ${
                       isItalic
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     <Italic className="w-4 h-4" />
@@ -771,7 +771,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border ${
                       isUnderline
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     <Underline className="w-4 h-4" />
@@ -789,7 +789,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border ${
                       currentAlign === 'left'
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     <AlignLeft className="w-4 h-4" />
@@ -800,7 +800,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border ${
                       currentAlign === 'center'
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     <AlignCenter className="w-4 h-4" />
@@ -811,7 +811,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border ${
                       currentAlign === 'right'
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     <AlignRight className="w-4 h-4" />
@@ -829,7 +829,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border text-xs font-medium ${
                       currentVerticalAlign === 'top'
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     Top
@@ -840,7 +840,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border text-xs font-medium ${
                       currentVerticalAlign === 'middle'
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     Middle
@@ -851,7 +851,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-9 rounded-lg flex items-center justify-center transition-all border text-xs font-medium ${
                       currentVerticalAlign === 'bottom'
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     Bottom
@@ -936,7 +936,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       className={`flex-1 h-9 rounded-lg text-xs font-medium transition-all border ${
                         !hasSteps || allSame
                           ? 'bg-[var(--polar-ice)] text-[var(--ink-muted)] border-[var(--polar-frost)] opacity-50 cursor-not-allowed'
-                          : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
+                          : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
                       }`}
                     >
                       {label}
@@ -981,7 +981,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-8 rounded-lg flex items-center justify-center transition-all ${
                       strokeWidth === width
                         ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border border-[var(--coral-200)]'
-                        : 'bg-white text-[var(--ink-muted)] border border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                        : 'bg-[var(--card)] text-[var(--ink-muted)] border border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
                     }`}
                   >
                     <div
@@ -1010,7 +1010,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all border ${
                     blurType === 'pixelate'
                       ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                      : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
+                      : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
                   }`}
                 >
                   <Grid3X3 className="w-3.5 h-3.5" />
@@ -1021,7 +1021,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all border ${
                     blurType === 'gaussian'
                       ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border-[var(--coral-200)]'
-                      : 'bg-white text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
+                      : 'bg-[var(--card)] text-[var(--ink-muted)] border-[var(--polar-frost)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]'
                   }`}
                 >
                   <Layers className="w-3.5 h-3.5" />
@@ -1044,7 +1044,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className={`flex-1 h-8 rounded-lg text-xs font-medium transition-all ${
                       blurAmount === value
                         ? 'bg-[var(--coral-50)] border border-[var(--coral-300)] text-[var(--coral-500)]'
-                        : 'bg-white border border-[var(--polar-frost)] hover:bg-[var(--polar-ice)] text-[var(--ink-muted)]'
+                        : 'bg-[var(--card)] border border-[var(--polar-frost)] hover:bg-[var(--polar-ice)] text-[var(--ink-muted)]'
                     }`}
                   >
                     {label}
@@ -1080,7 +1080,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const HeaderIcon = toolInfo.icon;
 
   return (
-    <div className="w-72 bg-white border-l border-[var(--polar-frost)] flex flex-col flex-shrink-0 h-full shadow-lg">
+    <div className="w-72 bg-[var(--card)] border-l border-[var(--polar-frost)] flex flex-col flex-shrink-0 h-full shadow-lg">
       {/* Header */}
       <div className="flex items-center px-4 py-3 border-b border-[var(--polar-frost)] flex-shrink-0 bg-[var(--polar-ice)]">
         <div className="flex items-center gap-2">

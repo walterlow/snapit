@@ -268,6 +268,9 @@ export interface ShortcutConfig {
 // Image format options
 export type ImageFormat = 'png' | 'jpg' | 'webp' | 'gif' | 'bmp';
 
+// Theme options
+export type Theme = 'light' | 'dark' | 'system';
+
 // General application settings
 export interface GeneralSettings {
   startWithWindows: boolean;
@@ -277,6 +280,7 @@ export interface GeneralSettings {
   imageFormat: ImageFormat;
   jpgQuality: number; // 0-100
   allowOverride: boolean; // Allow SnapIt to override shortcuts registered by other apps
+  theme: Theme; // App color theme
 }
 
 // Complete application settings
@@ -325,6 +329,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   imageFormat: 'png',
   jpgQuality: 85,
   allowOverride: false,
+  theme: 'system', // Follow OS preference by default
 };
 
 // Default complete settings

@@ -20,7 +20,7 @@ export const ZoomControls: React.FC<ZoomControlsProps> = React.memo(({
   onActualSize,
 }) => {
   return (
-    <div className="absolute bottom-4 right-4 flex items-center gap-1 bg-white rounded-xl p-1 border border-[var(--polar-frost)] shadow-lg z-10">
+    <div className="absolute bottom-4 right-4 flex items-center gap-1 bg-[var(--card)] rounded-xl p-1 border border-[var(--polar-frost)] shadow-lg z-10">
       <button
         onClick={onZoomOut}
         className="p-1.5 hover:bg-[var(--polar-ice)] rounded-lg transition-colors"

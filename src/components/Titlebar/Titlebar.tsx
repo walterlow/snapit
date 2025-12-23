@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Window } from '@tauri-apps/api/window';
-import { Minus, Square, X, Maximize2, Aperture, Settings } from 'lucide-react';
+import { Minus, Square, X, Maximize2, Aperture, Settings, Sun, Moon } from 'lucide-react';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useTheme } from '@/hooks/useTheme';
 
 interface TitlebarProps {
   title?: string;
@@ -16,6 +17,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const appWindow = Window.getCurrent();
   const { openSettingsModal } = useSettingsStore();
+  const { resolvedTheme, toggleTheme } = useTheme();
 
   useEffect(() => {
     // Check initial maximized state
@@ -69,6 +71,18 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
       {/* Right: Window Controls */}
       <div className="titlebar-controls">
+        <button
+          onClick={toggleTheme}
+          className="titlebar-button"
+          aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {resolvedTheme === 'dark' ? (
+            <Sun className="w-3.5 h-3.5" />
+          ) : (
+            <Moon className="w-3.5 h-3.5" />
+          )}
+        </button>
         <button
           onClick={() => openSettingsModal()}
           className="titlebar-button"

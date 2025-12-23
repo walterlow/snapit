@@ -39,7 +39,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
       />
 
       {/* Modal */}
-      <div className="relative bg-white border border-[var(--polar-frost)] rounded-lg shadow-2xl w-[560px] mx-4 max-h-[80vh] flex flex-col overflow-hidden animate-scale-in">
+      <div className="relative bg-[var(--card)] border border-[var(--polar-frost)] rounded-lg shadow-2xl w-[560px] mx-4 max-h-[80vh] flex flex-col overflow-hidden animate-scale-in">
         {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-[var(--polar-frost)] bg-[var(--polar-ice)]">
           <h2 className="text-lg font-semibold text-[var(--ink-black)]">
@@ -60,7 +60,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
           className="flex-1 min-h-0 flex flex-col"
         >
           {/* Sticky Tabs */}
-          <div className="flex-shrink-0 px-5 pt-4 border-b border-[var(--polar-frost)] bg-white">
+          <div className="flex-shrink-0 px-5 pt-4 border-b border-[var(--polar-frost)] bg-[var(--card)]">
             <TabsList className="relative w-full justify-start bg-transparent p-0 h-auto">
               <TabsTrigger
                 value="general"

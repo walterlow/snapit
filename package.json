@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "update-server": "node scripts/update-test-server.js"
+    "update-server": "node scripts/update-test-server.js",
+    "bump": "node scripts/bump-version.cjs",
+    "release": "node scripts/bump-version.cjs patch --push"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",

@@ -310,6 +310,22 @@ body {
 }
 
 /* ========================================
+   LIBRARY GRID - Optimized for resize performance  
+   ======================================== */
+
+.library-scroll {
+  contain: strict;
+  overflow-anchor: none;
+}
+
+.capture-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  contain: layout style;
+}
+
+/* ========================================
    CARD STYLES - Clean & Elevated
    ======================================== */
 
@@ -321,9 +337,10 @@ body {
   overflow: hidden;
   cursor: pointer;
   box-shadow: var(--shadow-card);
-  /* GPU acceleration for smooth animations */
-  will-change: transform, opacity;
-  contain: layout style;
+  contain: layout style paint;
+  /* Skip rendering for off-screen cards */
+  content-visibility: auto;
+  contain-intrinsic-size: 240px 200px;
 }
 
 .capture-card:hover,
@@ -659,11 +676,10 @@ body {
 .capture-row {
   opacity: 0;
   transform: translateY(8px);
-  /* Transition for both entry animation and hover effects */
+  /* Transition for entry animation and hover effects - avoid box-shadow (expensive) */
   transition: 
     opacity var(--duration-normal) var(--ease-out),
     transform var(--duration-normal) var(--ease-smooth),
-    box-shadow var(--duration-normal) var(--ease-smooth),
     border-color var(--duration-normal) var(--ease-smooth),
     background-color var(--duration-normal) var(--ease-smooth);
 }
@@ -672,6 +688,12 @@ body {
 .capture-row.in-view {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* Only enable GPU acceleration on hover to avoid layer explosion */
+.capture-card:hover,
+.capture-row:hover {
+  will-change: transform;
 }
 
 /* Hover states need to override the in-view transform */
@@ -726,8 +748,10 @@ body {
   border-radius: 12px;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  will-change: transform, opacity;
-  contain: layout style;
+  contain: layout style paint;
+  /* Skip rendering for off-screen rows */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
 }
 
 .capture-row:hover,

@@ -294,10 +294,7 @@ export const CaptureLibrary: React.FC = () => {
         {dateGroups.map((group, groupIndex) => (
           <div key={group.label}>
             <DateHeader label={group.label} count={group.captures.length} isFirst={groupIndex === 0} />
-            <div
-              className="grid gap-5"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}
-            >
+            <div className="capture-grid">
               {group.captures.map((capture) => (
                 <CaptureCard
                   key={capture.id}
@@ -376,7 +373,7 @@ export const CaptureLibrary: React.FC = () => {
         {/* Content - Scrollable area with marquee selection */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto p-8 relative select-none"
+          className="flex-1 overflow-auto p-8 relative select-none library-scroll"
           onMouseDown={handleMarqueeMouseDown}
           onMouseMove={handleMarqueeMouseMove}
           onMouseUp={handleMarqueeMouseUp}
@@ -395,10 +392,7 @@ export const CaptureLibrary: React.FC = () => {
           )}
 
           {loading ? (
-            <div
-              className="grid gap-5"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}
-            >
+            <div className="capture-grid">
               {[...Array(6)].map((_, i) => (
                 <div
                   key={i}

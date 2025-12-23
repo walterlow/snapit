@@ -74,7 +74,7 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
               )}
               {/* Loading Overlay */}
               {isLoading && (
-                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded animate-fade-in">
+                <div className="absolute inset-0 bg-white/95 flex items-center justify-center rounded animate-fade-in">
                   <Loader2 className="w-4 h-4 text-[var(--coral-400)] animate-spin" />
                 </div>
               )}

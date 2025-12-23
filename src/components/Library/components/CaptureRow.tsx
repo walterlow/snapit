@@ -1,6 +1,6 @@
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, Check, AlertTriangle } from 'lucide-react';
+import { Star, Trash2, Check, AlertTriangle, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
@@ -17,6 +17,7 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
     capture,
     selected,
     staggerIndex,
+    isLoading,
     onSelect,
     onToggleFavorite,
     onDelete,
@@ -24,6 +25,7 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
     onCopyToClipboard,
     formatDate,
   }) => {
+    const [thumbLoaded, setThumbLoaded] = useState(false);
     const isMissing = capture.is_missing;
     const thumbnailSrc = isMissing ? '' : convertFileSrc(capture.thumbnail_path);
 
@@ -42,13 +44,30 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
             </div>
 
             {/* Thumbnail */}
-            <div className={`row-thumbnail ${isMissing ? 'opacity-60' : ''}`}>
+            <div className={`row-thumbnail relative ${isMissing ? 'opacity-60' : ''}`}>
               {isMissing ? (
                 <div className="w-full h-full flex items-center justify-center bg-[var(--polar-mist)]">
                   <AlertTriangle className="w-5 h-5 text-amber-500" />
                 </div>
               ) : (
-                <img src={thumbnailSrc} alt="Capture" loading="lazy" />
+                <>
+                  {!thumbLoaded && (
+                    <div className="absolute inset-0 bg-[var(--polar-mist)] animate-pulse rounded" />
+                  )}
+                  <img
+                    src={thumbnailSrc}
+                    alt="Capture"
+                    loading="lazy"
+                    onLoad={() => setThumbLoaded(true)}
+                    className={`transition-opacity duration-200 ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
+                  />
+                </>
+              )}
+              {/* Loading Overlay */}
+              {isLoading && (
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded animate-fade-in">
+                  <Loader2 className="w-4 h-4 text-[var(--coral-400)] animate-spin" />
+                </div>
               )}
             </div>
 

@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Star, Trash2, Check, Loader2, AlertTriangle } from 'lucide-react';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
@@ -11,6 +11,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     capture,
     selected,
     staggerIndex,
+    isLoading,
     onSelect,
     onToggleFavorite,
     onDelete,
@@ -18,6 +19,8 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     onCopyToClipboard,
     formatDate,
   }) => {
+    const [thumbLoaded, setThumbLoaded] = useState(false);
+
     // Check if this is a placeholder (optimistic update, saving in progress)
     const isPlaceholder = capture.id.startsWith('temp_') || !capture.thumbnail_path;
     const isMissing = capture.is_missing;
@@ -44,7 +47,19 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                   <span className="text-xs text-[var(--ink-subtle)]">File missing</span>
                 </div>
               ) : (
-                <img src={thumbnailSrc} alt="Capture" loading="lazy" />
+                <>
+                  {/* Skeleton placeholder until image loads */}
+                  {!thumbLoaded && (
+                    <div className="absolute inset-0 bg-[var(--polar-mist)] animate-pulse" />
+                  )}
+                  <img
+                    src={thumbnailSrc}
+                    alt="Capture"
+                    loading="lazy"
+                    onLoad={() => setThumbLoaded(true)}
+                    className={`transition-opacity duration-200 ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
+                  />
+                </>
               )}
 
               {/* Selection Checkbox */}
@@ -71,6 +86,13 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
 
               {/* Hover Overlay */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+              {/* Loading Overlay - shown when opening this capture */}
+              {isLoading && (
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 animate-fade-in">
+                  <Loader2 className="w-6 h-6 text-[var(--coral-400)] animate-spin" />
+                </div>
+              )}
             </div>
 
             {/* Card Footer */}

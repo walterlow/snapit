@@ -5,6 +5,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
+import { Loader2 } from 'lucide-react';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { DeleteDialog } from './components/Library/components/DeleteDialog';
@@ -43,6 +44,7 @@ function App() {
     setHasUnsavedChanges,
     loadCaptures,
     deleteCapture,
+    loadingProjectId,
   } = useCaptureStore();
 
   // Editor state from store
@@ -581,14 +583,46 @@ function App() {
     }
   };
 
-  // Go back to library
-  const handleBack = async () => {
-    await saveProjectAnnotations();
-    clearEditor();
-    clearHistory(); // Clear undo history
+  // Go back to library - transition immediately, save in background
+  const handleBack = () => {
+    // Capture data for background save BEFORE clearing
+    const projectToSave = currentProject;
+    const shapesToSave = [...shapes];
+    const boundsToSave = canvasBounds;
+    const compositorToSave = { ...compositorSettings };
+
+    // Switch view immediately - library stays mounted so it's instant
+    setView('library');
     setCurrentProject(null);
     setCurrentImageData(null);
-    setView('library');
+
+    // Defer cleanup and save to next frame so UI updates first
+    requestAnimationFrame(() => {
+      clearEditor();
+      clearHistory();
+
+      // Save annotations in background (fire and forget)
+      if (projectToSave) {
+        const annotations = shapesToSave.map((shape) => ({ ...shape }));
+        if (boundsToSave) {
+          annotations.push({
+            id: '__crop_bounds__',
+            type: '__crop_bounds__',
+            width: boundsToSave.width,
+            height: boundsToSave.height,
+            imageOffsetX: boundsToSave.imageOffsetX,
+            imageOffsetY: boundsToSave.imageOffsetY,
+          } as any);
+        }
+        annotations.push({
+          id: '__compositor_settings__',
+          type: '__compositor_settings__',
+          ...compositorToSave,
+        } as any);
+
+        updateAnnotations(annotations).catch(() => {});
+      }
+    });
   };
 
   // Keyboard shortcuts for save/copy (separate useEffect since these handlers are defined later)
@@ -639,57 +673,68 @@ function App() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0">
-        {view === 'library' ? (
+        {/* Library - keep mounted, hide with CSS */}
+        <div className={`flex-1 flex flex-col min-h-0 ${view === 'library' ? '' : 'hidden'}`}>
           <CaptureLibrary />
-        ) : (
-          <>
-            {/* Editor Area with optional Sidebar */}
-            <div className="flex-1 flex min-h-0">
-              {/* Canvas Area - flex-1 takes remaining space */}
-              <div className="flex-1 overflow-hidden min-h-0 relative">
-                {currentImageData && (
-                  <EditorCanvas
-                    imageData={currentImageData}
-                    selectedTool={selectedTool}
-                    onToolChange={handleToolChange}
-                    strokeColor={strokeColor}
-                    fillColor={fillColor}
-                    strokeWidth={strokeWidth}
-                    shapes={shapes}
-                    onShapesChange={handleShapesChange}
-                    stageRef={stageRef}
-                  />
-                )}
-              </div>
+        </div>
 
-              {/* Properties Sidebar - always visible */}
-              <PropertiesPanel
-                selectedTool={selectedTool}
-                strokeColor={strokeColor}
-                onStrokeColorChange={setStrokeColor}
-                fillColor={fillColor}
-                onFillColorChange={setFillColor}
-                strokeWidth={strokeWidth}
-                onStrokeWidthChange={setStrokeWidth}
-              />
+        {/* Editor - keep mounted, hide with CSS */}
+        <div className={`flex-1 flex flex-col min-h-0 ${view === 'editor' ? '' : 'hidden'}`}>
+          {/* Editor Area with optional Sidebar */}
+          <div className="flex-1 flex min-h-0">
+            {/* Canvas Area - flex-1 takes remaining space */}
+            <div className="flex-1 overflow-hidden min-h-0 relative">
+              {/* Loading state while fetching project data */}
+              {loadingProjectId && !currentImageData && (
+                <div className="absolute inset-0 flex items-center justify-center z-50 bg-[var(--polar-mist)]">
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="w-8 h-8 text-[var(--coral-400)] animate-spin" />
+                    <span className="text-sm text-[var(--ink-subtle)]">Loading capture...</span>
+                  </div>
+                </div>
+              )}
+              {currentImageData && (
+                <EditorCanvas
+                  imageData={currentImageData}
+                  selectedTool={selectedTool}
+                  onToolChange={handleToolChange}
+                  strokeColor={strokeColor}
+                  fillColor={fillColor}
+                  strokeWidth={strokeWidth}
+                  shapes={shapes}
+                  onShapesChange={handleShapesChange}
+                  stageRef={stageRef}
+                />
+              )}
             </div>
 
-            {/* Toolbar */}
-            <Toolbar
+            {/* Properties Sidebar - always visible */}
+            <PropertiesPanel
               selectedTool={selectedTool}
-              onToolChange={handleToolChange}
-              onCopy={handleCopy}
-              onSave={handleSave}
-              onSaveAs={handleSaveAs}
-              onBack={handleBack}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              onDelete={handleRequestDelete}
-              isCopying={isCopying}
-              isSaving={isSaving}
+              strokeColor={strokeColor}
+              onStrokeColorChange={setStrokeColor}
+              fillColor={fillColor}
+              onFillColorChange={setFillColor}
+              strokeWidth={strokeWidth}
+              onStrokeWidthChange={setStrokeWidth}
             />
-          </>
-        )}
+          </div>
+
+          {/* Toolbar */}
+          <Toolbar
+            selectedTool={selectedTool}
+            onToolChange={handleToolChange}
+            onCopy={handleCopy}
+            onSave={handleSave}
+            onSaveAs={handleSaveAs}
+            onBack={handleBack}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onDelete={handleRequestDelete}
+            isCopying={isCopying}
+            isSaving={isSaving}
+          />
+        </div>
       </div>
 
       {/* Delete Confirmation Dialog */}

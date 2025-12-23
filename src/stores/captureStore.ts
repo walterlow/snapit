@@ -20,6 +20,10 @@ interface CaptureState {
   currentImageData: string | null;
   hasUnsavedChanges: boolean;
 
+  // Loading states for optimistic UI
+  loadingProjectId: string | null; // Which project is being loaded into editor
+  skipStagger: boolean; // Skip stagger animation when returning from editor
+
   // Filter/search state
   searchQuery: string;
   filterFavorites: boolean;
@@ -56,6 +60,7 @@ interface CaptureState {
   setSearchQuery: (query: string) => void;
   setFilterFavorites: (value: boolean) => void;
   setFilterTags: (tags: string[]) => void;
+  setSkipStagger: (value: boolean) => void;
   clearCurrentProject: () => void;
   setHasUnsavedChanges: (value: boolean) => void;
   setView: (view: 'library' | 'editor') => void;
@@ -109,6 +114,8 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   currentProject: null,
   currentImageData: null,
   hasUnsavedChanges: false,
+  loadingProjectId: null,
+  skipStagger: false,
   searchQuery: '',
   filterFavorites: false,
   filterTags: [],
@@ -127,7 +134,8 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   },
 
   loadProject: async (id: string) => {
-    set({ loading: true, error: null });
+    // Immediately switch to editor view for snappy feel - show loading in editor
+    set({ loadingProjectId: id, error: null, view: 'editor' });
     try {
       const [project, imageData] = await Promise.all([
         invoke<CaptureProject>('get_project', { projectId: id }),
@@ -137,11 +145,11 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
         currentProject: project,
         currentImageData: imageData,
         hasUnsavedChanges: false,
-        loading: false,
-        view: 'editor',
+        loadingProjectId: null,
       });
     } catch (error) {
-      set({ error: String(error), loading: false });
+      // On error, go back to library
+      set({ error: String(error), loadingProjectId: null, view: 'library' });
     }
   },
 
@@ -336,6 +344,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   setSearchQuery: (query: string) => set({ searchQuery: query }),
   setFilterFavorites: (value: boolean) => set({ filterFavorites: value }),
   setFilterTags: (tags: string[]) => set({ filterTags: tags }),
+  setSkipStagger: (value: boolean) => set({ skipStagger: value }),
   clearCurrentProject: () =>
     set({
       currentProject: null,

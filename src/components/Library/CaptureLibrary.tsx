@@ -70,6 +70,7 @@ function groupCapturesByDate(captures: CaptureListItem[]): DateGroup[] {
 export const CaptureLibrary: React.FC = () => {
   const {
     loading,
+    loadingProjectId,
     loadCaptures,
     loadProject,
     deleteCapture,
@@ -296,6 +297,7 @@ export const CaptureLibrary: React.FC = () => {
                     capture={capture}
                     selected={selectedIds.has(capture.id)}
                     staggerIndex={currentIndex}
+                    isLoading={loadingProjectId === capture.id}
                     onSelect={handleSelect}
                     onToggleFavorite={() => toggleFavorite(capture.id)}
                     onDelete={() => handleRequestDeleteSingle(capture.id)}
@@ -330,6 +332,7 @@ export const CaptureLibrary: React.FC = () => {
                     capture={capture}
                     selected={selectedIds.has(capture.id)}
                     staggerIndex={currentIndex}
+                    isLoading={loadingProjectId === capture.id}
                     onSelect={handleSelect}
                     onToggleFavorite={() => toggleFavorite(capture.id)}
                     onDelete={() => handleRequestDeleteSingle(capture.id)}

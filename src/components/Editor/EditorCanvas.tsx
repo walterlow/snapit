@@ -2,6 +2,7 @@ import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { Stage, Layer, Image, Rect, Group, Transformer } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
+import { Loader2 } from 'lucide-react';
 import { useFastImage } from '../../hooks/useFastImage';
 import type { Tool, CanvasShape } from '../../types';
 import { useEditorStore, takeSnapshot, commitSnapshot } from '../../stores/editorStore';
@@ -120,12 +121,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
   // Use fast image hook for RGBA files (skips PNG encoding entirely!)
   // Returns HTMLCanvasElement for RGBA, which Konva supports directly
-  const [fastImage] = useFastImage(isRgbaFile ? imageData : null);
+  const [fastImage, fastImageStatus] = useFastImage(isRgbaFile ? imageData : null);
   // Use standard hook for base64 data
-  const [standardImage] = useImage(imageUrl ?? '');
+  const [standardImage, standardImageStatus] = useImage(imageUrl ?? '');
 
   // Use whichever image is loaded (Konva accepts both HTMLImageElement and HTMLCanvasElement)
   const image = (isRgbaFile ? fastImage : standardImage) as HTMLImageElement | undefined;
+  const imageStatus = isRgbaFile ? fastImageStatus : standardImageStatus;
+  const isImageLoading = imageStatus === 'loading';
 
   // Checkerboard pattern for transparency
   const [checkerPatternImage] = React.useState(() => createCheckerPattern());
@@ -438,12 +441,22 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       onMouseUp={pan.handleMiddleMouseUp}
       onMouseLeave={pan.handleMiddleMouseUp}
     >
+      {/* Loading overlay - shown while image loads */}
+      {isImageLoading && (
+        <div className="absolute inset-0 flex items-center justify-center z-50 bg-[var(--polar-mist)]">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 text-[var(--coral-400)] animate-spin" />
+            <span className="text-sm text-[var(--ink-subtle)]">Loading image...</span>
+          </div>
+        </div>
+      )}
+
       {/* Canvas content wrapper - fades in when ready to avoid position flash */}
       <div
         className="absolute inset-0 transition-opacity duration-150"
         style={{
-          opacity: navigation.isReady ? 1 : 0,
-          pointerEvents: navigation.isReady ? 'auto' : 'none',
+          opacity: navigation.isReady && !isImageLoading ? 1 : 0,
+          pointerEvents: navigation.isReady && !isImageLoading ? 'auto' : 'none',
         }}
       >
       {/* Composition Preview Background */}

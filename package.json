@@ -9,8 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "update-server": "node scripts/update-test-server.js",
-    "bump": "node scripts/bump-version.cjs",
-    "release": "node scripts/bump-version.cjs patch --push"
+    "version": "node scripts/sync-version.cjs && git add src-tauri/tauri.conf.json src-tauri/Cargo.toml",
+    "release": "npm version patch && git push && git push --tags"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",

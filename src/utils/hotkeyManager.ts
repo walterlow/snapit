@@ -160,8 +160,9 @@ export function formatShortcutForDisplay(shortcut: string): string {
  * Tray menu display names for shortcuts
  */
 const TRAY_MENU_NAMES: Record<string, string> = {
-  region_capture: 'Region Capture',
+  new_capture: 'New Capture',
   fullscreen_capture: 'Fullscreen',
+  all_monitors_capture: 'All Monitors',
 };
 
 /**

@@ -52,7 +52,8 @@ pub fn run() {
                 let _ = window.set_focus();
             }
             println!("Second instance blocked. Args: {:?}, CWD: {:?}", args, cwd);
-        }));
+        }))
+        .plugin(tauri_plugin_window_state::Builder::default().build());
 
     #[cfg(desktop)]
     {

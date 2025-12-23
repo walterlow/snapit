@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -38,7 +39,17 @@ function updateCargoToml(version) {
   console.log(`  Synced Cargo.toml -> ${version}`);
 }
 
+function updateCargoLock() {
+  // Run cargo check to update Cargo.lock with new version
+  execSync('cargo update --workspace', {
+    cwd: path.join(ROOT, 'src-tauri'),
+    stdio: 'inherit'
+  });
+  console.log(`  Synced Cargo.lock`);
+}
+
 const version = getVersion();
 console.log(`\nSyncing version ${version} to Tauri files...`);
 updateTauriConf(version);
 updateCargoToml(version);
+updateCargoLock();

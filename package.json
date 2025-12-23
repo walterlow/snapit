@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "update-server": "node scripts/update-test-server.js",
-    "version": "node scripts/sync-version.cjs && git add src-tauri/tauri.conf.json src-tauri/Cargo.toml",
+    "version": "node scripts/sync-version.cjs && git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock",
     "release": "npm version patch && git push && git push --tags"
   },
   "dependencies": {

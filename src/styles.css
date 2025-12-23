@@ -310,6 +310,16 @@ body {
 }
 
 /* ========================================
+   RESIZE PERFORMANCE - Disable transitions during resize
+   ======================================== */
+
+body.resizing,
+body.resizing * {
+  transition: none !important;
+  animation-duration: 0s !important;
+}
+
+/* ========================================
    LIBRARY GRID - Optimized for resize performance  
    ======================================== */
 

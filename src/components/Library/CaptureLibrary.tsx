@@ -8,7 +8,7 @@ import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore'
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection } from '../../types';
 
-import { useMarqueeSelection, useDragDropImport, useMomentumScroll } from './hooks';
+import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock } from './hooks';
 import {
   DateHeader,
   EmptyState,
@@ -118,6 +118,9 @@ export const CaptureLibrary: React.FC = () => {
 
   // Momentum scroll for smooth acceleration (disabled during marquee selection)
   useMomentumScroll(containerRef, { disabled: isSelecting });
+
+  // Disable transitions during window resize for smoother performance
+  useResizeTransitionLock();
 
   useEffect(() => {
     loadCaptures();

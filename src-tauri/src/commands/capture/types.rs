@@ -80,6 +80,19 @@ pub struct ScreenRegionSelection {
     pub height: u32,
 }
 
+/// Bounding box of all monitors combined (virtual screen bounds).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VirtualScreenBounds {
+    /// X coordinate of the top-left corner (can be negative for left-of-primary monitors)
+    pub x: i32,
+    /// Y coordinate of the top-left corner (can be negative for above-primary monitors)
+    pub y: i32,
+    /// Total width spanning all monitors
+    pub width: u32,
+    /// Total height spanning all monitors
+    pub height: u32,
+}
+
 /// Errors that can occur during capture operations.
 #[derive(Debug)]
 pub enum CaptureError {

@@ -103,22 +103,3 @@ export function exportCanvas(
   return outputCanvas;
 }
 
-/**
- * Convert canvas to blob with specified format
- */
-export function canvasToBlob(
-  canvas: HTMLCanvasElement,
-  mimeType: string = 'image/png',
-  quality?: number
-): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) resolve(blob);
-        else reject(new Error('Failed to create blob'));
-      },
-      mimeType,
-      quality
-    );
-  });
-}

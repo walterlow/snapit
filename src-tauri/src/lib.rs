@@ -84,6 +84,7 @@ pub fn run() {
             commands::capture::capture_fullscreen,
             commands::capture::capture_window,
             commands::capture::get_monitors,
+            commands::capture::get_virtual_screen_bounds,
             commands::capture::get_windows,
             commands::capture::get_window_at_point,
             // Fast capture commands (skip PNG encoding for editor display)
@@ -100,13 +101,7 @@ pub fn run() {
             commands::window::open_editor_fast,
             commands::window::move_overlays_offscreen,
             // Image commands
-            commands::image::save_image,
-            commands::image::save_png_bytes,
-            commands::image::copy_to_clipboard,
-            commands::image::copy_rgba_to_clipboard,
             commands::image::copy_image_to_clipboard,
-            commands::image::crop_image,
-            commands::image::apply_blur_region,
             // Storage commands
             commands::storage::save_capture,
             commands::storage::save_capture_from_file,
@@ -221,26 +216,12 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                 // Capture all monitors combined
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Ok(monitors) = commands::capture::get_monitors().await {
-                        if monitors.is_empty() {
-                            return;
-                        }
-                        // Calculate bounding box of all monitors
-                        let mut min_x = i32::MAX;
-                        let mut min_y = i32::MAX;
-                        let mut max_x = i32::MIN;
-                        let mut max_y = i32::MIN;
-                        for mon in &monitors {
-                            min_x = min_x.min(mon.x);
-                            min_y = min_y.min(mon.y);
-                            max_x = max_x.max(mon.x + mon.width as i32);
-                            max_y = max_y.max(mon.y + mon.height as i32);
-                        }
+                    if let Ok(bounds) = commands::capture::get_virtual_screen_bounds().await {
                         let selection = commands::capture::ScreenRegionSelection {
-                            x: min_x,
-                            y: min_y,
-                            width: (max_x - min_x) as u32,
-                            height: (max_y - min_y) as u32,
+                            x: bounds.x,
+                            y: bounds.y,
+                            width: bounds.width,
+                            height: bounds.height,
                         };
                         if let Ok(result) = commands::capture::capture_screen_region_fast(selection).await {
                             let _ = commands::window::open_editor_fast(

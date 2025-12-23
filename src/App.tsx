@@ -18,7 +18,7 @@ import { useEditorStore, undo, redo, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import { useUpdater } from './hooks/useUpdater';
-import { getContentBounds, calculateExportBounds, exportCanvas, canvasToBlob } from './utils/canvasExport';
+import { getContentBounds, calculateExportBounds, exportCanvas } from './utils/canvasExport';
 import type { Tool, CanvasShape, Annotation, CompositorSettings } from './types';
 
 // Settings Modal Container - uses store for open/close state
@@ -240,38 +240,19 @@ function App() {
 
   const triggerAllMonitorsCapture = useCallback(async () => {
     try {
-      // Get all monitors to calculate full virtual desktop bounds
-      const monitors = await invoke<Array<{
+      // Get virtual screen bounds (calculated in Rust)
+      const bounds = await invoke<{
         x: number;
         y: number;
         width: number;
         height: number;
-      }>>('get_monitors');
-
-      if (monitors.length === 0) {
-        toast.error('No monitors found');
-        return;
-      }
-
-      // Calculate bounding box of all monitors
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const mon of monitors) {
-        minX = Math.min(minX, mon.x);
-        minY = Math.min(minY, mon.y);
-        maxX = Math.max(maxX, mon.x + mon.width);
-        maxY = Math.max(maxY, mon.y + mon.height);
-      }
+      }>('get_virtual_screen_bounds');
 
       // Capture full virtual desktop using screen region
       const result = await invoke<{ file_path: string; width: number; height: number }>(
         'capture_screen_region_fast',
         {
-          selection: {
-            x: minX,
-            y: minY,
-            width: maxX - minX,
-            height: maxY - minY,
-          }
+          selection: bounds
         }
       );
 
@@ -449,7 +430,7 @@ function App() {
     setHasUnsavedChanges(true);
   };
 
-  // Copy to clipboard (native browser API)
+  // Copy to clipboard (browser native API - faster than Rust for clipboard)
   const handleCopy = async () => {
     if (!stageRef.current || !currentImageData) return;
 
@@ -462,11 +443,16 @@ function App() {
       const content = getContentBounds(stage, canvasBounds);
       const bounds = calculateExportBounds(content, compositorSettings);
       const outputCanvas = exportCanvas(stage, layer, bounds);
-      const blob = await canvasToBlob(outputCanvas, 'image/png');
 
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
-      ]);
+      // Browser native clipboard is faster (GPU accelerated, no disk I/O)
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        outputCanvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
+          'image/png'
+        );
+      });
+
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
 
       toast.success('Copied to clipboard');
     } catch {
@@ -506,7 +492,7 @@ function App() {
     await updateAnnotations(annotations);
   }, [currentProject, shapes, canvasBounds, compositorSettings, updateAnnotations]);
 
-  // Save to file (fast - exports directly from Konva)
+  // Save to file (browser toBlob + Tauri writeFile - no IPC serialization)
   const handleSave = async () => {
     if (!stageRef.current || !currentImageData) return;
 
@@ -527,7 +513,14 @@ function App() {
         const content = getContentBounds(stage, canvasBounds);
         const bounds = calculateExportBounds(content, compositorSettings);
         const outputCanvas = exportCanvas(stage, layer, bounds);
-        const blob = await canvasToBlob(outputCanvas, 'image/png');
+
+        // Browser toBlob (GPU accelerated) + Tauri writeFile (direct binary, no IPC overhead)
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          outputCanvas.toBlob(
+            (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
+            'image/png'
+          );
+        });
 
         const arrayBuffer = await blob.arrayBuffer();
         await writeFile(filePath, new Uint8Array(arrayBuffer));
@@ -566,7 +559,15 @@ function App() {
         const content = getContentBounds(stage, canvasBounds);
         const bounds = calculateExportBounds(content, compositorSettings);
         const outputCanvas = exportCanvas(stage, layer, bounds);
-        const blob = await canvasToBlob(outputCanvas, formatInfo.mime, formatInfo.quality);
+
+        // Browser toBlob (GPU accelerated) + Tauri writeFile (direct binary)
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          outputCanvas.toBlob(
+            (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
+            formatInfo.mime,
+            formatInfo.quality
+          );
+        });
 
         const arrayBuffer = await blob.arrayBuffer();
         await writeFile(filePath, new Uint8Array(arrayBuffer));
@@ -589,6 +590,25 @@ function App() {
     setCurrentImageData(null);
     setView('library');
   };
+
+  // Keyboard shortcuts for save/copy (separate useEffect since these handlers are defined later)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (view !== 'editor') return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        e.preventDefault();
+        handleCopy();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [view, handleSave, handleCopy]);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--polar-snow)] overflow-hidden">

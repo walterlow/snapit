@@ -13,7 +13,7 @@ pub mod fallback;
 pub mod types;
 pub mod wgc;
 
-pub use types::{CaptureResult, FastCaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection, WindowInfo};
+pub use types::{CaptureResult, FastCaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection, VirtualScreenBounds, WindowInfo};
 
 use tauri::{command, Emitter};
 use std::io::Write;
@@ -28,6 +28,36 @@ static ACTIVE_WINDOW_DETECT_MONITOR: AtomicI32 = AtomicI32::new(-1);
 #[command]
 pub async fn get_monitors() -> Result<Vec<MonitorInfo>, String> {
     fallback::get_monitors().map_err(|e| e.to_string())
+}
+
+/// Get the bounding box of all monitors combined (virtual screen bounds).
+/// This is useful for capturing all monitors at once.
+#[command]
+pub async fn get_virtual_screen_bounds() -> Result<VirtualScreenBounds, String> {
+    let monitors = fallback::get_monitors().map_err(|e| e.to_string())?;
+
+    if monitors.is_empty() {
+        return Err("No monitors found".to_string());
+    }
+
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for mon in &monitors {
+        min_x = min_x.min(mon.x);
+        min_y = min_y.min(mon.y);
+        max_x = max_x.max(mon.x + mon.width as i32);
+        max_y = max_y.max(mon.y + mon.height as i32);
+    }
+
+    Ok(VirtualScreenBounds {
+        x: min_x,
+        y: min_y,
+        width: (max_x - min_x) as u32,
+        height: (max_y - min_y) as u32,
+    })
 }
 
 /// Get all capturable windows.

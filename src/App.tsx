@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, Activity } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -671,59 +671,61 @@ function App() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Library - keep mounted, hide with CSS */}
-        <div className={`flex-1 flex flex-col min-h-0 ${view === 'library' ? '' : 'hidden'}`}>
+        {/* Library */}
+        <Activity mode={view === 'library' ? 'visible' : 'hidden'}>
           <CaptureLibrary />
-        </div>
+        </Activity>
 
-        {/* Editor - keep mounted, hide with CSS */}
-        <div className={`flex-1 flex flex-col min-h-0 ${view === 'editor' ? '' : 'hidden'}`}>
-          {/* Editor Area with optional Sidebar */}
-          <div className="flex-1 flex min-h-0">
-            {/* Canvas Area - flex-1 takes remaining space */}
-            <div className="flex-1 overflow-hidden min-h-0 relative">
-              {currentImageData && (
-                <EditorCanvas
-                  imageData={currentImageData}
-                  selectedTool={selectedTool}
-                  onToolChange={handleToolChange}
-                  strokeColor={strokeColor}
-                  fillColor={fillColor}
-                  strokeWidth={strokeWidth}
-                  shapes={shapes}
-                  onShapesChange={handleShapesChange}
-                  stageRef={stageRef}
-                />
-              )}
+        {/* Editor */}
+        <Activity mode={view === 'editor' ? 'visible' : 'hidden'}>
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Editor Area with optional Sidebar */}
+            <div className="flex-1 flex min-h-0">
+              {/* Canvas Area - flex-1 takes remaining space */}
+              <div className="flex-1 overflow-hidden min-h-0 relative">
+                {currentImageData && (
+                  <EditorCanvas
+                    imageData={currentImageData}
+                    selectedTool={selectedTool}
+                    onToolChange={handleToolChange}
+                    strokeColor={strokeColor}
+                    fillColor={fillColor}
+                    strokeWidth={strokeWidth}
+                    shapes={shapes}
+                    onShapesChange={handleShapesChange}
+                    stageRef={stageRef}
+                  />
+                )}
+              </div>
+
+              {/* Properties Sidebar - always visible */}
+              <PropertiesPanel
+                selectedTool={selectedTool}
+                strokeColor={strokeColor}
+                onStrokeColorChange={setStrokeColor}
+                fillColor={fillColor}
+                onFillColorChange={setFillColor}
+                strokeWidth={strokeWidth}
+                onStrokeWidthChange={setStrokeWidth}
+              />
             </div>
 
-            {/* Properties Sidebar - always visible */}
-            <PropertiesPanel
+            {/* Toolbar */}
+            <Toolbar
               selectedTool={selectedTool}
-              strokeColor={strokeColor}
-              onStrokeColorChange={setStrokeColor}
-              fillColor={fillColor}
-              onFillColorChange={setFillColor}
-              strokeWidth={strokeWidth}
-              onStrokeWidthChange={setStrokeWidth}
+              onToolChange={handleToolChange}
+              onCopy={handleCopy}
+              onSave={handleSave}
+              onSaveAs={handleSaveAs}
+              onBack={handleBack}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              onDelete={handleRequestDelete}
+              isCopying={isCopying}
+              isSaving={isSaving}
             />
           </div>
-
-          {/* Toolbar */}
-          <Toolbar
-            selectedTool={selectedTool}
-            onToolChange={handleToolChange}
-            onCopy={handleCopy}
-            onSave={handleSave}
-            onSaveAs={handleSaveAs}
-            onBack={handleBack}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            onDelete={handleRequestDelete}
-            isCopying={isCopying}
-            isSaving={isSaving}
-          />
-        </div>
+        </Activity>
       </div>
 
       {/* Delete Confirmation Dialog */}

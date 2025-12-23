@@ -122,7 +122,12 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   view: 'library',
 
   loadCaptures: async () => {
-    set({ loading: true, error: null });
+    // Only show loading skeleton on first load (when no captures exist yet)
+    // This prevents skeleton flash when returning from editor
+    const hasExistingCaptures = get().captures.length > 0;
+    if (!hasExistingCaptures) {
+      set({ loading: true, error: null });
+    }
     try {
       const captures = await invoke<CaptureListItem[]>('get_capture_list');
       // Preserve any pending temp captures (optimistic updates in progress)

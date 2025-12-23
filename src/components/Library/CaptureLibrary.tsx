@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, format, formatDistanceToNow } from 'date-fns';
@@ -289,67 +289,62 @@ export const CaptureLibrary: React.FC = () => {
     }
   };
 
-  const renderCaptureGrid = () => {
-    const dateGroups = groupCapturesByDate(captures);
+  // Memoize date grouping - expensive operation that only needs to recalculate when captures change
+  const dateGroups = useMemo(() => groupCapturesByDate(captures), [captures]);
 
-    return (
-      <div className="space-y-0">
-        {dateGroups.map((group, groupIndex) => (
-          <div key={group.label}>
-            <DateHeader label={group.label} count={group.captures.length} isFirst={groupIndex === 0} />
-            <div className="capture-grid">
-              {group.captures.map((capture) => (
-                <CaptureCard
-                  key={capture.id}
-                  capture={capture}
-                  selected={selectedIds.has(capture.id)}
-                  isLoading={loadingProjectId === capture.id}
-                  onSelect={handleSelect}
-                  onOpen={handleOpen}
-                  onToggleFavorite={() => toggleFavorite(capture.id)}
-                  onDelete={() => handleRequestDeleteSingle(capture.id)}
-                  onOpenInFolder={() => handleOpenInFolder(capture)}
-                  onCopyToClipboard={() => handleCopyToClipboard(capture)}
-                  formatDate={formatDate}
-                />
-              ))}
-            </div>
+  const renderCaptureGrid = () => (
+    <div className="space-y-0">
+      {dateGroups.map((group, groupIndex) => (
+        <div key={group.label}>
+          <DateHeader label={group.label} count={group.captures.length} isFirst={groupIndex === 0} />
+          <div className="capture-grid">
+            {group.captures.map((capture) => (
+              <CaptureCard
+                key={capture.id}
+                capture={capture}
+                selected={selectedIds.has(capture.id)}
+                isLoading={loadingProjectId === capture.id}
+                onSelect={handleSelect}
+                onOpen={handleOpen}
+                onToggleFavorite={() => toggleFavorite(capture.id)}
+                onDelete={() => handleRequestDeleteSingle(capture.id)}
+                onOpenInFolder={() => handleOpenInFolder(capture)}
+                onCopyToClipboard={() => handleCopyToClipboard(capture)}
+                formatDate={formatDate}
+              />
+            ))}
           </div>
-        ))}
-      </div>
-    );
-  };
+        </div>
+      ))}
+    </div>
+  );
 
-  const renderCaptureList = () => {
-    const dateGroups = groupCapturesByDate(captures);
-
-    return (
-      <div className="space-y-0">
-        {dateGroups.map((group, groupIndex) => (
-          <div key={group.label}>
-            <DateHeader label={group.label} count={group.captures.length} isFirst={groupIndex === 0} />
-            <div className="flex flex-col gap-2">
-              {group.captures.map((capture) => (
-                <CaptureRow
-                  key={capture.id}
-                  capture={capture}
-                  selected={selectedIds.has(capture.id)}
-                  isLoading={loadingProjectId === capture.id}
-                  onSelect={handleSelect}
-                  onOpen={handleOpen}
-                  onToggleFavorite={() => toggleFavorite(capture.id)}
-                  onDelete={() => handleRequestDeleteSingle(capture.id)}
-                  onOpenInFolder={() => handleOpenInFolder(capture)}
-                  onCopyToClipboard={() => handleCopyToClipboard(capture)}
-                  formatDate={formatDate}
-                />
-              ))}
-            </div>
+  const renderCaptureList = () => (
+    <div className="space-y-0">
+      {dateGroups.map((group, groupIndex) => (
+        <div key={group.label}>
+          <DateHeader label={group.label} count={group.captures.length} isFirst={groupIndex === 0} />
+          <div className="flex flex-col gap-2">
+            {group.captures.map((capture) => (
+              <CaptureRow
+                key={capture.id}
+                capture={capture}
+                selected={selectedIds.has(capture.id)}
+                isLoading={loadingProjectId === capture.id}
+                onSelect={handleSelect}
+                onOpen={handleOpen}
+                onToggleFavorite={() => toggleFavorite(capture.id)}
+                onDelete={() => handleRequestDeleteSingle(capture.id)}
+                onOpenInFolder={() => handleOpenInFolder(capture)}
+                onCopyToClipboard={() => handleCopyToClipboard(capture)}
+                formatDate={formatDate}
+              />
+            ))}
           </div>
-        ))}
-      </div>
-    );
-  };
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={300}>

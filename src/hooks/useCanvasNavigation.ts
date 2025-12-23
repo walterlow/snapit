@@ -190,7 +190,7 @@ export const useCanvasNavigation = ({
   // Throttled container size update - limits updates during resize drag
   useEffect(() => {
     let lastUpdateTime = 0;
-    const THROTTLE_MS = 50; // Update at most every 50ms during resize
+    const THROTTLE_MS = 100; // Update at most every 100ms during resize
 
     const updateContainerSize = () => {
       if (containerRef.current) {

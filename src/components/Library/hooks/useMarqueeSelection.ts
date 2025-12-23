@@ -58,19 +58,22 @@ export function useMarqueeSelection({
   const getSelectedCapturesInRect = useCallback(() => {
     if (!containerRef.current) return new Set<string>();
 
+    const container = containerRef.current;
     const selectionRect = getSelectionRect();
-    const containerRect = containerRef.current.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
 
-    // Adjust selection rect to be relative to viewport
+    // Convert selection rect from content coordinates to viewport coordinates
+    // selectionRect is in content space (includes scroll offset from when points were captured)
+    // We need viewport space to compare with getBoundingClientRect()
     const viewportSelectionRect = {
-      left: selectionRect.left + containerRect.left,
-      top: selectionRect.top + containerRect.top,
+      left: selectionRect.left + containerRect.left - container.scrollLeft,
+      top: selectionRect.top + containerRect.top - container.scrollTop,
       width: selectionRect.width,
       height: selectionRect.height,
     };
 
     const selected = new Set<string>();
-    const cards = containerRef.current.querySelectorAll('[data-capture-id]');
+    const cards = container.querySelectorAll('[data-capture-id]');
 
     cards.forEach((card) => {
       const cardRect = card.getBoundingClientRect();

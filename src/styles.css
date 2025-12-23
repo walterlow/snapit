@@ -165,6 +165,12 @@ body {
   background: var(--polar-ice);
 }
 
+/* Smooth momentum scrolling */
+.scroll-smooth {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ========================================
    CUSTOM TITLEBAR
    ======================================== */

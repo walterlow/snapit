@@ -278,7 +278,6 @@ export const CaptureLibrary: React.FC = () => {
 
   const renderCaptureGrid = () => {
     const dateGroups = groupCapturesByDate(captures);
-    let staggerIndex = 0;
 
     return (
       <div className="space-y-0">
@@ -286,27 +285,23 @@ export const CaptureLibrary: React.FC = () => {
           <div key={group.label}>
             <DateHeader label={group.label} count={group.captures.length} isFirst={groupIndex === 0} />
             <div
-              className="grid gap-5 stagger-grid"
+              className="grid gap-5"
               style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}
             >
-              {group.captures.map((capture) => {
-                const currentIndex = staggerIndex++;
-                return (
-                  <CaptureCard
-                    key={capture.id}
-                    capture={capture}
-                    selected={selectedIds.has(capture.id)}
-                    staggerIndex={currentIndex}
-                    isLoading={loadingProjectId === capture.id}
-                    onSelect={handleSelect}
-                    onToggleFavorite={() => toggleFavorite(capture.id)}
-                    onDelete={() => handleRequestDeleteSingle(capture.id)}
-                    onOpenInFolder={() => handleOpenInFolder(capture)}
-                    onCopyToClipboard={() => handleCopyToClipboard(capture)}
-                    formatDate={formatDate}
-                  />
-                );
-              })}
+              {group.captures.map((capture) => (
+                <CaptureCard
+                  key={capture.id}
+                  capture={capture}
+                  selected={selectedIds.has(capture.id)}
+                  isLoading={loadingProjectId === capture.id}
+                  onSelect={handleSelect}
+                  onToggleFavorite={() => toggleFavorite(capture.id)}
+                  onDelete={() => handleRequestDeleteSingle(capture.id)}
+                  onOpenInFolder={() => handleOpenInFolder(capture)}
+                  onCopyToClipboard={() => handleCopyToClipboard(capture)}
+                  formatDate={formatDate}
+                />
+              ))}
             </div>
           </div>
         ))}
@@ -316,32 +311,27 @@ export const CaptureLibrary: React.FC = () => {
 
   const renderCaptureList = () => {
     const dateGroups = groupCapturesByDate(captures);
-    let staggerIndex = 0;
 
     return (
       <div className="space-y-0">
         {dateGroups.map((group, groupIndex) => (
           <div key={group.label}>
             <DateHeader label={group.label} count={group.captures.length} isFirst={groupIndex === 0} />
-            <div className="flex flex-col gap-2 stagger-grid">
-              {group.captures.map((capture) => {
-                const currentIndex = staggerIndex++;
-                return (
-                  <CaptureRow
-                    key={capture.id}
-                    capture={capture}
-                    selected={selectedIds.has(capture.id)}
-                    staggerIndex={currentIndex}
-                    isLoading={loadingProjectId === capture.id}
-                    onSelect={handleSelect}
-                    onToggleFavorite={() => toggleFavorite(capture.id)}
-                    onDelete={() => handleRequestDeleteSingle(capture.id)}
-                    onOpenInFolder={() => handleOpenInFolder(capture)}
-                    onCopyToClipboard={() => handleCopyToClipboard(capture)}
-                    formatDate={formatDate}
-                  />
-                );
-              })}
+            <div className="flex flex-col gap-2">
+              {group.captures.map((capture) => (
+                <CaptureRow
+                  key={capture.id}
+                  capture={capture}
+                  selected={selectedIds.has(capture.id)}
+                  isLoading={loadingProjectId === capture.id}
+                  onSelect={handleSelect}
+                  onToggleFavorite={() => toggleFavorite(capture.id)}
+                  onDelete={() => handleRequestDeleteSingle(capture.id)}
+                  onOpenInFolder={() => handleOpenInFolder(capture)}
+                  onCopyToClipboard={() => handleCopyToClipboard(capture)}
+                  formatDate={formatDate}
+                />
+              ))}
             </div>
           </div>
         ))}

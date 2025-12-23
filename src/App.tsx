@@ -5,7 +5,6 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
-import { Loader2 } from 'lucide-react';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { DeleteDialog } from './components/Library/components/DeleteDialog';
@@ -44,7 +43,6 @@ function App() {
     setHasUnsavedChanges,
     loadCaptures,
     deleteCapture,
-    loadingProjectId,
   } = useCaptureStore();
 
   // Editor state from store
@@ -684,15 +682,6 @@ function App() {
           <div className="flex-1 flex min-h-0">
             {/* Canvas Area - flex-1 takes remaining space */}
             <div className="flex-1 overflow-hidden min-h-0 relative">
-              {/* Loading state while fetching project data */}
-              {loadingProjectId && !currentImageData && (
-                <div className="absolute inset-0 flex items-center justify-center z-50 bg-[var(--polar-mist)]">
-                  <div className="flex flex-col items-center gap-3">
-                    <Loader2 className="w-8 h-8 text-[var(--coral-400)] animate-spin" />
-                    <span className="text-sm text-[var(--ink-subtle)]">Loading capture...</span>
-                  </div>
-                </div>
-              )}
               {currentImageData && (
                 <EditorCanvas
                   imageData={currentImageData}

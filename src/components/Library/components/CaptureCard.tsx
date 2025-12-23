@@ -3,6 +3,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { Star, Trash2, Check, Loader2, AlertTriangle } from 'lucide-react';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CaptureContextMenu } from './CaptureContextMenu';
+import { useInViewAnimation } from '../hooks';
 import type { CaptureCardProps } from './types';
 import { capturePropsAreEqual } from './types';
 
@@ -10,7 +11,6 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
   ({
     capture,
     selected,
-    staggerIndex,
     isLoading,
     onSelect,
     onToggleFavorite,
@@ -20,6 +20,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     formatDate,
   }) => {
     const [thumbLoaded, setThumbLoaded] = useState(false);
+    const { ref, isVisible } = useInViewAnimation();
 
     // Check if this is a placeholder (optimistic update, saving in progress)
     const isPlaceholder = capture.id.startsWith('temp_') || !capture.thumbnail_path;
@@ -30,8 +31,8 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
-            className={`capture-card group ${selected ? 'selected' : ''}`}
-            style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
+            ref={ref}
+            className={`capture-card group ${selected ? 'selected' : ''} ${isVisible ? 'in-view' : ''}`}
             data-capture-id={capture.id}
             onClick={(e) => onSelect(capture.id, e)}
           >

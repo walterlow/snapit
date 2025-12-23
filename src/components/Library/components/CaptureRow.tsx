@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/tooltip';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CaptureContextMenu } from './CaptureContextMenu';
+import { useInViewAnimation } from '../hooks';
 import type { CaptureCardProps } from './types';
 import { capturePropsAreEqual } from './types';
 
@@ -16,7 +17,6 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
   ({
     capture,
     selected,
-    staggerIndex,
     isLoading,
     onSelect,
     onToggleFavorite,
@@ -26,6 +26,7 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
     formatDate,
   }) => {
     const [thumbLoaded, setThumbLoaded] = useState(false);
+    const { ref, isVisible } = useInViewAnimation();
     const isMissing = capture.is_missing;
     const thumbnailSrc = isMissing ? '' : convertFileSrc(capture.thumbnail_path);
 
@@ -33,8 +34,8 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
-            className={`capture-row group ${selected ? 'selected' : ''}`}
-            style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
+            ref={ref}
+            className={`capture-row group ${selected ? 'selected' : ''} ${isVisible ? 'in-view' : ''}`}
             data-capture-id={capture.id}
             onClick={(e) => onSelect(capture.id, e)}
           >

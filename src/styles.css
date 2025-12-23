@@ -314,19 +314,14 @@ body {
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  /* Specific properties to avoid transitions during grid reflow */
-  transition: transform var(--duration-normal) var(--ease-smooth),
-              box-shadow var(--duration-normal) var(--ease-smooth),
-              border-color var(--duration-normal) var(--ease-smooth);
   box-shadow: var(--shadow-card);
   /* GPU acceleration for smooth animations */
-  will-change: transform;
+  will-change: transform, opacity;
   contain: layout style;
 }
 
 .capture-card:hover {
   border-color: var(--polar-steel);
-  transform: translateY(-2px);
   box-shadow: var(--shadow-card-hover);
 }
 
@@ -651,19 +646,33 @@ body {
   animation: scaleIn var(--duration-normal) var(--ease-spring) forwards;
 }
 
-/* Staggered grid animation - uses CSS custom property for dynamic delay */
-.stagger-grid {
-  /* Scope layout recalculations to this container */
-  contain: layout style;
-  /* Default stagger interval */
-  --stagger-interval: 20ms;
+/* In-view animation - items animate when they enter viewport */
+.capture-card,
+.capture-row {
+  opacity: 0;
+  transform: translateY(8px);
+  /* Transition for both entry animation and hover effects */
+  transition: 
+    opacity var(--duration-normal) var(--ease-out),
+    transform var(--duration-normal) var(--ease-smooth),
+    box-shadow var(--duration-normal) var(--ease-smooth),
+    border-color var(--duration-normal) var(--ease-smooth),
+    background-color var(--duration-normal) var(--ease-smooth);
 }
 
-.stagger-grid > * {
-  opacity: 0;
-  /* Use --stagger-index set inline, fallback to 0 */
-  animation: slideUp var(--duration-normal) var(--ease-out) forwards;
-  animation-delay: calc(var(--stagger-index, 0) * var(--stagger-interval));
+.capture-card.in-view,
+.capture-row.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Hover states need to override the in-view transform */
+.capture-card.in-view:hover {
+  transform: translateY(-2px);
+}
+
+.capture-row.in-view:hover {
+  transform: translateX(2px);
 }
 
 /* ========================================
@@ -706,19 +715,14 @@ body {
   border: 1px solid var(--polar-frost);
   border-radius: 12px;
   cursor: pointer;
-  /* Specific properties to avoid transitions during layout reflow */
-  transition: transform var(--duration-fast) var(--ease-smooth),
-              background-color var(--duration-fast) var(--ease-smooth),
-              border-color var(--duration-fast) var(--ease-smooth);
   box-shadow: var(--shadow-sm);
-  will-change: transform;
+  will-change: transform, opacity;
   contain: layout style;
 }
 
 .capture-row:hover {
   background: var(--polar-ice);
   border-color: var(--polar-steel);
-  transform: translateX(2px);
 }
 
 .capture-row.selected {

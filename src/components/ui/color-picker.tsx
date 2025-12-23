@@ -1,6 +1,7 @@
 import * as React from 'react';
 import Wheel from '@uiw/react-color-wheel';
-import { hsvaToHex, hexToHsva } from '@uiw/color-convert';
+import Alpha from '@uiw/react-color-alpha';
+import { hsvaToHex, hexToHsva, hsvaToRgbaString, rgbaStringToHsva } from '@uiw/color-convert';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -25,12 +26,32 @@ const DEFAULT_PRESETS = [
   '#3B82F6', '#8B5CF6', '#EC4899', '#FFFFFF', '#1A1A1A',
 ];
 
-const safeHexToHsva = (hex: string): HsvaColor => {
+const safeColorToHsva = (color: string): HsvaColor => {
   try {
-    return hexToHsva(hex || '#EF4444');
+    if (!color) return { h: 0, s: 100, v: 100, a: 1 };
+    // Handle 'transparent' keyword
+    if (color === 'transparent') {
+      return { h: 0, s: 0, v: 100, a: 0 };
+    }
+    // Handle rgba/rgb strings
+    if (color.startsWith('rgba') || color.startsWith('rgb')) {
+      return rgbaStringToHsva(color);
+    }
+    // Handle hex
+    return hexToHsva(color);
   } catch {
     return { h: 0, s: 100, v: 100, a: 1 };
   }
+};
+
+// Check if color is fully transparent
+const isTransparent = (color: string): boolean => {
+  if (color === 'transparent') return true;
+  if (color.startsWith('rgba')) {
+    const match = color.match(/rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/);
+    return match ? parseFloat(match[1]) === 0 : false;
+  }
+  return false;
 };
 
 export const ColorPicker: React.FC<ColorPickerProps> = ({
@@ -45,7 +66,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
   const [isDragging, setIsDragging] = React.useState(false);
 
   // Committed HSVA (synced with parent value)
-  const committedHsva = React.useMemo(() => safeHexToHsva(value), [value]);
+  const committedHsva = React.useMemo(() => safeColorToHsva(value), [value]);
 
   // Local HSVA for live preview during drag
   const [localHsva, setLocalHsva] = React.useState<HsvaColor>(committedHsva);
@@ -79,9 +100,9 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     const handlePointerUp = () => {
       if (isDragging) {
         setIsDragging(false);
-        // Commit the local color to parent
-        const hex = hsvaToHex(localHsva);
-        onChange(hex);
+        // Commit the local color to parent (use rgba when alpha < 1)
+        const color = localHsva.a < 1 ? hsvaToRgbaString(localHsva) : hsvaToHex(localHsva);
+        onChange(color);
       }
     };
 
@@ -103,6 +124,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     }
   }, [isDragging]);
 
+  // Handle alpha slider change
+  const handleAlphaChange = React.useCallback((newAlpha: { a: number }) => {
+    setLocalHsva(prev => ({ ...prev, ...newAlpha }));
+    if (!isDragging) {
+      setIsDragging(true);
+    }
+  }, [isDragging]);
+
   // Handle input change - commit immediately
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
@@ -111,7 +140,8 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
 
   // Get the display color (local during drag, committed otherwise)
   const displayHsva = isDragging ? localHsva : committedHsva;
-  const displayHex = hsvaToHex(displayHsva);
+  // Use rgba when alpha < 1, otherwise use hex
+  const displayColor = displayHsva.a < 1 ? hsvaToRgbaString(displayHsva) : hsvaToHex(displayHsva);
 
   return (
     <div ref={containerRef} className={cn('relative', className)}>
@@ -120,10 +150,10 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
         {showTransparent && (
           <button
             type="button"
-            onClick={() => onChange('transparent')}
+            onClick={() => onChange('rgba(0, 0, 0, 0)')}
             className={cn(
               'w-7 h-7 rounded-lg border-2 transition-all hover:scale-110 flex items-center justify-center',
-              value === 'transparent' ? 'border-[var(--ink-black)]' : 'border-[var(--polar-frost)]'
+              isTransparent(value) ? 'border-[var(--ink-black)]' : 'border-[var(--polar-frost)]'
             )}
             style={{ background: 'repeating-conic-gradient(#d4d4d4 0% 25%, transparent 0% 50%) 50% / 8px 8px' }}
             title="No fill"
@@ -159,17 +189,17 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             isOpen ? 'border-[var(--coral-400)] ring-2 ring-[var(--coral-glow)]' : 'border-[var(--polar-frost)]'
           )}
           style={{
-            background: value === 'transparent'
+            background: isTransparent(value)
               ? 'repeating-conic-gradient(#d4d4d4 0% 25%, transparent 0% 50%) 50% / 8px 8px'
-              : displayHex,
+              : displayColor,
           }}
         />
 
-        {/* Hex Input */}
+        {/* Color Input */}
         {showInput && (
           <input
             type="text"
-            value={isDragging ? displayHex : value}
+            value={isDragging ? displayColor : value}
             onChange={handleInputChange}
             className="flex-1 h-10 px-3 rounded-lg bg-white border border-[var(--polar-frost)] text-sm text-[var(--ink-black)] font-mono focus:border-[var(--coral-400)] focus:ring-2 focus:ring-[var(--coral-glow)] focus:outline-none"
             placeholder="#000000"
@@ -189,14 +219,34 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             width={180}
             height={180}
           />
+          {/* Opacity Slider */}
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-[var(--ink-muted)]">Opacity</span>
+              <span className="text-xs font-mono text-[var(--ink-muted)]">
+                {Math.round(displayHsva.a * 100)}%
+              </span>
+            </div>
+            <Alpha
+              hsva={displayHsva}
+              onChange={handleAlphaChange}
+              width={180}
+              height={12}
+              radius={6}
+            />
+          </div>
           {/* Color Preview */}
           <div className="mt-3 flex items-center gap-2">
             <div
               className="flex-1 h-6 rounded-md border border-[var(--polar-frost)]"
-              style={{ backgroundColor: displayHex }}
+              style={{
+                background: displayHsva.a < 1
+                  ? `linear-gradient(${displayColor}, ${displayColor}), repeating-conic-gradient(#d4d4d4 0% 25%, white 0% 50%) 50% / 8px 8px`
+                  : displayColor,
+              }}
             />
-            <span className="text-xs font-mono text-[var(--ink-muted)] w-16 text-right">
-              {displayHex.toUpperCase()}
+            <span className="text-xs font-mono text-[var(--ink-muted)] w-20 text-right truncate">
+              {displayColor.length > 7 ? `rgba(...)` : displayColor.toUpperCase()}
             </span>
           </div>
         </div>

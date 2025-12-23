@@ -415,9 +415,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     if (hasSelection) {
       recordAction(() => {
         selectedShapes.forEach(shape => {
-          if (shape.type === 'arrow' || shape.type === 'rect' || shape.type === 'circle' || shape.type === 'pen') {
+          if (shape.type === 'arrow' || shape.type === 'rect' || shape.type === 'circle' || shape.type === 'pen' || shape.type === 'text') {
             updateShape(shape.id, { stroke: color });
-          } else if (shape.type === 'text' || shape.type === 'step') {
+          } else if (shape.type === 'step') {
             updateShape(shape.id, { fill: color });
           } else if (shape.type === 'highlight') {
             // Convert hex to rgba for highlight
@@ -450,11 +450,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
     onFillColorChange(color);
 
-    // Update selected shapes (rect and circle)
+    // Update selected shapes (rect, circle, and text)
     if (hasSelection) {
       recordAction(() => {
         selectedShapes.forEach(shape => {
-          if (shape.type === 'rect' || shape.type === 'circle') {
+          if (shape.type === 'rect' || shape.type === 'circle' || shape.type === 'text') {
             updateShape(shape.id, { fill: color });
           }
         });
@@ -534,8 +534,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const renderToolProperties = () => {
     // Tools that use stroke color
     const strokeTools: Tool[] = ['arrow', 'rect', 'circle', 'pen'];
-    // Tools that use fill color (text color)
-    const fillTools: Tool[] = ['text', 'steps'];
     // Tools that use highlight color
     const highlightTools: Tool[] = ['highlight'];
 
@@ -584,12 +582,22 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           </>
         )}
 
-        {/* Fill/Text Color for text and steps tools */}
-        {fillTools.includes(effectiveTool) && (
+        {/* Text Color for text tool - uses fillColor */}
+        {effectiveTool === 'text' && (
           <div className="space-y-3">
-            <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">
-              {effectiveTool === 'text' ? 'Text Color' : 'Badge Color'}
-            </Label>
+            <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Text Color</Label>
+            <ColorPicker
+              value={fillColor}
+              onChange={handleFillColorChange}
+              presets={COLOR_PRESETS}
+            />
+          </div>
+        )}
+
+        {/* Badge Color for steps tool - uses strokeColor */}
+        {effectiveTool === 'steps' && (
+          <div className="space-y-3">
+            <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Badge Color</Label>
             <ColorPicker
               value={strokeColor}
               onChange={handleStrokeColorChange}
@@ -851,39 +859,45 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 </div>
               </div>
 
-              {/* Text Stroke - only show when a text shape is selected */}
-              {textShape && (
-                <>
-                  <Separator className="bg-[var(--polar-frost)]" />
-                  <div className="space-y-3">
-                    <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Text Outline</Label>
-                    <ColorPicker
-                      value={currentTextStroke === 'transparent' ? '#000000' : currentTextStroke}
-                      onChange={(color) => {
+              {/* Text Stroke - show for text tool and selected text shapes */}
+              <>
+                <Separator className="bg-[var(--polar-frost)]" />
+                <div className="space-y-3">
+                  <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Stroke Color</Label>
+                  <ColorPicker
+                    value={textShape ? (currentTextStroke === 'transparent' ? '#000000' : currentTextStroke) : strokeColor}
+                    onChange={(color) => {
+                      if (textShape) {
                         recordAction(() => updateShape(textShape.id, { stroke: color }));
-                      }}
-                      presets={COLOR_PRESETS}
-                      showTransparent
-                    />
+                      } else {
+                        onStrokeColorChange(color);
+                      }
+                    }}
+                    presets={COLOR_PRESETS}
+                    showTransparent
+                  />
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Stroke Width</Label>
+                    <span className="text-xs text-[var(--ink-dark)] font-mono">{textShape ? currentTextStrokeWidth : strokeWidth}px</span>
                   </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Outline Width</Label>
-                      <span className="text-xs text-[var(--ink-dark)] font-mono">{currentTextStrokeWidth}px</span>
-                    </div>
-                    <Slider
-                      value={[currentTextStrokeWidth]}
-                      onValueChange={([value]) => {
+                  <Slider
+                    value={[textShape ? currentTextStrokeWidth : strokeWidth]}
+                    onValueChange={([value]) => {
+                      if (textShape) {
                         updateShape(textShape.id, { strokeWidth: value });
-                      }}
-                      min={0}
-                      max={4}
-                      step={0.5}
-                      className="w-full"
-                    />
-                  </div>
-                </>
-              )}
+                      } else {
+                        onStrokeWidthChange(value);
+                      }
+                    }}
+                    min={0}
+                    max={4}
+                    step={0.5}
+                    className="w-full"
+                  />
+                </div>
+              </>
             </>
           );
         })()}

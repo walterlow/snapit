@@ -159,9 +159,9 @@ export const useShapeDrawing = ({
             textDecoration: '',
             align: 'left',
             wrap: 'word',
-            fill: strokeColor,
-            stroke: 'transparent',
-            strokeWidth: 0,
+            fill: fillColor,
+            stroke: strokeColor,
+            strokeWidth,
           };
         }
         default:

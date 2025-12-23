@@ -16,6 +16,7 @@ interface UseMarqueeSelectionReturn {
   handleMarqueeMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void;
   handleMarqueeMouseUp: () => void;
   handleSelect: (id: string, event: React.MouseEvent) => void;
+  handleOpen: (id: string) => void;
   clearSelection: () => void;
 }
 
@@ -202,18 +203,22 @@ export function useMarqueeSelection({
         setSelectedIds(newSelected);
         lastClickedId.current = id;
       } else {
-        // Normal click: open project (if not missing)
-        const capture = captures.find((c) => c.id === id);
-        if (capture?.is_missing) {
-          // Don't open missing captures - just select them
-          setSelectedIds(new Set([id]));
-        } else {
-          onOpenProject(id);
-        }
+        // Normal click: select the card
+        setSelectedIds(new Set([id]));
         lastClickedId.current = id;
       }
     },
-    [captures, selectedIds, onOpenProject]
+    [captures, selectedIds]
+  );
+
+  // Handle double-click to open project
+  const handleOpen = useCallback(
+    (id: string) => {
+      const capture = captures.find((c) => c.id === id);
+      if (capture?.is_missing) return; // Don't open missing captures
+      onOpenProject(id);
+    },
+    [captures, onOpenProject]
   );
 
   const clearSelection = useCallback(() => {
@@ -229,6 +234,7 @@ export function useMarqueeSelection({
     handleMarqueeMouseMove,
     handleMarqueeMouseUp,
     handleSelect,
+    handleOpen,
     clearSelection,
   };
 }

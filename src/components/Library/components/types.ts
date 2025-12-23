@@ -5,6 +5,7 @@ export interface CaptureCardProps {
   selected: boolean;
   isLoading?: boolean; // True when this capture is being loaded into editor
   onSelect: (id: string, e: React.MouseEvent) => void;
+  onOpen: (id: string) => void;
   onToggleFavorite: () => void;
   onDelete: () => void;
   onOpenInFolder: () => void;

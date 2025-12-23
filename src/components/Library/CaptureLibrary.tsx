@@ -103,6 +103,7 @@ export const CaptureLibrary: React.FC = () => {
     handleMarqueeMouseMove,
     handleMarqueeMouseUp,
     handleSelect,
+    handleOpen,
     clearSelection,
   } = useMarqueeSelection({
     captures,
@@ -216,11 +217,17 @@ export const CaptureLibrary: React.FC = () => {
         e.preventDefault();
         handleRequestDeleteSelected();
       }
+
+      // Escape to clear selection
+      if (e.key === 'Escape' && selectedIds.size > 0) {
+        e.preventDefault();
+        clearSelection();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds.size, handleRequestDeleteSelected]);
+  }, [selectedIds.size, handleRequestDeleteSelected, clearSelection]);
 
   const handleConfirmDelete = async () => {
     try {
@@ -298,6 +305,7 @@ export const CaptureLibrary: React.FC = () => {
                   selected={selectedIds.has(capture.id)}
                   isLoading={loadingProjectId === capture.id}
                   onSelect={handleSelect}
+                  onOpen={handleOpen}
                   onToggleFavorite={() => toggleFavorite(capture.id)}
                   onDelete={() => handleRequestDeleteSingle(capture.id)}
                   onOpenInFolder={() => handleOpenInFolder(capture)}
@@ -328,6 +336,7 @@ export const CaptureLibrary: React.FC = () => {
                   selected={selectedIds.has(capture.id)}
                   isLoading={loadingProjectId === capture.id}
                   onSelect={handleSelect}
+                  onOpen={handleOpen}
                   onToggleFavorite={() => toggleFavorite(capture.id)}
                   onDelete={() => handleRequestDeleteSingle(capture.id)}
                   onOpenInFolder={() => handleOpenInFolder(capture)}

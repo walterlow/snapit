@@ -13,6 +13,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     selected,
     isLoading,
     onSelect,
+    onOpen,
     onToggleFavorite,
     onDelete,
     onOpenInFolder,
@@ -35,6 +36,13 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
             className={`capture-card group ${selected ? 'selected' : ''} ${isVisible ? 'in-view' : ''}`}
             data-capture-id={capture.id}
             onClick={(e) => onSelect(capture.id, e)}
+            onDoubleClick={() => onOpen(capture.id)}
+            onContextMenu={(e) => {
+              // Select on right-click if not already selected
+              if (!selected) {
+                onSelect(capture.id, e);
+              }
+            }}
           >
             {/* Thumbnail */}
             <div className={`thumbnail ${isMissing ? 'opacity-60' : ''}`}>

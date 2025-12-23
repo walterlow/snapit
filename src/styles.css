@@ -326,7 +326,8 @@ body {
   contain: layout style;
 }
 
-.capture-card:hover {
+.capture-card:hover,
+.capture-card[data-state="open"] {
   border-color: var(--polar-steel);
   box-shadow: var(--shadow-card-hover);
 }
@@ -350,7 +351,8 @@ body {
   transition: transform var(--duration-slow) var(--ease-out);
 }
 
-.capture-card:hover .thumbnail img {
+.capture-card:hover .thumbnail img,
+.capture-card[data-state="open"] .thumbnail img {
   transform: scale(1.03);
 }
 
@@ -673,11 +675,13 @@ body {
 }
 
 /* Hover states need to override the in-view transform */
-.capture-card.in-view:hover {
+.capture-card.in-view:hover,
+.capture-card.in-view[data-state="open"] {
   transform: translateY(-2px);
 }
 
-.capture-row.in-view:hover {
+.capture-row.in-view:hover,
+.capture-row.in-view[data-state="open"] {
   transform: translateX(2px);
 }
 
@@ -726,7 +730,8 @@ body {
   contain: layout style;
 }
 
-.capture-row:hover {
+.capture-row:hover,
+.capture-row[data-state="open"] {
   background: var(--polar-ice);
   border-color: var(--polar-steel);
 }

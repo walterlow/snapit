@@ -233,7 +233,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }));
   },
 
-  openSettingsModal: (tab = 'shortcuts') => {
+  openSettingsModal: (tab = 'general') => {
     set({ settingsModalOpen: true, activeTab: tab });
   },
 

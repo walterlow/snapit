@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FolderOpen, ExternalLink, RefreshCw } from 'lucide-react';
 import { useUpdater } from '@/hooks/useUpdater';
@@ -24,7 +25,13 @@ export const GeneralTab: React.FC = () => {
   const [isAutostartEnabled, setIsAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(true);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
-  const { version, available, checkForUpdates, downloadAndInstall, downloading } = useUpdater(false);
+  const [appVersion, setAppVersion] = useState<string>('');
+  const { version: updateVersion, available, checkForUpdates, downloadAndInstall, downloading } = useUpdater(false);
+
+  // Load app version on mount
+  useEffect(() => {
+    getVersion().then(setAppVersion);
+  }, []);
 
   // Load autostart status on mount
   useEffect(() => {
@@ -248,11 +255,11 @@ export const GeneralTab: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-[var(--ink-black)]">
-                Current version: v0.1.0
+                Current version: v{appVersion}
               </p>
-              {available && version && (
+              {available && updateVersion && (
                 <p className="text-xs text-[var(--coral-500)] mt-0.5">
-                  Update available: v{version}
+                  Update available: v{updateVersion}
                 </p>
               )}
             </div>

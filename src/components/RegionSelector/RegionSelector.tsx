@@ -2,7 +2,21 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { ScreenRegionSelection } from '../../types';
+import type { ScreenRegionSelection, CaptureType, RecordingMode } from '../../types';
+import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
+import { CountdownOverlay } from './CountdownOverlay';
+import { RecordingToolbar } from './RecordingToolbar';
+import { ActiveRecordingControls } from './ActiveRecordingControls';
+
+// Confirmed region for video/gif recording (screen coordinates)
+interface ConfirmedRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  // For window captures
+  windowId?: number;
+}
 
 interface RegionSelectorProps {
   monitorIndex: number;
@@ -63,6 +77,28 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const lastWindowDetectRef = useRef<number>(0);
   const windowDetectTimeoutRef = useRef<number | null>(null);
+
+  // Video/GIF recording state
+  const [captureType, setCaptureType] = useState<CaptureType>('screenshot');
+  const [showCountdown, setShowCountdown] = useState(false);
+  const [countdownCenter, setCountdownCenter] = useState<{ x: number; y: number } | null>(null);
+  const pendingRecordingRef = useRef<RecordingMode | null>(null);
+  const pendingRegionRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  
+  // Confirmed region - shows toolbar before recording starts (in video/gif mode)
+  const [confirmedRegion, setConfirmedRegion] = useState<ConfirmedRegion | null>(null);
+
+  // Video recording store
+  const {
+    recordingState,
+    settings: recordingSettings,
+    initialize: initializeRecording,
+    startRecording,
+    setFormat,
+    setMode: setRecordingMode,
+    setCountdown,
+    toggleCursor,
+  } = useVideoRecordingStore();
 
   // Calculate display rect from selection
   const getDisplayRect = useCallback(() => {
@@ -223,6 +259,155 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     }
   }, [isSelecting, selection, mode, isDragging, monitorX, monitorY, sharedSelection, monitorIndex, detectWindowAtPoint, emitSelectionUpdate]);
 
+  // Helper to capture screenshot (existing behavior)
+  const captureScreenshot = useCallback(async (screenSelection: ScreenRegionSelection) => {
+    try {
+      await invoke('move_overlays_offscreen');
+      const result = await invoke<{ file_path: string; width: number; height: number }>(
+        'capture_screen_region_fast',
+        { selection: screenSelection }
+      );
+      await invoke('open_editor_fast', {
+        filePath: result.file_path,
+        width: result.width,
+        height: result.height,
+      });
+    } catch {
+      await invoke('hide_overlay');
+    }
+  }, []);
+
+  // Helper to start recording with countdown
+  const initiateRecording = useCallback((
+    recordingMode: RecordingMode,
+    regionX: number,
+    regionY: number,
+    regionWidth: number,
+    regionHeight: number
+  ) => {
+    // Set format based on capture type
+    setFormat(captureType === 'gif' ? 'gif' : 'mp4');
+    setRecordingMode(recordingMode);
+    
+    // Store the pending recording mode and region for controls positioning
+    pendingRecordingRef.current = recordingMode;
+    pendingRegionRef.current = { x: regionX, y: regionY, width: regionWidth, height: regionHeight };
+    
+    // Set countdown center position (relative to this monitor)
+    const centerX = regionX + regionWidth / 2;
+    const centerY = regionY + regionHeight / 2;
+    setCountdownCenter({ x: centerX - monitorX, y: centerY - monitorY });
+    
+    // Show countdown
+    setShowCountdown(true);
+  }, [captureType, setFormat, setRecordingMode, monitorX, monitorY]);
+
+  // Handle countdown completion - actually start recording
+  const handleCountdownComplete = useCallback(async () => {
+    setShowCountdown(false);
+    
+    const recordingMode = pendingRecordingRef.current;
+    const region = pendingRegionRef.current;
+    if (!recordingMode) return;
+    
+    pendingRecordingRef.current = null;
+    pendingRegionRef.current = null;
+    
+    // Show the recording controls window at bottom-center of the region
+    if (region) {
+      await invoke('show_recording_controls', {
+        x: region.x,
+        y: region.y + region.height,
+        regionWidth: region.width,
+      });
+    } else {
+      await invoke('show_recording_controls', {});
+    }
+    
+    // Hide the overlay
+    await invoke('hide_overlay');
+    
+    // Set countdown to 0 since we already did the countdown in the frontend
+    setCountdown(0);
+    
+    // Start the actual recording
+    const success = await startRecording(recordingMode);
+    if (!success) {
+      console.error('Failed to start recording');
+      await invoke('hide_recording_controls');
+    }
+  }, [startRecording, setCountdown]);
+
+  // Handle countdown cancel
+  const handleCountdownCancel = useCallback(() => {
+    setShowCountdown(false);
+    pendingRecordingRef.current = null;
+    setCountdownCenter(null);
+  }, []);
+
+  // Handle Record button from toolbar - starts recording with countdown
+  const handleToolbarRecord = useCallback(() => {
+    if (!confirmedRegion) return;
+    
+    const recordingMode: RecordingMode = confirmedRegion.windowId
+      ? { type: 'window', windowId: confirmedRegion.windowId }
+      : {
+          type: 'region',
+          x: confirmedRegion.x,
+          y: confirmedRegion.y,
+          width: confirmedRegion.width,
+          height: confirmedRegion.height,
+        };
+    
+    // Clear the confirmed region since we're starting
+    setConfirmedRegion(null);
+    
+    initiateRecording(
+      recordingMode,
+      confirmedRegion.x,
+      confirmedRegion.y,
+      confirmedRegion.width,
+      confirmedRegion.height
+    );
+  }, [confirmedRegion, initiateRecording]);
+
+  // Handle Screenshot button from toolbar - take screenshot instead of recording
+  const handleToolbarScreenshot = useCallback(async () => {
+    if (!confirmedRegion) return;
+    
+    const screenSelection: ScreenRegionSelection = {
+      x: confirmedRegion.x,
+      y: confirmedRegion.y,
+      width: confirmedRegion.width,
+      height: confirmedRegion.height,
+    };
+    
+    setConfirmedRegion(null);
+    await captureScreenshot(screenSelection);
+  }, [confirmedRegion, captureScreenshot]);
+
+  // Handle Redo button from toolbar - redraw the region
+  const handleToolbarRedo = useCallback(() => {
+    setConfirmedRegion(null);
+    setSelection(null);
+    setSharedSelection(null);
+    setIsDragging(false);
+    setIsSelecting(false);
+    setMode('window');
+    // Clear selection on other monitors
+    emitSelectionUpdate(null);
+  }, [emitSelectionUpdate]);
+
+  // Handle Cancel button from toolbar - close overlay
+  const handleToolbarCancel = useCallback(async () => {
+    // Clear all visual state immediately
+    setConfirmedRegion(null);
+    setSelection(null);
+    setIsDragging(false);
+    setMode('window');
+    await invoke('hide_overlay');
+  }, []);
+
   // Handle pointer up - complete selection or capture window
   const handlePointerUp = useCallback(async () => {
     // If we have a shared selection but no local selection, use the shared one
@@ -239,28 +424,24 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         return;
       }
 
-      try {
-        await invoke('move_overlays_offscreen');
+      const screenSelection: ScreenRegionSelection = {
+        x: selLeft,
+        y: selTop,
+        width: Math.round(width),
+        height: Math.round(height),
+      };
 
-        const screenSelection: ScreenRegionSelection = {
+      if (captureType === 'screenshot') {
+        await captureScreenshot(screenSelection);
+      } else {
+        // Video/GIF - show toolbar and wait for user to click Record
+        setConfirmedRegion({
           x: selLeft,
           y: selTop,
           width: Math.round(width),
           height: Math.round(height),
-        };
-
-        const result = await invoke<{ file_path: string; width: number; height: number }>(
-          'capture_screen_region_fast',
-          { selection: screenSelection }
-        );
-
-        await invoke('open_editor_fast', {
-          filePath: result.file_path,
-          width: result.width,
-          height: result.height,
         });
-      } catch {
-        await invoke('hide_overlay');
+        setSelection(null); // Clear selection to avoid showing both borders
       }
       return;
     }
@@ -275,26 +456,12 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
 
     // If we were in window mode and didn't drag, capture the window
     if (mode === 'window' && !isDragging && hoveredWindow) {
-      try {
-        // Move overlays off-screen first - Rust handles DWM compositor sync
-        await invoke('move_overlays_offscreen');
-
-        // Use fast capture (skips PNG encoding on Rust side)
-        const result = await invoke<{ file_path: string; width: number; height: number }>(
-          'capture_window_fast',
-          { windowId: hoveredWindow.id }
-        );
-
-        await invoke('open_editor_fast', {
-          filePath: result.file_path,
-          width: result.width,
-          height: result.height,
-        });
-      } catch {
-        // Fallback to fullscreen with fast capture
+      if (captureType === 'screenshot') {
         try {
+          await invoke('move_overlays_offscreen');
           const result = await invoke<{ file_path: string; width: number; height: number }>(
-            'capture_fullscreen_fast'
+            'capture_window_fast',
+            { windowId: hoveredWindow.id }
           );
           await invoke('open_editor_fast', {
             filePath: result.file_path,
@@ -302,39 +469,53 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
             height: result.height,
           });
         } catch {
-          await invoke('hide_overlay');
+          try {
+            const result = await invoke<{ file_path: string; width: number; height: number }>(
+              'capture_fullscreen_fast'
+            );
+            await invoke('open_editor_fast', {
+              filePath: result.file_path,
+              width: result.width,
+              height: result.height,
+            });
+          } catch {
+            await invoke('hide_overlay');
+          }
         }
+      } else {
+        // Video/GIF - show toolbar and wait for user to click Record
+        setConfirmedRegion({
+          x: hoveredWindow.x,
+          y: hoveredWindow.y,
+          width: hoveredWindow.width,
+          height: hoveredWindow.height,
+          windowId: hoveredWindow.id,
+        });
+        setSelection(null); // Clear selection to avoid showing both borders
       }
       return;
     }
 
     // If we were in window mode but no window detected, capture current monitor only
     if (mode === 'window' && !isDragging && !hoveredWindow) {
-      try {
-        // Move overlays off-screen first (instant, reliable)
-        await invoke('move_overlays_offscreen');
+      const screenSelection: ScreenRegionSelection = {
+        x: monitorX,
+        y: monitorY,
+        width: monitorWidth,
+        height: monitorHeight,
+      };
 
-        // Capture just this monitor
-        const screenSelection: ScreenRegionSelection = {
+      if (captureType === 'screenshot') {
+        await captureScreenshot(screenSelection);
+      } else {
+        // Video/GIF - show toolbar and wait for user to click Record
+        setConfirmedRegion({
           x: monitorX,
           y: monitorY,
           width: monitorWidth,
           height: monitorHeight,
-        };
-
-        const result = await invoke<{ file_path: string; width: number; height: number }>(
-          'capture_screen_region_fast',
-          { selection: screenSelection }
-        );
-
-        await invoke('open_editor_fast', {
-          filePath: result.file_path,
-          width: result.width,
-          height: result.height,
         });
-      } catch (e) {
-        console.error('Failed to capture monitor:', e);
-        await invoke('hide_overlay');
+        setSelection(null); // Clear selection to avoid showing both borders
       }
       return;
     }
@@ -346,36 +527,30 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       setSelection(null);
       setIsDragging(false);
       setMode('window');
-      emitSelectionUpdate(null); // Clear shared selection
+      emitSelectionUpdate(null);
       return;
     }
 
-    try {
-      // Move overlays off-screen first (instant, reliable)
-      await invoke('move_overlays_offscreen');
+    const screenSelection: ScreenRegionSelection = {
+      x: monitorX + displayRect.x,
+      y: monitorY + displayRect.y,
+      width: Math.round(displayRect.width),
+      height: Math.round(displayRect.height),
+    };
 
-      // Use screen region capture (supports multi-monitor stitching)
-      const screenSelection: ScreenRegionSelection = {
-        x: monitorX + displayRect.x,
-        y: monitorY + displayRect.y,
-        width: Math.round(displayRect.width),
-        height: Math.round(displayRect.height),
-      };
-
-      const result = await invoke<{ file_path: string; width: number; height: number }>(
-        'capture_screen_region_fast',
-        { selection: screenSelection }
-      );
-
-      await invoke('open_editor_fast', {
-        filePath: result.file_path,
-        width: result.width,
-        height: result.height,
+    if (captureType === 'screenshot') {
+      await captureScreenshot(screenSelection);
+    } else {
+      // Video/GIF - show toolbar and wait for user to click Record
+      setConfirmedRegion({
+        x: screenSelection.x,
+        y: screenSelection.y,
+        width: screenSelection.width,
+        height: screenSelection.height,
       });
-    } catch {
-      await invoke('hide_overlay');
+      setSelection(null); // Clear selection to avoid showing both borders
     }
-  }, [isSelecting, selection, getDisplayRect, monitorX, monitorY, monitorWidth, monitorHeight, mode, isDragging, hoveredWindow, sharedSelection, emitSelectionUpdate]);
+  }, [isSelecting, selection, getDisplayRect, monitorX, monitorY, monitorWidth, monitorHeight, mode, isDragging, hoveredWindow, sharedSelection, emitSelectionUpdate, captureType, captureScreenshot, monitorIndex]);
 
   // Handle pointer enter - pick up active drag from another monitor
   const handlePointerEnter = useCallback((e: React.PointerEvent) => {
@@ -428,17 +603,30 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     // If isDragging, keep state so we can resume if user comes back to this monitor
   }, [isSelecting, isDragging]);
 
-  // Handle escape key to cancel
+  // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        await invoke('hide_overlay');
+        if (showCountdown) {
+          // Cancel countdown
+          setShowCountdown(false);
+          pendingRecordingRef.current = null;
+        } else if (confirmedRegion) {
+          // Cancel confirmed region, go back to selection mode
+          setConfirmedRegion(null);
+          setSelection(null);
+          setIsDragging(false);
+          setMode('window');
+        } else {
+          await invoke('hide_overlay');
+        }
+        return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [showCountdown, confirmedRegion]);
 
   // Cleanup window detection timeout on unmount
   useEffect(() => {
@@ -506,9 +694,14 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     focusWindow();
   }, []);
 
+  // Initialize video recording store on mount
+  useEffect(() => {
+    initializeRecording();
+  }, [initializeRecording]);
+
   // Listen for reset-overlay event (when overlay is reused)
   useEffect(() => {
-    const unlisten = listen('reset-overlay', async () => {
+    const unlisten = listen<{ captureType?: string } | null>('reset-overlay', async (event) => {
       // Reset all state for new capture session
       setMode('window');
       setIsSelecting(false);
@@ -516,7 +709,19 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       setHoveredWindow(null);
       setIsDragging(false);
       setSharedSelection(null);
+      setConfirmedRegion(null);
       dragStartRef.current = null;
+
+      // Set capture type from event payload (default to screenshot)
+      const payload = event.payload;
+      if (payload?.captureType) {
+        const ct = payload.captureType as CaptureType;
+        setCaptureType(ct);
+        if (ct === 'video') setFormat('mp4');
+        else if (ct === 'gif') setFormat('gif');
+      } else {
+        setCaptureType('screenshot');
+      }
 
       // Ensure cursor events are enabled for this window
       try {
@@ -530,7 +735,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [setFormat]);
 
   // Listen for selection updates from other monitors
   useEffect(() => {
@@ -615,6 +820,46 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
 
   const windowHighlight = getWindowHighlight();
 
+  // Calculate the portion of confirmed region visible on this monitor
+  const getConfirmedRegionRect = useCallback(() => {
+    if (!confirmedRegion) return null;
+
+    const regLeft = confirmedRegion.x;
+    const regTop = confirmedRegion.y;
+    const regRight = confirmedRegion.x + confirmedRegion.width;
+    const regBottom = confirmedRegion.y + confirmedRegion.height;
+
+    const monLeft = monitorX;
+    const monTop = monitorY;
+    const monRight = monitorX + monitorWidth;
+    const monBottom = monitorY + monitorHeight;
+
+    // Check for intersection
+    if (regRight <= monLeft || regLeft >= monRight ||
+        regBottom <= monTop || regTop >= monBottom) {
+      return null; // No intersection
+    }
+
+    // Calculate visible portion relative to this monitor
+    return {
+      x: Math.max(regLeft, monLeft) - monitorX,
+      y: Math.max(regTop, monTop) - monitorY,
+      width: Math.min(regRight, monRight) - Math.max(regLeft, monLeft),
+      height: Math.min(regBottom, monBottom) - Math.max(regTop, monTop),
+    };
+  }, [confirmedRegion, monitorX, monitorY, monitorWidth, monitorHeight]);
+
+  const confirmedRect = getConfirmedRegionRect();
+
+  // Check if toolbar should appear on this monitor (toolbar at bottom-center of region)
+  const shouldShowToolbar = confirmedRegion && (() => {
+    const toolbarY = confirmedRegion.y + confirmedRegion.height + 16;
+    const toolbarCenterX = confirmedRegion.x + confirmedRegion.width / 2;
+    // Show toolbar on this monitor if the toolbar position is within this monitor
+    return toolbarCenterX >= monitorX && toolbarCenterX < monitorX + monitorWidth &&
+           toolbarY >= monitorY && toolbarY < monitorY + monitorHeight;
+  })();
+
   return (
     <div
       ref={containerRef}
@@ -631,8 +876,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
     >
-      {/* Window highlight mode */}
-      {windowHighlight && mode === 'window' && !isDragging && (
+      {/* Window highlight mode - hide when we have a confirmed region */}
+      {windowHighlight && mode === 'window' && !isDragging && !confirmedRegion && (
         <>
           {/* Darken outside the window */}
           <div className="absolute inset-0 pointer-events-none">
@@ -683,8 +928,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         </>
       )}
 
-      {/* Crosshair guides - only show in region mode or when no window detected */}
-      {!isSelecting && mode === 'region' && (
+      {/* Crosshair guides - only show in region mode, hide when confirmed region exists */}
+      {!isSelecting && mode === 'region' && !confirmedRegion && (
         <>
           {/* Horizontal line */}
           <div
@@ -709,8 +954,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         </>
       )}
 
-      {/* Selection rectangle */}
-      {displayRect && displayRect.width > 0 && displayRect.height > 0 && (
+      {/* Selection rectangle - hide when we have a confirmed region (video/gif mode) */}
+      {displayRect && displayRect.width > 0 && displayRect.height > 0 && !confirmedRegion && (
         <>
           {/* Dark overlay outside selection */}
           <div className="absolute inset-0 pointer-events-none">
@@ -874,40 +1119,194 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         );
       })()}
 
+      {/* Confirmed region for video/gif - shows dashed border and toolbar */}
+      {confirmedRect && confirmedRect.width > 0 && confirmedRect.height > 0 && !showCountdown && (
+        <>
+          {/* Dark overlay outside confirmed region */}
+          <div className="absolute inset-0 pointer-events-none">
+            {/* Top */}
+            <div
+              className="absolute left-0 right-0 top-0 bg-black/60"
+              style={{ height: Math.floor(confirmedRect.y) }}
+            />
+            {/* Bottom */}
+            <div
+              className="absolute left-0 right-0 bottom-0 bg-black/60"
+              style={{ top: Math.floor(confirmedRect.y + confirmedRect.height) }}
+            />
+            {/* Left */}
+            <div
+              className="absolute left-0 bg-black/60"
+              style={{
+                top: Math.floor(confirmedRect.y) - 1,
+                height: Math.ceil(confirmedRect.height) + 2,
+                width: Math.floor(confirmedRect.x),
+              }}
+            />
+            {/* Right */}
+            <div
+              className="absolute right-0 bg-black/60"
+              style={{
+                top: Math.floor(confirmedRect.y) - 1,
+                height: Math.ceil(confirmedRect.height) + 2,
+                left: Math.floor(confirmedRect.x + confirmedRect.width),
+              }}
+            />
+          </div>
+
+          {/* Confirmed region border - dashed yellow/orange like Snagit */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: confirmedRect.x,
+              top: confirmedRect.y,
+              width: confirmedRect.width,
+              height: confirmedRect.height,
+              border: '3px dashed #F59E0B',
+              boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(245, 158, 11, 0.3)',
+            }}
+          >
+            {/* Corner handles - white circles with yellow border */}
+            <div 
+              className="absolute rounded-full"
+              style={{
+                top: -7,
+                left: -7,
+                width: 14,
+                height: 14,
+                background: 'white',
+                border: '3px solid #F59E0B',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              }}
+            />
+            <div 
+              className="absolute rounded-full"
+              style={{
+                top: -7,
+                right: -7,
+                width: 14,
+                height: 14,
+                background: 'white',
+                border: '3px solid #F59E0B',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              }}
+            />
+            <div 
+              className="absolute rounded-full"
+              style={{
+                bottom: -7,
+                left: -7,
+                width: 14,
+                height: 14,
+                background: 'white',
+                border: '3px solid #F59E0B',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              }}
+            />
+            <div 
+              className="absolute rounded-full"
+              style={{
+                bottom: -7,
+                right: -7,
+                width: 14,
+                height: 14,
+                background: 'white',
+                border: '3px solid #F59E0B',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              }}
+            />
+          </div>
+        </>
+      )}
+
+      {/* Recording toolbar - shown at bottom-center of confirmed region (before recording starts) */}
+      {shouldShowToolbar && confirmedRegion && !showCountdown && recordingState.status === 'idle' && (
+        <div
+          className="absolute pointer-events-auto"
+          style={{
+            left: confirmedRegion.x - monitorX + confirmedRegion.width / 2,
+            top: confirmedRegion.y - monitorY + confirmedRegion.height + 16,
+            transform: 'translateX(-50%)',
+            zIndex: 100,
+          }}
+        >
+          <RecordingToolbar
+            captureType={captureType}
+            width={confirmedRegion.width}
+            height={confirmedRegion.height}
+            includeCursor={recordingSettings.includeCursor}
+            onToggleCursor={toggleCursor}
+            onRecord={handleToolbarRecord}
+            onScreenshot={handleToolbarScreenshot}
+            onRedo={handleToolbarRedo}
+            onCancel={handleToolbarCancel}
+          />
+        </div>
+      )}
+
+      {/* Active recording controls - shown during recording/paused */}
+      {shouldShowToolbar && confirmedRegion && (recordingState.status === 'recording' || recordingState.status === 'paused') && (
+        <div
+          className="absolute pointer-events-auto"
+          style={{
+            left: confirmedRegion.x - monitorX + confirmedRegion.width / 2,
+            top: confirmedRegion.y - monitorY + confirmedRegion.height + 16,
+            transform: 'translateX(-50%)',
+            zIndex: 100,
+          }}
+        >
+          <ActiveRecordingControls format={recordingSettings.format} />
+        </div>
+      )}
+
       {/* Instructions toast - dark glass effect for visibility */}
-      <div
-        className="absolute top-6 left-1/2 pointer-events-none"
-        style={{
-          transform: 'translateX(-50%)',
-          padding: '12px 48px',
-          borderRadius: '12px',
-          background: 'rgba(0, 0, 0, 0.75)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          fontSize: '13px',
-          fontWeight: 500,
-        }}
-      >
-        {mode === 'window' && !isDragging ? (
-          <>
-            <span style={{ color: '#ffffff' }}>
-              {hoveredWindow ? 'Click to capture window' : 'Click for fullscreen'}
-            </span>
-            <span style={{ margin: '0 10px', color: 'rgba(255, 255, 255, 0.5)' }}>•</span>
-            <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Drag to select region</span>
-            <span style={{ margin: '0 10px', color: 'rgba(255, 255, 255, 0.5)' }}>•</span>
-            <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>ESC to cancel</span>
-          </>
-        ) : (
-          <>
-            <span style={{ color: '#ffffff' }}>Drag to select region</span>
-            <span style={{ margin: '0 10px', color: 'rgba(255, 255, 255, 0.5)' }}>•</span>
-            <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>ESC to cancel</span>
-          </>
-        )}
-      </div>
+      {!showCountdown && !confirmedRegion && recordingState.status === 'idle' && (
+        <div
+          className="absolute top-6 left-1/2 pointer-events-none"
+          style={{
+            transform: 'translateX(-50%)',
+            padding: '12px 48px',
+            borderRadius: '12px',
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+            fontSize: '13px',
+            fontWeight: 500,
+          }}
+        >
+          {mode === 'window' && !isDragging ? (
+            <>
+              <span style={{ color: '#ffffff' }}>
+                {hoveredWindow
+                  ? `Click to ${captureType === 'screenshot' ? 'capture' : 'record'} window`
+                  : `Click for fullscreen ${captureType === 'screenshot' ? 'capture' : 'recording'}`}
+              </span>
+              <span style={{ margin: '0 10px', color: 'rgba(255, 255, 255, 0.5)' }}>•</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Drag to select region</span>
+              <span style={{ margin: '0 10px', color: 'rgba(255, 255, 255, 0.5)' }}>•</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>ESC to cancel</span>
+            </>
+          ) : (
+            <>
+              <span style={{ color: '#ffffff' }}>Drag to select region</span>
+              <span style={{ margin: '0 10px', color: 'rgba(255, 255, 255, 0.5)' }}>•</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>ESC to cancel</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Countdown overlay */}
+      <CountdownOverlay
+        visible={showCountdown}
+        initialCount={recordingSettings.countdownSecs}
+        centerX={countdownCenter?.x}
+        centerY={countdownCenter?.y}
+        onComplete={handleCountdownComplete}
+        onCancel={handleCountdownCancel}
+      />
     </div>
   );
 };

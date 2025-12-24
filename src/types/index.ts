@@ -339,6 +339,90 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 // ============================================
+// Capture Type (used in RegionSelector)
+// ============================================
+
+/** Type of capture action to perform after region selection */
+export type CaptureType = 'screenshot' | 'video' | 'gif';
+
+// ============================================
+// Video Recording Types
+// ============================================
+
+/** Output format for recordings */
+export type RecordingFormat = 'mp4' | 'gif';
+
+/** What to capture during recording */
+export type RecordingMode =
+  | { type: 'region'; x: number; y: number; width: number; height: number }
+  | { type: 'window'; windowId: number }
+  | { type: 'monitor'; monitorIndex: number }
+  | { type: 'allMonitors' };
+
+/** Audio capture settings */
+export interface AudioSettings {
+  captureSystemAudio: boolean;
+  captureMicrophone: boolean;
+}
+
+/** Settings for a recording session */
+export interface RecordingSettings {
+  format: RecordingFormat;
+  mode: RecordingMode;
+  fps: number;
+  maxDurationSecs: number | null;
+  includeCursor: boolean;
+  audio: AudioSettings;
+  quality: number;
+  countdownSecs: number;
+}
+
+/** Default recording settings */
+export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
+  format: 'mp4',
+  mode: { type: 'monitor', monitorIndex: 0 },
+  fps: 30,
+  maxDurationSecs: null,
+  includeCursor: true,
+  audio: {
+    captureSystemAudio: true,
+    captureMicrophone: false,
+  },
+  quality: 80,
+  countdownSecs: 3,
+};
+
+/** Current state of a recording session */
+export type RecordingState =
+  | { status: 'idle' }
+  | { status: 'countdown'; secondsRemaining: number }
+  | { status: 'recording'; startedAt: string; elapsedSecs: number; frameCount: number }
+  | { status: 'paused'; elapsedSecs: number; frameCount: number }
+  | { status: 'processing'; progress: number }
+  | { status: 'completed'; outputPath: string; durationSecs: number; fileSizeBytes: number }
+  | { status: 'error'; message: string };
+
+/** Full status of the recording system */
+export interface RecordingStatus {
+  state: RecordingState;
+  settings: RecordingSettings | null;
+}
+
+/** Result of starting a recording */
+export interface StartRecordingResult {
+  success: boolean;
+  message: string;
+}
+
+/** Result of stopping a recording */
+export interface StopRecordingResult {
+  outputPath: string;
+  durationSecs: number;
+  fileSizeBytes: number;
+  format: RecordingFormat;
+}
+
+// ============================================
 // Shape Component Types
 // ============================================
 

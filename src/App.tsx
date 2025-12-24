@@ -222,7 +222,7 @@ function App() {
   // Capture trigger functions
   const triggerNewCapture = useCallback(async () => {
     try {
-      await invoke('show_overlay');
+      await invoke('show_overlay', { captureType: 'screenshot' });
     } catch {
       toast.error('Failed to start capture');
     }

@@ -126,9 +126,27 @@ export const CaptureLibrary: React.FC = () => {
     loadCaptures();
   }, [loadCaptures]);
 
-  const handleNewCapture = async () => {
+  const handleNewImage = async () => {
     try {
-      await invoke('show_overlay');
+      await invoke('show_overlay', { captureType: 'screenshot' });
+    } catch (error) {
+      console.error('Failed to start capture:', error);
+      toast.error('Failed to start capture');
+    }
+  };
+
+  const handleNewVideo = async () => {
+    try {
+      await invoke('show_overlay', { captureType: 'video' });
+    } catch (error) {
+      console.error('Failed to start capture:', error);
+      toast.error('Failed to start capture');
+    }
+  };
+
+  const handleNewGif = async () => {
+    try {
+      await invoke('show_overlay', { captureType: 'gif' });
     } catch (error) {
       console.error('Failed to start capture:', error);
       toast.error('Failed to start capture');
@@ -365,7 +383,9 @@ export const CaptureLibrary: React.FC = () => {
           onClearSelection={clearSelection}
           onOpenLibraryFolder={handleOpenLibraryFolder}
           onAllMonitorsCapture={handleAllMonitorsCapture}
-          onNewCapture={handleNewCapture}
+          onNewImage={handleNewImage}
+          onNewVideo={handleNewVideo}
+          onNewGif={handleNewGif}
         />
 
         {/* Content - Scrollable area with marquee selection */}
@@ -405,7 +425,7 @@ export const CaptureLibrary: React.FC = () => {
               ))}
             </div>
           ) : captures.length === 0 ? (
-            <EmptyState onNewCapture={handleNewCapture} />
+            <EmptyState onNewCapture={handleNewImage} />
           ) : viewMode === 'grid' ? (
             renderCaptureGrid()
           ) : (

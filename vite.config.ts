@@ -21,6 +21,7 @@ export default defineConfig(async () => ({
       input: {
         main: resolve(__dirname, "index.html"),
         overlay: resolve(__dirname, "overlay.html"),
+        "recording-controls": resolve(__dirname, "recording-controls.html"),
       },
     },
   },

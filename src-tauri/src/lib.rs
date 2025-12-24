@@ -110,6 +110,8 @@ pub fn run() {
             commands::window::open_editor,
             commands::window::open_editor_fast,
             commands::window::move_overlays_offscreen,
+            commands::window::show_recording_controls,
+            commands::window::hide_recording_controls,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands
@@ -142,6 +144,13 @@ pub fn run() {
             commands::keyboard_hook::unregister_shortcut_hook,
             commands::keyboard_hook::unregister_all_hooks,
             commands::keyboard_hook::reinstall_hook,
+            // Video recording commands
+            commands::video_recording::start_recording,
+            commands::video_recording::stop_recording,
+            commands::video_recording::cancel_recording,
+            commands::video_recording::pause_recording,
+            commands::video_recording::resume_recording,
+            commands::video_recording::get_recording_status,
         ])
         .setup(|app| {
             #[cfg(desktop)]
@@ -206,7 +215,7 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "capture" => {
-                let _ = commands::window::trigger_capture(app);
+                let _ = commands::window::trigger_capture(app, None);
             }
             "capture_full" => {
                 // Fast fullscreen capture - no overlay, no PNG encoding

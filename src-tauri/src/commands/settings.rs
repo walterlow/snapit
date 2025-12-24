@@ -172,3 +172,19 @@ pub async fn get_default_save_dir(app: tauri::AppHandle) -> Result<String, Strin
     
     Ok(snapit_path.to_string_lossy().to_string())
 }
+
+/// Get the default save directory path (synchronous version for internal use).
+pub fn get_default_save_dir_sync() -> Result<std::path::PathBuf, String> {
+    let path = dirs::picture_dir()
+        .ok_or_else(|| "Failed to get pictures directory".to_string())?;
+    
+    let snapit_path = path.join("SnapIt");
+    
+    // Create the directory if it doesn't exist
+    if !snapit_path.exists() {
+        std::fs::create_dir_all(&snapit_path)
+            .map_err(|e| format!("Failed to create SnapIt directory: {}", e))?;
+    }
+    
+    Ok(snapit_path)
+}

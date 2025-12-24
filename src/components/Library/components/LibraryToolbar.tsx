@@ -5,11 +5,14 @@ import {
   Trash2,
   LayoutGrid,
   List,
-  Plus,
+  Camera,
+  Video,
+  Film,
   X,
   FolderOpen,
   Monitor,
 } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -34,7 +37,9 @@ interface LibraryToolbarProps {
   onClearSelection: () => void;
   onOpenLibraryFolder: () => void;
   onAllMonitorsCapture: () => void;
-  onNewCapture: () => void;
+  onNewImage: () => void;
+  onNewVideo: () => void;
+  onNewGif: () => void;
 }
 
 export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
@@ -49,7 +54,9 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
   onClearSelection,
   onOpenLibraryFolder,
   onAllMonitorsCapture,
-  onNewCapture,
+  onNewImage,
+  onNewVideo,
+  onNewGif,
 }) => {
   return (
     <header className="header-bar">
@@ -173,12 +180,40 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
               <Monitor className="w-3.5 h-3.5" />
               All Monitors
             </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onNewGif}
+                  variant="outline"
+                  className="h-8 w-8 p-0 rounded-lg bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+                >
+                  <Film className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="text-xs">New GIF</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onNewVideo}
+                  variant="outline"
+                  className="h-8 w-8 p-0 rounded-lg bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+                >
+                  <Video className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="text-xs">New Video</p>
+              </TooltipContent>
+            </Tooltip>
             <Button
-              onClick={onNewCapture}
+              onClick={onNewImage}
               className="btn-coral h-8 px-3 gap-1.5 rounded-lg text-sm font-medium"
             >
-              <Plus className="w-3.5 h-3.5" />
-              New Capture
+              <Camera className="w-3.5 h-3.5" />
+              New Image
             </Button>
           </div>
         )}

@@ -26,12 +26,21 @@ export function useMarqueeSelection({
   onOpenProject,
 }: UseMarqueeSelectionProps): UseMarqueeSelectionReturn {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [isSelecting, setIsSelecting] = useState(false);
+  const [isSelecting, setIsSelectingState] = useState(false);
   const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
   const [selectionCurrent, setSelectionCurrent] = useState({ x: 0, y: 0 });
   const [selectionStartIds, setSelectionStartIds] = useState<Set<string>>(new Set());
   const isShiftHeld = useRef(false);
   const lastClickedId = useRef<string | null>(null);
+  
+  // Ref to track latest isSelecting value - updated synchronously to avoid stale closures
+  const isSelectingRef = useRef(false);
+  
+  // Wrapper that updates both ref (sync) and state (async) together
+  const setIsSelecting = useCallback((value: boolean) => {
+    isSelectingRef.current = value; // Sync update for event handlers
+    setIsSelectingState(value);     // Async update for React renders
+  }, []);
 
   // Calculate selection rectangle bounds (handles any drag direction)
   const getSelectionRect = useCallback(() => {
@@ -115,13 +124,14 @@ export function useMarqueeSelection({
       // Prevent text selection
       e.preventDefault();
     },
-    [containerRef, selectedIds]
+    [containerRef, selectedIds, setIsSelecting]
   );
 
   // Handle mouse move during selection
   const handleMarqueeMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isSelecting) return;
+      // Use ref to avoid stale closure
+      if (!isSelectingRef.current) return;
 
       const container = containerRef.current;
       if (!container) return;
@@ -142,12 +152,13 @@ export function useMarqueeSelection({
         setSelectedIds(inRect);
       }
     },
-    [isSelecting, containerRef, getSelectedCapturesInRect, selectionStartIds]
+    [containerRef, getSelectedCapturesInRect, selectionStartIds]
   );
 
   // Handle mouse up to end selection
   const handleMarqueeMouseUp = useCallback(() => {
-    if (!isSelecting) return;
+    // Use ref to avoid stale closure - isSelecting state may not be updated yet
+    if (!isSelectingRef.current) return;
 
     // If it was just a click (no drag), clear selection
     const rect = getSelectionRect();
@@ -158,19 +169,20 @@ export function useMarqueeSelection({
     }
 
     setIsSelecting(false);
-  }, [isSelecting, getSelectionRect]);
+  }, [getSelectionRect, setIsSelecting]);
 
   // Global mouse up listener to handle mouse up outside container
   useEffect(() => {
     const handleGlobalMouseUp = () => {
-      if (isSelecting) {
+      // Use ref to avoid stale closure - always check the latest value
+      if (isSelectingRef.current) {
         setIsSelecting(false);
       }
     };
 
     window.addEventListener('mouseup', handleGlobalMouseUp);
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, [isSelecting]);
+  }, [setIsSelecting]);
 
   // Handle individual card selection (click, ctrl+click, shift+click)
   const handleSelect = useCallback(

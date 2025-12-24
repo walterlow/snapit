@@ -24,6 +24,10 @@ export function useMomentumScroll(
   const velocityRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef(0);
+  
+  // Use ref for disabled to avoid re-attaching listener on every disabled change
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -46,8 +50,11 @@ export function useMomentumScroll(
     };
 
     const handleWheel = (e: WheelEvent) => {
-      // Don't interfere with horizontal scroll, pinch zoom, or when disabled
-      if (disabled || e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      // When disabled, let native scrolling work
+      if (disabledRef.current) return;
+      
+      // Don't interfere with horizontal scroll or pinch zoom
+      if (e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
 
       e.preventDefault();
 
@@ -74,5 +81,5 @@ export function useMomentumScroll(
         cancelAnimationFrame(rafRef.current);
       }
     };
-  }, [containerRef, multiplier, friction, minVelocity, disabled]);
+  }, [containerRef, multiplier, friction, minVelocity]); // Note: disabled removed - we use the ref
 }

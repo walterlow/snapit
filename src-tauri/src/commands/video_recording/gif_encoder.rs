@@ -3,6 +3,8 @@
 //! This module provides frame buffering during recording and
 //! high-quality GIF encoding using the gifski library.
 
+#![allow(dead_code)]
+
 use std::path::Path;
 use std::sync::Arc;
 

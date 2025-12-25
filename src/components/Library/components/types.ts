@@ -10,6 +10,7 @@ export interface CaptureCardProps {
   onDelete: () => void;
   onOpenInFolder: () => void;
   onCopyToClipboard: () => void;
+  onPlayMedia?: () => void; // For video/gif - opens in system player
   formatDate: (date: string) => string;
 }
 

@@ -1,10 +1,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, PhysicalPosition, PhysicalSize};
-use xcap::Monitor;
+use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+
+use super::capture::fallback::get_monitors;
 
 // Recording controls window label
 const RECORDING_CONTROLS_LABEL: &str = "recording-controls";
+
+// Recording border window label
+const RECORDING_BORDER_LABEL: &str = "recording-border";
 
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
@@ -24,23 +28,23 @@ pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
+    let monitors = get_monitors().map_err(|e| format!("Failed to get monitors: {}", e))?;
     let mut labels = OVERLAY_LABELS.lock().unwrap();
     labels.clear();
 
     for (idx, monitor) in monitors.iter().enumerate() {
         let label = format!("overlay_{}", idx);
 
-        let x = monitor.x().unwrap_or(0) as f64;
-        let y = monitor.y().unwrap_or(0) as f64;
-        let width = monitor.width().unwrap_or(1920) as f64;
-        let height = monitor.height().unwrap_or(1080) as f64;
-        let scale = monitor.scale_factor().unwrap_or(1.0);
+        let x = monitor.x as f64;
+        let y = monitor.y as f64;
+        let width = monitor.width as f64;
+        let height = monitor.height as f64;
+        let scale = monitor.scale_factor;
 
         let url = WebviewUrl::App(
             format!(
                 "overlay.html?monitor={}&x={}&y={}&width={}&height={}&scale={}",
-                idx, x as i32, y as i32, width as u32, height as u32, scale
+                idx, monitor.x, monitor.y, monitor.width, monitor.height, scale
             )
             .into(),
         );
@@ -74,7 +78,7 @@ pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
 /// Trigger the capture overlay - just show pre-created windows (fast!)
 /// capture_type: "screenshot", "video", or "gif"
 pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<(), String> {
-    let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
+    let monitors = get_monitors().map_err(|e| format!("Failed to get monitors: {}", e))?;
     let current_monitor_count = monitors.len();
 
     // Check if we need to recreate overlays (monitor count changed or not created yet)
@@ -117,16 +121,13 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
     for (idx, label) in labels.iter().enumerate() {
         if let Some(window) = app.get_webview_window(label) {
             if let Some(monitor) = monitors.get(idx) {
-                let x = monitor.x().unwrap_or(0) as f64;
-                let y = monitor.y().unwrap_or(0) as f64;
-
                 // Reset overlay state BEFORE showing to avoid flash of old content
                 // Include capture type so overlay knows what mode to start in
                 let payload = serde_json::json!({ "captureType": ct });
                 let _ = window.emit("reset-overlay", payload);
 
                 let _ = window.set_position(tauri::Position::Physical(
-                    tauri::PhysicalPosition { x: x as i32, y: y as i32 }
+                    tauri::PhysicalPosition { x: monitor.x, y: monitor.y }
                 ));
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -185,14 +186,12 @@ pub async fn show_overlay(app: AppHandle, capture_type: Option<String>) -> Resul
 }
 
 #[command]
-pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
+pub async fn hide_overlay(app: AppHandle, restore_main_window: Option<bool>) -> Result<(), String> {
     let labels = OVERLAY_LABELS.lock().unwrap();
 
-    // Hide overlays instead of closing (fast - can reuse!)
+    // Hide overlays (don't reset state here - reset happens when showing for next capture)
     for label in labels.iter() {
         if let Some(window) = app.get_webview_window(label) {
-            // Reset state before hiding to ensure clean state for next capture
-            let _ = window.emit("reset-overlay", ());
             // Move off-screen and hide
             let _ = window.set_position(tauri::Position::Physical(
                 tauri::PhysicalPosition { x: -10000, y: -10000 }
@@ -205,7 +204,10 @@ pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
     CAPTURE_IN_PROGRESS.store(false, Ordering::SeqCst);
 
     // Restore main window if it was visible before capture started
-    if MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
+    // Default to true for backward compatibility (screenshots)
+    // Pass false when starting video recording to keep main window hidden
+    let should_restore = restore_main_window.unwrap_or(true);
+    if should_restore && MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
         if let Some(main_window) = app.get_webview_window("main") {
             let _ = main_window.show();
             let _ = main_window.set_focus();
@@ -215,10 +217,23 @@ pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Restore the main window (call this when video recording completes)
+#[command]
+pub async fn restore_main_window(app: AppHandle) -> Result<(), String> {
+    // Check if main was visible before capture started
+    if MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.show();
+            let _ = main_window.set_focus();
+        }
+    }
+    Ok(())
+}
+
 #[command]
 pub async fn open_editor(app: AppHandle, image_data: String) -> Result<(), String> {
-    // Close all overlays
-    hide_overlay(app.clone()).await?;
+    // Close all overlays and restore main window (this is for screenshots)
+    hide_overlay(app.clone(), None).await?;
 
     // Show main window with the captured image
     if let Some(main_window) = app.get_webview_window("main") {
@@ -252,8 +267,8 @@ pub async fn open_editor_fast(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Close all overlays
-    hide_overlay(app.clone()).await?;
+    // Close all overlays and restore main window (this is for screenshots)
+    hide_overlay(app.clone(), None).await?;
 
     // Show main window with the capture file path
     if let Some(main_window) = app.get_webview_window("main") {
@@ -310,14 +325,14 @@ pub async fn show_recording_controls(
         (center_x, below_y)
     } else {
         // Fallback: position at top-center of primary monitor
-        let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
-        let primary = monitors.iter().find(|m| m.is_primary().unwrap_or(false))
+        let monitors = get_monitors().map_err(|e| format!("Failed to get monitors: {}", e))?;
+        let primary = monitors.iter().find(|m| m.is_primary)
             .or_else(|| monitors.first())
             .ok_or("No monitors found")?;
 
-        let monitor_width = primary.width().unwrap_or(1920) as i32;
-        let monitor_x = primary.x().unwrap_or(0);
-        let monitor_y = primary.y().unwrap_or(0);
+        let monitor_width = primary.width as i32;
+        let monitor_x = primary.x;
+        let monitor_y = primary.y;
 
         let center_x = monitor_x + (monitor_width / 2) - (window_width as i32 / 2);
         let top_y = monitor_y + 20;
@@ -370,6 +385,119 @@ pub async fn show_recording_controls(
 pub async fn hide_recording_controls(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(RECORDING_CONTROLS_LABEL) {
         window.close().map_err(|e| format!("Failed to close recording controls: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Exclude a window from screen capture using Windows API.
+/// This prevents the window from appearing in screenshots and screen recordings.
+#[cfg(target_os = "windows")]
+fn exclude_window_from_capture(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
+    
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
+    
+    unsafe {
+        SetWindowDisplayAffinity(HWND(hwnd.0), WDA_EXCLUDEFROMCAPTURE)
+            .map_err(|e| format!("Failed to set display affinity: {:?}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn exclude_window_from_capture(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    // Not supported on non-Windows platforms
+    Ok(())
+}
+
+/// Show the recording border window around the recording region.
+/// This is a transparent click-through window that shows a border to indicate
+/// what area is being recorded. The window is excluded from screen capture
+/// so it won't appear in recordings.
+/// 
+/// Parameters:
+/// - x, y: Top-left corner of the recording region (screen coordinates)
+/// - width, height: Dimensions of the recording region
+#[command]
+pub async fn show_recording_border(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    // Add padding around the border so the border itself is visible outside the recording region
+    // Use larger padding to account for scale factors and ensure border is definitely outside
+    let border_padding = 6;
+    let window_x = x - border_padding;
+    let window_y = y - border_padding;
+    let window_width = width + (border_padding as u32 * 2);
+    let window_height = height + (border_padding as u32 * 2);
+
+    // Check if window already exists
+    if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
+        // Window exists - reposition and resize it using physical coordinates
+        let _ = window.set_position(tauri::Position::Physical(
+            tauri::PhysicalPosition { x: window_x, y: window_y }
+        ));
+        let _ = window.set_size(tauri::Size::Physical(
+            tauri::PhysicalSize { width: window_width, height: window_height }
+        ));
+        window.show().map_err(|e| format!("Failed to show recording border: {}", e))?;
+        window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
+        return Ok(());
+    }
+
+    // Create the window
+    let url = WebviewUrl::App("recording-border.html".into());
+    
+    let window = WebviewWindowBuilder::new(&app, RECORDING_BORDER_LABEL, url)
+        .title("")
+        .inner_size(window_width as f64, window_height as f64)
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false) // Start hidden, position first
+        .focused(false) // Don't steal focus from user's work
+        .build()
+        .map_err(|e| format!("Failed to create recording border window: {}", e))?;
+
+    // Set position using physical coordinates to match recording coordinates
+    window.set_position(tauri::Position::Physical(
+        tauri::PhysicalPosition { x: window_x, y: window_y }
+    )).map_err(|e| format!("Failed to set position: {}", e))?;
+    
+    window.set_size(tauri::Size::Physical(
+        tauri::PhysicalSize { width: window_width, height: window_height }
+    )).map_err(|e| format!("Failed to set size: {}", e))?;
+
+    // CRITICAL: Exclude window from screen capture so it doesn't appear in recordings
+    exclude_window_from_capture(&window)?;
+
+    // Make it click-through so users can interact with the content below
+    window.set_ignore_cursor_events(true)
+        .map_err(|e| format!("Failed to set ignore cursor events: {}", e))?;
+
+    // Now show the window
+    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+
+    // Ensure always on top
+    window.set_always_on_top(true)
+        .map_err(|e| format!("Failed to set always on top: {}", e))?;
+
+    Ok(())
+}
+
+/// Hide the recording border window.
+#[command]
+pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
+        window.close().map_err(|e| format!("Failed to close recording border: {}", e))?;
     }
     Ok(())
 }

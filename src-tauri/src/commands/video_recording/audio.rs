@@ -1,6 +1,12 @@
 //! Audio capture using cpal.
 //!
 //! Supports capturing system audio (loopback) and microphone input.
+//!
+//! NOTE: This module is currently unused. The VideoEncoder from windows-capture
+//! handles audio internally. This code is kept for potential future use with
+//! microphone capture or if we switch to FFmpeg-based encoding.
+
+#![allow(dead_code)]
 
 use std::sync::{Arc, Mutex};
 
@@ -82,7 +88,7 @@ impl AudioCapture {
         let config: StreamConfig = supported_config.into();
         
         let audio_config = AudioConfig {
-            sample_rate: config.sample_rate.0,
+            sample_rate: config.sample_rate,
             channels: config.channels,
         };
         
@@ -283,7 +289,7 @@ pub fn list_input_devices() -> Vec<String> {
     host.input_devices()
         .map(|devices| {
             devices
-                .filter_map(|d| d.name().ok())
+                .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
                 .collect()
         })
         .unwrap_or_default()
@@ -296,7 +302,7 @@ pub fn list_output_devices() -> Vec<String> {
     host.output_devices()
         .map(|devices| {
             devices
-                .filter_map(|d| d.name().ok())
+                .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
                 .collect()
         })
         .unwrap_or_default()

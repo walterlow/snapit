@@ -1,164 +1,262 @@
 /**
- * RecordingControlsWindow - Standalone window for recording controls.
+ * RecordingControlsWindow - Simple floating controls during recording.
  * 
- * This is a separate Tauri window that stays visible during recording,
- * allowing users to pause/resume/stop/cancel without blocking the screen.
+ * Shows recording time, format badge, and control buttons.
+ * Backend manages window lifecycle (show/hide).
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Square, Pause, Play, X, Circle, GripVertical } from 'lucide-react';
 import type { RecordingState, RecordingFormat } from '../types';
+import { recordingLogger as log } from '../utils/logger';
 
-// Helper to format elapsed time
-function formatElapsedTime(seconds: number): string {
+function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
+type UIStatus = 'starting' | 'recording' | 'paused' | 'processing' | 'error' | 'done';
+
 const RecordingControlsWindow: React.FC = () => {
-  const [recordingState, setRecordingState] = useState<RecordingState>({ status: 'idle' });
-  const [prevStatus, setPrevStatus] = useState<string>('idle');
+  const [uiStatus, setUiStatus] = useState<UIStatus>('starting');
   const [format, setFormat] = useState<RecordingFormat>('mp4');
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  // Track if we've already started the local timer for current recording session
+  const isRecordingActiveRef = useRef(false);
 
-  // Listen for recording state changes from the backend
-  // NOTE: No dependencies - listener is stable across renders
+  // Listen to backend events
   useEffect(() => {
+    log.info('Setting up event listeners');
+    
     const unlistenState = listen<RecordingState>('recording-state-changed', (event) => {
-      const newState = event.payload;
+      const state = event.payload;
+      log.debug('State changed:', state.status, 'isRecordingActive:', isRecordingActiveRef.current, 'payload:', JSON.stringify(state));
       
-      // Use functional update to correctly track previous status
-      setRecordingState((currentState) => {
-        // Update prevStatus with the CURRENT state before it changes
-        setPrevStatus(currentState.status);
-        return newState;
-      });
-      
-      // Update elapsed time from state - only if backend provides a value > 0
-      if (newState.status === 'recording' || newState.status === 'paused') {
-        const state = newState as { elapsedSecs?: number };
-        if (state.elapsedSecs !== undefined && state.elapsedSecs > 0) {
-          setElapsedTime(state.elapsedSecs);
-        }
+      switch (state.status) {
+        case 'countdown':
+          // New recording session - reset all state
+          log.info('Countdown started, resetting state');
+          isRecordingActiveRef.current = false;
+          setUiStatus('starting');
+          setElapsedTime(0);
+          setProgress(0);
+          break;
+        case 'recording':
+          // Only reset elapsed time when first transitioning to recording
+          // Don't reset on subsequent updates (which happen every ~30 frames)
+          if (!isRecordingActiveRef.current) {
+            log.info('Recording started (first transition)', 'elapsedSecs:', 'elapsedSecs' in state ? state.elapsedSecs : 0);
+            isRecordingActiveRef.current = true;
+            setElapsedTime('elapsedSecs' in state ? state.elapsedSecs : 0);
+          }
+          setUiStatus('recording');
+          break;
+        case 'paused':
+          log.info('Recording paused');
+          setUiStatus('paused');
+          if ('elapsedSecs' in state) {
+            setElapsedTime(state.elapsedSecs);
+          }
+          break;
+        case 'processing':
+          log.info('Processing (GIF encoding)', 'progress:', 'progress' in state ? state.progress : 0);
+          setUiStatus('processing');
+          if ('progress' in state) {
+            setProgress(state.progress);
+          }
+          break;
+        case 'completed':
+        case 'idle':
+          log.info('Recording ended, status:', state.status, 'closing windows');
+          isRecordingActiveRef.current = false;
+          setUiStatus('done');
+          // Reset for next session
+          setElapsedTime(0);
+          setProgress(0);
+          // Hide windows and restore main window
+          invoke('hide_recording_border').catch(() => {});
+          invoke('hide_recording_controls').catch(() => {});
+          invoke('restore_main_window').catch(() => {});
+          break;
+        case 'error':
+          const errorMsg = 'message' in state ? state.message : 'Unknown error';
+          log.error('Recording error:', errorMsg);
+          isRecordingActiveRef.current = false;
+          setErrorMessage(errorMsg);
+          setUiStatus('error');
+          // Hide border but keep controls visible to show error
+          invoke('hide_recording_border').catch(() => {});
+          // Auto-close after showing error and restore main window
+          setTimeout(() => {
+            setUiStatus('done');
+            setElapsedTime(0);
+            setProgress(0);
+            setErrorMessage(null);
+            invoke('hide_recording_controls').catch(() => {});
+            invoke('restore_main_window').catch(() => {});
+          }, 3000);
+          break;
       }
     });
 
     const unlistenFormat = listen<RecordingFormat>('recording-format', (event) => {
+      log.debug('Format changed:', event.payload);
       setFormat(event.payload);
     });
 
-    // Get initial status
+    // Get initial state
     invoke<{ state: RecordingState; settings: { format: RecordingFormat } | null }>('get_recording_status')
-      .then((status) => {
-        setRecordingState(status.state);
-        if (status.settings) {
-          setFormat(status.settings.format);
+      .then((result) => {
+        log.info('Initial status:', result.state.status, 'format:', result.settings?.format);
+        if (result.settings) {
+          setFormat(result.settings.format);
         }
+        // Only update if actively recording
+        if (result.state.status === 'recording') {
+          log.debug('Already recording, setting uiStatus to recording');
+          setUiStatus('recording');
+        } else if (result.state.status === 'paused') {
+          setUiStatus('paused');
+        } else if (result.state.status === 'processing') {
+          setUiStatus('processing');
+        }
+        // Otherwise stay in 'starting' - wait for live event
       })
-      .catch(console.error);
+      .catch((e) => log.error('Failed to get initial status:', e));
 
     return () => {
-      unlistenState.then((fn) => fn());
-      unlistenFormat.then((fn) => fn());
+      unlistenState.then(fn => fn());
+      unlistenFormat.then(fn => fn());
     };
-  }, []); // Empty dependency array - listener is stable
+  }, []);
 
-  // Local timer for smooth updates
+  // Timer
   useEffect(() => {
-    if (recordingState.status !== 'recording') return;
-
-    const interval = setInterval(() => {
-      setElapsedTime((prev) => prev + 0.1);
-    }, 100);
-
+    if (uiStatus !== 'recording') return;
+    const interval = setInterval(() => setElapsedTime(t => t + 0.1), 100);
     return () => clearInterval(interval);
-  }, [recordingState.status]);
+  }, [uiStatus]);
 
-  // Close window when recording completes, errors, or is cancelled
-  useEffect(() => {
-    const shouldClose = 
-      recordingState.status === 'completed' || 
-      recordingState.status === 'error' ||
-      // Cancelled: went from recording/paused back to idle
-      (recordingState.status === 'idle' && (prevStatus === 'recording' || prevStatus === 'paused'));
-    
-    if (shouldClose) {
-      const timer = setTimeout(async () => {
-        try {
-          const window = getCurrentWindow();
-          await window.close();
-        } catch {
-          // Window might already be closed
-        }
-      }, 100); // Faster close for cancel
-      return () => clearTimeout(timer);
-    }
-  }, [recordingState.status, prevStatus]);
-
-  // Handle stop
-  const handleStop = useCallback(async () => {
-    try {
-      await invoke('stop_recording');
-    } catch (error) {
-      console.error('Failed to stop recording:', error);
-    }
+  // Handlers
+  const handleStop = useCallback(() => {
+    console.log('[RecordingControls] Stop clicked');
+    invoke('stop_recording').catch(e => console.error('Stop failed:', e));
   }, []);
 
-  // Handle pause/resume
-  const handlePauseResume = useCallback(async () => {
-    try {
-      if (recordingState.status === 'paused') {
-        await invoke('resume_recording');
-      } else {
-        await invoke('pause_recording');
-      }
-    } catch (error) {
-      console.error('Failed to pause/resume:', error);
+  const handlePauseResume = useCallback(() => {
+    console.log('[RecordingControls] Pause/Resume clicked, status:', uiStatus);
+    if (uiStatus === 'paused') {
+      invoke('resume_recording').catch(e => console.error('Resume failed:', e));
+    } else {
+      invoke('pause_recording').catch(e => console.error('Pause failed:', e));
     }
-  }, [recordingState.status]);
+  }, [uiStatus]);
 
-  // Handle cancel
-  const handleCancel = useCallback(async () => {
-    try {
-      await invoke('cancel_recording');
-    } catch (error) {
-      console.error('Failed to cancel recording:', error);
-    }
+  const handleCancel = useCallback(() => {
+    console.log('[RecordingControls] Cancel clicked');
+    invoke('cancel_recording').catch(e => console.error('Cancel failed:', e));
   }, []);
 
-  // Show "Starting..." for idle/countdown states
-  if (recordingState.status === 'idle' || recordingState.status === 'countdown') {
-    const countdownText = recordingState.status === 'countdown' 
-      ? `${(recordingState as { secondsRemaining: number }).secondsRemaining}...`
-      : 'Starting...';
+  // === RENDER ===
+
+  // Starting
+  if (uiStatus === 'starting') {
     return (
       <div className="w-full h-full flex items-center justify-center">
-        <div 
+        <div
           data-tauri-drag-region
-          className="px-6 py-3 rounded-full pointer-events-auto cursor-move"
+          className="flex items-center gap-3 px-6 py-3 rounded-full pointer-events-auto cursor-move"
           style={{
             background: 'rgba(0, 0, 0, 0.95)',
             border: '1px solid rgba(255, 255, 255, 0.15)',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
           }}
         >
-          <span className="text-white/50 text-sm select-none">{countdownText}</span>
+          <div className="w-3 h-3 border-2 border-white/50 border-t-transparent rounded-full animate-spin" />
+          <span className="text-white/50 text-sm select-none">Starting...</span>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="ml-2 p-1 rounded transition-colors hover:bg-red-500/20 cursor-pointer"
+            title="Cancel"
+          >
+            <X size={14} className="text-red-400" />
+          </button>
         </div>
       </div>
     );
   }
-  
-  // Hide for completed/error states
-  if (recordingState.status === 'completed' || recordingState.status === 'error' || recordingState.status === 'processing') {
+
+  // Processing (GIF encoding)
+  if (uiStatus === 'processing') {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <div
+          data-tauri-drag-region
+          className="px-6 py-3 rounded-xl pointer-events-auto cursor-move"
+          style={{
+            background: 'rgba(0, 0, 0, 0.95)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+            <span className="text-white/70 text-sm select-none">
+              Encoding GIF... {Math.round(progress * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="ml-2 p-1 rounded transition-colors hover:bg-red-500/20 cursor-pointer"
+              title="Cancel"
+            >
+              <X size={14} className="text-red-400" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state - show error message before closing
+  if (uiStatus === 'error') {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <div
+          data-tauri-drag-region
+          className="px-6 py-3 rounded-xl pointer-events-auto cursor-move"
+          style={{
+            background: 'rgba(0, 0, 0, 0.95)',
+            border: '1px solid rgba(239, 68, 68, 0.5)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-4 h-4 rounded-full bg-red-500" />
+            <span className="text-red-400 text-sm select-none max-w-[300px] truncate">
+              {errorMessage || 'Recording failed'}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Done - render nothing while window closes
+  if (uiStatus === 'done') {
     return null;
   }
 
-  const isRecording = recordingState.status === 'recording';
-  const isPaused = recordingState.status === 'paused';
+  // Recording / Paused - main controls
+  const isRecording = uiStatus === 'recording';
+  const isPaused = uiStatus === 'paused';
   const isGif = format === 'gif';
 
   return (
@@ -172,24 +270,21 @@ const RecordingControlsWindow: React.FC = () => {
           boxShadow: '2px 4px 12px rgba(0, 0, 0, 0.15)',
         }}
       >
-        {/* Drag handle indicator */}
         <div className="text-white/40">
           <GripVertical size={16} />
         </div>
 
-        {/* Recording indicator */}
         <div className="flex items-center gap-2 select-none">
           <Circle
             size={12}
-            className={`${isRecording ? 'text-red-500 animate-pulse' : 'text-yellow-500'}`}
+            className={isRecording ? 'text-red-500 animate-pulse' : 'text-yellow-500'}
             fill="currentColor"
           />
           <span className="text-white font-mono text-sm font-medium min-w-[60px]">
-            {formatElapsedTime(elapsedTime)}
+            {formatTime(elapsedTime)}
           </span>
         </div>
 
-        {/* Format badge */}
         <div
           className="px-2 py-0.5 rounded text-xs font-medium uppercase select-none"
           style={{
@@ -200,12 +295,9 @@ const RecordingControlsWindow: React.FC = () => {
           {format}
         </div>
 
-        {/* Divider */}
         <div className="w-px h-6 bg-white/20" />
 
-        {/* Buttons group */}
         <div className="flex items-center gap-1">
-          {/* Pause/Resume button (not for GIF) */}
           {!isGif && (
             <button
               type="button"
@@ -221,7 +313,6 @@ const RecordingControlsWindow: React.FC = () => {
             </button>
           )}
 
-          {/* Stop button */}
           <button
             type="button"
             onClick={handleStop}
@@ -232,7 +323,6 @@ const RecordingControlsWindow: React.FC = () => {
           </button>
         </div>
 
-        {/* Cancel button - flush with right edge */}
         <button
           type="button"
           onClick={handleCancel}

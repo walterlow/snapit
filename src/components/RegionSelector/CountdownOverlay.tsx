@@ -35,10 +35,15 @@ export const CountdownOverlay: React.FC<CountdownOverlayProps> = ({
   // Reset count when becoming visible
   useEffect(() => {
     if (visible) {
+      // If countdown is 0, complete immediately
+      if (initialCount <= 0) {
+        onComplete();
+        return;
+      }
       setCount(initialCount);
       setIsAnimating(true);
     }
-  }, [visible, initialCount]);
+  }, [visible, initialCount, onComplete]);
 
   // Handle countdown timer
   useEffect(() => {

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
-import { FolderOpen, ExternalLink, RefreshCw, Sun, Moon, Monitor } from 'lucide-react';
+import { FolderOpen, ExternalLink, RefreshCw, Sun, Moon, Monitor, FileText } from 'lucide-react';
 import { useUpdater } from '@/hooks/useUpdater';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -343,6 +343,34 @@ export const GeneralTab: React.FC = () => {
                 </Button>
               )}
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Advanced Section */}
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
+          Advanced
+        </h3>
+        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)]">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-[var(--ink-black)]">
+                Application logs
+              </p>
+              <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+                View logs for troubleshooting (Ctrl+Shift+L)
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => invoke('open_log_dir')}
+              className="bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+            >
+              <FileText className="w-4 h-4 mr-1" />
+              View Logs
+            </Button>
           </div>
         </div>
       </section>

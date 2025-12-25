@@ -259,6 +259,23 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     });
   }, [selectedIds, shapes]);
 
+  // Disable image smoothing for crisp 1:1 pixel rendering at 100% zoom
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+
+    const handleBeforeDraw = () => {
+      const ctx = layer.getCanvas().getContext()._context;
+      // Disable smoothing when at or near 100% zoom for pixel-perfect rendering
+      ctx.imageSmoothingEnabled = navigation.zoom < 0.95 || navigation.zoom > 1.05;
+    };
+
+    layer.on('beforeDraw', handleBeforeDraw);
+    return () => {
+      layer.off('beforeDraw', handleBeforeDraw);
+    };
+  }, [navigation.zoom]);
+
   // Attach transformer to selected shapes
   useEffect(() => {
     if (!transformerRef.current || !layerRef.current) return;

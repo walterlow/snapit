@@ -294,6 +294,15 @@ export const CaptureLibrary: React.FC = () => {
     }
   }, []);
 
+  const handlePlayMedia = useCallback(async (capture: CaptureListItem) => {
+    try {
+      await invoke('open_file_with_default_app', { path: capture.image_path });
+    } catch (error) {
+      console.error('Failed to play media:', error);
+      toast.error('Failed to open file');
+    }
+  }, []);
+
   const getDeleteCount = () => {
     if (pendingBulkDelete) return selectedIds.size;
     return pendingDeleteId ? 1 : 0;
@@ -328,6 +337,7 @@ export const CaptureLibrary: React.FC = () => {
                 onDelete={() => handleRequestDeleteSingle(capture.id)}
                 onOpenInFolder={() => handleOpenInFolder(capture)}
                 onCopyToClipboard={() => handleCopyToClipboard(capture)}
+                onPlayMedia={() => handlePlayMedia(capture)}
                 formatDate={formatDate}
               />
             ))}
@@ -355,6 +365,7 @@ export const CaptureLibrary: React.FC = () => {
                 onDelete={() => handleRequestDeleteSingle(capture.id)}
                 onOpenInFolder={() => handleOpenInFolder(capture)}
                 onCopyToClipboard={() => handleCopyToClipboard(capture)}
+                onPlayMedia={() => handlePlayMedia(capture)}
                 formatDate={formatDate}
               />
             ))}

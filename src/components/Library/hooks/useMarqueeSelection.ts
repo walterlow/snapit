@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import type { CaptureListItem } from '../../../types';
 
 interface UseMarqueeSelectionProps {
@@ -6,6 +7,9 @@ interface UseMarqueeSelectionProps {
   containerRef: React.RefObject<HTMLDivElement>;
   onOpenProject: (id: string) => void;
 }
+
+// Check if capture is a video or gif recording
+const isVideoOrGif = (captureType: string) => captureType === 'video' || captureType === 'gif';
 
 interface UseMarqueeSelectionReturn {
   selectedIds: Set<string>;
@@ -225,9 +229,21 @@ export function useMarqueeSelection({
 
   // Handle double-click to open project
   const handleOpen = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const capture = captures.find((c) => c.id === id);
-      if (capture?.is_missing) return; // Don't open missing captures
+      if (!capture || capture.is_missing) return; // Don't open missing captures
+      
+      // Videos/GIFs open in system default player
+      if (isVideoOrGif(capture.capture_type)) {
+        try {
+          await invoke('open_file_with_default_app', { path: capture.image_path });
+        } catch (error) {
+          console.error('Failed to open file:', error);
+        }
+        return;
+      }
+      
+      // Screenshots open in editor
       onOpenProject(id);
     },
     [captures, onOpenProject]

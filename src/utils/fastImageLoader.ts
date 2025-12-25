@@ -13,8 +13,11 @@ import { invoke } from '@tauri-apps/api/core';
  * Load raw RGBA data from a temp file and create an ImageBitmap.
  * This is much faster than the PNG encode → base64 → data URL → decode path.
  *
+ * IMPORTANT: The returned ImageBitmap should be closed when no longer needed
+ * by calling bitmap.close() to release GPU memory.
+ *
  * @param filePath Path to the .rgba temp file
- * @returns ImageBitmap and dimensions
+ * @returns ImageBitmap and dimensions. Caller is responsible for calling bitmap.close()
  */
 export async function loadRgbaToImageBitmap(filePath: string): Promise<{
   bitmap: ImageBitmap;
@@ -40,6 +43,16 @@ export async function loadRgbaToImageBitmap(filePath: string): Promise<{
   const bitmap = await createImageBitmap(imageData);
 
   return { bitmap, width, height };
+}
+
+/**
+ * Close an ImageBitmap to release GPU memory.
+ * Safe to call even if bitmap is null/undefined.
+ */
+export function closeImageBitmap(bitmap: ImageBitmap | null | undefined): void {
+  if (bitmap) {
+    bitmap.close();
+  }
 }
 
 /**

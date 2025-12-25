@@ -49,6 +49,7 @@ interface VideoRecordingStore {
 
   // Status
   refreshStatus: () => Promise<void>;
+  resetToIdle: () => void;
   isRecording: () => boolean;
   isPaused: () => boolean;
   isProcessing: () => boolean;
@@ -84,7 +85,16 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
 
     // Set up event listener for recording state changes
     unlistenFn = await listen<RecordingState>('recording-state-changed', (event) => {
-      set({ recordingState: event.payload });
+      const newState = event.payload;
+      set({ recordingState: newState });
+      
+      // Auto-reset to idle after terminal states (completed/error) so user can start a new recording
+      if (newState.status === 'completed' || newState.status === 'error') {
+        // Brief delay to allow UI to show completion/error state before resetting
+        setTimeout(() => {
+          set({ recordingState: { status: 'idle' } });
+        }, 100);
+      }
     });
 
     // Get initial status from backend
@@ -243,7 +253,8 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
   cancelRecording: async () => {
     try {
       await invoke('cancel_recording');
-      set({ recordingState: { status: 'idle' } });
+      // Don't set state here - the backend will emit 'recording-state-changed'
+      // after the capture thread cleans up and deletes the file.
     } catch (error) {
       console.error('Failed to cancel recording:', error);
     }
@@ -296,6 +307,18 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
       });
     } catch (error) {
       console.error('Failed to get recording status:', error);
+    }
+  },
+
+  // Reset state to idle (for starting new capture sessions)
+  resetToIdle: () => {
+    const { recordingState } = get();
+    // Only reset if not actively recording
+    if (recordingState.status !== 'recording' && 
+        recordingState.status !== 'countdown' && 
+        recordingState.status !== 'paused' &&
+        recordingState.status !== 'processing') {
+      set({ recordingState: { status: 'idle' } });
     }
   },
 

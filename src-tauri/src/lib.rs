@@ -112,6 +112,9 @@ pub fn run() {
             commands::window::move_overlays_offscreen,
             commands::window::show_recording_controls,
             commands::window::hide_recording_controls,
+            commands::window::show_recording_border,
+            commands::window::hide_recording_border,
+            commands::window::restore_main_window,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands
@@ -129,11 +132,13 @@ pub fn run() {
             commands::storage::get_library_folder,
             commands::storage::startup_cleanup,
             commands::storage::import_image_from_path,
+            commands::storage::ensure_ffmpeg,
             // Settings commands
             commands::settings::set_autostart,
             commands::settings::is_autostart_enabled,
             commands::settings::open_path_in_explorer,
             commands::settings::reveal_file_in_explorer,
+            commands::settings::open_file_with_default_app,
             commands::settings::get_default_save_dir,
             commands::settings::update_tray_shortcut,
             commands::settings::set_close_to_tray,
@@ -151,8 +156,19 @@ pub fn run() {
             commands::video_recording::pause_recording,
             commands::video_recording::resume_recording,
             commands::video_recording::get_recording_status,
+            // Logging commands
+            commands::logging::write_log,
+            commands::logging::write_logs,
+            commands::logging::get_log_dir,
+            commands::logging::open_log_dir,
+            commands::logging::get_recent_logs,
         ])
         .setup(|app| {
+            // Initialize logging system first
+            if let Err(e) = commands::logging::init_logging(app.handle()) {
+                eprintln!("Failed to initialize logging: {}", e);
+            }
+
             #[cfg(desktop)]
             {
                 let tray_state = setup_system_tray(app)?;
@@ -176,6 +192,15 @@ pub fn run() {
                 // Small delay to let main window fully initialize first
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 let _ = commands::window::precreate_overlays(&app_handle);
+            });
+
+            // Ensure ffmpeg is available for video thumbnails (downloads if needed)
+            // This runs in background and doesn't block app startup
+            std::thread::spawn(|| {
+                if commands::storage::find_ffmpeg().is_none() {
+                    // Try to download ffmpeg if not found
+                    let _ = ffmpeg_sidecar::download::auto_download();
+                }
             });
 
             Ok(())

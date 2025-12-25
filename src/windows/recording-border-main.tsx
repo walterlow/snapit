@@ -1,14 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import OverlayWindow from './OverlayWindow';
+import RecordingBorderWindow from './RecordingBorderWindow';
 import '../styles.css';
-import { initializeLogging } from '../utils/logger';
-
-// Initialize logging
-initializeLogging().catch(console.error);
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <OverlayWindow />
+    <RecordingBorderWindow />
   </React.StrictMode>
 );

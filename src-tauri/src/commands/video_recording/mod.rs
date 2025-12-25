@@ -8,6 +8,8 @@
 //! - Configurable FPS (10-60) and quality settings
 
 pub mod audio;
+pub mod audio_sync;
+pub mod audio_wasapi;
 pub mod gif_encoder;
 pub mod recorder;
 pub mod state;
@@ -16,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Emitter};
 use std::path::PathBuf;
 
-pub use state::{RecordingController, RECORDING_CONTROLLER};
+pub use state::RECORDING_CONTROLLER;
 
 // ============================================================================
 // Types
@@ -48,9 +50,15 @@ pub enum RecordingMode {
         height: u32,
     },
     /// Capture a specific window.
-    Window { window_id: u32 },
+    Window {
+        #[serde(rename = "windowId")]
+        window_id: u32,
+    },
     /// Capture a specific monitor.
-    Monitor { monitor_index: usize },
+    Monitor {
+        #[serde(rename = "monitorIndex")]
+        monitor_index: usize,
+    },
     /// Capture all monitors combined.
     AllMonitors,
 }
@@ -307,10 +315,9 @@ fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, String>
                 .unwrap_or_else(std::env::temp_dir)
         });
     
-    // Create recordings subdirectory
-    let recordings_dir = save_dir.join("recordings");
-    std::fs::create_dir_all(&recordings_dir)
-        .map_err(|e| format!("Failed to create recordings directory: {}", e))?;
+    // Ensure save directory exists
+    std::fs::create_dir_all(&save_dir)
+        .map_err(|e| format!("Failed to create save directory: {}", e))?;
     
     // Generate filename with timestamp
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
@@ -321,7 +328,7 @@ fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, String>
     
     let filename = format!("recording_{}_{}.{}", timestamp, rand::random::<u16>(), extension);
     
-    Ok(recordings_dir.join(filename))
+    Ok(save_dir.join(filename))
 }
 
 /// Emit a recording state change event to the frontend.

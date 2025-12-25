@@ -185,13 +185,17 @@ export async function updateTrayShortcut(id: string, shortcut: string): Promise<
 
 /**
  * Update all tray menu shortcuts from current settings
+ * Uses parallel updates for faster execution
  */
 export async function updateAllTrayShortcuts(): Promise<void> {
   const shortcuts = useSettingsStore.getState().settings.shortcuts;
 
-  for (const config of Object.values(shortcuts)) {
-    await updateTrayShortcut(config.id, config.currentShortcut);
-  }
+  // Update all tray shortcuts in parallel
+  await Promise.allSettled(
+    Object.values(shortcuts).map(config => 
+      updateTrayShortcut(config.id, config.currentShortcut)
+    )
+  );
 }
 
 /**
@@ -348,15 +352,17 @@ export async function unregisterShortcut(config: ShortcutConfig): Promise<void> 
 
 /**
  * Register all shortcuts from the settings store
+ * Uses parallel registration for faster startup
  */
 export async function registerAllShortcuts(): Promise<void> {
   const shortcuts = useSettingsStore.getState().settings.shortcuts;
 
-  for (const config of Object.values(shortcuts)) {
-    await registerShortcut(config);
-  }
+  // Register all shortcuts in parallel for faster startup
+  await Promise.allSettled(
+    Object.values(shortcuts).map(config => registerShortcut(config))
+  );
 
-  // Sync tray menu with current shortcuts
+  // Sync tray menu with current shortcuts (also in parallel)
   await updateAllTrayShortcuts();
 }
 

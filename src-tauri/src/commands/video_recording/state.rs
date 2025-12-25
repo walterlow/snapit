@@ -3,6 +3,8 @@
 //! This module provides thread-safe state management for recording sessions,
 //! including start/stop signals and progress tracking.
 
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;

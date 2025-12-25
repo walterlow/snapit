@@ -25,16 +25,20 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
     // Listen for window state changes - debounced to avoid excessive IPC during resize
     let debounceTimer: number | null = null;
-    const unlistenResize = appWindow.onResized(() => {
+    let unlistenFn: (() => void) | null = null;
+    
+    appWindow.onResized(() => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = window.setTimeout(() => {
         appWindow.isMaximized().then(setIsMaximized);
       }, 150);
+    }).then((fn) => {
+      unlistenFn = fn;
     });
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      unlistenResize.then((fn) => fn());
+      if (unlistenFn) unlistenFn();
     };
   }, [appWindow]);
 

@@ -1,13 +1,7 @@
-//! Screen and window capture module with transparency support.
+//! Screen and window capture module.
 //!
-//! This module provides high-quality screen capture with the following features:
-//! - Full transparency (alpha channel) support via Windows Graphics Capture API
-//! - Automatic fallback to xcap when WGC is unavailable
-//! - Region, window, and fullscreen capture modes
-//!
-//! The capture system uses a priority-based approach:
-//! 1. Windows Graphics Capture (WGC) - Best quality, transparency support
-//! 2. xcap fallback - Broad compatibility
+//! - WGC: Window captures (transparency support)
+//! - xcap: Region/fullscreen captures (reliable, no padding issues)
 
 pub mod fallback;
 pub mod types;
@@ -67,55 +61,27 @@ pub async fn get_windows() -> Result<Vec<WindowInfo>, String> {
 }
 
 /// Capture a specific window by its ID.
-///
-/// Attempts to use Windows Graphics Capture API first for transparency support,
-/// falls back to xcap if WGC fails.
+/// Uses WGC for transparency support, falls back to xcap.
 #[command]
 pub async fn capture_window(window_id: u32) -> Result<CaptureResult, String> {
-    // Try WGC first for better transparency support
-    if wgc::is_available() {
-        match wgc::capture_window(window_id as isize) {
-            Ok(result) => return Ok(result),
-            Err(_) => {}
+    match wgc::capture_window(window_id as isize) {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            println!("[CAPTURE] WGC window failed: {:?}, trying xcap", e);
+            fallback::capture_window(window_id).map_err(|e| e.to_string())
         }
     }
-
-    // Fallback to xcap
-    fallback::capture_window(window_id).map_err(|e| e.to_string())
 }
 
 /// Capture a specific region from the screen.
-///
-/// Uses xcap for region capture (WGC doesn't directly support arbitrary regions).
 #[command]
 pub async fn capture_region(selection: RegionSelection) -> Result<CaptureResult, String> {
-    // For region capture, we use the fallback since WGC captures entire windows/monitors
-    // In the future, we could capture the monitor via WGC and crop
     fallback::capture_region(selection).map_err(|e| e.to_string())
 }
 
 /// Capture fullscreen (primary monitor).
-///
-/// Attempts to use Windows Graphics Capture API first,
-/// falls back to xcap if WGC fails.
 #[command]
 pub async fn capture_fullscreen() -> Result<CaptureResult, String> {
-    // Try WGC first
-    if wgc::is_available() {
-        // Find primary monitor index
-        let monitors = fallback::get_monitors().map_err(|e| e.to_string())?;
-        let primary_index = monitors
-            .iter()
-            .position(|m| m.is_primary)
-            .unwrap_or(0);
-
-        match wgc::capture_monitor(primary_index) {
-            Ok(result) => return Ok(result),
-            Err(_) => {}
-        }
-    }
-
-    // Fallback to xcap
     fallback::capture_fullscreen().map_err(|e| e.to_string())
 }
 
@@ -397,51 +363,9 @@ fn is_point_in_hwnd(
 
 #[cfg(not(target_os = "windows"))]
 #[command]
-pub async fn get_window_at_point(app: tauri::AppHandle, x: i32, y: i32, monitor_index: i32) -> Result<Option<WindowInfo>, String> {
-    use xcap::Window;
-
-    // Mark this monitor as the active one for window detection
-    // If a different monitor was previously active, emit event to clear its hover state
-    let previous_monitor = ACTIVE_WINDOW_DETECT_MONITOR.swap(monitor_index, Ordering::SeqCst);
-    if previous_monitor != monitor_index && previous_monitor >= 0 {
-        let _ = app.emit("clear-hovered-window", previous_monitor);
-    }
-
-    let windows =
-        Window::all().map_err(|e| format!("Failed to get windows: {}", e))?;
-
-    let mut candidates: Vec<_> = windows
-        .iter()
-        .filter(|w| {
-            let wx = w.x().unwrap_or(0);
-            let wy = w.y().unwrap_or(0);
-            let ww = w.width().unwrap_or(0) as i32;
-            let wh = w.height().unwrap_or(0) as i32;
-            x >= wx && x < wx + ww && y >= wy && y < wy + wh
-        })
-        .collect();
-
-    candidates.sort_by_key(|w| {
-        let width = w.width().unwrap_or(0) as i64;
-        let height = w.height().unwrap_or(0) as i64;
-        width * height
-    });
-
-    // Check if we're still the active monitor before returning
-    if ACTIVE_WINDOW_DETECT_MONITOR.load(Ordering::SeqCst) != monitor_index {
-        return Ok(None);
-    }
-
-    Ok(candidates.first().map(|w| WindowInfo {
-        id: w.id().unwrap_or(0),
-        title: w.title().unwrap_or_default(),
-        app_name: w.app_name().unwrap_or_default(),
-        x: w.x().unwrap_or(0),
-        y: w.y().unwrap_or(0),
-        width: w.width().unwrap_or(0),
-        height: w.height().unwrap_or(0),
-        is_minimized: w.is_minimized().unwrap_or(false),
-    }))
+pub async fn get_window_at_point(_app: tauri::AppHandle, _x: i32, _y: i32, _monitor_index: i32) -> Result<Option<WindowInfo>, String> {
+    // Window detection not supported on non-Windows platforms
+    Ok(None)
 }
 
 // ============================================================================
@@ -477,25 +401,24 @@ fn write_rgba_to_temp_file(rgba_data: &[u8], width: u32, height: u32) -> Result<
 
 /// Fast capture of a window - returns file path instead of base64.
 /// Skips PNG encoding for ~300-500ms savings on large captures.
+/// Uses WGC for transparency support, falls back to xcap.
 #[command]
 pub async fn capture_window_fast(window_id: u32) -> Result<FastCaptureResult, String> {
-    // Try WGC first for transparency support
-    if wgc::is_available() {
-        match wgc::capture_window_raw(window_id as isize) {
-            Ok((rgba_data, width, height)) => {
-                let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-                return Ok(FastCaptureResult {
-                    file_path,
-                    width,
-                    height,
-                    has_transparency: true,
-                });
-            }
-            Err(_) => {}
+    // Try WGC first for transparency
+    match wgc::capture_window_raw(window_id as isize) {
+        Ok((rgba_data, width, height)) => {
+            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+            return Ok(FastCaptureResult {
+                file_path,
+                width,
+                height,
+                has_transparency: true,
+            });
         }
+        Err(e) => println!("[CAPTURE] WGC window failed: {:?}, trying xcap", e),
     }
 
-    // Fallback to xcap (still need to get raw data)
+    // Fallback to xcap
     fallback::capture_window_raw(window_id)
         .map_err(|e| e.to_string())
         .and_then(|(rgba_data, width, height)| {
@@ -545,29 +468,6 @@ pub async fn capture_screen_region_fast(selection: ScreenRegionSelection) -> Res
 /// Fast capture of fullscreen - returns file path instead of base64.
 #[command]
 pub async fn capture_fullscreen_fast() -> Result<FastCaptureResult, String> {
-    // Try WGC first
-    if wgc::is_available() {
-        let monitors = fallback::get_monitors().map_err(|e| e.to_string())?;
-        let primary_index = monitors
-            .iter()
-            .position(|m| m.is_primary)
-            .unwrap_or(0);
-
-        match wgc::capture_monitor_raw(primary_index) {
-            Ok((rgba_data, width, height)) => {
-                let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-                return Ok(FastCaptureResult {
-                    file_path,
-                    width,
-                    height,
-                    has_transparency: false,
-                });
-            }
-            Err(_) => {}
-        }
-    }
-
-    // Fallback to xcap
     fallback::capture_fullscreen_raw()
         .map_err(|e| e.to_string())
         .and_then(|(rgba_data, width, height)| {

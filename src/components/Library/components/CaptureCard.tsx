@@ -1,11 +1,14 @@
 import React, { memo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, Check, Loader2, AlertTriangle } from 'lucide-react';
+import { Star, Trash2, Check, Loader2, AlertTriangle, Video, Film } from 'lucide-react';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CaptureContextMenu } from './CaptureContextMenu';
 import { useInViewAnimation } from '../hooks';
 import type { CaptureCardProps } from './types';
 import { capturePropsAreEqual } from './types';
+
+// Check if capture is a video or gif recording
+const isVideoOrGif = (captureType: string) => captureType === 'video' || captureType === 'gif';
 
 export const CaptureCard: React.FC<CaptureCardProps> = memo(
   ({
@@ -18,15 +21,18 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     onDelete,
     onOpenInFolder,
     onCopyToClipboard,
+    onPlayMedia,
     formatDate,
   }) => {
     const [thumbLoaded, setThumbLoaded] = useState(false);
     const { ref, isVisible } = useInViewAnimation();
 
     // Check if this is a placeholder (optimistic update, saving in progress)
-    const isPlaceholder = capture.id.startsWith('temp_') || !capture.thumbnail_path;
+    const isPlaceholder = capture.id.startsWith('temp_');
     const isMissing = capture.is_missing;
-    const thumbnailSrc = isPlaceholder || isMissing ? '' : convertFileSrc(capture.thumbnail_path);
+    const isMedia = isVideoOrGif(capture.capture_type);
+    const hasThumbnail = capture.thumbnail_path && capture.thumbnail_path.length > 0;
+    const thumbnailSrc = isPlaceholder || isMissing || !hasThumbnail ? '' : convertFileSrc(capture.thumbnail_path);
 
     return (
       <ContextMenu>
@@ -55,6 +61,18 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                   <AlertTriangle className="w-8 h-8 text-amber-500" />
                   <span className="text-xs text-[var(--ink-subtle)]">File missing</span>
                 </div>
+              ) : isMedia && !hasThumbnail ? (
+                // Video/GIF without thumbnail - show icon placeholder
+                <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[var(--polar-mist)] to-[var(--polar-frost)] gap-2">
+                  {capture.capture_type === 'gif' ? (
+                    <Film className="w-12 h-12 text-purple-400" />
+                  ) : (
+                    <Video className="w-12 h-12 text-blue-400" />
+                  )}
+                  <span className="text-xs font-medium text-[var(--ink-subtle)] uppercase">
+                    {capture.capture_type}
+                  </span>
+                </div>
               ) : (
                 <>
                   {/* Skeleton placeholder until image loads */}
@@ -69,6 +87,13 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                     className={`transition-opacity duration-200 ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
                   />
                 </>
+              )}
+              
+              {/* Media type badge for videos/gifs */}
+              {isMedia && !isMissing && (
+                <div className="absolute bottom-3 left-3 px-2 py-1 rounded-md bg-black/70 text-white text-[10px] font-medium uppercase">
+                  {capture.capture_type}
+                </div>
               )}
 
               {/* Selection Checkbox */}
@@ -111,7 +136,11 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                   {isPlaceholder ? 'Saving...' : formatDate(capture.created_at)}
                 </span>
                 <span className="pill font-mono text-[10px]">
-                  {isPlaceholder ? '-- × --' : `${capture.dimensions.width} × ${capture.dimensions.height}`}
+                  {isPlaceholder 
+                    ? '-- × --' 
+                    : isMedia && capture.dimensions.width === 0
+                      ? capture.capture_type.toUpperCase()
+                      : `${capture.dimensions.width} × ${capture.dimensions.height}`}
                 </span>
               </div>
               {!isPlaceholder && (
@@ -148,10 +177,12 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
         <CaptureContextMenu
           favorite={capture.favorite}
           isMissing={isMissing}
+          captureType={capture.capture_type}
           onCopyToClipboard={onCopyToClipboard}
           onOpenInFolder={onOpenInFolder}
           onToggleFavorite={onToggleFavorite}
           onDelete={onDelete}
+          onPlayMedia={onPlayMedia}
         />
       </ContextMenu>
     );

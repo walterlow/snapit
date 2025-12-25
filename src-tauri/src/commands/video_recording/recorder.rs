@@ -1,344 +1,106 @@
 //! Core video recording implementation.
 //!
-//! Uses windows-capture's VideoEncoder for hardware-accelerated MP4 encoding.
+//! Uses windows-capture's DXGI Duplication API for frame capture
+//! and VideoEncoder for hardware-accelerated MP4 encoding.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, TryRecvError};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use windows_capture::{
-    capture::{Context, GraphicsCaptureApiHandler},
+    dxgi_duplication_api::DxgiDuplicationApi,
     encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder},
-    frame::Frame,
-    graphics_capture_api::InternalCaptureControl,
-    monitor::Monitor as WgcMonitor,
-    settings::{
-        ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
-        MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
-    },
-    window::Window as WgcWindow,
+    monitor::Monitor,
 };
 
+use super::audio_sync::AudioCaptureManager;
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
 use super::{emit_state_change, RecordingFormat, RecordingMode, RecordingSettings, RecordingState, StopRecordingResult};
 
-/// Video recording handler that implements GraphicsCaptureApiHandler.
-struct VideoRecordingHandler {
-    /// Video encoder for MP4 output.
-    encoder: Option<VideoEncoder>,
-    /// Start time of the recording.
-    start_time: Instant,
-    /// Shared progress tracker.
-    progress: Arc<RecordingProgress>,
-    /// Target FPS for frame rate limiting.
-    target_fps: u32,
-    /// Time of last captured frame.
-    last_frame_time: Instant,
-    /// Maximum recording duration.
-    max_duration: Option<Duration>,
-    /// Command receiver for stop/pause signals.
-    command_rx: Receiver<RecorderCommand>,
-    /// App handle for emitting events.
-    app_handle: AppHandle,
-    /// Accumulated pause time.
-    pause_time: Duration,
-    /// When pause started (if paused).
-    pause_start: Option<Instant>,
+// ============================================================================
+// Audio Helpers
+// ============================================================================
+
+/// Convert f32 audio samples to 16-bit PCM bytes (little-endian).
+///
+/// The encoder expects interleaved 16-bit PCM data.
+/// WASAPI provides f32 samples in the range [-1.0, 1.0].
+fn f32_to_i16_pcm(samples: &[f32]) -> Vec<u8> {
+    let mut pcm_bytes = Vec::with_capacity(samples.len() * 2);
+    for &sample in samples {
+        // Clamp to [-1.0, 1.0] and convert to i16
+        let clamped = sample.clamp(-1.0, 1.0);
+        let i16_sample = (clamped * 32767.0) as i16;
+        // Little-endian bytes
+        pcm_bytes.extend_from_slice(&i16_sample.to_le_bytes());
+    }
+    pcm_bytes
 }
 
-impl GraphicsCaptureApiHandler for VideoRecordingHandler {
-    type Flags = VideoRecorderFlags;
-    type Error = Box<dyn std::error::Error + Send + Sync>;
+// ============================================================================
+// Window Helpers
+// ============================================================================
 
-    fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let flags = ctx.flags;
-        
-        // Create video encoder
-        let video_settings = VideoSettingsBuilder::new(flags.width, flags.height)
-            .bitrate(flags.bitrate)
-            .frame_rate(flags.fps);
-        
-        let audio_settings = if flags.capture_audio {
-            AudioSettingsBuilder::default()
-        } else {
-            AudioSettingsBuilder::default().disabled(true)
-        };
-        
-        let container_settings = ContainerSettingsBuilder::default();
-        
-        let encoder = VideoEncoder::new(
-            video_settings,
-            audio_settings,
-            container_settings,
-            &flags.output_path,
-        )?;
-        
-        Ok(Self {
-            encoder: Some(encoder),
-            start_time: Instant::now(),
-            progress: flags.progress,
-            target_fps: flags.fps,
-            last_frame_time: Instant::now(),
-            max_duration: flags.max_duration,
-            command_rx: flags.command_rx,
-            app_handle: flags.app_handle,
-            pause_time: Duration::ZERO,
-            pause_start: None,
-        })
-    }
+/// Get window bounds using Windows API.
+/// Returns (x, y, width, height) of the window's visible bounds.
+#[cfg(target_os = "windows")]
+fn get_window_rect(window_id: u32) -> Result<(i32, i32, u32, u32), String> {
+    use windows::Win32::{
+        Foundation::{HWND, RECT},
+        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
+        UI::WindowsAndMessaging::{IsIconic, IsWindowVisible},
+    };
 
-    fn on_frame_arrived(
-        &mut self,
-        frame: &mut Frame,
-        capture_control: InternalCaptureControl,
-    ) -> Result<(), Self::Error> {
-        // Check for commands
-        match self.command_rx.try_recv() {
-            Ok(RecorderCommand::Stop) => {
-                self.progress.request_stop();
-            }
-            Ok(RecorderCommand::Cancel) => {
-                self.progress.mark_cancelled();
-            }
-            Ok(RecorderCommand::Pause) => {
-                if self.pause_start.is_none() {
-                    self.pause_start = Some(Instant::now());
-                    self.progress.set_paused(true);
-                }
-            }
-            Ok(RecorderCommand::Resume) => {
-                if let Some(pause_start) = self.pause_start.take() {
-                    self.pause_time += pause_start.elapsed();
-                    self.progress.set_paused(false);
-                }
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                self.progress.request_stop();
-            }
-        }
-        
-        // Check if we should stop
-        if self.progress.should_stop() {
-            self.finish_recording(capture_control)?;
-            return Ok(());
-        }
-        
-        // Skip frames while paused
-        if self.progress.is_paused() {
-            return Ok(());
-        }
-        
-        // Calculate actual elapsed time (excluding pauses)
-        let total_elapsed = self.start_time.elapsed();
-        let actual_elapsed = total_elapsed - self.pause_time;
-        
-        // Check max duration
-        if let Some(max_duration) = self.max_duration {
-            if actual_elapsed >= max_duration {
-                self.progress.request_stop();
-                self.finish_recording(capture_control)?;
-                return Ok(());
-            }
-        }
-        
-        // Frame rate limiting
-        let frame_duration = Duration::from_secs_f64(1.0 / self.target_fps as f64);
-        let since_last_frame = self.last_frame_time.elapsed();
-        
-        if since_last_frame < frame_duration {
-            return Ok(());
-        }
-        
-        self.last_frame_time = Instant::now();
-        
-        // Send frame to encoder
-        if let Some(ref mut encoder) = self.encoder {
-            encoder.send_frame(frame)?;
-        }
-        
-        // Update progress
-        self.progress.increment_frame();
-        
-        // Emit progress event periodically (every 10 frames)
-        let frame_count = self.progress.get_frame_count();
-        if frame_count % 10 == 0 {
-            let state = RecordingState::Recording {
-                started_at: chrono::Local::now().to_rfc3339(),
-                elapsed_secs: actual_elapsed.as_secs_f64(),
-                frame_count,
-            };
-            emit_state_change(&self.app_handle, &state);
-        }
-        
-        Ok(())
-    }
+    unsafe {
+        let hwnd = HWND(window_id as *mut std::ffi::c_void);
 
-    fn on_closed(&mut self) -> Result<(), Self::Error> {
-        // Window was closed, stop recording
-        self.progress.request_stop();
-        Ok(())
+        // Check if window is visible and not minimized
+        if !IsWindowVisible(hwnd).as_bool() {
+            return Err("Window is not visible".to_string());
+        }
+
+        if IsIconic(hwnd).as_bool() {
+            return Err("Window is minimized".to_string());
+        }
+
+        // Get window bounds using DWM (excludes shadow, includes titlebar)
+        let mut rect = RECT::default();
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut RECT as *mut std::ffi::c_void,
+            std::mem::size_of::<RECT>() as u32,
+        ).map_err(|e| format!("Failed to get window bounds: {:?}", e))?;
+
+        let width = (rect.right - rect.left) as u32;
+        let height = (rect.bottom - rect.top) as u32;
+
+        if width < 10 || height < 10 {
+            return Err("Window is too small".to_string());
+        }
+
+        Ok((rect.left, rect.top, width, height))
     }
 }
 
-impl VideoRecordingHandler {
-    fn finish_recording(&mut self, capture_control: InternalCaptureControl) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Finish encoding
-        if let Some(encoder) = self.encoder.take() {
-            encoder.finish()?;
-        }
-        
-        // Stop capture
-        capture_control.stop();
-        
-        Ok(())
-    }
+#[cfg(not(target_os = "windows"))]
+fn get_window_rect(_window_id: u32) -> Result<(i32, i32, u32, u32), String> {
+    Err("Window capture not supported on this platform".to_string())
 }
 
-/// Flags passed to the video recording handler.
-pub struct VideoRecorderFlags {
-    pub width: u32,
-    pub height: u32,
-    pub fps: u32,
-    pub bitrate: u32,
-    pub capture_audio: bool,
-    pub max_duration: Option<Duration>,
-    pub output_path: PathBuf,
-    pub progress: Arc<RecordingProgress>,
-    pub command_rx: Receiver<RecorderCommand>,
-    pub app_handle: AppHandle,
-}
-
-/// GIF recording handler that buffers frames for later encoding.
-struct GifRecordingHandler {
-    /// GIF recorder that buffers frames.
-    recorder: GifRecorder,
-    /// Start time of the recording.
-    start_time: Instant,
-    /// Shared progress tracker.
-    progress: Arc<RecordingProgress>,
-    /// Target FPS.
-    target_fps: u32,
-    /// Time of last captured frame.
-    last_frame_time: Instant,
-    /// Maximum recording duration.
-    max_duration: Option<Duration>,
-    /// Command receiver.
-    command_rx: Receiver<RecorderCommand>,
-    /// App handle.
-    app_handle: AppHandle,
-}
-
-impl GraphicsCaptureApiHandler for GifRecordingHandler {
-    type Flags = GifRecorderFlags;
-    type Error = Box<dyn std::error::Error + Send + Sync>;
-
-    fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let flags = ctx.flags;
-        
-        let recorder = GifRecorder::new(
-            flags.width,
-            flags.height,
-            flags.fps,
-            flags.quality,
-            flags.max_frames,
-        );
-        
-        Ok(Self {
-            recorder,
-            start_time: Instant::now(),
-            progress: flags.progress,
-            target_fps: flags.fps,
-            last_frame_time: Instant::now(),
-            max_duration: flags.max_duration,
-            command_rx: flags.command_rx,
-            app_handle: flags.app_handle,
-        })
+/// Convert Window mode to Region mode by getting window bounds.
+fn resolve_window_to_region(mode: &RecordingMode) -> Result<RecordingMode, String> {
+    match mode {
+        RecordingMode::Window { window_id } => {
+            let (x, y, width, height) = get_window_rect(*window_id)?;
+            Ok(RecordingMode::Region { x, y, width, height })
+        }
+        other => Ok(other.clone()),
     }
-
-    fn on_frame_arrived(
-        &mut self,
-        frame: &mut Frame,
-        capture_control: InternalCaptureControl,
-    ) -> Result<(), Self::Error> {
-        // Check for commands
-        match self.command_rx.try_recv() {
-            Ok(RecorderCommand::Stop) | Ok(RecorderCommand::Cancel) => {
-                self.progress.request_stop();
-            }
-            _ => {}
-        }
-        
-        // Check if we should stop
-        if self.progress.should_stop() {
-            capture_control.stop();
-            return Ok(());
-        }
-        
-        // Check max duration
-        let elapsed = self.start_time.elapsed();
-        if let Some(max_duration) = self.max_duration {
-            if elapsed >= max_duration {
-                self.progress.request_stop();
-                capture_control.stop();
-                return Ok(());
-            }
-        }
-        
-        // Frame rate limiting
-        let frame_duration = Duration::from_secs_f64(1.0 / self.target_fps as f64);
-        if self.last_frame_time.elapsed() < frame_duration {
-            return Ok(());
-        }
-        self.last_frame_time = Instant::now();
-        
-        // Get frame buffer
-        let mut buffer = frame.buffer()?;
-        let width = buffer.width();
-        let height = buffer.height();
-        let rgba_data = buffer.as_nopadding_buffer()?.to_vec();
-        
-        // Add frame to buffer
-        let timestamp = elapsed.as_secs_f64();
-        self.recorder.add_frame(rgba_data, width, height, timestamp);
-        
-        // Update progress
-        self.progress.increment_frame();
-        
-        // Emit progress event periodically
-        let frame_count = self.progress.get_frame_count();
-        if frame_count % 10 == 0 {
-            let state = RecordingState::Recording {
-                started_at: chrono::Local::now().to_rfc3339(),
-                elapsed_secs: elapsed.as_secs_f64(),
-                frame_count,
-            };
-            emit_state_change(&self.app_handle, &state);
-        }
-        
-        Ok(())
-    }
-
-    fn on_closed(&mut self) -> Result<(), Self::Error> {
-        self.progress.request_stop();
-        Ok(())
-    }
-}
-
-/// Flags for GIF recording handler.
-pub struct GifRecorderFlags {
-    pub width: u32,
-    pub height: u32,
-    pub fps: u32,
-    pub quality: u32,
-    pub max_frames: usize,
-    pub max_duration: Option<Duration>,
-    pub progress: Arc<RecordingProgress>,
-    pub command_rx: Receiver<RecorderCommand>,
-    pub app_handle: AppHandle,
 }
 
 // ============================================================================
@@ -351,11 +113,14 @@ pub async fn start_recording(
     settings: RecordingSettings,
     output_path: PathBuf,
 ) -> Result<(), String> {
+    println!("[START] start_recording called, format={:?}", settings.format);
+
     let (progress, command_rx) = {
         let mut controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
         controller.start(settings.clone(), output_path.clone())?
     };
-    
+    println!("[START] Controller started, countdown_secs={}", settings.countdown_secs);
+
     // Handle countdown
     if settings.countdown_secs > 0 {
         let app_clone = app.clone();
@@ -363,41 +128,55 @@ pub async fn start_recording(
         let output_path_clone = output_path.clone();
         let progress_clone = Arc::clone(&progress);
         let command_rx_clone = command_rx.clone();
-        
+
         tokio::spawn(async move {
             for i in (1..=settings_clone.countdown_secs).rev() {
-                // Check for cancellation
-                if progress_clone.should_stop() {
-                    return;
-                }
-                
-                // Update countdown state
-                {
-                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                        controller.update_countdown(i);
+                // Check for stop/cancel commands during countdown
+                match command_rx_clone.try_recv() {
+                    Ok(RecorderCommand::Stop) | Ok(RecorderCommand::Cancel) => {
+                        if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                            controller.reset();
+                        }
+                        emit_state_change(&app_clone, &RecordingState::Idle);
+                        return;
                     }
+                    _ => {}
                 }
-                
+
+                if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                    controller.update_countdown(i);
+                }
+
                 emit_state_change(&app_clone, &RecordingState::Countdown {
                     seconds_remaining: i,
                 });
-                
+
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
-            
-            // Start actual recording
-            {
-                if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                    controller.start_actual_recording();
+
+            // Final check before starting recording
+            match command_rx_clone.try_recv() {
+                Ok(RecorderCommand::Stop) | Ok(RecorderCommand::Cancel) => {
+                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                        controller.reset();
+                    }
+                    emit_state_change(&app_clone, &RecordingState::Idle);
+                    return;
                 }
+                _ => {}
             }
-            
+
+            // Start actual recording
+            if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                controller.start_actual_recording();
+            }
+
             emit_state_change(&app_clone, &RecordingState::Recording {
                 started_at: chrono::Local::now().to_rfc3339(),
                 elapsed_secs: 0.0,
                 frame_count: 0,
             });
-            
+
             // Start capture in background thread
             start_capture_thread(
                 app_clone,
@@ -414,10 +193,10 @@ pub async fn start_recording(
             elapsed_secs: 0.0,
             frame_count: 0,
         });
-        
+
         start_capture_thread(app, settings, output_path, progress, command_rx);
     }
-    
+
     Ok(())
 }
 
@@ -431,44 +210,85 @@ fn start_capture_thread(
 ) {
     let app_clone = app.clone();
     let output_path_clone = output_path.clone();
-    
+
     std::thread::spawn(move || {
-        let result = match settings.format {
-            RecordingFormat::Mp4 => {
-                run_video_capture(&app, &settings, &output_path, progress, command_rx)
-            }
-            RecordingFormat::Gif => {
-                run_gif_capture(&app, &settings, &output_path, progress, command_rx)
+        println!("[THREAD] Capture thread started, format={:?}", settings.format);
+
+        // Resolve Window mode to Region mode (fixed region capture)
+        let resolved_mode = match resolve_window_to_region(&settings.mode) {
+            Ok(mode) => mode,
+            Err(e) => {
+                println!("[THREAD] Failed to resolve window mode: {}", e);
+                emit_state_change(&app, &RecordingState::Error { message: e.clone() });
+                if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                    controller.set_error(e);
+                }
+                return;
             }
         };
-        
+
+        // Create settings with resolved mode
+        let resolved_settings = RecordingSettings {
+            mode: resolved_mode,
+            ..settings.clone()
+        };
+
+        let result = match resolved_settings.format {
+            RecordingFormat::Mp4 => {
+                run_video_capture(&app, &resolved_settings, &output_path, progress.clone(), command_rx)
+            }
+            RecordingFormat::Gif => {
+                run_gif_capture(&app, &resolved_settings, &output_path, progress.clone(), command_rx)
+            }
+        };
+
+        println!("[THREAD] Capture finished, result={:?}", result.is_ok());
+
+        // Check if recording was cancelled
+        let was_cancelled = RECORDING_CONTROLLER
+            .lock()
+            .map(|c| {
+                c.active
+                    .as_ref()
+                    .map(|a| a.progress.was_cancelled())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+
+        if was_cancelled {
+            let _ = std::fs::remove_file(&output_path_clone);
+            if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                controller.reset();
+            }
+            emit_state_change(&app_clone, &RecordingState::Idle);
+            return;
+        }
+
         // Handle result
         match result {
             Ok(()) => {
-                // Get file size
+                println!("[THREAD] Recording OK, checking file at: {:?}", output_path_clone);
+
                 let file_size = std::fs::metadata(&output_path_clone)
                     .map(|m| m.len())
                     .unwrap_or(0);
-                
-                // Calculate duration
-                let duration = {
-                    RECORDING_CONTROLLER
-                        .lock()
-                        .map(|c| c.get_elapsed_secs())
-                        .unwrap_or(0.0)
-                };
-                
-                // Update state
-                {
-                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                        controller.complete(
-                            output_path_clone.to_string_lossy().to_string(),
-                            duration,
-                            file_size,
-                        );
-                    }
+                println!("[THREAD] File size: {} bytes", file_size);
+
+                let duration = RECORDING_CONTROLLER
+                    .lock()
+                    .map(|c| c.get_elapsed_secs())
+                    .unwrap_or(0.0);
+                println!("[THREAD] Duration: {} secs", duration);
+
+                if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                    controller.complete(
+                        output_path_clone.to_string_lossy().to_string(),
+                        duration,
+                        file_size,
+                    );
                 }
-                
+
+                println!("[THREAD] Emitting Completed state");
                 emit_state_change(&app_clone, &RecordingState::Completed {
                     output_path: output_path_clone.to_string_lossy().to_string(),
                     duration_secs: duration,
@@ -476,34 +296,17 @@ fn start_capture_thread(
                 });
             }
             Err(e) => {
-                // Check if cancelled
-                let was_cancelled = RECORDING_CONTROLLER
-                    .lock()
-                    .map(|c| {
-                        c.active.as_ref().map(|a| a.progress.was_cancelled()).unwrap_or(false)
-                    })
-                    .unwrap_or(false);
-                
-                if was_cancelled {
-                    // Clean up file
-                    let _ = std::fs::remove_file(&output_path_clone);
-                    
-                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                        controller.reset();
-                    }
-                    emit_state_change(&app_clone, &RecordingState::Idle);
-                } else {
-                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                        controller.set_error(e.clone());
-                    }
-                    emit_state_change(&app_clone, &RecordingState::Error { message: e });
+                println!("[THREAD] Recording FAILED: {}", e);
+                if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                    controller.set_error(e.clone());
                 }
+                emit_state_change(&app_clone, &RecordingState::Error { message: e });
             }
         }
     });
 }
 
-/// Run video (MP4) capture.
+/// Run video (MP4) capture using DXGI Duplication API.
 fn run_video_capture(
     app: &AppHandle,
     settings: &RecordingSettings,
@@ -511,131 +314,300 @@ fn run_video_capture(
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
 ) -> Result<(), String> {
-    // Get capture dimensions based on mode
-    let (width, height, capture_settings) = create_capture_settings(settings)?;
-    
-    let bitrate = settings.calculate_bitrate(width, height);
-    let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
-    
-    let flags = VideoRecorderFlags {
-        width,
-        height,
-        fps: settings.fps,
-        bitrate,
-        capture_audio: settings.audio.capture_system_audio || settings.audio.capture_microphone,
-        max_duration,
-        output_path: output_path.clone(),
-        progress,
-        command_rx,
-        app_handle: app.clone(),
+    println!("[CAPTURE] run_video_capture starting, mode={:?}", settings.mode);
+
+    // Get crop region if in region mode
+    let crop_region = match &settings.mode {
+        RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
+        _ => None,
     };
-    
-    // Start capture with the appropriate settings
-    match &settings.mode {
+
+    // Get monitor to capture
+    let monitor = match &settings.mode {
         RecordingMode::Monitor { monitor_index } => {
-            let monitors = WgcMonitor::enumerate()
+            let monitors = Monitor::enumerate()
                 .map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
-            
-            let monitor = monitors
+            monitors
                 .get(*monitor_index)
                 .ok_or("Monitor not found")?
-                .clone();
-            
-            let settings = Settings::new(
-                monitor,
-                if settings.include_cursor {
-                    CursorCaptureSettings::WithCursor
-                } else {
-                    CursorCaptureSettings::WithoutCursor
-                },
-                DrawBorderSettings::WithoutBorder,
-                SecondaryWindowSettings::Default,
-                MinimumUpdateIntervalSettings::Default,
-                DirtyRegionSettings::Default,
-                ColorFormat::Rgba8,
-                flags,
-            );
-            
-            VideoRecordingHandler::start(settings)
-                .map_err(|e| format!("Failed to start recording: {}", e))
+                .clone()
         }
-        RecordingMode::Window { window_id } => {
-            let window = WgcWindow::from_raw_hwnd(*window_id as isize as *mut std::ffi::c_void);
-            
-            if !window.is_valid() {
-                return Err("Window not found or invalid".to_string());
+        _ => Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?,
+    };
+
+    println!("[CAPTURE] Using monitor: {:?}", monitor.name());
+
+    // Create DXGI duplication session
+    let mut dxgi = DxgiDuplicationApi::new(monitor)
+        .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
+
+    // Small delay to let DXGI stabilize (helps with GPU power-saving states)
+    std::thread::sleep(Duration::from_millis(50));
+
+    // Get capture dimensions
+    let (width, height) = if let Some((_, _, w, h)) = crop_region {
+        (w, h)
+    } else {
+        (dxgi.width(), dxgi.height())
+    };
+
+    println!("[CAPTURE] Dimensions: {}x{}, crop: {:?}, fps: {}", width, height, crop_region, settings.fps);
+
+    let bitrate = settings.calculate_bitrate(width, height);
+    let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
+    println!("[CAPTURE] Bitrate: {}, max_duration: {:?}", bitrate, max_duration);
+
+    // Determine if we need audio
+    let capture_audio = settings.audio.capture_system_audio || settings.audio.capture_microphone;
+
+    // Create video encoder with audio enabled if needed
+    let video_settings = VideoSettingsBuilder::new(width, height)
+        .bitrate(bitrate)
+        .frame_rate(settings.fps);
+
+    let audio_settings = if capture_audio {
+        AudioSettingsBuilder::default()
+    } else {
+        AudioSettingsBuilder::default().disabled(true)
+    };
+
+    let mut encoder = VideoEncoder::new(
+        video_settings,
+        audio_settings,
+        ContainerSettingsBuilder::default(),
+        output_path,
+    ).map_err(|e| format!("Failed to create encoder: {:?}", e))?;
+
+    println!("[CAPTURE] Encoder created successfully");
+
+    // === AUDIO CAPTURE SETUP ===
+    // Create shared control flags for audio threads
+    let should_stop = Arc::new(AtomicBool::new(false));
+    let is_paused = Arc::new(AtomicBool::new(false));
+    let start_time = Instant::now();
+
+    // Create audio capture manager
+    let mut audio_manager = if capture_audio {
+        let mut manager = AudioCaptureManager::new(
+            Arc::clone(&should_stop),
+            Arc::clone(&is_paused),
+        );
+
+        // Start system audio capture (WASAPI loopback)
+        if settings.audio.capture_system_audio {
+            match manager.start_system_audio(start_time) {
+                Ok(()) => println!("[CAPTURE] System audio capture started"),
+                Err(e) => {
+                    // Log warning but continue without audio
+                    println!("[CAPTURE] Warning: Failed to start system audio: {}", e);
+                }
             }
-            
-            let settings = Settings::new(
-                window,
-                if settings.include_cursor {
-                    CursorCaptureSettings::WithCursor
-                } else {
-                    CursorCaptureSettings::WithoutCursor
-                },
-                DrawBorderSettings::WithoutBorder,
-                SecondaryWindowSettings::Default,
-                MinimumUpdateIntervalSettings::Default,
-                DirtyRegionSettings::Default,
-                ColorFormat::Rgba8,
-                flags,
-            );
-            
-            VideoRecordingHandler::start(settings)
-                .map_err(|e| format!("Failed to start recording: {}", e))
         }
-        RecordingMode::AllMonitors => {
-            // For all monitors, capture primary and we'll handle stitching separately
-            // TODO: Implement multi-monitor stitching
-            let monitor = WgcMonitor::primary()
-                .map_err(|e| format!("Failed to get primary monitor: {}", e))?;
-            
-            let settings = Settings::new(
-                monitor,
-                if settings.include_cursor {
-                    CursorCaptureSettings::WithCursor
-                } else {
-                    CursorCaptureSettings::WithoutCursor
-                },
-                DrawBorderSettings::WithoutBorder,
-                SecondaryWindowSettings::Default,
-                MinimumUpdateIntervalSettings::Default,
-                DirtyRegionSettings::Default,
-                ColorFormat::Rgba8,
-                flags,
-            );
-            
-            VideoRecordingHandler::start(settings)
-                .map_err(|e| format!("Failed to start recording: {}", e))
+
+        // Start microphone capture (TODO: Phase 3)
+        if settings.audio.capture_microphone {
+            match manager.start_microphone(start_time) {
+                Ok(()) => println!("[CAPTURE] Microphone capture started"),
+                Err(e) => {
+                    println!("[CAPTURE] Warning: Failed to start microphone: {}", e);
+                }
+            }
         }
-        RecordingMode::Region { .. } => {
-            // For region capture, we capture the primary monitor and crop
-            // The VideoEncoder handles the cropping based on the dimensions we provide
-            let monitor = WgcMonitor::primary()
-                .map_err(|e| format!("Failed to get primary monitor: {}", e))?;
-            
-            let settings = Settings::new(
-                monitor,
-                if settings.include_cursor {
-                    CursorCaptureSettings::WithCursor
+
+        Some(manager)
+    } else {
+        None
+    };
+
+    // Recording loop
+    let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
+    let mut last_frame_time = Instant::now();
+    let mut frame_count: u64 = 0;
+    let mut paused = false;
+    let mut pause_time = Duration::ZERO;
+    let mut pause_start: Option<Instant> = None;
+
+    loop {
+        // Check for commands
+        match command_rx.try_recv() {
+            Ok(RecorderCommand::Stop) => {
+                println!("[CAPTURE] Received Stop command");
+                should_stop.store(true, Ordering::SeqCst);
+                break;
+            }
+            Ok(RecorderCommand::Cancel) => {
+                println!("[CAPTURE] Received Cancel command");
+                should_stop.store(true, Ordering::SeqCst);
+                progress.mark_cancelled();
+                break;
+            }
+            Ok(RecorderCommand::Pause) => {
+                println!("[CAPTURE] Received Pause command");
+                if !paused {
+                    paused = true;
+                    pause_start = Some(Instant::now());
+                    progress.set_paused(true);
+                    is_paused.store(true, Ordering::SeqCst);
+                }
+            }
+            Ok(RecorderCommand::Resume) => {
+                println!("[CAPTURE] Received Resume command");
+                if paused {
+                    if let Some(ps) = pause_start.take() {
+                        pause_time += ps.elapsed();
+                    }
+                    paused = false;
+                    progress.set_paused(false);
+                    is_paused.store(false, Ordering::SeqCst);
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                println!("[CAPTURE] Channel disconnected");
+                should_stop.store(true, Ordering::SeqCst);
+                break;
+            }
+        }
+
+        // Skip frame capture while paused
+        if paused {
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        }
+
+        // Check max duration
+        let actual_elapsed = start_time.elapsed() - pause_time;
+        if let Some(max_dur) = max_duration {
+            if actual_elapsed >= max_dur {
+                println!("[CAPTURE] Max duration reached");
+                should_stop.store(true, Ordering::SeqCst);
+                break;
+            }
+        }
+
+        // Frame rate limiting
+        if last_frame_time.elapsed() < frame_duration {
+            std::thread::sleep(Duration::from_millis(1));
+            continue;
+        }
+
+        // Acquire next frame from DXGI
+        match dxgi.acquire_next_frame(100) {
+            Ok(mut frame) => {
+                last_frame_time = Instant::now();
+
+                // Get frame buffer (with optional crop)
+                let buffer_result = if let Some((x, y, w, h)) = crop_region {
+                    let start_x = x.max(0) as u32;
+                    let start_y = y.max(0) as u32;
+                    let end_x = start_x + w;
+                    let end_y = start_y + h;
+                    frame.buffer_crop(start_x, start_y, end_x, end_y)
                 } else {
-                    CursorCaptureSettings::WithoutCursor
-                },
-                DrawBorderSettings::WithoutBorder,
-                SecondaryWindowSettings::Default,
-                MinimumUpdateIntervalSettings::Default,
-                DirtyRegionSettings::Default,
-                ColorFormat::Rgba8,
-                flags,
-            );
-            
-            VideoRecordingHandler::start(settings)
-                .map_err(|e| format!("Failed to start recording: {}", e))
+                    frame.buffer()
+                };
+
+                match buffer_result {
+                    Ok(buffer) => {
+                        // Get raw pixel data
+                        let mut raw_data = Vec::new();
+                        let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
+
+                        // Convert BGRA to BGRA (DXGI is already BGRA) and flip vertically
+                        let row_size = (width as usize) * 4;
+                        let mut flipped_data = Vec::with_capacity(pixel_data.len());
+                        for row in pixel_data.chunks_exact(row_size).rev() {
+                            flipped_data.extend_from_slice(row);
+                        }
+
+                        // Get video timestamp
+                        let video_timestamp = (actual_elapsed.as_micros() * 10) as i64;
+
+                        // Send video frame to encoder
+                        if let Err(e) = encoder.send_frame_buffer(&flipped_data, video_timestamp) {
+                            println!("[CAPTURE] Failed to send frame: {:?}", e);
+                        }
+
+                        // Send audio to encoder (convert f32 samples to i16 PCM bytes)
+                        if let Some(ref mut manager) = audio_manager {
+                            while let Some(audio_frame) = manager.collector().try_get_audio() {
+                                // Convert f32 samples to i16 PCM bytes (little-endian)
+                                let pcm_bytes = f32_to_i16_pcm(&audio_frame.samples);
+                                
+                                // Send audio buffer to encoder
+                                // Note: timestamp is ignored by encoder, it uses monotonic audio clock
+                                if let Err(e) = encoder.send_audio_buffer(&pcm_bytes, audio_frame.timestamp_100ns) {
+                                    println!("[CAPTURE] Failed to send audio: {:?}", e);
+                                }
+                            }
+                        }
+
+                        frame_count += 1;
+                        progress.increment_frame();
+
+                        if frame_count == 1 {
+                            println!("[CAPTURE] First frame captured!");
+                        }
+
+                        // Emit progress periodically
+                        if frame_count % 30 == 0 {
+                            emit_state_change(app, &RecordingState::Recording {
+                                started_at: chrono::Local::now().to_rfc3339(),
+                                elapsed_secs: actual_elapsed.as_secs_f64(),
+                                frame_count,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        // Buffer error - log and continue, next acquire will detect if DXGI is broken
+                        println!("[CAPTURE] Failed to get buffer: {:?}", e);
+                    }
+                }
+            }
+            Err(windows_capture::dxgi_duplication_api::Error::Timeout) => {
+                // No new frame, continue
+            }
+            Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
+                println!("[CAPTURE] DXGI access lost, recreating...");
+                std::thread::sleep(Duration::from_millis(100)); // Brief pause for GPU to stabilize
+                match dxgi.recreate() {
+                    Ok(new_dxgi) => dxgi = new_dxgi,
+                    Err(e) => {
+                        println!("[CAPTURE] Failed to recreate DXGI: {:?}", e);
+                        should_stop.store(true, Ordering::SeqCst);
+                        return Err(format!("DXGI access lost and failed to recreate: {:?}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                // Handle other errors - log and brief pause
+                println!("[CAPTURE] DXGI error: {:?}, retrying...", e);
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
     }
+
+    // Check if we captured any frames
+    if frame_count == 0 {
+        println!("[CAPTURE] WARNING: No video frames were captured!");
+    }
+
+    // Stop audio capture threads
+    if let Some(mut manager) = audio_manager {
+        println!("[CAPTURE] Stopping audio capture...");
+        manager.stop();
+        println!("[CAPTURE] Audio capture stopped");
+    }
+
+    // Finish encoding
+    println!("[CAPTURE] Finishing encoder...");
+    encoder.finish().map_err(|e| format!("Failed to finish encoding: {:?}", e))?;
+    println!("[CAPTURE] Encoder finished successfully");
+
+    Ok(())
 }
 
-/// Run GIF capture.
+/// Run GIF capture using DXGI Duplication API.
 fn run_gif_capture(
     app: &AppHandle,
     settings: &RecordingSettings,
@@ -643,156 +615,210 @@ fn run_gif_capture(
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
 ) -> Result<(), String> {
-    let (width, height, _) = create_capture_settings(settings)?;
-    
-    let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
-    let max_frames = settings.fps as usize * settings.max_duration_secs.unwrap_or(30) as usize;
-    
-    let flags = GifRecorderFlags {
-        width,
-        height,
-        fps: settings.fps,
-        quality: settings.quality,
-        max_frames,
-        max_duration,
-        progress: Arc::clone(&progress),
-        command_rx,
-        app_handle: app.clone(),
+    println!("[GIF] run_gif_capture starting");
+
+    // Get crop region if in region mode
+    let crop_region = match &settings.mode {
+        RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
+        _ => None,
     };
-    
-    // Capture frames
-    let recorder = match &settings.mode {
+
+    // Get monitor to capture
+    let monitor = match &settings.mode {
         RecordingMode::Monitor { monitor_index } => {
-            let monitors = WgcMonitor::enumerate()
+            let monitors = Monitor::enumerate()
                 .map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
-            
-            let monitor = monitors
+            monitors
                 .get(*monitor_index)
                 .ok_or("Monitor not found")?
-                .clone();
-            
-            let capture_settings = Settings::new(
-                monitor,
-                if settings.include_cursor {
-                    CursorCaptureSettings::WithCursor
-                } else {
-                    CursorCaptureSettings::WithoutCursor
-                },
-                DrawBorderSettings::WithoutBorder,
-                SecondaryWindowSettings::Default,
-                MinimumUpdateIntervalSettings::Default,
-                DirtyRegionSettings::Default,
-                ColorFormat::Rgba8,
-                flags,
-            );
-            
-            GifRecordingHandler::start(capture_settings)
-                .map_err(|e| format!("Failed to start GIF recording: {}", e))
+                .clone()
         }
-        _ => {
-            // Default to primary monitor for now
-            let monitor = WgcMonitor::primary()
-                .map_err(|e| format!("Failed to get primary monitor: {}", e))?;
-            
-            let capture_settings = Settings::new(
-                monitor,
-                if settings.include_cursor {
-                    CursorCaptureSettings::WithCursor
-                } else {
-                    CursorCaptureSettings::WithoutCursor
-                },
-                DrawBorderSettings::WithoutBorder,
-                SecondaryWindowSettings::Default,
-                MinimumUpdateIntervalSettings::Default,
-                DirtyRegionSettings::Default,
-                ColorFormat::Rgba8,
-                flags,
-            );
-            
-            GifRecordingHandler::start(capture_settings)
-                .map_err(|e| format!("Failed to start GIF recording: {}", e))
-        }
+        _ => Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?,
     };
-    
-    // Note: GIF encoding happens in gif_encoder after capture completes
-    // The GifRecordingHandler stores frames and encodes on completion
-    
+
+    // Create DXGI duplication session
+    let mut dxgi = DxgiDuplicationApi::new(monitor)
+        .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
+
+    // Small delay to let DXGI stabilize (helps with GPU power-saving states)
+    std::thread::sleep(Duration::from_millis(50));
+
+    // Get capture dimensions
+    let (width, height) = if let Some((_, _, w, h)) = crop_region {
+        (w, h)
+    } else {
+        (dxgi.width(), dxgi.height())
+    };
+
+    let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
+    let max_frames = settings.fps as usize * settings.max_duration_secs.unwrap_or(30) as usize;
+
+    // Create GIF recorder
+    let recorder = Arc::new(Mutex::new(GifRecorder::new(
+        width,
+        height,
+        settings.fps,
+        settings.quality,
+        max_frames,
+    )));
+
+    // Recording loop
+    let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
+    let start_time = Instant::now();
+    let mut last_frame_time = Instant::now();
+
+    loop {
+        // Check for commands
+        match command_rx.try_recv() {
+            Ok(RecorderCommand::Stop) | Ok(RecorderCommand::Cancel) => {
+                println!("[GIF] Received stop/cancel command");
+                if matches!(command_rx.try_recv(), Ok(RecorderCommand::Cancel)) {
+                    progress.mark_cancelled();
+                }
+                break;
+            }
+            _ => {}
+        }
+
+        // Check max duration
+        let elapsed = start_time.elapsed();
+        if let Some(max_dur) = max_duration {
+            if elapsed >= max_dur {
+                break;
+            }
+        }
+
+        // Frame rate limiting
+        if last_frame_time.elapsed() < frame_duration {
+            std::thread::sleep(Duration::from_millis(1));
+            continue;
+        }
+
+        // Acquire next frame
+        match dxgi.acquire_next_frame(100) {
+            Ok(mut frame) => {
+                last_frame_time = Instant::now();
+
+                let buffer_result = if let Some((x, y, w, h)) = crop_region {
+                    let start_x = x.max(0) as u32;
+                    let start_y = y.max(0) as u32;
+                    frame.buffer_crop(start_x, start_y, start_x + w, start_y + h)
+                } else {
+                    frame.buffer()
+                };
+
+                if let Ok(buffer) = buffer_result {
+                    let mut raw_data = Vec::new();
+                    let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
+
+                    // Convert BGRA to RGBA for GIF encoder
+                    let rgba_data: Vec<u8> = pixel_data
+                        .chunks_exact(4)
+                        .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
+                        .collect();
+
+                    let timestamp = elapsed.as_secs_f64();
+                    if let Ok(mut rec) = recorder.lock() {
+                        rec.add_frame(rgba_data, width, height, timestamp);
+                    }
+
+                    progress.increment_frame();
+
+                    let frame_count = progress.get_frame_count();
+                    // Emit progress every 30 frames (~1/sec at 30fps) to reduce event overhead
+                    if frame_count % 30 == 0 {
+                        emit_state_change(app, &RecordingState::Recording {
+                            started_at: chrono::Local::now().to_rfc3339(),
+                            elapsed_secs: elapsed.as_secs_f64(),
+                            frame_count,
+                        });
+                    }
+                }
+            }
+            Err(windows_capture::dxgi_duplication_api::Error::Timeout) => {}
+            Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
+                match dxgi.recreate() {
+                    Ok(new_dxgi) => dxgi = new_dxgi,
+                    Err(e) => return Err(format!("DXGI access lost: {:?}", e)),
+                }
+            }
+            Err(e) => {
+                println!("[GIF] DXGI error: {:?}", e);
+            }
+        }
+    }
+
+    // Check if cancelled
+    if progress.was_cancelled() {
+        return Err("Recording cancelled".to_string());
+    }
+
+    // Encode GIF
+    emit_state_change(app, &RecordingState::Processing { progress: 0.0 });
+
+    let recorder_guard = recorder.lock().map_err(|_| "Failed to lock recorder")?;
+    let frame_count = recorder_guard.frame_count();
+
+    if frame_count == 0 {
+        return Err("No frames captured".to_string());
+    }
+
+    let app_clone = app.clone();
+    recorder_guard
+        .encode_to_file(output_path, move |encoding_progress| {
+            emit_state_change(&app_clone, &RecordingState::Processing {
+                progress: encoding_progress,
+            });
+        })
+        .map_err(|e| format!("Failed to encode GIF: {}", e))?;
+
     Ok(())
 }
 
-/// Create capture settings and get dimensions.
-fn create_capture_settings(settings: &RecordingSettings) -> Result<(u32, u32, ()), String> {
-    match &settings.mode {
-        RecordingMode::Region { width, height, .. } => {
-            Ok((*width, *height, ()))
-        }
-        RecordingMode::Window { window_id } => {
-            // Get window dimensions
-            let window = WgcWindow::from_raw_hwnd(*window_id as isize as *mut std::ffi::c_void);
-            if !window.is_valid() {
-                return Err("Window not found".to_string());
-            }
-            // Default to 1920x1080 if we can't get dimensions
-            // The encoder will handle the actual dimensions from the frames
-            Ok((1920, 1080, ()))
-        }
-        RecordingMode::Monitor { monitor_index } => {
-            let monitors = WgcMonitor::enumerate()
-                .map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
-            
-            let monitor = monitors
-                .get(*monitor_index)
-                .ok_or("Monitor not found")?;
-            
-            Ok((monitor.width().unwrap_or(1920), monitor.height().unwrap_or(1080), ()))
-        }
-        RecordingMode::AllMonitors => {
-            // TODO: Calculate combined dimensions
-            Ok((1920, 1080, ()))
-        }
-    }
-}
-
 /// Stop the current recording.
-pub async fn stop_recording(app: AppHandle) -> Result<StopRecordingResult, String> {
-    let (output_path, format) = {
+pub async fn stop_recording(_app: AppHandle) -> Result<StopRecordingResult, String> {
+    println!("[STOP] stop_recording called");
+
+    let (_output_path, format) = {
         let controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
-        
+
         if !controller.is_active() {
             return Err("No recording in progress".to_string());
         }
-        
+
         let output_path = controller
             .active
             .as_ref()
             .map(|a| a.output_path.clone())
             .ok_or("No active recording")?;
-        
+
         let format = controller
             .settings
             .as_ref()
             .map(|s| s.format)
             .unwrap_or(RecordingFormat::Mp4);
-        
+
+        println!("[STOP] Sending Stop command...");
         controller.send_command(RecorderCommand::Stop)?;
-        
+
         (output_path, format)
     };
-    
-    // Wait for recording to finish (with timeout)
+
+    // Wait for recording to finish
     let start = Instant::now();
-    let timeout = Duration::from_secs(30);
-    
+    let timeout = match format {
+        RecordingFormat::Gif => Duration::from_secs(120),
+        RecordingFormat::Mp4 => Duration::from_secs(30),
+    };
+
     loop {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        
-        let state = {
-            RECORDING_CONTROLLER
-                .lock()
-                .map(|c| c.state.clone())
-                .unwrap_or(RecordingState::Idle)
-        };
-        
+
+        let state = RECORDING_CONTROLLER
+            .lock()
+            .map(|c| c.state.clone())
+            .unwrap_or(RecordingState::Idle);
+
         match state {
             RecordingState::Completed {
                 output_path,
@@ -812,6 +838,9 @@ pub async fn stop_recording(app: AppHandle) -> Result<StopRecordingResult, Strin
             RecordingState::Idle => {
                 return Err("Recording was cancelled".to_string());
             }
+            RecordingState::Processing { .. } => {
+                continue;
+            }
             _ => {
                 if start.elapsed() > timeout {
                     return Err("Timeout waiting for recording to finish".to_string());
@@ -822,55 +851,51 @@ pub async fn stop_recording(app: AppHandle) -> Result<StopRecordingResult, Strin
 }
 
 /// Cancel the current recording.
-pub async fn cancel_recording(app: AppHandle) -> Result<(), String> {
+pub async fn cancel_recording(_app: AppHandle) -> Result<(), String> {
+    println!("[CANCEL] cancel_recording called");
+
     let controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
-    
+
     if !controller.is_active() {
         return Err("No recording in progress".to_string());
     }
-    
+
     controller.send_command(RecorderCommand::Cancel)?;
-    
-    emit_state_change(&app, &RecordingState::Idle);
-    
     Ok(())
 }
 
 /// Pause the current recording.
 pub async fn pause_recording(app: AppHandle) -> Result<(), String> {
     let mut controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
-    
+
     if !matches!(controller.state, RecordingState::Recording { .. }) {
         return Err("No active recording to pause".to_string());
     }
-    
-    // Check if format supports pausing
+
     if let Some(ref settings) = controller.settings {
         if settings.format == RecordingFormat::Gif {
             return Err("GIF recording cannot be paused".to_string());
         }
     }
-    
+
     controller.send_command(RecorderCommand::Pause)?;
     controller.set_paused(true);
-    
     emit_state_change(&app, &controller.state);
-    
+
     Ok(())
 }
 
 /// Resume a paused recording.
 pub async fn resume_recording(app: AppHandle) -> Result<(), String> {
     let mut controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
-    
+
     if !matches!(controller.state, RecordingState::Paused { .. }) {
         return Err("No paused recording to resume".to_string());
     }
-    
+
     controller.send_command(RecorderCommand::Resume)?;
     controller.set_paused(false);
-    
     emit_state_change(&app, &controller.state);
-    
+
     Ok(())
 }

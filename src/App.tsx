@@ -207,6 +207,25 @@ function App() {
     loadCaptures();
   }, [loadCaptures]);
 
+  // Refresh library when video recording completes
+  useEffect(() => {
+    const unlisten = listen<{ status: string }>('recording-state-changed', (event) => {
+      if (event.payload.status === 'completed') {
+        console.log('[App] Recording completed, refreshing library...');
+        // Delay to ensure file is fully written and flushed
+        setTimeout(() => {
+          loadCaptures();
+          // Refresh again after thumbnails might be generated
+          setTimeout(() => loadCaptures(), 2000);
+        }, 500);
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [loadCaptures]);
+
   // Run startup cleanup (orphan temp files, missing thumbnails)
   useEffect(() => {
     invoke('startup_cleanup').catch(() => {});
@@ -270,26 +289,37 @@ function App() {
     }
   }, []);
 
-  // Initialize settings and register shortcuts
+  // Initialize settings and register shortcuts (non-blocking)
   useEffect(() => {
+    // Set up shortcut handlers IMMEDIATELY (synchronous, no blocking)
+    setShortcutHandler('new_capture', triggerNewCapture);
+    setShortcutHandler('fullscreen_capture', triggerFullscreenCapture);
+    setShortcutHandler('all_monitors_capture', triggerAllMonitorsCapture);
+
+    // Defer heavy initialization to after first paint for responsive UI
     const initSettings = async () => {
-      const { loadSettings } = useSettingsStore.getState();
-      await loadSettings();
+      try {
+        const { loadSettings } = useSettingsStore.getState();
+        await loadSettings();
 
-      // Sync close-to-tray setting with backend
-      const updatedSettings = useSettingsStore.getState().settings;
-      await invoke('set_close_to_tray', { enabled: updatedSettings.general.minimizeToTray });
-
-      // Set up shortcut handlers - these trigger actual captures
-      setShortcutHandler('new_capture', triggerNewCapture);
-      setShortcutHandler('fullscreen_capture', triggerFullscreenCapture);
-      setShortcutHandler('all_monitors_capture', triggerAllMonitorsCapture);
-
-      // Register all shortcuts from settings
-      await registerAllShortcuts();
+        // Run backend sync and shortcut registration in parallel
+        const updatedSettings = useSettingsStore.getState().settings;
+        await Promise.allSettled([
+          invoke('set_close_to_tray', { enabled: updatedSettings.general.minimizeToTray }),
+          registerAllShortcuts(),
+        ]);
+      } catch (error) {
+        console.error('Failed to initialize settings:', error);
+      }
     };
 
-    initSettings();
+    // Use requestIdleCallback if available, otherwise setTimeout
+    // This ensures UI renders first before heavy init work
+    if ('requestIdleCallback' in window) {
+      (window as typeof window & { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(() => initSettings());
+    } else {
+      setTimeout(initSettings, 0);
+    }
   }, [triggerNewCapture, triggerFullscreenCapture, triggerAllMonitorsCapture]);
 
   // Listen for open-settings event from tray menu

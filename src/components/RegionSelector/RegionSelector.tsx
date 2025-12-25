@@ -6,7 +6,6 @@ import type { ScreenRegionSelection, CaptureType, RecordingMode } from '../../ty
 import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
 import { CountdownOverlay } from './CountdownOverlay';
 import { RecordingToolbar } from './RecordingToolbar';
-import { ActiveRecordingControls } from './ActiveRecordingControls';
 
 // Confirmed region for video/gif recording (screen coordinates)
 interface ConfirmedRegion {
@@ -88,9 +87,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
   // Confirmed region - shows toolbar before recording starts (in video/gif mode)
   const [confirmedRegion, setConfirmedRegion] = useState<ConfirmedRegion | null>(null);
 
-  // Video recording store
+  // Video recording store - only use actions, not state
+  // Recording state is owned by Rust backend, not frontend
   const {
-    recordingState,
     settings: recordingSettings,
     initialize: initializeRecording,
     startRecording,
@@ -98,6 +97,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     setMode: setRecordingMode,
     setCountdown,
     toggleCursor,
+    resetToIdle,
   } = useVideoRecordingStore();
 
   // Calculate display rect from selection
@@ -320,12 +320,20 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         y: region.y + region.height,
         regionWidth: region.width,
       });
+      
+      // Show the recording border around the region
+      await invoke('show_recording_border', {
+        x: region.x,
+        y: region.y,
+        width: region.width,
+        height: region.height,
+      });
     } else {
       await invoke('show_recording_controls', {});
     }
     
-    // Hide the overlay
-    await invoke('hide_overlay');
+    // Hide the overlay WITHOUT restoring main window (will restore when recording completes)
+    await invoke('hide_overlay', { restoreMainWindow: false });
     
     // Set countdown to 0 since we already did the countdown in the frontend
     setCountdown(0);
@@ -335,6 +343,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     if (!success) {
       console.error('Failed to start recording');
       await invoke('hide_recording_controls');
+      await invoke('hide_recording_border');
+      // Restore main window on failure
+      await invoke('restore_main_window');
     }
   }, [startRecording, setCountdown]);
 
@@ -712,6 +723,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       setConfirmedRegion(null);
       dragStartRef.current = null;
 
+      // Reset recording state to idle (in case previous recording didn't clean up)
+      resetToIdle();
+
       // Set capture type from event payload (default to screenshot)
       const payload = event.payload;
       if (payload?.captureType) {
@@ -735,7 +749,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setFormat]);
+  }, [setFormat, resetToIdle]);
 
   // Listen for selection updates from other monitors
   useEffect(() => {
@@ -863,18 +877,18 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 cursor-crosshair select-none"
+      className={`fixed inset-0 select-none ${showCountdown ? 'cursor-default' : 'cursor-crosshair'}`}
       style={{
         width: monitorWidth,
         height: monitorHeight,
         backgroundColor: mode === 'window' && !isDragging ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.4)',
         touchAction: 'none', // Required for proper pointer capture
       }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerEnter={handlePointerEnter}
-      onPointerLeave={handlePointerLeave}
+      onPointerDown={showCountdown ? undefined : handlePointerDown}
+      onPointerMove={showCountdown ? undefined : handlePointerMove}
+      onPointerUp={showCountdown ? undefined : handlePointerUp}
+      onPointerEnter={showCountdown ? undefined : handlePointerEnter}
+      onPointerLeave={showCountdown ? undefined : handlePointerLeave}
     >
       {/* Window highlight mode - hide when we have a confirmed region */}
       {windowHighlight && mode === 'window' && !isDragging && !confirmedRegion && (
@@ -928,8 +942,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         </>
       )}
 
-      {/* Crosshair guides - only show in region mode, hide when confirmed region exists */}
-      {!isSelecting && mode === 'region' && !confirmedRegion && (
+      {/* Crosshair guides - only show in region mode, hide when confirmed region exists or during countdown */}
+      {!isSelecting && mode === 'region' && !confirmedRegion && !showCountdown && (
         <>
           {/* Horizontal line */}
           <div
@@ -1220,7 +1234,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       )}
 
       {/* Recording toolbar - shown at bottom-center of confirmed region (before recording starts) */}
-      {shouldShowToolbar && confirmedRegion && !showCountdown && recordingState.status === 'idle' && (
+      {shouldShowToolbar && confirmedRegion && !showCountdown && (
         <div
           className="absolute pointer-events-auto"
           style={{
@@ -1244,23 +1258,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         </div>
       )}
 
-      {/* Active recording controls - shown during recording/paused */}
-      {shouldShowToolbar && confirmedRegion && (recordingState.status === 'recording' || recordingState.status === 'paused') && (
-        <div
-          className="absolute pointer-events-auto"
-          style={{
-            left: confirmedRegion.x - monitorX + confirmedRegion.width / 2,
-            top: confirmedRegion.y - monitorY + confirmedRegion.height + 16,
-            transform: 'translateX(-50%)',
-            zIndex: 100,
-          }}
-        >
-          <ActiveRecordingControls format={recordingSettings.format} />
-        </div>
-      )}
-
       {/* Instructions toast - dark glass effect for visibility */}
-      {!showCountdown && !confirmedRegion && recordingState.status === 'idle' && (
+      {!showCountdown && !confirmedRegion && (
         <div
           className="absolute top-6 left-1/2 pointer-events-none"
           style={{

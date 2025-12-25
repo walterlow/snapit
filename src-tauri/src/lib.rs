@@ -109,8 +109,6 @@ pub fn run() {
             commands::window::hide_overlay,
             commands::window::open_editor,
             commands::window::open_editor_fast,
-            commands::window::move_overlays_offscreen,
-
             commands::window::show_recording_border,
             commands::window::hide_recording_border,
             commands::window::show_dcomp_toolbar,
@@ -196,14 +194,6 @@ pub fn run() {
                 let _ = window.set_icon(icon);
                 let _ = window.show();
             }
-
-            // Pre-create overlay windows in background for instant capture later
-            let app_handle = app.handle().clone();
-            std::thread::spawn(move || {
-                // Small delay to let main window fully initialize first
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = commands::window::precreate_overlays(&app_handle);
-            });
 
             // Ensure ffmpeg is available for video thumbnails (downloads if needed)
             // This runs in background and doesn't block app startup

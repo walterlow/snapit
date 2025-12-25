@@ -20,7 +20,6 @@ export default defineConfig(async () => ({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
-        overlay: resolve(__dirname, "overlay.html"),
         "recording-border": resolve(__dirname, "recording-border.html"),
         "dcomp-toolbar": resolve(__dirname, "dcomp-toolbar.html"),
         countdown: resolve(__dirname, "countdown.html"),

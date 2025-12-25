@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use super::capture::fallback::get_monitors;
@@ -13,14 +12,7 @@ const DCOMP_TOOLBAR_LABEL: &str = "dcomp-toolbar";
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
-// Track if capture is currently in progress (overlays are showing)
-static CAPTURE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-// Track if overlays have been pre-created
-static OVERLAYS_CREATED: AtomicBool = AtomicBool::new(false);
-
-// Store overlay window labels for reuse
-static OVERLAY_LABELS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Apply DWM blur-behind transparency to a window.
 /// This uses a tiny off-screen blur region trick (from PowerToys) to get
@@ -98,67 +90,6 @@ fn apply_rounded_corners(window: &tauri::WebviewWindow) -> Result<(), String> {
 
 #[cfg(not(target_os = "windows"))]
 fn apply_rounded_corners(_window: &tauri::WebviewWindow) -> Result<(), String> {
-    Ok(())
-}
-
-/// Pre-create overlay windows at startup (hidden) for instant show later.
-/// Uses DWM-based transparency instead of WS_EX_LAYERED to avoid hardware video blackout.
-pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
-    if OVERLAYS_CREATED.load(Ordering::SeqCst) {
-        return Ok(());
-    }
-
-    let monitors = get_monitors().map_err(|e| format!("Failed to get monitors: {}", e))?;
-    let mut labels = OVERLAY_LABELS.lock().unwrap();
-    labels.clear();
-
-    for (idx, monitor) in monitors.iter().enumerate() {
-        let label = format!("overlay_{}", idx);
-
-        let x = monitor.x as f64;
-        let y = monitor.y as f64;
-        let width = monitor.width as f64;
-        let height = monitor.height as f64;
-        let scale = monitor.scale_factor;
-
-        let url = WebviewUrl::App(
-            format!(
-                "overlay.html?monitor={}&x={}&y={}&width={}&height={}&scale={}",
-                idx, monitor.x, monitor.y, monitor.width, monitor.height, scale
-            )
-            .into(),
-        );
-
-        // Use transparent(true) for proper alpha blending.
-        // We also apply DWM blur-behind which may help with hardware video composition.
-        let window = WebviewWindowBuilder::new(app, &label, url)
-            .title("")
-            .inner_size(width, height)
-            .position(x, y)
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .visible(false) // Start hidden!
-            .build()
-            .map_err(|e| format!("Failed to create overlay: {}", e))?;
-
-        // Apply DWM blur-behind (may help with hardware video composition)
-        if let Err(e) = apply_dwm_transparency(&window) {
-            eprintln!("Warning: Failed to apply DWM blur-behind to overlay {}: {}", idx, e);
-        }
-
-        // Move off-screen initially
-        let _ = window.set_position(tauri::Position::Physical(
-            tauri::PhysicalPosition { x: -10000, y: -10000 }
-        ));
-
-        labels.push(label);
-    }
-
-    OVERLAYS_CREATED.store(true, Ordering::SeqCst);
     Ok(())
 }
 
@@ -340,45 +271,6 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
     Ok(())
 }
 
-/// Flush DWM compositor to ensure window position changes are rendered
-#[cfg(target_os = "windows")]
-fn flush_compositor() {
-    use windows::Win32::Graphics::Dwm::DwmFlush;
-    unsafe {
-        // DwmFlush waits for the next vertical blank and ensures all pending
-        // composition operations are completed before returning
-        let _ = DwmFlush();
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn flush_compositor() {
-    // No-op on non-Windows platforms
-}
-
-/// Move all overlays off-screen (instant, synchronous) - call before capture
-#[command]
-pub async fn move_overlays_offscreen(app: AppHandle) -> Result<(), String> {
-    let labels = OVERLAY_LABELS.lock().unwrap();
-
-    for label in labels.iter() {
-        if let Some(window) = app.get_webview_window(label) {
-            // Move way off screen - this is instant and synchronous
-            let _ = window.set_position(tauri::Position::Physical(
-                tauri::PhysicalPosition { x: -10000, y: -10000 }
-            ));
-        }
-    }
-
-    // Flush DWM compositor to ensure the position change is rendered
-    flush_compositor();
-
-    // Minimal delay for GPU to process
-    std::thread::sleep(std::time::Duration::from_millis(8));
-
-    Ok(())
-}
-
 #[command]
 pub async fn show_overlay(app: AppHandle, capture_type: Option<String>) -> Result<(), String> {
     trigger_capture(&app, capture_type.as_deref())
@@ -386,22 +278,6 @@ pub async fn show_overlay(app: AppHandle, capture_type: Option<String>) -> Resul
 
 #[command]
 pub async fn hide_overlay(app: AppHandle, restore_main_window: Option<bool>) -> Result<(), String> {
-    // Hide overlays
-    let labels = OVERLAY_LABELS.lock().unwrap();
-    for label in labels.iter() {
-        if let Some(window) = app.get_webview_window(label) {
-            // Move off-screen and hide
-            let _ = window.set_position(tauri::Position::Physical(
-                tauri::PhysicalPosition { x: -10000, y: -10000 }
-            ));
-            let _ = window.hide();
-        }
-    }
-    drop(labels);
-
-    // Mark capture as no longer in progress
-    CAPTURE_IN_PROGRESS.store(false, Ordering::SeqCst);
-
     // Restore main window if it was visible before capture started
     // Default to true for backward compatibility (screenshots)
     // Pass false when starting video recording to keep main window hidden

@@ -242,6 +242,7 @@ pub struct StartRecordingResult {
 /// Result of stopping a recording.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct StopRecordingResult {
     pub output_path: String,
     pub duration_secs: f64,

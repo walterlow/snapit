@@ -1,5 +1,5 @@
 /**
- * DcompToolbarWindow - Unified toolbar for DirectComposition overlay.
+ * CaptureToolbarWindow - Unified toolbar for screen capture.
  * 
  * This window appears below the selection region and handles BOTH:
  * 1. Selection mode: region selection controls (record, screenshot, redo, cancel)
@@ -12,10 +12,10 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { RecordingToolbar, type ToolbarMode } from '../components/RegionSelector/RecordingToolbar';
+import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
 import type { CaptureType, RecordingState, RecordingFormat } from '../types';
 
-const DcompToolbarWindow: React.FC = () => {
+const CaptureToolbarWindow: React.FC = () => {
   // Parse initial dimensions from URL params (passed when window is created)
   const initialDimensions = useMemo(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -54,13 +54,13 @@ const DcompToolbarWindow: React.FC = () => {
   // This bypasses Tauri events which have issues in this context
   useEffect(() => {
     const updateFn = (width: number, height: number) => {
-      console.log('[DcompToolbar] __updateDimensions called:', width, height);
+      console.log('[CaptureToolbar] __updateDimensions called:', width, height);
       setDimensions({ width, height });
     };
     
     // Set on window object
     (window as unknown as { __updateDimensions: typeof updateFn }).__updateDimensions = updateFn;
-    console.log('[DcompToolbar] Global __updateDimensions function registered');
+    console.log('[CaptureToolbar] Global __updateDimensions function registered');
     
     return () => {
       delete (window as unknown as { __updateDimensions?: unknown }).__updateDimensions;
@@ -78,7 +78,7 @@ const DcompToolbarWindow: React.FC = () => {
       
       // Listen for overlay closed event
       // Only close if we haven't initiated recording (recording keeps toolbar open)
-      unlistenClosed = await listen('dcomp-overlay-closed', () => {
+      unlistenClosed = await listen('capture-overlay-closed', () => {
         if (!recordingInitiatedRef.current) {
           currentWindow.close().catch(console.error);
         }
@@ -87,7 +87,7 @@ const DcompToolbarWindow: React.FC = () => {
       // Listen for recording state changes
       unlistenState = await listen<RecordingState>('recording-state-changed', (event) => {
         const state = event.payload;
-        console.log('[DcompToolbar] State changed:', state.status);
+        console.log('[CaptureToolbar] State changed:', state.status);
         
         switch (state.status) {
           case 'countdown':
@@ -163,7 +163,7 @@ const DcompToolbarWindow: React.FC = () => {
 
       // Listen for format changes
       unlistenFormat = await listen<RecordingFormat>('recording-format', (event) => {
-        console.log('[DcompToolbar] Format changed:', event.payload);
+        console.log('[CaptureToolbar] Format changed:', event.payload);
         setFormat(event.payload);
       });
     };
@@ -195,8 +195,8 @@ const DcompToolbarWindow: React.FC = () => {
         const width = Math.ceil(rect.width) + padding;
         const height = Math.ceil(rect.height) + padding;
         
-        console.log('[DcompToolbar] Resizing window to:', width, height);
-        invoke('resize_dcomp_toolbar', { width, height }).catch(console.error);
+        console.log('[CaptureToolbar] Resizing window to:', width, height);
+        invoke('resize_capture_toolbar', { width, height }).catch(console.error);
       }
     }, 50);
     
@@ -218,7 +218,7 @@ const DcompToolbarWindow: React.FC = () => {
       // 2. Show the recording border
       // 3. Start the recording
       // The toolbar stays open and will receive recording-state-changed events
-      await invoke('dcomp_overlay_confirm', { action: 'recording' });
+      await invoke('capture_overlay_confirm', { action: 'recording' });
       
     } catch (e) {
       console.error('Failed to start recording:', e);
@@ -233,7 +233,7 @@ const DcompToolbarWindow: React.FC = () => {
 
   const handleScreenshot = useCallback(async () => {
     try {
-      await invoke('dcomp_overlay_confirm', { action: 'screenshot' });
+      await invoke('capture_overlay_confirm', { action: 'screenshot' });
     } catch (e) {
       console.error('Failed to take screenshot:', e);
     }
@@ -241,7 +241,7 @@ const DcompToolbarWindow: React.FC = () => {
 
   const handleRedo = useCallback(async () => {
     try {
-      await invoke('dcomp_overlay_reselect');
+      await invoke('capture_overlay_reselect');
     } catch (e) {
       console.error('Failed to reselect:', e);
     }
@@ -251,11 +251,11 @@ const DcompToolbarWindow: React.FC = () => {
     try {
       // If we're recording, cancel the recording
       if (mode !== 'selection') {
-        console.log('[DcompToolbar] Cancel clicked during recording, invoking cancel_recording...');
+        console.log('[CaptureToolbar] Cancel clicked during recording, invoking cancel_recording...');
         await invoke('cancel_recording');
       } else {
         // Selection mode - cancel the overlay
-        await invoke('dcomp_overlay_cancel');
+        await invoke('capture_overlay_cancel');
       }
     } catch (e) {
       console.error('Failed to cancel:', e);
@@ -268,7 +268,7 @@ const DcompToolbarWindow: React.FC = () => {
 
   // Recording control handlers
   const handlePause = useCallback(async () => {
-    console.log('[DcompToolbar] Pause clicked');
+    console.log('[CaptureToolbar] Pause clicked');
     try {
       await invoke('pause_recording');
     } catch (e) {
@@ -277,7 +277,7 @@ const DcompToolbarWindow: React.FC = () => {
   }, []);
 
   const handleResume = useCallback(async () => {
-    console.log('[DcompToolbar] Resume clicked');
+    console.log('[CaptureToolbar] Resume clicked');
     try {
       await invoke('resume_recording');
     } catch (e) {
@@ -286,7 +286,7 @@ const DcompToolbarWindow: React.FC = () => {
   }, []);
 
   const handleStop = useCallback(async () => {
-    console.log('[DcompToolbar] Stop clicked');
+    console.log('[CaptureToolbar] Stop clicked');
     try {
       await invoke('stop_recording');
     } catch (e) {
@@ -297,7 +297,7 @@ const DcompToolbarWindow: React.FC = () => {
   return (
     <div className="w-full h-full flex items-center justify-center pointer-events-none">
       <div ref={toolbarRef}>
-        <RecordingToolbar
+        <CaptureToolbar
           mode={mode}
           captureType={captureType}
           width={dimensions.width}
@@ -326,4 +326,4 @@ const DcompToolbarWindow: React.FC = () => {
   );
 };
 
-export default DcompToolbarWindow;
+export default CaptureToolbarWindow;

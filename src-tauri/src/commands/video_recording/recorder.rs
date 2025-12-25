@@ -219,7 +219,7 @@ fn start_capture_thread(
     println!("[START] About to spawn capture thread...");
     let app_clone = app.clone();
     let output_path_clone = output_path.clone();
-    let format_for_log = settings.format;
+    let _format_for_log = settings.format;
 
     let handle = std::thread::spawn(move || {
         println!("[THREAD] Capture thread started, format={:?}", settings.format);

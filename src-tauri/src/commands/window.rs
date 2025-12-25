@@ -6,8 +6,8 @@ use super::capture::fallback::get_monitors;
 // Recording border window label
 const RECORDING_BORDER_LABEL: &str = "recording-border";
 
-// DirectComposition overlay toolbar window label
-const DCOMP_TOOLBAR_LABEL: &str = "dcomp-toolbar";
+// Capture toolbar window label
+const CAPTURE_TOOLBAR_LABEL: &str = "capture-toolbar";
 
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
@@ -65,6 +65,7 @@ fn apply_dwm_transparency(_window: &tauri::WebviewWindow) -> Result<(), String> 
 /// This makes the OS clip the window to a rounded rectangle, eliminating
 /// the rectangular background issue with WebView2 transparent windows.
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn apply_rounded_corners(window: &tauri::WebviewWindow) -> Result<(), String> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE};
@@ -118,9 +119,9 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            use crate::commands::dcomp_overlay::{OverlayAction, OverlayResult};
+            use crate::commands::capture_overlay::{OverlayAction, OverlayResult};
             
-            match crate::commands::dcomp_overlay::show_dcomp_video_overlay(app_clone.clone(), None, Some(ct_for_thread)).await {
+            match crate::commands::capture_overlay::show_capture_overlay(app_clone.clone(), None, Some(ct_for_thread)).await {
                 Ok(Some(result)) => {
                     let OverlayResult { x, y, width, height, action } = result;
                     
@@ -178,7 +179,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             ).await {
                                 eprintln!("Failed to start recording: {}", e);
                                 // Close toolbar and restore main window on error
-                                if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                                if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                                     let _ = toolbar.close();
                                 }
                                 if let Some(main_window) = app_clone.get_webview_window("main") {
@@ -190,7 +191,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                         }
                         OverlayAction::CaptureScreenshot => {
                             // Screenshot flow - close toolbar, capture region, open editor
-                            if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                            if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                                 let _ = toolbar.close();
                             }
                             
@@ -230,7 +231,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                         }
                         OverlayAction::Cancelled => {
                             // User cancelled - close toolbar and restore main window
-                            if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                            if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                                 let _ = toolbar.close();
                             }
                             if let Some(main_window) = app_clone.get_webview_window("main") {
@@ -243,7 +244,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                 }
                 Ok(None) => {
                     // Cancelled (no selection made) - restore main window
-                    if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                    if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                         let _ = toolbar.close();
                     }
                     if let Some(main_window) = app_clone.get_webview_window("main") {
@@ -255,7 +256,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                 Err(e) => {
                     eprintln!("DComp overlay error: {}", e);
                     // Restore main window on error
-                    if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                    if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                         let _ = toolbar.close();
                     }
                     if let Some(main_window) = app_clone.get_webview_window("main") {
@@ -522,7 +523,7 @@ pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
 /// - width: Width of the selection region
 /// - height: Height of the selection region (used to calculate toolbar position)
 #[command]
-pub async fn show_dcomp_toolbar(
+pub async fn show_capture_toolbar(
     app: AppHandle,
     x: i32,
     y: i32,
@@ -530,7 +531,7 @@ pub async fn show_dcomp_toolbar(
     height: u32,
 ) -> Result<(), String> {
     // Initial window dimensions - generous size to let frontend toolbar render naturally
-    // Frontend will measure content and call resize_dcomp_toolbar to fit exactly
+    // Frontend will measure content and call resize_capture_toolbar to fit exactly
     // Extra space is transparent and click-through until resize happens
     let window_width: i32 = 600;
     let window_height: i32 = 80;
@@ -614,7 +615,7 @@ pub async fn show_dcomp_toolbar(
     }
     
     // Check if window already exists
-    if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         // Window exists - reposition and show it
         let _ = window.set_position(tauri::Position::Physical(
             tauri::PhysicalPosition { x: pos_x, y: pos_y }
@@ -627,10 +628,10 @@ pub async fn show_dcomp_toolbar(
 
     // Create the window with dimensions in URL params
     let url = WebviewUrl::App(
-        format!("dcomp-toolbar.html?width={}&height={}", width, height).into()
+        format!("capture-toolbar.html?width={}&height={}", width, height).into()
     );
     
-    let window = WebviewWindowBuilder::new(&app, DCOMP_TOOLBAR_LABEL, url)
+    let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
         .title("Selection Toolbar")
         .inner_size(window_width as f64, window_height as f64)
         .position(pos_x as f64, pos_y as f64)
@@ -668,7 +669,7 @@ pub async fn show_dcomp_toolbar(
 /// Update the DirectComposition overlay toolbar position and dimensions.
 /// This is called during resize to update the toolbar in real-time.
 #[command]
-pub async fn update_dcomp_toolbar(
+pub async fn update_capture_toolbar(
     app: AppHandle,
     x: i32,
     y: i32,
@@ -676,7 +677,7 @@ pub async fn update_dcomp_toolbar(
     height: u32,
 ) -> Result<(), String> {
     // Window dimensions - use generous defaults for positioning calculations
-    // Frontend controls actual size via resize_dcomp_toolbar
+    // Frontend controls actual size via resize_capture_toolbar
     let window_width: i32 = 600;
     let window_height: i32 = 80;
 
@@ -725,7 +726,7 @@ pub async fn update_dcomp_toolbar(
         pos_y = pos_y.max(mon.y + margin).min(mon_bottom - window_height - margin);
     }
 
-    if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         // Reposition the toolbar
         let _ = window.set_position(tauri::Position::Physical(
             tauri::PhysicalPosition { x: pos_x, y: pos_y }
@@ -764,8 +765,8 @@ pub async fn update_dcomp_toolbar(
 
 /// Hide the DirectComposition overlay toolbar window.
 #[command]
-pub async fn hide_dcomp_toolbar(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         window.close().map_err(|e| format!("Failed to close dcomp toolbar: {}", e))?;
     }
     Ok(())
@@ -774,12 +775,12 @@ pub async fn hide_dcomp_toolbar(app: AppHandle) -> Result<(), String> {
 /// Resize the DirectComposition overlay toolbar window.
 /// Called by frontend after measuring its content size.
 #[command]
-pub async fn resize_dcomp_toolbar(
+pub async fn resize_capture_toolbar(
     app: AppHandle,
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         window.set_size(tauri::Size::Physical(
             tauri::PhysicalSize { width, height }
         )).map_err(|e| format!("Failed to resize toolbar: {}", e))?;

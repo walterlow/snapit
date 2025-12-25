@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import DcompToolbarWindow from './DcompToolbarWindow';
+import CaptureToolbarWindow from './CaptureToolbarWindow';
 import '../styles.css';
 import { initializeLogging } from '../utils/logger';
 
@@ -9,6 +9,6 @@ initializeLogging().catch(console.error);
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <DcompToolbarWindow />
+    <CaptureToolbarWindow />
   </React.StrictMode>
 );

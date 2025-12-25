@@ -21,7 +21,7 @@ export default defineConfig(async () => ({
       input: {
         main: resolve(__dirname, "index.html"),
         "recording-border": resolve(__dirname, "recording-border.html"),
-        "dcomp-toolbar": resolve(__dirname, "dcomp-toolbar.html"),
+        "capture-toolbar": resolve(__dirname, "capture-toolbar.html"),
         countdown: resolve(__dirname, "countdown.html"),
       },
     },

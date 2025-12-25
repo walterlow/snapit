@@ -148,6 +148,7 @@ fn generate_video_thumbnail(
 }
 
 /// Find ffprobe binary - checks bundled location, sidecar cache, then system PATH.
+#[allow(dead_code)]
 fn find_ffprobe() -> Option<PathBuf> {
     let binary_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
     
@@ -196,6 +197,7 @@ fn find_ffprobe() -> Option<PathBuf> {
 
 /// Get video dimensions using bundled ffprobe.
 /// Returns (width, height) if successful.
+#[allow(dead_code)]
 fn get_video_dimensions(video_path: &PathBuf) -> Option<(u32, u32)> {
     use std::process::Command;
     

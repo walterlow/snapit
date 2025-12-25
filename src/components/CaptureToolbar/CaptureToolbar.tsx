@@ -1,5 +1,5 @@
 /**
- * RecordingToolbar - Unified toolbar for region selection AND recording controls.
+ * CaptureToolbar - Unified toolbar for region selection AND recording controls.
  * 
  * Mode: Selection
  * - Start recording (with countdown)
@@ -26,7 +26,7 @@ import type { CaptureType, RecordingFormat } from '../../types';
 
 export type ToolbarMode = 'selection' | 'starting' | 'recording' | 'paused' | 'processing' | 'error';
 
-interface RecordingToolbarProps {
+interface CaptureToolbarProps {
   /** Toolbar mode */
   mode: ToolbarMode;
   /** Current capture type (video or gif) */
@@ -76,7 +76,7 @@ function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
+export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   mode,
   captureType,
   width,
@@ -452,4 +452,4 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
   );
 };
 
-export default RecordingToolbar;
+export default CaptureToolbar;

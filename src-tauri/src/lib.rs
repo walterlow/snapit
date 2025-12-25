@@ -111,10 +111,10 @@ pub fn run() {
             commands::window::open_editor_fast,
             commands::window::show_recording_border,
             commands::window::hide_recording_border,
-            commands::window::show_dcomp_toolbar,
-            commands::window::update_dcomp_toolbar,
-            commands::window::hide_dcomp_toolbar,
-            commands::window::resize_dcomp_toolbar,
+            commands::window::show_capture_toolbar,
+            commands::window::update_capture_toolbar,
+            commands::window::hide_capture_toolbar,
+            commands::window::resize_capture_toolbar,
             commands::window::restore_main_window,
             commands::window::show_countdown_window,
             commands::window::hide_countdown_window,
@@ -166,11 +166,11 @@ pub fn run() {
             commands::logging::get_log_dir,
             commands::logging::open_log_dir,
             commands::logging::get_recent_logs,
-            // DirectComposition overlay for video/gif (avoids video blackout)
-            commands::dcomp_overlay::show_dcomp_video_overlay,
-            commands::dcomp_overlay::dcomp_overlay_confirm,
-            commands::dcomp_overlay::dcomp_overlay_cancel,
-            commands::dcomp_overlay::dcomp_overlay_reselect,
+            // Capture overlay for video/gif region selection (uses DirectComposition to avoid video blackout)
+            commands::capture_overlay::show_capture_overlay,
+            commands::capture_overlay::capture_overlay_confirm,
+            commands::capture_overlay::capture_overlay_cancel,
+            commands::capture_overlay::capture_overlay_reselect,
         ])
         .setup(|app| {
             // Initialize logging system first

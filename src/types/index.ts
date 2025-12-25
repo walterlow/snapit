@@ -346,36 +346,23 @@ export const DEFAULT_SETTINGS: AppSettings = {
 export type CaptureType = 'screenshot' | 'video' | 'gif';
 
 // ============================================
-// Video Recording Types
+// Video Recording Types (generated from Rust via ts-rs)
 // ============================================
 
-/** Output format for recordings */
-export type RecordingFormat = 'mp4' | 'gif';
+// Re-export generated types - single source of truth from Rust
+export type {
+  AudioSettings,
+  RecordingFormat,
+  RecordingMode,
+  RecordingSettings,
+  RecordingState,
+  RecordingStatus,
+  StartRecordingResult,
+  StopRecordingResult,
+} from './generated';
 
-/** What to capture during recording */
-export type RecordingMode =
-  | { type: 'region'; x: number; y: number; width: number; height: number }
-  | { type: 'window'; windowId: number }
-  | { type: 'monitor'; monitorIndex: number }
-  | { type: 'allMonitors' };
-
-/** Audio capture settings */
-export interface AudioSettings {
-  captureSystemAudio: boolean;
-  captureMicrophone: boolean;
-}
-
-/** Settings for a recording session */
-export interface RecordingSettings {
-  format: RecordingFormat;
-  mode: RecordingMode;
-  fps: number;
-  maxDurationSecs: number | null;
-  includeCursor: boolean;
-  audio: AudioSettings;
-  quality: number;
-  countdownSecs: number;
-}
+// Import for use in default settings
+import type { RecordingSettings } from './generated';
 
 /** Default recording settings */
 export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
@@ -391,36 +378,6 @@ export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
   quality: 80,
   countdownSecs: 3,
 };
-
-/** Current state of a recording session */
-export type RecordingState =
-  | { status: 'idle' }
-  | { status: 'countdown'; secondsRemaining: number }
-  | { status: 'recording'; startedAt: string; elapsedSecs: number; frameCount: number }
-  | { status: 'paused'; elapsedSecs: number; frameCount: number }
-  | { status: 'processing'; progress: number }
-  | { status: 'completed'; outputPath: string; durationSecs: number; fileSizeBytes: number }
-  | { status: 'error'; message: string };
-
-/** Full status of the recording system */
-export interface RecordingStatus {
-  state: RecordingState;
-  settings: RecordingSettings | null;
-}
-
-/** Result of starting a recording */
-export interface StartRecordingResult {
-  success: boolean;
-  message: string;
-}
-
-/** Result of stopping a recording */
-export interface StopRecordingResult {
-  outputPath: string;
-  durationSecs: number;
-  fileSizeBytes: number;
-  format: RecordingFormat;
-}
 
 // ============================================
 // Shape Component Types

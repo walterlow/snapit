@@ -16,6 +16,7 @@ pub mod state;
 
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Emitter};
+use ts_rs::TS;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -40,8 +41,9 @@ pub fn set_recording_countdown(secs: u32) {
 // ============================================================================
 
 /// Output format for recordings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub enum RecordingFormat {
     Mp4,
     Gif,
@@ -54,8 +56,9 @@ impl Default for RecordingFormat {
 }
 
 /// What to capture.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub enum RecordingMode {
     /// Capture a specific screen region.
     Region {
@@ -79,8 +82,9 @@ pub enum RecordingMode {
 }
 
 /// Audio capture settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct AudioSettings {
     /// Capture system audio (what's playing on the computer).
     pub capture_system_audio: bool,
@@ -98,8 +102,9 @@ impl Default for AudioSettings {
 }
 
 /// Settings for a recording session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct RecordingSettings {
     /// Output format (MP4 or GIF).
     pub format: RecordingFormat,
@@ -181,24 +186,36 @@ impl RecordingSettings {
 }
 
 /// Current state of a recording session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// 
+/// NOTE: ts-rs generates TypeScript types from Rust - single source of truth.
+/// The serde attributes ensure JSON serialization matches the generated TS types.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "status", rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub enum RecordingState {
     /// No recording in progress.
     Idle,
     /// Countdown before recording starts.
     Countdown {
+        #[serde(rename = "secondsRemaining")]
         seconds_remaining: u32,
     },
     /// Currently recording.
     Recording {
+        #[serde(rename = "startedAt")]
         started_at: String,
+        #[serde(rename = "elapsedSecs")]
         elapsed_secs: f64,
+        #[serde(rename = "frameCount")]
+        #[ts(type = "number")]
         frame_count: u64,
     },
     /// Paused (MP4 only).
     Paused {
+        #[serde(rename = "elapsedSecs")]
         elapsed_secs: f64,
+        #[serde(rename = "frameCount")]
+        #[ts(type = "number")]
         frame_count: u64,
     },
     /// Processing/encoding (mainly for GIF).
@@ -207,8 +224,12 @@ pub enum RecordingState {
     },
     /// Recording completed successfully.
     Completed {
+        #[serde(rename = "outputPath")]
         output_path: String,
+        #[serde(rename = "durationSecs")]
         duration_secs: f64,
+        #[serde(rename = "fileSizeBytes")]
+        #[ts(type = "number")]
         file_size_bytes: u64,
     },
     /// Recording failed.
@@ -224,28 +245,32 @@ impl Default for RecordingState {
 }
 
 /// Full status of the recording system.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct RecordingStatus {
     pub state: RecordingState,
     pub settings: Option<RecordingSettings>,
 }
 
 /// Result of starting a recording.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct StartRecordingResult {
     pub success: bool,
     pub message: String,
 }
 
 /// Result of stopping a recording.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[allow(dead_code)]
 pub struct StopRecordingResult {
     pub output_path: String,
     pub duration_secs: f64,
+    #[ts(type = "number")]
     pub file_size_bytes: u64,
     pub format: RecordingFormat,
 }
@@ -351,5 +376,9 @@ pub fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, Str
 
 /// Emit a recording state change event to the frontend.
 pub fn emit_state_change(app: &AppHandle, state: &RecordingState) {
+    // Debug: log the serialized JSON to verify field names
+    if let Ok(json) = serde_json::to_string(state) {
+        println!("[EMIT] recording-state-changed: {}", json);
+    }
     let _ = app.emit("recording-state-changed", state);
 }

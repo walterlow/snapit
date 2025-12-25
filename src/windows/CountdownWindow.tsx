@@ -18,11 +18,14 @@ const CountdownWindow: React.FC = () => {
     const currentWindow = getCurrentWebviewWindow();
 
     const setup = async () => {
+      // NOTE: RecordingState is a discriminated union - TypeScript narrows the type
+      // based on `status`, so we can access fields directly without runtime checks.
       unlisten = await listen<RecordingState>('recording-state-changed', (event) => {
         const state = event.payload;
         
-        if (state.status === 'countdown' && 'seconds_remaining' in state) {
-          setCount((state as unknown as { seconds_remaining: number }).seconds_remaining);
+        if (state.status === 'countdown') {
+          // TypeScript knows `state` has `secondsRemaining` here
+          setCount(state.secondsRemaining);
         } else if (state.status === 'recording' || state.status === 'idle' || state.status === 'error') {
           // Countdown finished or cancelled - close this window
           currentWindow.close().catch(console.error);

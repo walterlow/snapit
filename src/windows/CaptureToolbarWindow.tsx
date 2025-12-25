@@ -75,6 +75,7 @@ const CaptureToolbarWindow: React.FC = () => {
 
     const setupListeners = async () => {
       const currentWindow = getCurrentWebviewWindow();
+      console.log('[CaptureToolbar] Setting up event listeners, window label:', currentWindow.label);
       
       // Listen for overlay closed event
       // Only close if we haven't initiated recording (recording keeps toolbar open)
@@ -85,44 +86,58 @@ const CaptureToolbarWindow: React.FC = () => {
       });
 
       // Listen for recording state changes
+      // NOTE: RecordingState is a discriminated union - TypeScript narrows the type
+      // based on `status`, so we can access fields directly without runtime checks.
+      // This catches type mismatches at compile time, not runtime.
       unlistenState = await listen<RecordingState>('recording-state-changed', (event) => {
         const state = event.payload;
-        console.log('[CaptureToolbar] State changed:', state.status);
+        console.log('[CaptureToolbar] State changed:', state.status, 'Full payload:', JSON.stringify(state));
         
         switch (state.status) {
           case 'countdown':
             // Recording starting - show countdown
+            // TypeScript knows `state` has `secondsRemaining` here
             isRecordingActiveRef.current = false;
             setMode('starting');
             setElapsedTime(0);
             setProgress(0);
             setErrorMessage(undefined);
-            // Extract countdown seconds from state (snake_case from Rust)
-            if ('seconds_remaining' in state) {
-              setCountdownSeconds((state as unknown as { seconds_remaining: number }).seconds_remaining);
-            }
+            setCountdownSeconds(state.secondsRemaining);
             break;
           case 'recording':
-            // Only reset elapsed time when first transitioning to recording
+            // TypeScript knows `state` has `elapsedSecs`, `frameCount`, `startedAt` here
             if (!isRecordingActiveRef.current) {
               isRecordingActiveRef.current = true;
-              setElapsedTime('elapsedSecs' in state ? state.elapsedSecs : 0);
+              setElapsedTime(state.elapsedSecs);
             }
             setMode('recording');
             break;
           case 'paused':
+            // TypeScript knows `state` has `elapsedSecs`, `frameCount` here
             setMode('paused');
-            if ('elapsedSecs' in state) {
-              setElapsedTime(state.elapsedSecs);
-            }
+            setElapsedTime(state.elapsedSecs);
             break;
           case 'processing':
+            // TypeScript knows `state` has `progress` here
             setMode('processing');
-            if ('progress' in state) {
-              setProgress(state.progress);
-            }
+            setProgress(state.progress);
             break;
           case 'completed':
+            // TypeScript knows `state` has `outputPath`, `durationSecs`, `fileSizeBytes` here
+            // Recording ended - reset to selection mode
+            isRecordingActiveRef.current = false;
+            setMode('selection');
+            setElapsedTime(0);
+            setProgress(0);
+            // Hide windows and restore main window, then close toolbar
+            Promise.all([
+              invoke('hide_recording_border').catch(() => {}),
+              invoke('hide_countdown_window').catch(() => {}),
+              invoke('restore_main_window').catch(() => {}),
+            ]).finally(() => {
+              currentWindow.close().catch(console.error);
+            });
+            break;
           case 'idle':
             // Recording ended - reset to selection mode
             isRecordingActiveRef.current = false;
@@ -130,7 +145,6 @@ const CaptureToolbarWindow: React.FC = () => {
             setElapsedTime(0);
             setProgress(0);
             // Hide windows and restore main window, then close toolbar
-            // Must await these before closing to ensure they complete
             Promise.all([
               invoke('hide_recording_border').catch(() => {}),
               invoke('hide_countdown_window').catch(() => {}),
@@ -140,9 +154,9 @@ const CaptureToolbarWindow: React.FC = () => {
             });
             break;
           case 'error':
-            const errorMsg = 'message' in state ? state.message : 'Unknown error';
+            // TypeScript knows `state` has `message` here
             isRecordingActiveRef.current = false;
-            setErrorMessage(errorMsg);
+            setErrorMessage(state.message);
             setMode('error');
             // Hide border and countdown immediately
             invoke('hide_recording_border').catch(() => {});

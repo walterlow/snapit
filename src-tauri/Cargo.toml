@@ -29,6 +29,9 @@ tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# TypeScript type generation (single source of truth for Rust <-> TS types)
+ts-rs = "10"
+
 # Screen capture - xcap for screenshots (reliable, no padding issues)
 xcap = "0.8"
 

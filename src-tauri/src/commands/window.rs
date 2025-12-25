@@ -441,13 +441,12 @@ fn show_recording_border_impl(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Add padding around the border so the border itself is visible outside the recording region
-    // Use larger padding to account for scale factors and ensure border is definitely outside
-    let border_padding = 6;
-    let window_x = x - border_padding;
-    let window_y = y - border_padding;
-    let window_width = width + (border_padding as u32 * 2);
-    let window_height = height + (border_padding as u32 * 2);
+    // No padding - position window exactly at the recording region
+    // The border will be drawn at the exact edge of the recording area
+    let window_x = x;
+    let window_y = y;
+    let window_width = width;
+    let window_height = height;
 
     // Check if window already exists
     if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {

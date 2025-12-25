@@ -114,6 +114,9 @@ pub fn run() {
             commands::window::hide_recording_controls,
             commands::window::show_recording_border,
             commands::window::hide_recording_border,
+            commands::window::show_dcomp_toolbar,
+            commands::window::update_dcomp_toolbar,
+            commands::window::hide_dcomp_toolbar,
             commands::window::restore_main_window,
             // Image commands
             commands::image::copy_image_to_clipboard,
@@ -164,6 +167,9 @@ pub fn run() {
             commands::logging::get_recent_logs,
             // DirectComposition overlay for video/gif (avoids video blackout)
             commands::dcomp_overlay::show_dcomp_video_overlay,
+            commands::dcomp_overlay::dcomp_overlay_confirm,
+            commands::dcomp_overlay::dcomp_overlay_cancel,
+            commands::dcomp_overlay::dcomp_overlay_reselect,
         ])
         .setup(|app| {
             // Initialize logging system first

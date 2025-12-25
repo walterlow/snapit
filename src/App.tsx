@@ -333,6 +333,36 @@ function App() {
     };
   }, []);
 
+  // Listen for DirectComposition overlay events (for video/gif region selection toolbar)
+  useEffect(() => {
+    // When the dcomp overlay enters adjustment mode, show the toolbar window
+    const unlistenReady = listen<{ x: number; y: number; width: number; height: number }>(
+      'dcomp-overlay-adjustment-ready',
+      async (event) => {
+        try {
+          const { x, y, width, height } = event.payload;
+          await invoke('show_dcomp_toolbar', { x, y, width, height });
+        } catch (error) {
+          console.error('Failed to show dcomp toolbar:', error);
+        }
+      }
+    );
+
+    // When the dcomp overlay closes, hide the toolbar window
+    const unlistenClosed = listen('dcomp-overlay-closed', async () => {
+      try {
+        await invoke('hide_dcomp_toolbar');
+      } catch (error) {
+        console.error('Failed to hide dcomp toolbar:', error);
+      }
+    });
+
+    return () => {
+      unlistenReady.then((fn) => fn());
+      unlistenClosed.then((fn) => fn());
+    };
+  }, []);
+
   // Note: Shortcut event listeners are now set up in hotkeyManager.ts
   // when registerShortcut is called with allowOverride=true
 

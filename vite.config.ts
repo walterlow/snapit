@@ -23,6 +23,7 @@ export default defineConfig(async () => ({
         overlay: resolve(__dirname, "overlay.html"),
         "recording-controls": resolve(__dirname, "recording-controls.html"),
         "recording-border": resolve(__dirname, "recording-border.html"),
+        "dcomp-toolbar": resolve(__dirname, "dcomp-toolbar.html"),
       },
     },
   },

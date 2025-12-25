@@ -10,6 +10,9 @@ const RECORDING_CONTROLS_LABEL: &str = "recording-controls";
 // Recording border window label
 const RECORDING_BORDER_LABEL: &str = "recording-border";
 
+// DirectComposition overlay toolbar window label
+const DCOMP_TOOLBAR_LABEL: &str = "dcomp-toolbar";
+
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
@@ -132,7 +135,55 @@ pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
 
 /// Trigger the capture overlay - just show pre-created windows (fast!)
 /// capture_type: "screenshot", "video", or "gif"
+/// 
+/// For video/gif capture, uses DirectComposition overlay to avoid blackout issues
+/// with hardware-accelerated video content.
 pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<(), String> {
+    let ct = capture_type.unwrap_or("screenshot");
+    
+    // For video/gif, use DirectComposition overlay to avoid video blackout
+    if ct == "video" || ct == "gif" {
+        // Hide main window first
+        if let Some(main_window) = app.get_webview_window("main") {
+            let was_visible = main_window.is_visible().unwrap_or(false);
+            MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
+            let _ = main_window.hide();
+        }
+        
+        // Launch DirectComposition overlay in background
+        let app_clone = app.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                match crate::commands::dcomp_overlay::show_dcomp_video_overlay(app_clone.clone(), None).await {
+                    Ok(Some((_x, _y, _width, _height))) => {
+                        // Selection confirmed - the overlay already emitted events
+                        // The React toolbar handles the next steps
+                    }
+                    Ok(None) => {
+                        // Cancelled - restore main window
+                        if let Some(main_window) = app_clone.get_webview_window("main") {
+                            if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                                let _ = main_window.show();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("DComp overlay error: {}", e);
+                        // Restore main window on error
+                        if let Some(main_window) = app_clone.get_webview_window("main") {
+                            if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                                let _ = main_window.show();
+                            }
+                        }
+                    }
+                }
+            });
+        });
+        
+        return Ok(());
+    }
+    
     let monitors = get_monitors().map_err(|e| format!("Failed to get monitors: {}", e))?;
     let current_monitor_count = monitors.len();
 
@@ -168,9 +219,6 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
             let _ = main_window.hide();
         }
     }
-
-    // Determine capture type (default to screenshot)
-    let ct = capture_type.unwrap_or("screenshot");
 
     // Show and position pre-created overlays (fast - no window creation!)
     for (idx, label) in labels.iter().enumerate() {
@@ -553,6 +601,181 @@ pub async fn show_recording_border(
 pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
         window.close().map_err(|e| format!("Failed to close recording border: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Show the DirectComposition overlay toolbar window.
+/// Creates the window if it doesn't exist, or repositions and shows it if hidden.
+/// 
+/// Parameters:
+/// - x: X position of the selection region (screen coordinates)
+/// - y: Y position (bottom) of the selection region (screen coordinates)
+/// - width: Width of the selection region
+/// - height: Height of the selection region (used to calculate toolbar position)
+#[command]
+pub async fn show_dcomp_toolbar(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    // Window dimensions - matches RecordingToolbar component size
+    let window_width: i32 = 380;
+    let window_height: i32 = 56;
+
+    // Get monitors to detect fullscreen and find alternate monitor
+    let monitors = get_monitors().unwrap_or_default();
+    
+    // Calculate selection center and bottom for positioning
+    let sel_center_x = x + (width as i32) / 2;
+    let sel_center_y = y + (height as i32) / 2;
+    let sel_bottom = y + height as i32;
+    
+    // Find which monitor contains the selection center
+    let current_monitor = monitors.iter().find(|m| {
+        sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
+        sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
+    });
+    
+    // Check if selection is fullscreen (covers >90% of monitor)
+    let is_fullscreen = if let Some(mon) = current_monitor {
+        width >= (mon.width * 9 / 10) && height >= (mon.height * 9 / 10)
+    } else {
+        false
+    };
+    
+    // Calculate toolbar position - centered horizontally below selection
+    let toolbar_x = sel_center_x - window_width / 2;
+    
+    let (pos_x, pos_y) = if is_fullscreen {
+        // For fullscreen, try to find alternate monitor
+        let alternate = monitors.iter().find(|m| {
+            if let Some(curr) = current_monitor {
+                m.x != curr.x || m.y != curr.y
+            } else {
+                false
+            }
+        });
+        
+        if let Some(alt_mon) = alternate {
+            // Place in center of alternate monitor
+            (
+                alt_mon.x + (alt_mon.width as i32 - window_width) / 2,
+                alt_mon.y + (alt_mon.height as i32 - window_height) / 2
+            )
+        } else {
+            // No alternate monitor, place at bottom center inside selection
+            (toolbar_x, sel_bottom - window_height - 60)
+        }
+    } else {
+        // Normal selection: place below selection, horizontally centered
+        (toolbar_x, sel_bottom + 12)
+    };
+    
+    // Check if window already exists
+    if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+        // Window exists - reposition and show it
+        let _ = window.set_position(tauri::Position::Physical(
+            tauri::PhysicalPosition { x: pos_x, y: pos_y }
+        ));
+        window.show().map_err(|e| format!("Failed to show dcomp toolbar: {}", e))?;
+        window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
+        window.set_focus().map_err(|e| format!("Failed to focus dcomp toolbar: {}", e))?;
+        return Ok(());
+    }
+
+    // Create the window with dimensions in URL params
+    let url = WebviewUrl::App(
+        format!("dcomp-toolbar.html?width={}&height={}", width, height).into()
+    );
+    
+    let window = WebviewWindowBuilder::new(&app, DCOMP_TOOLBAR_LABEL, url)
+        .title("Selection Toolbar")
+        .inner_size(window_width as f64, window_height as f64)
+        .position(pos_x as f64, pos_y as f64)
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(true)
+        .focused(true)
+        .build()
+        .map_err(|e| format!("Failed to create dcomp toolbar window: {}", e))?;
+
+    // Exclude from capture so it doesn't appear in recordings
+    let _ = exclude_window_from_capture(&window);
+
+    // Ensure always on top
+    window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
+    window.set_focus().map_err(|e| format!("Failed to focus dcomp toolbar: {}", e))?;
+
+    Ok(())
+}
+
+/// Update the DirectComposition overlay toolbar position and dimensions.
+/// This is called during resize to update the toolbar in real-time.
+#[command]
+pub async fn update_dcomp_toolbar(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    // Window dimensions - matches RecordingToolbar component size
+    let window_width: f64 = 380.0;
+
+    // Position toolbar centered below the selection
+    let selection_bottom = y + height as i32;
+    let pos_x = x + (width as i32 / 2) - (window_width as i32 / 2);
+    let pos_y = selection_bottom + 12; // 12px below selection
+
+    if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+        // Reposition the toolbar
+        let _ = window.set_position(tauri::Position::Physical(
+            tauri::PhysicalPosition { x: pos_x, y: pos_y }
+        ));
+        
+        // Emit dimensions update to the toolbar window
+        let _ = window.emit("dcomp-toolbar-dimensions", serde_json::json!({
+            "width": width,
+            "height": height
+        }));
+        
+        // Bring toolbar to front (it might have gone behind the overlay)
+        let _ = window.set_always_on_top(true);
+        
+        // Use Win32 API to ensure it's truly on top
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
+            
+            if let Ok(hwnd) = window.hwnd() {
+                unsafe {
+                    let _ = SetWindowPos(
+                        HWND(hwnd.0),
+                        HWND_TOPMOST,
+                        0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+                    );
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Hide the DirectComposition overlay toolbar window.
+#[command]
+pub async fn hide_dcomp_toolbar(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+        window.close().map_err(|e| format!("Failed to close dcomp toolbar: {}", e))?;
     }
     Ok(())
 }

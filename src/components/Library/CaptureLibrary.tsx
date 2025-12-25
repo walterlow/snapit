@@ -142,8 +142,9 @@ export const CaptureLibrary: React.FC = () => {
     
     try {
       // Use DirectComposition overlay for region selection (doesn't black out videos)
+      // Pass null to auto-detect monitor based on cursor position
       const result = await invoke<[number, number, number, number] | null>('show_dcomp_video_overlay', {
-        monitorIndex: 0, // TODO: Support multi-monitor
+        monitorIndex: null,
       });
       
       if (!result) {

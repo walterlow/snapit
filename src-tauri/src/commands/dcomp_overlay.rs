@@ -37,23 +37,33 @@ use windows::Win32::Graphics::Direct2D::{
     ID2D1SolidColorBrush, ID2D1RenderTarget,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
     D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-    D2D1_BRUSH_PROPERTIES,
+    D2D1_BRUSH_PROPERTIES, D2D1_DRAW_TEXT_OPTIONS_NONE,
+};
+use windows::Win32::Graphics::DirectWrite::{
+    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
+    DWRITE_FONT_STRETCH_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
 };
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_COLOR_F, D2D_RECT_F, D2D_POINT_2F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_PIXEL_FORMAT,
 };
-use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, PAINTSTRUCT};
+use windows::Win32::Graphics::Gdi::{
+    BeginPaint, EndPaint, PAINTSTRUCT,
+    MonitorFromPoint, GetMonitorInfoW, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    GetWindowLongPtrW, SetWindowLongPtrW, GetWindowRect, GetAncestor,
+    GetWindowLongPtrW, SetWindowLongPtrW, GetWindowRect,
     LoadCursorW, PeekMessageW, RegisterClassW, SetCursor,
-    ShowWindow, WindowFromPoint, IsWindowVisible, GetWindowLongW,
-    CS_HREDRAW, CS_VREDRAW, IDC_CROSS, MSG, PM_REMOVE, GA_ROOT,
+    ShowWindow, IsWindowVisible, GetWindowLongW, GetSystemMetrics,
+    CS_HREDRAW, CS_VREDRAW, IDC_CROSS, MSG, PM_REMOVE,
     SW_SHOW, WINDOW_EX_STYLE, WNDCLASSW, WS_POPUP, GWL_STYLE, GWL_EXSTYLE,
     WM_CREATE, WM_DESTROY, WM_PAINT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-    WM_KEYDOWN, WM_RBUTTONDOWN, WM_SETCURSOR, WS_EX_TOPMOST, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE,
+    WM_KEYDOWN, WM_KEYUP, WM_RBUTTONDOWN, WM_SETCURSOR, WS_EX_TOPMOST, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE,
     WS_CHILD, WS_EX_APPWINDOW,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     GWLP_USERDATA, HTCLIENT,
 };
 
@@ -63,7 +73,8 @@ const WS_EX_NOREDIRECTIONBITMAP: u32 = 0x00200000;
 /// Detected window under cursor
 #[derive(Clone, Default)]
 struct DetectedWindow {
-    hwnd: isize,
+    #[allow(dead_code)]
+    hwnd: isize, // Kept for potential future use (window title, etc.)
     x: i32,
     y: i32,
     width: u32,
@@ -75,6 +86,7 @@ struct OverlayState {
     // Mode: true = region selection in progress, false = window detection mode
     is_selecting: bool,
     is_dragging: bool, // True if user has dragged more than threshold
+    shift_held: bool,  // True when Shift key is held (for square selection)
     
     // Selection coordinates (local to monitor)
     start_x: i32,
@@ -107,6 +119,11 @@ struct OverlayState {
     overlay_brush: ID2D1SolidColorBrush,
     border_brush: ID2D1SolidColorBrush,
     crosshair_brush: ID2D1SolidColorBrush,
+    text_brush: ID2D1SolidColorBrush,
+    text_bg_brush: ID2D1SolidColorBrush,
+    
+    // DirectWrite resources
+    text_format: IDWriteTextFormat,
     
     // Control
     should_close: bool,
@@ -120,28 +137,22 @@ static OVERLAY_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
 const OVERLAY_CLASS_NAME: &str = "SnapItDCompOverlay";
 const DRAG_THRESHOLD: i32 = 5;
 
-/// Get the top-level window at a screen point, excluding our overlay
-fn get_window_at_screen_point(screen_x: i32, screen_y: i32, exclude_hwnd: HWND) -> Option<DetectedWindow> {
+/// Check if a window is valid for selection (visible, not a system window, etc.)
+fn is_valid_window_for_capture(hwnd: HWND, exclude_hwnd: HWND) -> Option<DetectedWindow> {
     unsafe {
-        let point = POINT { x: screen_x, y: screen_y };
-        let hwnd = WindowFromPoint(point);
-        
-        if hwnd.0.is_null() || hwnd == exclude_hwnd {
+        // Skip our overlay
+        if hwnd == exclude_hwnd {
             return None;
         }
         
-        // Get the root/top-level window
-        let root_hwnd = GetAncestor(hwnd, GA_ROOT);
-        let target_hwnd = if !root_hwnd.0.is_null() { root_hwnd } else { hwnd };
-        
-        // Skip if it's our overlay or not visible
-        if target_hwnd == exclude_hwnd || !IsWindowVisible(target_hwnd).as_bool() {
+        // Must be visible
+        if !IsWindowVisible(hwnd).as_bool() {
             return None;
         }
         
-        // Skip tool windows and other non-app windows
-        let ex_style = GetWindowLongW(target_hwnd, GWL_EXSTYLE) as u32;
-        let style = GetWindowLongW(target_hwnd, GWL_STYLE) as u32;
+        // Get styles
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
         
         // Skip child windows
         if (style & WS_CHILD.0) != 0 {
@@ -153,10 +164,26 @@ fn get_window_at_screen_point(screen_x: i32, screen_y: i32, exclude_hwnd: HWND) 
             return None;
         }
         
-        // Get window rect
-        let mut rect = RECT::default();
-        if GetWindowRect(target_hwnd, &mut rect).is_err() {
+        // Skip windows with WS_EX_NOREDIRECTIONBITMAP (like our DirectComposition overlay)
+        if (ex_style & WS_EX_NOREDIRECTIONBITMAP) != 0 {
             return None;
+        }
+        
+        // Get window rect WITHOUT shadow using DwmGetWindowAttribute
+        // DWMWA_EXTENDED_FRAME_BOUNDS gives us the actual visible bounds
+        let mut rect = RECT::default();
+        let dwm_result = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut RECT as *mut _,
+            std::mem::size_of::<RECT>() as u32,
+        );
+        
+        // Fall back to GetWindowRect if DWM fails (e.g., for non-DWM windows)
+        if dwm_result.is_err() {
+            if GetWindowRect(hwnd, &mut rect).is_err() {
+                return None;
+            }
         }
         
         let width = (rect.right - rect.left) as u32;
@@ -168,12 +195,51 @@ fn get_window_at_screen_point(screen_x: i32, screen_y: i32, exclude_hwnd: HWND) 
         }
         
         Some(DetectedWindow {
-            hwnd: target_hwnd.0 as isize,
+            hwnd: hwnd.0 as isize,
             x: rect.left,
             y: rect.top,
             width,
             height,
         })
+    }
+}
+
+/// Get the top-level window at a screen point by enumerating windows in z-order.
+/// This avoids issues with WindowFromPoint returning our overlay.
+fn get_window_at_screen_point(screen_x: i32, screen_y: i32, exclude_hwnd: HWND) -> Option<DetectedWindow> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetTopWindow, GetWindow, GetDesktopWindow, GW_HWNDNEXT};
+    
+    unsafe {
+        // Get the desktop window and start from its first child (topmost window)
+        let desktop = GetDesktopWindow();
+        let mut hwnd = match GetTopWindow(desktop) {
+            Ok(h) if !h.0.is_null() => h,
+            _ => return None,
+        };
+        
+        // Iterate through windows in z-order (topmost first)
+        loop {
+            // Get window rect
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_ok() {
+                // Check if point is inside this window
+                if screen_x >= rect.left && screen_x < rect.right &&
+                   screen_y >= rect.top && screen_y < rect.bottom {
+                    // Check if it's a valid window for capture
+                    if let Some(detected) = is_valid_window_for_capture(hwnd, exclude_hwnd) {
+                        return Some(detected);
+                    }
+                }
+            }
+            
+            // Move to next window in z-order
+            hwnd = match GetWindow(hwnd, GW_HWNDNEXT) {
+                Ok(next) if !next.0.is_null() => next,
+                _ => break,
+            };
+        }
+        
+        None
     }
 }
 
@@ -293,13 +359,36 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
         let height = state.monitor_height as f32;
         
         // Determine the "clear" area (not dimmed)
-        let clear_rect: Option<D2D_RECT_F> = if state.is_dragging {
+        // - When dragging: show selection rectangle
+        // - When hovering window: show that window
+        // - When hovering desktop (no window): show entire monitor (no dim)
+        let (clear_rect, draw_border): (D2D_RECT_F, bool) = if state.is_dragging {
             // Region selection mode - show selection rectangle
-            let sel_x1 = state.start_x.min(state.current_x) as f32;
-            let sel_y1 = state.start_y.min(state.current_y) as f32;
-            let sel_x2 = state.start_x.max(state.current_x) as f32;
-            let sel_y2 = state.start_y.max(state.current_y) as f32;
-            Some(D2D_RECT_F { left: sel_x1, top: sel_y1, right: sel_x2, bottom: sel_y2 })
+            let mut sel_x1 = state.start_x.min(state.current_x) as f32;
+            let mut sel_y1 = state.start_y.min(state.current_y) as f32;
+            let mut sel_x2 = state.start_x.max(state.current_x) as f32;
+            let mut sel_y2 = state.start_y.max(state.current_y) as f32;
+            
+            // If Shift is held, constrain to square
+            if state.shift_held {
+                let sel_width = sel_x2 - sel_x1;
+                let sel_height = sel_y2 - sel_y1;
+                let size = sel_width.max(sel_height);
+                
+                // Expand from the drag start point in the direction of the cursor
+                if state.current_x >= state.start_x {
+                    sel_x2 = sel_x1 + size;
+                } else {
+                    sel_x1 = sel_x2 - size;
+                }
+                if state.current_y >= state.start_y {
+                    sel_y2 = sel_y1 + size;
+                } else {
+                    sel_y1 = sel_y2 - size;
+                }
+            }
+            
+            (D2D_RECT_F { left: sel_x1, top: sel_y1, right: sel_x2, bottom: sel_y2 }, true)
         } else if let Some(ref win) = state.hovered_window {
             // Window detection mode - show hovered window
             let local_x = (win.x - state.monitor_x) as f32;
@@ -313,81 +402,178 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
             let right = local_right.min(width);
             let bottom = local_bottom.min(height);
             
-            if right > left && bottom > top {
-                Some(D2D_RECT_F { left, top, right, bottom })
-            } else {
-                None
-            }
+            (D2D_RECT_F { left, top, right, bottom }, true)
         } else {
-            None
+            // No window detected (desktop/empty area) - show entire monitor as clear
+            (D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }, false)
         };
         
-        if let Some(rect) = clear_rect {
-            // Draw overlay around the clear area (4 rectangles)
-            // Top
-            if rect.top > 0.0 {
-                state.d2d_context.FillRectangle(
-                    &D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: rect.top },
-                    &state.overlay_brush,
-                );
-            }
-            // Bottom
-            if rect.bottom < height {
-                state.d2d_context.FillRectangle(
-                    &D2D_RECT_F { left: 0.0, top: rect.bottom, right: width, bottom: height },
-                    &state.overlay_brush,
-                );
-            }
-            // Left
-            if rect.left > 0.0 {
-                state.d2d_context.FillRectangle(
-                    &D2D_RECT_F { left: 0.0, top: rect.top, right: rect.left, bottom: rect.bottom },
-                    &state.overlay_brush,
-                );
-            }
-            // Right
-            if rect.right < width {
-                state.d2d_context.FillRectangle(
-                    &D2D_RECT_F { left: rect.right, top: rect.top, right: width, bottom: rect.bottom },
-                    &state.overlay_brush,
-                );
-            }
-            
-            // Draw border around the selection/window
-            state.d2d_context.DrawRectangle(
-                &rect,
-                &state.border_brush,
-                2.0,
-                None,
-            );
-        } else {
-            // No selection - draw full overlay with crosshair
+        // Draw overlay around the clear area (4 rectangles for dimming)
+        // Top
+        if clear_rect.top > 0.0 {
             state.d2d_context.FillRectangle(
-                &D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height },
+                &D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: clear_rect.top },
+                &state.overlay_brush,
+            );
+        }
+        // Bottom
+        if clear_rect.bottom < height {
+            state.d2d_context.FillRectangle(
+                &D2D_RECT_F { left: 0.0, top: clear_rect.bottom, right: width, bottom: height },
+                &state.overlay_brush,
+            );
+        }
+        // Left
+        if clear_rect.left > 0.0 {
+            state.d2d_context.FillRectangle(
+                &D2D_RECT_F { left: 0.0, top: clear_rect.top, right: clear_rect.left, bottom: clear_rect.bottom },
+                &state.overlay_brush,
+            );
+        }
+        // Right
+        if clear_rect.right < width {
+            state.d2d_context.FillRectangle(
+                &D2D_RECT_F { left: clear_rect.right, top: clear_rect.top, right: width, bottom: clear_rect.bottom },
                 &state.overlay_brush,
             );
         }
         
-        // Draw crosshair at cursor position (always visible)
+        // Draw border around the selection/window (but not for full-screen desktop mode)
+        if draw_border {
+            state.d2d_context.DrawRectangle(
+                &clear_rect,
+                &state.border_brush,
+                2.0,
+                None,
+            );
+        }
+        
+        // Draw crosshair at cursor position with gap at center
+        // Only draw within the monitor where the cursor is located
         let cx = state.cursor_x as f32;
         let cy = state.cursor_y as f32;
+        let gap = 10.0_f32; // Gap radius around cursor
         
-        // Horizontal line
-        state.d2d_context.DrawLine(
-            D2D_POINT_2F { x: 0.0, y: cy },
-            D2D_POINT_2F { x: width, y: cy },
-            &state.crosshair_brush,
-            1.0,
-            None,
-        );
-        // Vertical line
-        state.d2d_context.DrawLine(
-            D2D_POINT_2F { x: cx, y: 0.0 },
-            D2D_POINT_2F { x: cx, y: height },
-            &state.crosshair_brush,
-            1.0,
-            None,
-        );
+        // Get the monitor bounds for the current cursor position
+        let screen_x = state.monitor_x + state.cursor_x;
+        let screen_y = state.monitor_y + state.cursor_y;
+        let cursor_point = POINT { x: screen_x, y: screen_y };
+        
+        let hmonitor = MonitorFromPoint(cursor_point, MONITOR_DEFAULTTONEAREST);
+        let mut monitor_info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        
+        // Get monitor bounds and convert to local overlay coordinates
+        let (mon_left, mon_top, mon_right, mon_bottom) = if GetMonitorInfoW(hmonitor, &mut monitor_info).as_bool() {
+            let rc = monitor_info.rcMonitor;
+            (
+                (rc.left - state.monitor_x) as f32,
+                (rc.top - state.monitor_y) as f32,
+                (rc.right - state.monitor_x) as f32,
+                (rc.bottom - state.monitor_y) as f32,
+            )
+        } else {
+            // Fallback to full overlay if we can't get monitor info
+            (0.0, 0.0, width, height)
+        };
+        
+        // Horizontal line (left segment) - from monitor left edge to cursor
+        if cx > mon_left + gap {
+            state.d2d_context.DrawLine(
+                D2D_POINT_2F { x: mon_left, y: cy },
+                D2D_POINT_2F { x: cx - gap, y: cy },
+                &state.crosshair_brush,
+                1.0,
+                None,
+            );
+        }
+        // Horizontal line (right segment) - from cursor to monitor right edge
+        if cx + gap < mon_right {
+            state.d2d_context.DrawLine(
+                D2D_POINT_2F { x: cx + gap, y: cy },
+                D2D_POINT_2F { x: mon_right, y: cy },
+                &state.crosshair_brush,
+                1.0,
+                None,
+            );
+        }
+        // Vertical line (top segment) - from monitor top edge to cursor
+        if cy > mon_top + gap {
+            state.d2d_context.DrawLine(
+                D2D_POINT_2F { x: cx, y: mon_top },
+                D2D_POINT_2F { x: cx, y: cy - gap },
+                &state.crosshair_brush,
+                1.0,
+                None,
+            );
+        }
+        // Vertical line (bottom segment) - from cursor to monitor bottom edge
+        if cy + gap < mon_bottom {
+            state.d2d_context.DrawLine(
+                D2D_POINT_2F { x: cx, y: cy + gap },
+                D2D_POINT_2F { x: cx, y: mon_bottom },
+                &state.crosshair_brush,
+                1.0,
+                None,
+            );
+        }
+        
+        // Draw size indicator when selecting or hovering a window
+        if draw_border {
+            let sel_width = (clear_rect.right - clear_rect.left) as u32;
+            let sel_height = (clear_rect.bottom - clear_rect.top) as u32;
+            
+            // Format the size text
+            let size_text = format!("{} x {}", sel_width, sel_height);
+            let size_text_wide: Vec<u16> = size_text.encode_utf16().chain(std::iter::once(0)).collect();
+            
+            // Calculate text box dimensions
+            let text_width = 100.0_f32;
+            let text_height = 24.0_f32;
+            let padding = 6.0_f32;
+            let margin = 8.0_f32;
+            
+            // Position below the selection, centered horizontally
+            let box_x = clear_rect.left + (clear_rect.right - clear_rect.left - text_width) / 2.0;
+            let box_y = clear_rect.bottom + margin;
+            
+            // Clamp to screen bounds
+            let box_x = box_x.max(padding).min(width - text_width - padding);
+            let box_y = if box_y + text_height + padding > height {
+                // If below screen, show above selection
+                clear_rect.top - margin - text_height
+            } else {
+                box_y
+            }.max(padding);
+            
+            // Draw background rounded rect
+            let bg_rect = D2D_RECT_F {
+                left: box_x,
+                top: box_y,
+                right: box_x + text_width,
+                bottom: box_y + text_height,
+            };
+            
+            // Use FillRoundedRectangle for nicer look
+            let rounded_rect = windows::Win32::Graphics::Direct2D::D2D1_ROUNDED_RECT {
+                rect: bg_rect,
+                radiusX: 4.0,
+                radiusY: 4.0,
+            };
+            state.d2d_context.FillRoundedRectangle(&rounded_rect, &state.text_bg_brush);
+            
+            // Draw text
+            state.d2d_context.DrawText(
+                &size_text_wide[..size_text_wide.len() - 1], // Exclude null terminator
+                &state.text_format,
+                &bg_rect,
+                &state.text_brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL,
+            );
+        }
         
         state.d2d_context.EndDraw(None, None)?;
         
@@ -488,10 +674,28 @@ unsafe extern "system" fn overlay_wnd_proc(
                     
                     if state.is_dragging {
                         // Region selection completed
-                        let x1 = state.start_x.min(state.current_x);
-                        let y1 = state.start_y.min(state.current_y);
-                        let x2 = state.start_x.max(state.current_x);
-                        let y2 = state.start_y.max(state.current_y);
+                        let mut x1 = state.start_x.min(state.current_x);
+                        let mut y1 = state.start_y.min(state.current_y);
+                        let mut x2 = state.start_x.max(state.current_x);
+                        let mut y2 = state.start_y.max(state.current_y);
+                        
+                        // Apply square constraint if Shift is held
+                        if state.shift_held {
+                            let sel_width = x2 - x1;
+                            let sel_height = y2 - y1;
+                            let size = sel_width.max(sel_height);
+                            
+                            if state.current_x >= state.start_x {
+                                x2 = x1 + size;
+                            } else {
+                                x1 = x2 - size;
+                            }
+                            if state.current_y >= state.start_y {
+                                y2 = y1 + size;
+                            } else {
+                                y1 = y2 - size;
+                            }
+                        }
                         
                         let width = (x2 - x1) as u32;
                         let height = (y2 - y1) as u32;
@@ -516,14 +720,41 @@ unsafe extern "system" fn overlay_wnd_proc(
             LRESULT(0)
         }
         
-        WM_RBUTTONDOWN | WM_KEYDOWN => {
+        WM_KEYDOWN => {
             let key = wparam.0 as u32;
-            if msg == WM_RBUTTONDOWN || key == 0x1B { // ESC
+            if key == 0x1B { // ESC
                 if !state_ptr.is_null() {
                     let state = &mut *state_ptr;
                     state.should_close = true;
                     state.selection_confirmed = false;
                 }
+            } else if key == 0x10 { // VK_SHIFT
+                if !state_ptr.is_null() {
+                    let state = &mut *state_ptr;
+                    state.shift_held = true;
+                    let _ = render_overlay(state);
+                }
+            }
+            LRESULT(0)
+        }
+        
+        WM_KEYUP => {
+            let key = wparam.0 as u32;
+            if key == 0x10 { // VK_SHIFT
+                if !state_ptr.is_null() {
+                    let state = &mut *state_ptr;
+                    state.shift_held = false;
+                    let _ = render_overlay(state);
+                }
+            }
+            LRESULT(0)
+        }
+        
+        WM_RBUTTONDOWN => {
+            if !state_ptr.is_null() {
+                let state = &mut *state_ptr;
+                state.should_close = true;
+                state.selection_confirmed = false;
             }
             LRESULT(0)
         }
@@ -643,10 +874,43 @@ pub fn show_dcomp_overlay(
             Some(&brush_props),
         ).map_err(|e| format!("Failed to create crosshair brush: {:?}", e))?;
         
+        let text_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }, // White
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create text brush: {:?}", e))?;
+        
+        let text_bg_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 0.75 }, // Dark semi-transparent
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create text bg brush: {:?}", e))?;
+        
+        // Create DirectWrite factory and text format
+        let dwrite_factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
+            .map_err(|e| format!("Failed to create DirectWrite factory: {:?}", e))?;
+        
+        let font_name: Vec<u16> = "Segoe UI".encode_utf16().chain(std::iter::once(0)).collect();
+        let locale: Vec<u16> = "en-US".encode_utf16().chain(std::iter::once(0)).collect();
+        
+        let text_format = dwrite_factory.CreateTextFormat(
+            PCWSTR(font_name.as_ptr()),
+            None,
+            DWRITE_FONT_WEIGHT_BOLD,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            14.0,
+            PCWSTR(locale.as_ptr()),
+        ).map_err(|e| format!("Failed to create text format: {:?}", e))?;
+        
+        text_format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)
+            .map_err(|e| format!("Failed to set text alignment: {:?}", e))?;
+        text_format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)
+            .map_err(|e| format!("Failed to set paragraph alignment: {:?}", e))?;
+        
         // Create state on heap
         let mut state = Box::new(OverlayState {
             is_selecting: false,
             is_dragging: false,
+            shift_held: false,
             start_x: 0,
             start_y: 0,
             current_x: 0,
@@ -667,6 +931,9 @@ pub fn show_dcomp_overlay(
             overlay_brush,
             border_brush,
             crosshair_brush,
+            text_brush,
+            text_bg_brush,
+            text_format,
             should_close: false,
             selection_confirmed: false,
             final_selection: None,
@@ -718,26 +985,26 @@ pub fn show_dcomp_overlay(
 }
 
 /// Tauri command to show DirectComposition overlay for video/gif selection
+/// Spans the entire virtual screen (all monitors) for seamless multi-monitor support
 #[tauri::command]
 pub async fn show_dcomp_video_overlay(
     app: AppHandle,
-    monitor_index: usize,
+    _monitor_index: Option<usize>, // Ignored - we now span all monitors
 ) -> Result<Option<(i32, i32, u32, u32)>, String> {
-    use super::capture::fallback::get_monitors;
-    
-    let monitors = get_monitors().map_err(|e| format!("Failed to get monitors: {:?}", e))?;
-    
-    let monitor = monitors.get(monitor_index)
-        .ok_or_else(|| format!("Monitor {} not found", monitor_index))?;
-    
     let app_clone = app.clone();
-    let monitor_x = monitor.x;
-    let monitor_y = monitor.y;
-    let monitor_width = monitor.width;
-    let monitor_height = monitor.height;
+    
+    // Get virtual screen bounds (spans all monitors)
+    let (vscreen_x, vscreen_y, vscreen_width, vscreen_height) = unsafe {
+        (
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN) as u32,
+            GetSystemMetrics(SM_CYVIRTUALSCREEN) as u32,
+        )
+    };
     
     tokio::task::spawn_blocking(move || {
-        show_dcomp_overlay(&app_clone, monitor_x, monitor_y, monitor_width, monitor_height)
+        show_dcomp_overlay(&app_clone, vscreen_x, vscreen_y, vscreen_width, vscreen_height)
     })
     .await
     .map_err(|e| format!("Task failed: {:?}", e))?

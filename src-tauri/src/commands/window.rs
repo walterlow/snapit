@@ -4,9 +4,6 @@ use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuild
 
 use super::capture::fallback::get_monitors;
 
-// Recording controls window label
-const RECORDING_CONTROLS_LABEL: &str = "recording-controls";
-
 // Recording border window label
 const RECORDING_BORDER_LABEL: &str = "recording-border";
 
@@ -181,6 +178,16 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                         let format_str = if is_gif { "gif" } else { "mp4" };
                         let _ = app_clone.emit("recording-format", format_str);
                         
+                        // Get countdown setting (set by frontend via set_recording_countdown command)
+                        let countdown_secs = crate::commands::video_recording::get_countdown_secs();
+                        
+                        // Show countdown overlay window if countdown is enabled
+                        if countdown_secs > 0 {
+                            if let Err(e) = show_countdown_window(app_clone.clone(), x, y, width, height).await {
+                                eprintln!("Failed to show countdown window: {}", e);
+                            }
+                        }
+                        
                         // Start the recording with the selected region
                         let settings = crate::commands::video_recording::RecordingSettings {
                             format,
@@ -192,7 +199,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             include_cursor: true,
                             audio: crate::commands::video_recording::AudioSettings::default(),
                             quality: 80,
-                            countdown_secs: 3, // Use countdown
+                            countdown_secs,
                         };
                         
                         if let Err(e) = crate::commands::video_recording::recorder::start_recording(
@@ -451,96 +458,6 @@ pub async fn open_editor_fast(
             .map_err(|e| format!("Failed to emit event: {}", e))?;
     }
 
-    Ok(())
-}
-
-/// Show the recording controls window.
-/// Creates the window if it doesn't exist, or shows it if hidden.
-/// 
-/// Parameters:
-/// - x: X position for bottom-center of the recording region (screen coordinates)
-/// - y: Y position for bottom of the recording region (screen coordinates)
-/// - region_width: Width of the recording region (to center the controls)
-#[command]
-pub async fn show_recording_controls(
-    app: AppHandle,
-    x: Option<i32>,
-    y: Option<i32>,
-    region_width: Option<i32>,
-) -> Result<(), String> {
-    // Window dimensions
-    let window_width: f64 = 280.0;
-    let window_height: f64 = 52.0;
-
-    // Calculate position
-    let (pos_x, pos_y) = if let (Some(region_x), Some(region_y), Some(r_width)) = (x, y, region_width) {
-        // Position at bottom-center of the region, with some offset below the region
-        let center_x = region_x + (r_width / 2) - (window_width as i32 / 2);
-        let below_y = region_y + 16; // 16px below the region bottom
-        (center_x, below_y)
-    } else {
-        // Fallback: position at top-center of primary monitor
-        let monitors = get_monitors().map_err(|e| format!("Failed to get monitors: {}", e))?;
-        let primary = monitors.iter().find(|m| m.is_primary)
-            .or_else(|| monitors.first())
-            .ok_or("No monitors found")?;
-
-        let monitor_width = primary.width as i32;
-        let monitor_x = primary.x;
-        let monitor_y = primary.y;
-
-        let center_x = monitor_x + (monitor_width / 2) - (window_width as i32 / 2);
-        let top_y = monitor_y + 20;
-        (center_x, top_y)
-    };
-
-    // Check if window already exists
-    if let Some(window) = app.get_webview_window(RECORDING_CONTROLS_LABEL) {
-        // Window exists - reposition and show it
-        let _ = window.set_position(tauri::Position::Physical(
-            tauri::PhysicalPosition { x: pos_x, y: pos_y }
-        ));
-        window.show().map_err(|e| format!("Failed to show recording controls: {}", e))?;
-        window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
-        window.set_focus().map_err(|e| format!("Failed to focus recording controls: {}", e))?;
-        return Ok(());
-    }
-
-    // Create the window
-    // CRITICAL: shadow(false) is REQUIRED on Windows for decorationless windows to receive mouse events
-    // See: https://github.com/tauri-apps/tauri/issues/8519
-    // transparent(true) allows the rounded corners in CSS to show through
-    let url = WebviewUrl::App("recording-controls.html".into());
-    
-    let window = WebviewWindowBuilder::new(&app, RECORDING_CONTROLS_LABEL, url)
-        .title("Recording")
-        .inner_size(window_width, window_height)
-        .position(pos_x as f64, pos_y as f64)
-        .transparent(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .visible(true)
-        .focused(true)
-
-        .build()
-        .map_err(|e| format!("Failed to create recording controls window: {}", e))?;
-
-    // Ensure always on top is set (sometimes needs to be called after creation)
-    window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
-    window.set_focus().map_err(|e| format!("Failed to focus recording controls: {}", e))?;
-
-    Ok(())
-}
-
-/// Hide the recording controls window.
-#[command]
-pub async fn hide_recording_controls(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(RECORDING_CONTROLS_LABEL) {
-        window.close().map_err(|e| format!("Failed to close recording controls: {}", e))?;
-    }
     Ok(())
 }
 
@@ -849,6 +766,62 @@ pub async fn update_dcomp_toolbar(
 pub async fn hide_dcomp_toolbar(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
         window.close().map_err(|e| format!("Failed to close dcomp toolbar: {}", e))?;
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Countdown Window
+// ============================================================================
+
+const COUNTDOWN_WINDOW_LABEL: &str = "countdown";
+
+/// Show the countdown overlay window during recording countdown.
+/// The window is fullscreen, transparent, click-through, and displays a large countdown number.
+#[command]
+pub async fn show_countdown_window(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    // Close existing window if any
+    if let Some(window) = app.get_webview_window(COUNTDOWN_WINDOW_LABEL) {
+        let _ = window.close();
+    }
+
+    let url = WebviewUrl::App("countdown.html".into());
+    
+    let window = WebviewWindowBuilder::new(&app, COUNTDOWN_WINDOW_LABEL, url)
+        .title("Countdown")
+        .inner_size(width as f64, height as f64)
+        .position(x as f64, y as f64)
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(true)
+        .build()
+        .map_err(|e| format!("Failed to create countdown window: {}", e))?;
+
+    // Make click-through
+    window.set_ignore_cursor_events(true)
+        .map_err(|e| format!("Failed to set cursor events: {}", e))?;
+
+    // Exclude from capture
+    let _ = exclude_window_from_capture(&window);
+
+    Ok(())
+}
+
+/// Hide the countdown window.
+#[command]
+pub async fn hide_countdown_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(COUNTDOWN_WINDOW_LABEL) {
+        window.close().map_err(|e| format!("Failed to close countdown window: {}", e))?;
     }
     Ok(())
 }

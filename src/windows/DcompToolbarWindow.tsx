@@ -37,6 +37,10 @@ const DcompToolbarWindow: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   
+  // Countdown settings
+  const [countdownEnabled, setCountdownEnabled] = useState(true);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | undefined>();
+  
   // Track if we've already started the local timer for current recording session
   const isRecordingActiveRef = useRef(false);
   
@@ -84,12 +88,16 @@ const DcompToolbarWindow: React.FC = () => {
         
         switch (state.status) {
           case 'countdown':
-            // Recording starting - reset state
+            // Recording starting - show countdown
             isRecordingActiveRef.current = false;
             setMode('starting');
             setElapsedTime(0);
             setProgress(0);
             setErrorMessage(undefined);
+            // Extract countdown seconds from state (snake_case from Rust)
+            if ('seconds_remaining' in state) {
+              setCountdownSeconds((state as unknown as { seconds_remaining: number }).seconds_remaining);
+            }
             break;
           case 'recording':
             // Only reset elapsed time when first transitioning to recording
@@ -174,6 +182,9 @@ const DcompToolbarWindow: React.FC = () => {
       recordingInitiatedRef.current = true;
       setMode('starting');
       
+      // Set countdown preference before starting (0 = instant, 3 = 3 second countdown)
+      await invoke('set_recording_countdown', { secs: countdownEnabled ? 3 : 0 });
+      
       // Confirm the overlay selection - this triggers the Rust side to:
       // 1. Close the overlay
       // 2. Show the recording border
@@ -186,6 +197,10 @@ const DcompToolbarWindow: React.FC = () => {
       recordingInitiatedRef.current = false;
       setMode('selection');
     }
+  }, [countdownEnabled]);
+  
+  const handleToggleCountdown = useCallback(() => {
+    setCountdownEnabled(prev => !prev);
   }, []);
 
   const handleScreenshot = useCallback(async () => {
@@ -272,6 +287,10 @@ const DcompToolbarWindow: React.FC = () => {
         onPause={handlePause}
         onResume={handleResume}
         onStop={handleStop}
+        // Countdown props
+        countdownSeconds={countdownSeconds}
+        countdownEnabled={countdownEnabled}
+        onToggleCountdown={handleToggleCountdown}
       />
     </div>
   );

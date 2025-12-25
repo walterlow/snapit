@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Recording Controls</title>
+    <title>Countdown</title>
     <style>
       * {
         margin: 0;
@@ -15,23 +15,13 @@
         height: 100%;
         overflow: hidden;
         background: transparent !important;
-        /* Allow clicks to pass through to windows below */
+        /* Allow clicks to pass through */
         pointer-events: none;
-      }
-      /* CSS drag region support */
-      [data-tauri-drag-region] {
-        -webkit-app-region: drag;
-        app-region: drag;
-      }
-      /* Exclude buttons from drag region */
-      button {
-        -webkit-app-region: no-drag;
-        app-region: no-drag;
       }
     </style>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/windows/recording-controls-main.tsx"></script>
+    <script type="module" src="/src/windows/countdown-main.tsx"></script>
   </body>
 </html>

@@ -602,8 +602,26 @@ fn run_video_capture(
                         }
                     }
                     Err(e) => {
-                        // Buffer error - log and continue, next acquire will detect if DXGI is broken
-                        println!("[CAPTURE] Failed to get buffer: {:?}", e);
+                        // Buffer error - check if it's a device removed error
+                        let err_str = format!("{:?}", e);
+                        if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") || err_str.contains("suspended") {
+                            // GPU device was removed/suspended - need to recreate DXGI
+                            println!("[CAPTURE] GPU device suspended, recreating DXGI...");
+                            std::thread::sleep(Duration::from_millis(200));
+                            // recreate() takes ownership, so we must handle both branches
+                            dxgi = match dxgi.recreate() {
+                                Ok(new_dxgi) => {
+                                    println!("[CAPTURE] DXGI recreated successfully");
+                                    new_dxgi
+                                }
+                                Err(recreate_err) => {
+                                    println!("[CAPTURE] Failed to recreate DXGI: {:?}", recreate_err);
+                                    return Err(format!("GPU device lost and failed to recover: {:?}", recreate_err));
+                                }
+                            };
+                        } else {
+                            println!("[CAPTURE] Failed to get buffer: {:?}", e);
+                        }
                     }
                 }
             }
@@ -612,20 +630,40 @@ fn run_video_capture(
             }
             Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
                 println!("[CAPTURE] DXGI access lost, recreating...");
-                std::thread::sleep(Duration::from_millis(100)); // Brief pause for GPU to stabilize
-                match dxgi.recreate() {
-                    Ok(new_dxgi) => dxgi = new_dxgi,
+                std::thread::sleep(Duration::from_millis(200)); // Brief pause for GPU to stabilize
+                // recreate() takes ownership, so we must handle both branches
+                dxgi = match dxgi.recreate() {
+                    Ok(new_dxgi) => {
+                        println!("[CAPTURE] DXGI recreated after access lost");
+                        new_dxgi
+                    }
                     Err(e) => {
                         println!("[CAPTURE] Failed to recreate DXGI: {:?}", e);
-                        should_stop.store(true, Ordering::SeqCst);
-                        return Err(format!("DXGI access lost and failed to recreate: {:?}", e));
+                        return Err(format!("DXGI access lost and failed to recover: {:?}", e));
                     }
-                }
+                };
             }
             Err(e) => {
-                // Handle other errors - log and brief pause
-                println!("[CAPTURE] DXGI error: {:?}, retrying...", e);
-                std::thread::sleep(Duration::from_millis(50));
+                // Handle other errors - check for device removed
+                let err_str = format!("{:?}", e);
+                if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") {
+                    println!("[CAPTURE] GPU device error, recreating DXGI...");
+                    std::thread::sleep(Duration::from_millis(200));
+                    // recreate() takes ownership, so we must handle both branches
+                    dxgi = match dxgi.recreate() {
+                        Ok(new_dxgi) => {
+                            println!("[CAPTURE] DXGI recreated successfully");
+                            new_dxgi
+                        }
+                        Err(recreate_err) => {
+                            println!("[CAPTURE] Failed to recreate DXGI: {:?}", recreate_err);
+                            return Err(format!("GPU device error and failed to recover: {:?}", recreate_err));
+                        }
+                    };
+                } else {
+                    println!("[CAPTURE] DXGI error: {:?}, retrying...", e);
+                    std::thread::sleep(Duration::from_millis(50));
+                }
             }
         }
     }

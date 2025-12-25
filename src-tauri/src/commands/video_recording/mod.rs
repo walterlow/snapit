@@ -17,8 +17,23 @@ pub mod state;
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Emitter};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub use state::RECORDING_CONTROLLER;
+
+// Global countdown preference (0 = no countdown, 3 = 3 second countdown, etc.)
+static COUNTDOWN_SECS: AtomicU32 = AtomicU32::new(3);
+
+/// Get the current countdown setting
+pub fn get_countdown_secs() -> u32 {
+    COUNTDOWN_SECS.load(Ordering::SeqCst)
+}
+
+/// Set the countdown preference (called from frontend before starting recording)
+#[command]
+pub fn set_recording_countdown(secs: u32) {
+    COUNTDOWN_SECS.store(secs, Ordering::SeqCst);
+}
 
 // ============================================================================
 // Types

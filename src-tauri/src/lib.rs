@@ -110,14 +110,15 @@ pub fn run() {
             commands::window::open_editor,
             commands::window::open_editor_fast,
             commands::window::move_overlays_offscreen,
-            commands::window::show_recording_controls,
-            commands::window::hide_recording_controls,
+
             commands::window::show_recording_border,
             commands::window::hide_recording_border,
             commands::window::show_dcomp_toolbar,
             commands::window::update_dcomp_toolbar,
             commands::window::hide_dcomp_toolbar,
             commands::window::restore_main_window,
+            commands::window::show_countdown_window,
+            commands::window::hide_countdown_window,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands
@@ -159,6 +160,7 @@ pub fn run() {
             commands::video_recording::pause_recording,
             commands::video_recording::resume_recording,
             commands::video_recording::get_recording_status,
+            commands::video_recording::set_recording_countdown,
             // Logging commands
             commands::logging::write_log,
             commands::logging::write_logs,

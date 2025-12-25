@@ -3,7 +3,7 @@
   "identifier": "desktop-capability",
   "description": "Desktop capability for SnapIt screen capture",
   "platforms": ["windows"],
-  "windows": ["main", "overlay_*", "recording-controls", "dcomp-toolbar", "recording-border"],
+  "windows": ["main", "overlay_*", "recording-controls", "dcomp-toolbar", "recording-border", "countdown"],
   "permissions": [
     "core:default",
     "core:window:default",

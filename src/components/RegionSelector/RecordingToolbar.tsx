@@ -19,7 +19,7 @@
 import React, { useCallback } from 'react';
 import { 
   Circle, Camera, RotateCcw, X, MousePointer2, GripVertical,
-  Square, Pause, Play
+  Square, Pause, Play, Timer, TimerOff
 } from 'lucide-react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { CaptureType, RecordingFormat } from '../../types';
@@ -61,6 +61,13 @@ interface RecordingToolbarProps {
   onResume?: () => void;
   /** Stop recording */
   onStop?: () => void;
+  // Countdown props
+  /** Countdown seconds remaining (during starting mode) */
+  countdownSeconds?: number;
+  /** Whether countdown is enabled (3s delay before recording) */
+  countdownEnabled?: boolean;
+  /** Toggle countdown on/off */
+  onToggleCountdown?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -87,6 +94,9 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
   onPause,
   onResume,
   onStop,
+  countdownSeconds,
+  countdownEnabled = true,
+  onToggleCountdown,
 }) => {
   const isGif = captureType === 'gif' || format === 'gif';
 
@@ -120,8 +130,10 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
   };
 
-  // === STARTING STATE ===
+  // === STARTING STATE (countdown) ===
   if (mode === 'starting') {
+    const showCountdown = countdownSeconds !== undefined && countdownSeconds > 0;
+    
     return (
       <div
         className="flex items-center gap-3 px-4 py-3 rounded-xl pointer-events-auto"
@@ -139,8 +151,23 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
           <GripVertical size={16} className="pointer-events-none" />
         </div>
 
-        <div className="w-3 h-3 border-2 border-white/50 border-t-transparent rounded-full animate-spin" />
-        <span className="text-white/50 text-sm select-none">Starting...</span>
+        {showCountdown ? (
+          // Show countdown number with circle
+          <>
+            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-500/20 border-2 border-red-500">
+              <span className="text-red-400 text-xl font-bold select-none animate-pulse">
+                {countdownSeconds}
+              </span>
+            </div>
+            <span className="text-white/70 text-sm select-none">Starting in {countdownSeconds}...</span>
+          </>
+        ) : (
+          // No countdown, show spinner
+          <>
+            <div className="w-3 h-3 border-2 border-white/50 border-t-transparent rounded-full animate-spin" />
+            <span className="text-white/50 text-sm select-none">Starting...</span>
+          </>
+        )}
         
         <button
           type="button"
@@ -354,6 +381,19 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
       >
         <MousePointer2 size={18} />
       </button>
+
+      {/* Countdown toggle */}
+      {onToggleCountdown && (
+        <button
+          onClick={onToggleCountdown}
+          className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${
+            countdownEnabled ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white hover:bg-white/10'
+          }`}
+          title={countdownEnabled ? 'Countdown: 3s (click to disable)' : 'Countdown: Off (click to enable)'}
+        >
+          {countdownEnabled ? <Timer size={18} /> : <TimerOff size={18} />}
+        </button>
+      )}
 
       {/* Divider */}
       <div className="w-px h-8 bg-white/20" />

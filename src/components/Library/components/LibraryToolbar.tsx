@@ -10,7 +10,7 @@ import {
   Film,
   X,
   FolderOpen,
-  Monitor,
+  ScreenShare,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -122,9 +122,9 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
 
         <div className="flex-1" />
 
-        {/* Selection Actions or New Capture */}
-        {selectedCount > 0 ? (
-          <div className="flex items-center gap-2 animate-fade-in">
+        {/* Selection Actions (appears left of Open Folder when items selected) */}
+        {selectedCount > 0 && (
+          <div className="flex items-center gap-2 mr-2">
             <Badge
               variant="secondary"
               className="bg-[var(--polar-mist)] text-[var(--ink-muted)] border-[var(--polar-frost)] text-xs"
@@ -161,31 +161,54 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
                 <p className="text-xs">Clear selection</p>
               </TooltipContent>
             </Tooltip>
+            <div className="w-px h-5 bg-[var(--polar-frost)]" />
           </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={onOpenLibraryFolder}
-              variant="outline"
-              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
-            >
-              <FolderOpen className="w-3.5 h-3.5" />
-              Open Folder
-            </Button>
-            <Button
-              onClick={onAllMonitorsCapture}
-              variant="outline"
-              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
-            >
-              <Monitor className="w-3.5 h-3.5" />
-              All Monitors
-            </Button>
+        )}
+
+        {/* Capture Actions (always visible) */}
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={onOpenLibraryFolder}
+            variant="outline"
+            className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+            Open Folder
+          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={onAllMonitorsCapture}
+                className="h-9 w-9 p-0 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white shadow-md hover:shadow-lg hover:scale-105 transition-all duration-150"
+              >
+                <ScreenShare className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p className="text-xs">All Monitors</p>
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Circular Capture Buttons */}
+          <div className="flex items-center gap-1.5 ml-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onNewVideo}
+                  className="h-9 w-9 p-0 rounded-full bg-red-500 hover:bg-red-400 text-white shadow-md hover:shadow-lg hover:scale-105 transition-all duration-150"
+                >
+                  <Video className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="text-xs">New Video</p>
+              </TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   onClick={onNewGif}
-                  variant="outline"
-                  className="h-8 w-8 p-0 rounded-lg bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+                  className="h-9 w-9 p-0 rounded-full bg-purple-500 hover:bg-purple-400 text-white shadow-md hover:shadow-lg hover:scale-105 transition-all duration-150"
                 >
                   <Film className="w-4 h-4" />
                 </Button>
@@ -197,26 +220,18 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  onClick={onNewVideo}
-                  variant="outline"
-                  className="h-8 w-8 p-0 rounded-lg bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
+                  onClick={onNewImage}
+                  className="h-9 w-9 p-0 rounded-full bg-blue-500 hover:bg-blue-400 text-white shadow-md hover:shadow-lg hover:scale-105 transition-all duration-150"
                 >
-                  <Video className="w-4 h-4" />
+                  <Camera className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                <p className="text-xs">New Video</p>
+                <p className="text-xs">New Screenshot</p>
               </TooltipContent>
             </Tooltip>
-            <Button
-              onClick={onNewImage}
-              className="btn-coral h-8 px-3 gap-1.5 rounded-lg text-sm font-medium"
-            >
-              <Camera className="w-3.5 h-3.5" />
-              New Image
-            </Button>
           </div>
-        )}
+        </div>
       </div>
     </header>
   );

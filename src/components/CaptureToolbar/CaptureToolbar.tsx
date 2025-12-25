@@ -19,7 +19,8 @@
 import React, { useCallback } from 'react';
 import { 
   Circle, Camera, RotateCcw, X, MousePointer2, GripVertical,
-  Square, Pause, Play, Timer, TimerOff, Volume2, VolumeX
+  Square, Pause, Play, Timer, TimerOff, Volume2, VolumeX,
+  Video, ImagePlay
 } from 'lucide-react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { CaptureType, RecordingFormat } from '../../types';
@@ -42,6 +43,8 @@ interface CaptureToolbarProps {
   onRecord: () => void;
   /** Take screenshot instead */
   onScreenshot: () => void;
+  /** Change capture type (video/gif) */
+  onCaptureTypeChange?: (type: CaptureType) => void;
   /** Redo/redraw the region */
   onRedo: () => void;
   /** Cancel and close */
@@ -90,6 +93,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   onToggleCursor,
   onRecord,
   onScreenshot,
+  onCaptureTypeChange,
   onRedo,
   onCancel,
   format = 'mp4',
@@ -370,17 +374,68 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         <GripVertical size={14} className="pointer-events-none" />
       </div>
 
-      {/* Record button */}
-      <button
-        onClick={onRecord}
-        className="flex items-center justify-center w-9 h-9 rounded-full transition-all hover:scale-105 hover:brightness-110"
-        style={{
-          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-        }}
-        title={`Start ${isGif ? 'GIF' : 'video'} recording`}
-      >
-        <Circle size={16} className="text-white" fill="currentColor" />
-      </button>
+      {/* Capture mode buttons - 3 circular icons */}
+      <div className="flex items-center gap-1.5">
+        {/* Video button - Red */}
+        <button
+          onClick={() => {
+            if (captureType === 'video') {
+              onRecord();
+            } else {
+              onCaptureTypeChange?.('video');
+            }
+          }}
+          className={`flex items-center justify-center rounded-full transition-all duration-150 ${
+            captureType === 'video'
+              ? 'w-11 h-11 shadow-lg shadow-red-500/30 hover:scale-105 hover:brightness-110'
+              : 'w-9 h-9 opacity-60 hover:opacity-90 hover:scale-105'
+          }`}
+          style={{
+            background: captureType === 'video'
+              ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+              : 'rgba(239, 68, 68, 0.35)',
+          }}
+          title={captureType === 'video' ? 'Start video recording' : 'Switch to video'}
+        >
+          <Video size={captureType === 'video' ? 18 : 16} className="text-white" />
+        </button>
+
+        {/* GIF button - Purple */}
+        <button
+          onClick={() => {
+            if (captureType === 'gif') {
+              onRecord();
+            } else {
+              onCaptureTypeChange?.('gif');
+            }
+          }}
+          className={`flex items-center justify-center rounded-full transition-all duration-150 ${
+            captureType === 'gif'
+              ? 'w-11 h-11 shadow-lg shadow-purple-500/30 hover:scale-105 hover:brightness-110'
+              : 'w-9 h-9 opacity-60 hover:opacity-90 hover:scale-105'
+          }`}
+          style={{
+            background: captureType === 'gif'
+              ? 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)'
+              : 'rgba(168, 85, 247, 0.35)',
+          }}
+          title={captureType === 'gif' ? 'Start GIF recording' : 'Switch to GIF'}
+        >
+          <ImagePlay size={captureType === 'gif' ? 18 : 16} className="text-white" />
+        </button>
+
+        {/* Screenshot button - Blue */}
+        <button
+          onClick={onScreenshot}
+          className="flex items-center justify-center w-9 h-9 rounded-full transition-all duration-150 opacity-60 hover:opacity-90 hover:scale-105"
+          style={{
+            background: 'rgba(59, 130, 246, 0.35)',
+          }}
+          title="Take screenshot"
+        >
+          <Camera size={16} className="text-white" />
+        </button>
+      </div>
 
       {/* Divider */}
       <div className="w-px h-6 bg-white/15 mx-0.5" />
@@ -440,15 +495,6 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
       {/* Divider */}
       <div className="w-px h-6 bg-white/15 mx-0.5" />
-
-      {/* Screenshot button */}
-      <button
-        onClick={onScreenshot}
-        className="flex items-center justify-center w-8 h-8 rounded-lg transition-colors text-white/60 hover:text-white hover:bg-white/10"
-        title="Take screenshot instead"
-      >
-        <Camera size={16} />
-      </button>
 
       {/* Redo button */}
       <button

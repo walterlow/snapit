@@ -27,8 +27,8 @@ const CaptureToolbarWindow: React.FC = () => {
 
   const [dimensions, setDimensions] = useState(initialDimensions);
   const [includeCursor, setIncludeCursor] = useState(true);
-  // For now, default to 'video' - could be passed via window label or event
-  const captureType: CaptureType = 'video';
+  // Capture type state - can be toggled between video and gif
+  const [captureType, setCaptureType] = useState<CaptureType>('video');
 
   // Recording state
   const [mode, setMode] = useState<ToolbarMode>('selection');
@@ -255,6 +255,10 @@ const CaptureToolbarWindow: React.FC = () => {
     setSystemAudioEnabled(prev => !prev);
   }, []);
 
+  const handleCaptureTypeChange = useCallback((type: CaptureType) => {
+    setCaptureType(type);
+  }, []);
+
   const handleScreenshot = useCallback(async () => {
     try {
       await invoke('capture_overlay_confirm', { action: 'screenshot' });
@@ -330,6 +334,7 @@ const CaptureToolbarWindow: React.FC = () => {
           onToggleCursor={handleToggleCursor}
           onRecord={handleRecord}
           onScreenshot={handleScreenshot}
+          onCaptureTypeChange={handleCaptureTypeChange}
           onRedo={handleRedo}
           onCancel={handleCancel}
           // Recording mode props

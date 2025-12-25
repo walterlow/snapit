@@ -41,6 +41,9 @@ const CaptureToolbarWindow: React.FC = () => {
   const [countdownEnabled, setCountdownEnabled] = useState(true);
   const [countdownSeconds, setCountdownSeconds] = useState<number | undefined>();
   
+  // Audio settings
+  const [systemAudioEnabled, setSystemAudioEnabled] = useState(true);
+  
   // Track if we've already started the local timer for current recording session
   const isRecordingActiveRef = useRef(false);
   
@@ -227,6 +230,9 @@ const CaptureToolbarWindow: React.FC = () => {
       // Set countdown preference before starting (0 = instant, 3 = 3 second countdown)
       await invoke('set_recording_countdown', { secs: countdownEnabled ? 3 : 0 });
       
+      // Set system audio preference before starting
+      await invoke('set_recording_system_audio', { enabled: systemAudioEnabled });
+      
       // Confirm the overlay selection - this triggers the Rust side to:
       // 1. Close the overlay
       // 2. Show the recording border
@@ -239,10 +245,14 @@ const CaptureToolbarWindow: React.FC = () => {
       recordingInitiatedRef.current = false;
       setMode('selection');
     }
-  }, [countdownEnabled]);
+  }, [countdownEnabled, systemAudioEnabled]);
   
   const handleToggleCountdown = useCallback(() => {
     setCountdownEnabled(prev => !prev);
+  }, []);
+
+  const handleToggleSystemAudio = useCallback(() => {
+    setSystemAudioEnabled(prev => !prev);
   }, []);
 
   const handleScreenshot = useCallback(async () => {
@@ -334,6 +344,9 @@ const CaptureToolbarWindow: React.FC = () => {
           countdownSeconds={countdownSeconds}
           countdownEnabled={countdownEnabled}
           onToggleCountdown={handleToggleCountdown}
+          // Audio props
+          systemAudioEnabled={systemAudioEnabled}
+          onToggleSystemAudio={handleToggleSystemAudio}
         />
       </div>
     </div>

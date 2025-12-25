@@ -18,12 +18,15 @@ use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Emitter};
 use ts_rs::TS;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub use state::RECORDING_CONTROLLER;
 
 // Global countdown preference (0 = no countdown, 3 = 3 second countdown, etc.)
 static COUNTDOWN_SECS: AtomicU32 = AtomicU32::new(3);
+
+// Global system audio preference (true = capture system audio, false = no system audio)
+static SYSTEM_AUDIO_ENABLED: AtomicBool = AtomicBool::new(true);
 
 /// Get the current countdown setting
 pub fn get_countdown_secs() -> u32 {
@@ -34,6 +37,17 @@ pub fn get_countdown_secs() -> u32 {
 #[command]
 pub fn set_recording_countdown(secs: u32) {
     COUNTDOWN_SECS.store(secs, Ordering::SeqCst);
+}
+
+/// Get the current system audio setting
+pub fn get_system_audio_enabled() -> bool {
+    SYSTEM_AUDIO_ENABLED.load(Ordering::SeqCst)
+}
+
+/// Set the system audio preference (called from frontend before starting recording)
+#[command]
+pub fn set_recording_system_audio(enabled: bool) {
+    SYSTEM_AUDIO_ENABLED.store(enabled, Ordering::SeqCst);
 }
 
 // ============================================================================

@@ -160,6 +160,7 @@ pub fn run() {
             commands::video_recording::resume_recording,
             commands::video_recording::get_recording_status,
             commands::video_recording::set_recording_countdown,
+            commands::video_recording::set_recording_system_audio,
             // Logging commands
             commands::logging::write_log,
             commands::logging::write_logs,

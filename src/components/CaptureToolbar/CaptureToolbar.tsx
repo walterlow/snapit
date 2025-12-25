@@ -19,7 +19,7 @@
 import React, { useCallback } from 'react';
 import { 
   Circle, Camera, RotateCcw, X, MousePointer2, GripVertical,
-  Square, Pause, Play, Timer, TimerOff
+  Square, Pause, Play, Timer, TimerOff, Volume2, VolumeX
 } from 'lucide-react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { CaptureType, RecordingFormat } from '../../types';
@@ -68,6 +68,11 @@ interface CaptureToolbarProps {
   countdownEnabled?: boolean;
   /** Toggle countdown on/off */
   onToggleCountdown?: () => void;
+  // Audio props
+  /** Whether system audio capture is enabled */
+  systemAudioEnabled?: boolean;
+  /** Toggle system audio capture on/off */
+  onToggleSystemAudio?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -97,6 +102,8 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   countdownSeconds,
   countdownEnabled = true,
   onToggleCountdown,
+  systemAudioEnabled = true,
+  onToggleSystemAudio,
 }) => {
   const isGif = captureType === 'gif' || format === 'gif';
 
@@ -399,6 +406,19 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
           title={countdownEnabled ? 'Countdown: 3s (click to disable)' : 'Countdown: Off (click to enable)'}
         >
           {countdownEnabled ? <Timer size={16} /> : <TimerOff size={16} />}
+        </button>
+      )}
+
+      {/* System audio toggle */}
+      {onToggleSystemAudio && (
+        <button
+          onClick={onToggleSystemAudio}
+          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+            systemAudioEnabled ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white hover:bg-white/10'
+          }`}
+          title={systemAudioEnabled ? 'System Audio: On (click to disable)' : 'System Audio: Off (click to enable)'}
+        >
+          {systemAudioEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
         </button>
       )}
 

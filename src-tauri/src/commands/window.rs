@@ -158,6 +158,9 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 }
                             }
                             
+                            // Get system audio setting (set by frontend via set_recording_system_audio command)
+                            let system_audio_enabled = crate::commands::video_recording::get_system_audio_enabled();
+                            
                             // Start the recording with the selected region
                             let settings = crate::commands::video_recording::RecordingSettings {
                                 format,
@@ -167,7 +170,10 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 fps: 30,
                                 max_duration_secs: None,
                                 include_cursor: true,
-                                audio: crate::commands::video_recording::AudioSettings::default(),
+                                audio: crate::commands::video_recording::AudioSettings {
+                                    capture_system_audio: system_audio_enabled,
+                                    capture_microphone: false,
+                                },
                                 quality: 80,
                                 countdown_secs,
                             };

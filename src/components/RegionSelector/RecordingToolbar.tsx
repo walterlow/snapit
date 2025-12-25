@@ -9,8 +9,9 @@
  * - Toggle audio/microphone/cursor options
  */
 
-import React from 'react';
-import { Circle, Camera, RotateCcw, X, MousePointer2 } from 'lucide-react';
+import React, { useCallback } from 'react';
+import { Circle, Camera, RotateCcw, X, MousePointer2, GripVertical } from 'lucide-react';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { CaptureType } from '../../types';
 
 interface RecordingToolbarProps {
@@ -51,9 +52,16 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
     e.stopPropagation();
   };
 
+  // Handle drag start - use Tauri's startDragging API
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    getCurrentWebviewWindow().startDragging().catch(console.error);
+  }, []);
+
   return (
     <div
-      className="flex items-center gap-2 px-3 py-2 rounded-xl pointer-events-auto"
+      className="flex items-center gap-2 pl-1 pr-3 py-2 rounded-xl pointer-events-auto"
       style={{
         background: 'rgba(30, 30, 30, 0.95)',
         backdropFilter: 'blur(12px)',
@@ -66,6 +74,16 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
       onPointerMove={stopPropagation}
       onClick={stopPropagation}
     >
+      {/* Drag handle - click to drag the toolbar window */}
+      <div
+        data-tauri-drag-region
+        className="flex items-center justify-center w-6 h-10 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
+        title="Drag to move"
+        onMouseDown={handleDragStart}
+      >
+        <GripVertical size={16} className="pointer-events-none" />
+      </div>
+
       {/* Record button */}
       <button
         onClick={onRecord}

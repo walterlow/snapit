@@ -621,8 +621,8 @@ pub async fn show_dcomp_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Window dimensions - matches RecordingToolbar component size
-    let window_width: i32 = 380;
+    // Window dimensions - matches RecordingToolbar component size (including drag handle)
+    let window_width: i32 = 412;
     let window_height: i32 = 56;
 
     // Get monitors to detect fullscreen and find alternate monitor
@@ -726,8 +726,8 @@ pub async fn update_dcomp_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Window dimensions - matches RecordingToolbar component size
-    let window_width: f64 = 380.0;
+    // Window dimensions - matches RecordingToolbar component size (including drag handle)
+    let window_width: f64 = 412.0;
 
     // Position toolbar centered below the selection
     let selection_bottom = y + height as i32;

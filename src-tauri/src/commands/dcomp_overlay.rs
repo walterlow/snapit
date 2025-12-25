@@ -69,6 +69,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     GWLP_USERDATA, HTCLIENT,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 // Extended window style for no redirection bitmap
 const WS_EX_NOREDIRECTIONBITMAP: u32 = 0x00200000;
@@ -765,8 +766,38 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
             
             (D2D_RECT_F { left, top, right, bottom }, true, false)
         } else {
-            // No window detected (desktop/empty area) - show entire monitor as clear
-            (D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }, false, false)
+            // No window detected (desktop/empty area) - show the monitor under cursor with border
+            // Find which physical monitor contains the cursor
+            let screen_cursor_x = state.monitor_x + state.cursor_x;
+            let screen_cursor_y = state.monitor_y + state.cursor_y;
+            
+            if let Ok(monitors) = xcap::Monitor::all() {
+                if let Some(mon) = monitors.iter().find(|m| {
+                    let mx = m.x().unwrap_or(0);
+                    let my = m.y().unwrap_or(0);
+                    let mw = m.width().unwrap_or(1920) as i32;
+                    let mh = m.height().unwrap_or(1080) as i32;
+                    screen_cursor_x >= mx && screen_cursor_x < mx + mw &&
+                    screen_cursor_y >= my && screen_cursor_y < my + mh
+                }) {
+                    let mon_x = mon.x().unwrap_or(0);
+                    let mon_y = mon.y().unwrap_or(0);
+                    let mon_w = mon.width().unwrap_or(1920) as i32;
+                    let mon_h = mon.height().unwrap_or(1080) as i32;
+                    
+                    // Convert to local coordinates
+                    let left = (mon_x - state.monitor_x) as f32;
+                    let top = (mon_y - state.monitor_y) as f32;
+                    let right = left + mon_w as f32;
+                    let bottom = top + mon_h as f32;
+                    
+                    (D2D_RECT_F { left, top, right, bottom }, true, false)
+                } else {
+                    (D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }, false, false)
+                }
+            } else {
+                (D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }, false, false)
+            }
         };
         
         // Draw overlay around the clear area (4 rectangles for dimming)
@@ -1446,7 +1477,8 @@ unsafe extern "system" fn overlay_wnd_proc(
                             state.sel_bottom = state.sel_top + 20;
                         }
                         
-                        // Update React toolbar dimensions and position (throttled to ~20fps)
+                        // Update React toolbar dimensions only (not position) during resize
+                        // Toolbar position is only set on initial selection, not during resize
                         if !SHOW_D2D_PANEL {
                             let now = std::time::Instant::now();
                             if now.duration_since(state.last_event_emit_time).as_millis() >= 50 {
@@ -1454,104 +1486,13 @@ unsafe extern "system" fn overlay_wnd_proc(
                                 let sel_width = (state.sel_right - state.sel_left) as u32;
                                 let sel_height = (state.sel_bottom - state.sel_top) as u32;
                                 
-                                // Convert selection to screen coordinates
-                                let screen_sel_x = state.monitor_x + state.sel_left;
-                                let screen_sel_y = state.monitor_y + state.sel_top;
-                                let screen_sel_bottom = state.monitor_y + state.sel_bottom;
-                                let screen_sel_center_x = screen_sel_x + sel_width as i32 / 2;
-                                let screen_sel_center_y = screen_sel_y + sel_height as i32 / 2;
-                                
                                 if let Some(toolbar_window) = state.app_handle.get_webview_window("dcomp-toolbar") {
-                                    // Update dimensions via JS
+                                    // Update dimensions via JS only - don't reposition
                                     let js = format!(
                                         "if (window.__updateDimensions) {{ window.__updateDimensions({}, {}); }}",
                                         sel_width, sel_height
                                     );
                                     let _ = toolbar_window.eval(&js);
-                                    
-                                    // Calculate toolbar position
-                                    let toolbar_width = 380i32;
-                                    let toolbar_height = 56i32;
-                                    
-                                    // Find which monitor contains the selection center
-                                    let (pos_x, pos_y) = if let Ok(monitors) = xcap::Monitor::all() {
-                                        // Find the monitor containing selection center
-                                        let current_monitor = monitors.iter().find(|m| {
-                                            let mx = m.x().unwrap_or(0);
-                                            let my = m.y().unwrap_or(0);
-                                            let mw = m.width().unwrap_or(1920) as i32;
-                                            let mh = m.height().unwrap_or(1080) as i32;
-                                            screen_sel_center_x >= mx && screen_sel_center_x < mx + mw &&
-                                            screen_sel_center_y >= my && screen_sel_center_y < my + mh
-                                        });
-                                        
-                                        if let Some(cur_mon) = current_monitor {
-                                            let cur_x = cur_mon.x().unwrap_or(0);
-                                            let cur_y = cur_mon.y().unwrap_or(0);
-                                            let cur_w = cur_mon.width().unwrap_or(1920);
-                                            let cur_h = cur_mon.height().unwrap_or(1080);
-                                            
-                                            // Check if selection is fullscreen on this monitor (>90%)
-                                            let is_fullscreen = sel_width >= (cur_w * 9 / 10) 
-                                                && sel_height >= (cur_h * 9 / 10);
-                                            
-                                            if is_fullscreen {
-                                                // Find alternate monitor
-                                                let alternate = monitors.iter().find(|m| {
-                                                    let mx = m.x().unwrap_or(0);
-                                                    let my = m.y().unwrap_or(0);
-                                                    mx != cur_x || my != cur_y
-                                                });
-                                                
-                                                if let Some(alt_mon) = alternate {
-                                                    // Place in center of alternate monitor
-                                                    let alt_x = alt_mon.x().unwrap_or(0);
-                                                    let alt_y = alt_mon.y().unwrap_or(0);
-                                                    let alt_w = alt_mon.width().unwrap_or(1920) as i32;
-                                                    let alt_h = alt_mon.height().unwrap_or(1080) as i32;
-                                                    (
-                                                        alt_x + (alt_w - toolbar_width) / 2,
-                                                        alt_y + (alt_h - toolbar_height) / 2
-                                                    )
-                                                } else {
-                                                    // No alternate monitor, place inside selection
-                                                    (
-                                                        screen_sel_x + (sel_width as i32 - toolbar_width) / 2,
-                                                        screen_sel_bottom - toolbar_height - 60
-                                                    )
-                                                }
-                                            } else {
-                                                // Normal selection: place below selection
-                                                (
-                                                    screen_sel_x + (sel_width as i32 - toolbar_width) / 2,
-                                                    screen_sel_bottom + 12
-                                                )
-                                            }
-                                        } else {
-                                            // Fallback: below selection
-                                            (
-                                                screen_sel_x + (sel_width as i32 - toolbar_width) / 2,
-                                                screen_sel_bottom + 12
-                                            )
-                                        }
-                                    } else {
-                                        // No monitor info, use simple positioning
-                                        (
-                                            screen_sel_x + (sel_width as i32 - toolbar_width) / 2,
-                                            screen_sel_bottom + 12
-                                        )
-                                    };
-                                    
-                                    // Reposition and bring to front
-                                    if let Ok(hwnd) = toolbar_window.hwnd() {
-                                        let _ = SetWindowPos(
-                                            HWND(hwnd.0),
-                                            HWND_TOPMOST,
-                                            pos_x, pos_y,
-                                            toolbar_width, toolbar_height,
-                                            SWP_NOACTIVATE
-                                        );
-                                    }
                                 }
                             }
                         }
@@ -1838,6 +1779,87 @@ unsafe extern "system" fn overlay_wnd_proc(
                         
                         state.hovered_window = None;
                         let _ = render_overlay(state);
+                    } else {
+                        // No window hovered and no drag - select fullscreen of the clicked monitor
+                        // Convert click position to screen coordinates
+                        let screen_click_x = state.monitor_x + state.start_x;
+                        let screen_click_y = state.monitor_y + state.start_y;
+                        
+                        // Find which physical monitor contains the click point
+                        if let Ok(monitors) = xcap::Monitor::all() {
+                            let clicked_monitor = monitors.iter().find(|m| {
+                                let mx = m.x().unwrap_or(0);
+                                let my = m.y().unwrap_or(0);
+                                let mw = m.width().unwrap_or(1920) as i32;
+                                let mh = m.height().unwrap_or(1080) as i32;
+                                screen_click_x >= mx && screen_click_x < mx + mw &&
+                                screen_click_y >= my && screen_click_y < my + mh
+                            });
+                            
+                            if let Some(mon) = clicked_monitor {
+                                let mon_x = mon.x().unwrap_or(0);
+                                let mon_y = mon.y().unwrap_or(0);
+                                let mon_w = mon.width().unwrap_or(1920) as i32;
+                                let mon_h = mon.height().unwrap_or(1080) as i32;
+                                
+                                // Convert monitor bounds to local coordinates (relative to overlay origin)
+                                state.sel_left = mon_x - state.monitor_x;
+                                state.sel_top = mon_y - state.monitor_y;
+                                state.sel_right = state.sel_left + mon_w;
+                                state.sel_bottom = state.sel_top + mon_h;
+                                state.is_adjusting = true;
+                                
+                                // Show and position React toolbar (when D2D panel is hidden)
+                                if !SHOW_D2D_PANEL {
+                                    let screen_x = mon_x;
+                                    let screen_y = mon_y;
+                                    let sel_width = mon_w as u32;
+                                    let sel_height = mon_h as u32;
+                                    
+                                    // Emit event to create/show toolbar window
+                                    let _ = state.app_handle.emit("dcomp-overlay-adjustment-ready", OverlayAdjustmentEvent {
+                                        x: screen_x,
+                                        y: screen_y,
+                                        width: sel_width,
+                                        height: sel_height,
+                                    });
+                                    
+                                    // Give the window time to be created, then position it correctly
+                                    std::thread::sleep(std::time::Duration::from_millis(50));
+                                    
+                                    if let Some(toolbar_window) = state.app_handle.get_webview_window("dcomp-toolbar") {
+                                        let toolbar_width = 380i32;
+                                        let toolbar_height = 56i32;
+                                        let screen_sel_bottom = screen_y + sel_height as i32;
+                                        let screen_sel_center_x = screen_x + sel_width as i32 / 2;
+                                        
+                                        // Fullscreen selection - find alternate monitor for toolbar
+                                        let alternate = monitors.iter().find(|m| {
+                                            let mx = m.x().unwrap_or(0);
+                                            let my = m.y().unwrap_or(0);
+                                            mx != mon_x || my != mon_y
+                                        });
+                                        
+                                        let (pos_x, pos_y) = if let Some(alt_mon) = alternate {
+                                            let alt_x = alt_mon.x().unwrap_or(0);
+                                            let alt_y = alt_mon.y().unwrap_or(0);
+                                            let alt_w = alt_mon.width().unwrap_or(1920) as i32;
+                                            let alt_h = alt_mon.height().unwrap_or(1080) as i32;
+                                            (alt_x + (alt_w - toolbar_width) / 2, alt_y + (alt_h - toolbar_height) / 2)
+                                        } else {
+                                            // No alternate monitor, place inside selection at bottom
+                                            (screen_sel_center_x - toolbar_width / 2, screen_sel_bottom - toolbar_height - 60)
+                                        };
+                                        
+                                        if let Ok(hwnd) = toolbar_window.hwnd() {
+                                            let _ = SetWindowPos(HWND(hwnd.0), HWND_TOPMOST, pos_x, pos_y, toolbar_width, toolbar_height, SWP_NOACTIVATE);
+                                        }
+                                    }
+                                }
+                                
+                                let _ = render_overlay(state);
+                            }
+                        }
                     }
                 }
             }
@@ -1897,11 +1919,7 @@ unsafe extern "system" fn overlay_wnd_proc(
         }
         
         WM_RBUTTONDOWN => {
-            if !state_ptr.is_null() {
-                let state = &mut *state_ptr;
-                state.should_close = true;
-                state.selection_confirmed = false;
-            }
+            // Right-click does nothing - use ESC to cancel
             LRESULT(0)
         }
         
@@ -2172,10 +2190,25 @@ pub fn show_dcomp_overlay(
         
         // Message loop
         let mut msg = MSG::default();
+        let mut esc_was_pressed = false; // Track ESC state to detect key-up transition
         loop {
             if state.should_close {
                 break;
             }
+            
+            // Poll ESC key using GetAsyncKeyState since the window has WS_EX_NOACTIVATE
+            // and won't receive keyboard messages through the normal message queue
+            let esc_pressed = (GetAsyncKeyState(0x1B) as u16 & 0x8000) != 0; // VK_ESCAPE = 0x1B
+            if esc_pressed && !esc_was_pressed {
+                // ESC key just pressed - cancel the overlay
+                if state.is_adjusting {
+                    state.is_adjusting = false;
+                }
+                state.should_close = true;
+                state.selection_confirmed = false;
+                state.result_action = OverlayAction::Cancelled;
+            }
+            esc_was_pressed = esc_pressed;
             
             // Check for pending commands from React toolbar
             if state.is_adjusting && !SHOW_D2D_PANEL {

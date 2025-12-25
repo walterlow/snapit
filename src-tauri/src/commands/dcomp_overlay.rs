@@ -58,7 +58,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GetWindowRect,
     LoadCursorW, PeekMessageW, RegisterClassW, SetCursor,
     ShowWindow, IsWindowVisible, GetWindowLongW, GetSystemMetrics,
-    CS_HREDRAW, CS_VREDRAW, IDC_CROSS, MSG, PM_REMOVE,
+    CS_HREDRAW, CS_VREDRAW, IDC_CROSS, IDC_ARROW, IDC_SIZEALL,
+    IDC_SIZENWSE, IDC_SIZENESW, IDC_SIZENS, IDC_SIZEWE,
+    MSG, PM_REMOVE,
     SW_SHOW, WINDOW_EX_STYLE, WNDCLASSW, WS_POPUP, GWL_STYLE, GWL_EXSTYLE,
     WM_CREATE, WM_DESTROY, WM_PAINT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
     WM_KEYDOWN, WM_KEYUP, WM_RBUTTONDOWN, WM_SETCURSOR, WS_EX_TOPMOST, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE,
@@ -81,6 +83,21 @@ struct DetectedWindow {
     height: u32,
 }
 
+/// Handle position for resize gizmo
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum HandlePosition {
+    None,
+    TopLeft,
+    Top,
+    TopRight,
+    Right,
+    BottomRight,
+    Bottom,
+    BottomLeft,
+    Left,
+    Interior, // For moving the entire selection
+}
+
 /// Overlay state - stored in window user data
 struct OverlayState {
     // Mode: true = region selection in progress, false = window detection mode
@@ -88,7 +105,26 @@ struct OverlayState {
     is_dragging: bool, // True if user has dragged more than threshold
     shift_held: bool,  // True when Shift key is held (for square selection)
     
-    // Selection coordinates (local to monitor)
+    // Adjustment mode - after initial selection, allow resize/move before confirming
+    is_adjusting: bool,
+    adjust_handle: HandlePosition, // Which handle is being dragged
+    is_adjust_dragging: bool,      // True when dragging a handle or moving selection
+    adjust_drag_start_x: i32,      // Mouse position when adjustment drag started
+    adjust_drag_start_y: i32,
+    
+    // Confirmed selection bounds (in local coordinates) - used during adjustment
+    sel_left: i32,
+    sel_top: i32,
+    sel_right: i32,
+    sel_bottom: i32,
+    
+    // Original selection bounds when drag started (for calculating delta)
+    orig_sel_left: i32,
+    orig_sel_top: i32,
+    orig_sel_right: i32,
+    orig_sel_bottom: i32,
+    
+    // Selection coordinates (local to monitor) - used during initial drag
     start_x: i32,
     start_y: i32,
     current_x: i32,
@@ -121,6 +157,8 @@ struct OverlayState {
     crosshair_brush: ID2D1SolidColorBrush,
     text_brush: ID2D1SolidColorBrush,
     text_bg_brush: ID2D1SolidColorBrush,
+    handle_brush: ID2D1SolidColorBrush,
+    handle_border_brush: ID2D1SolidColorBrush,
     
     // DirectWrite resources
     text_format: IDWriteTextFormat,
@@ -136,6 +174,57 @@ struct OverlayState {
 static OVERLAY_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
 const OVERLAY_CLASS_NAME: &str = "SnapItDCompOverlay";
 const DRAG_THRESHOLD: i32 = 5;
+const HANDLE_SIZE: i32 = 10; // Size of resize handles in pixels
+const HANDLE_HALF: i32 = HANDLE_SIZE / 2;
+
+/// Hit-test which handle (if any) is at the given point
+fn hit_test_handle(x: i32, y: i32, left: i32, top: i32, right: i32, bottom: i32) -> HandlePosition {
+    let cx = (left + right) / 2;
+    let cy = (top + bottom) / 2;
+    
+    // Check corners first (they have priority)
+    // Top-left
+    if (x - left).abs() <= HANDLE_HALF && (y - top).abs() <= HANDLE_HALF {
+        return HandlePosition::TopLeft;
+    }
+    // Top-right
+    if (x - right).abs() <= HANDLE_HALF && (y - top).abs() <= HANDLE_HALF {
+        return HandlePosition::TopRight;
+    }
+    // Bottom-left
+    if (x - left).abs() <= HANDLE_HALF && (y - bottom).abs() <= HANDLE_HALF {
+        return HandlePosition::BottomLeft;
+    }
+    // Bottom-right
+    if (x - right).abs() <= HANDLE_HALF && (y - bottom).abs() <= HANDLE_HALF {
+        return HandlePosition::BottomRight;
+    }
+    
+    // Check edge handles
+    // Top
+    if (x - cx).abs() <= HANDLE_HALF && (y - top).abs() <= HANDLE_HALF {
+        return HandlePosition::Top;
+    }
+    // Bottom
+    if (x - cx).abs() <= HANDLE_HALF && (y - bottom).abs() <= HANDLE_HALF {
+        return HandlePosition::Bottom;
+    }
+    // Left
+    if (x - left).abs() <= HANDLE_HALF && (y - cy).abs() <= HANDLE_HALF {
+        return HandlePosition::Left;
+    }
+    // Right
+    if (x - right).abs() <= HANDLE_HALF && (y - cy).abs() <= HANDLE_HALF {
+        return HandlePosition::Right;
+    }
+    
+    // Check if inside the selection (for moving)
+    if x > left && x < right && y > top && y < bottom {
+        return HandlePosition::Interior;
+    }
+    
+    HandlePosition::None
+}
 
 /// Check if a window is valid for selection (visible, not a system window, etc.)
 fn is_valid_window_for_capture(hwnd: HWND, exclude_hwnd: HWND) -> Option<DetectedWindow> {
@@ -359,10 +448,19 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
         let height = state.monitor_height as f32;
         
         // Determine the "clear" area (not dimmed)
+        // - Adjustment mode: show the adjustable selection
         // - When dragging: show selection rectangle
         // - When hovering window: show that window
         // - When hovering desktop (no window): show entire monitor (no dim)
-        let (clear_rect, draw_border): (D2D_RECT_F, bool) = if state.is_dragging {
+        let (clear_rect, draw_border, draw_handles): (D2D_RECT_F, bool, bool) = if state.is_adjusting {
+            // Adjustment mode - show the selection with handles
+            (D2D_RECT_F { 
+                left: state.sel_left as f32, 
+                top: state.sel_top as f32, 
+                right: state.sel_right as f32, 
+                bottom: state.sel_bottom as f32 
+            }, true, true)
+        } else if state.is_dragging {
             // Region selection mode - show selection rectangle
             let mut sel_x1 = state.start_x.min(state.current_x) as f32;
             let mut sel_y1 = state.start_y.min(state.current_y) as f32;
@@ -388,7 +486,7 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
                 }
             }
             
-            (D2D_RECT_F { left: sel_x1, top: sel_y1, right: sel_x2, bottom: sel_y2 }, true)
+            (D2D_RECT_F { left: sel_x1, top: sel_y1, right: sel_x2, bottom: sel_y2 }, true, false)
         } else if let Some(ref win) = state.hovered_window {
             // Window detection mode - show hovered window
             let local_x = (win.x - state.monitor_x) as f32;
@@ -402,10 +500,10 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
             let right = local_right.min(width);
             let bottom = local_bottom.min(height);
             
-            (D2D_RECT_F { left, top, right, bottom }, true)
+            (D2D_RECT_F { left, top, right, bottom }, true, false)
         } else {
             // No window detected (desktop/empty area) - show entire monitor as clear
-            (D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }, false)
+            (D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }, false, false)
         };
         
         // Draw overlay around the clear area (4 rectangles for dimming)
@@ -449,76 +547,78 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
         }
         
         // Draw crosshair at cursor position with gap at center
-        // Only draw within the monitor where the cursor is located
-        let cx = state.cursor_x as f32;
-        let cy = state.cursor_y as f32;
-        let gap = 10.0_f32; // Gap radius around cursor
-        
-        // Get the monitor bounds for the current cursor position
-        let screen_x = state.monitor_x + state.cursor_x;
-        let screen_y = state.monitor_y + state.cursor_y;
-        let cursor_point = POINT { x: screen_x, y: screen_y };
-        
-        let hmonitor = MonitorFromPoint(cursor_point, MONITOR_DEFAULTTONEAREST);
-        let mut monitor_info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        
-        // Get monitor bounds and convert to local overlay coordinates
-        let (mon_left, mon_top, mon_right, mon_bottom) = if GetMonitorInfoW(hmonitor, &mut monitor_info).as_bool() {
-            let rc = monitor_info.rcMonitor;
-            (
-                (rc.left - state.monitor_x) as f32,
-                (rc.top - state.monitor_y) as f32,
-                (rc.right - state.monitor_x) as f32,
-                (rc.bottom - state.monitor_y) as f32,
-            )
-        } else {
-            // Fallback to full overlay if we can't get monitor info
-            (0.0, 0.0, width, height)
-        };
-        
-        // Horizontal line (left segment) - from monitor left edge to cursor
-        if cx > mon_left + gap {
-            state.d2d_context.DrawLine(
-                D2D_POINT_2F { x: mon_left, y: cy },
-                D2D_POINT_2F { x: cx - gap, y: cy },
-                &state.crosshair_brush,
-                1.0,
-                None,
-            );
-        }
-        // Horizontal line (right segment) - from cursor to monitor right edge
-        if cx + gap < mon_right {
-            state.d2d_context.DrawLine(
-                D2D_POINT_2F { x: cx + gap, y: cy },
-                D2D_POINT_2F { x: mon_right, y: cy },
-                &state.crosshair_brush,
-                1.0,
-                None,
-            );
-        }
-        // Vertical line (top segment) - from monitor top edge to cursor
-        if cy > mon_top + gap {
-            state.d2d_context.DrawLine(
-                D2D_POINT_2F { x: cx, y: mon_top },
-                D2D_POINT_2F { x: cx, y: cy - gap },
-                &state.crosshair_brush,
-                1.0,
-                None,
-            );
-        }
-        // Vertical line (bottom segment) - from cursor to monitor bottom edge
-        if cy + gap < mon_bottom {
-            state.d2d_context.DrawLine(
-                D2D_POINT_2F { x: cx, y: cy + gap },
-                D2D_POINT_2F { x: cx, y: mon_bottom },
-                &state.crosshair_brush,
-                1.0,
-                None,
-            );
-        }
+        // Only draw when NOT in adjustment mode, and only within the current monitor
+        if !state.is_adjusting {
+            let cx = state.cursor_x as f32;
+            let cy = state.cursor_y as f32;
+            let gap = 10.0_f32; // Gap radius around cursor
+            
+            // Get the monitor bounds for the current cursor position
+            let screen_x = state.monitor_x + state.cursor_x;
+            let screen_y = state.monitor_y + state.cursor_y;
+            let cursor_point = POINT { x: screen_x, y: screen_y };
+            
+            let hmonitor = MonitorFromPoint(cursor_point, MONITOR_DEFAULTTONEAREST);
+            let mut monitor_info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            
+            // Get monitor bounds and convert to local overlay coordinates
+            let (mon_left, mon_top, mon_right, mon_bottom) = if GetMonitorInfoW(hmonitor, &mut monitor_info).as_bool() {
+                let rc = monitor_info.rcMonitor;
+                (
+                    (rc.left - state.monitor_x) as f32,
+                    (rc.top - state.monitor_y) as f32,
+                    (rc.right - state.monitor_x) as f32,
+                    (rc.bottom - state.monitor_y) as f32,
+                )
+            } else {
+                // Fallback to full overlay if we can't get monitor info
+                (0.0, 0.0, width, height)
+            };
+            
+            // Horizontal line (left segment) - from monitor left edge to cursor
+            if cx > mon_left + gap {
+                state.d2d_context.DrawLine(
+                    D2D_POINT_2F { x: mon_left, y: cy },
+                    D2D_POINT_2F { x: cx - gap, y: cy },
+                    &state.crosshair_brush,
+                    1.0,
+                    None,
+                );
+            }
+            // Horizontal line (right segment) - from cursor to monitor right edge
+            if cx + gap < mon_right {
+                state.d2d_context.DrawLine(
+                    D2D_POINT_2F { x: cx + gap, y: cy },
+                    D2D_POINT_2F { x: mon_right, y: cy },
+                    &state.crosshair_brush,
+                    1.0,
+                    None,
+                );
+            }
+            // Vertical line (top segment) - from monitor top edge to cursor
+            if cy > mon_top + gap {
+                state.d2d_context.DrawLine(
+                    D2D_POINT_2F { x: cx, y: mon_top },
+                    D2D_POINT_2F { x: cx, y: cy - gap },
+                    &state.crosshair_brush,
+                    1.0,
+                    None,
+                );
+            }
+            // Vertical line (bottom segment) - from cursor to monitor bottom edge
+            if cy + gap < mon_bottom {
+                state.d2d_context.DrawLine(
+                    D2D_POINT_2F { x: cx, y: cy + gap },
+                    D2D_POINT_2F { x: cx, y: mon_bottom },
+                    &state.crosshair_brush,
+                    1.0,
+                    None,
+                );
+            }
+        } // End of crosshair drawing (not in adjustment mode)
         
         // Draw size indicator when selecting or hovering a window
         if draw_border {
@@ -573,6 +673,78 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
                 D2D1_DRAW_TEXT_OPTIONS_NONE,
                 windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL,
             );
+            
+            // In adjustment mode, show hint text
+            if draw_handles {
+                let hint_text = "Drag handles to resize, drag inside to move. Enter to confirm, Esc to cancel.";
+                let hint_text_wide: Vec<u16> = hint_text.encode_utf16().chain(std::iter::once(0)).collect();
+                
+                let hint_width = 450.0_f32;
+                let hint_height = 24.0_f32;
+                let hint_x = (width - hint_width) / 2.0;
+                let hint_y = height - hint_height - 20.0;
+                
+                let hint_bg_rect = D2D_RECT_F {
+                    left: hint_x,
+                    top: hint_y,
+                    right: hint_x + hint_width,
+                    bottom: hint_y + hint_height,
+                };
+                
+                let hint_rounded = windows::Win32::Graphics::Direct2D::D2D1_ROUNDED_RECT {
+                    rect: hint_bg_rect,
+                    radiusX: 4.0,
+                    radiusY: 4.0,
+                };
+                state.d2d_context.FillRoundedRectangle(&hint_rounded, &state.text_bg_brush);
+                
+                state.d2d_context.DrawText(
+                    &hint_text_wide[..hint_text_wide.len() - 1],
+                    &state.text_format,
+                    &hint_bg_rect,
+                    &state.text_brush,
+                    D2D1_DRAW_TEXT_OPTIONS_NONE,
+                    windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL,
+                );
+            }
+        }
+        
+        // Draw resize handles in adjustment mode
+        if draw_handles {
+            let hh = HANDLE_HALF as f32;
+            
+            let left = clear_rect.left;
+            let top = clear_rect.top;
+            let right = clear_rect.right;
+            let bottom = clear_rect.bottom;
+            let cx = (left + right) / 2.0;
+            let cy = (top + bottom) / 2.0;
+            
+            // Helper to draw a single handle
+            let draw_handle = |ctx: &ID2D1DeviceContext, x: f32, y: f32, 
+                              fill: &ID2D1SolidColorBrush, border: &ID2D1SolidColorBrush| {
+                let rect = D2D_RECT_F {
+                    left: x - hh,
+                    top: y - hh,
+                    right: x + hh,
+                    bottom: y + hh,
+                };
+                ctx.FillRectangle(&rect, fill);
+                ctx.DrawRectangle(&rect, border, 1.0, None);
+            };
+            
+            // Draw all 8 handles
+            // Corners
+            draw_handle(&state.d2d_context, left, top, &state.handle_brush, &state.handle_border_brush);      // TopLeft
+            draw_handle(&state.d2d_context, right, top, &state.handle_brush, &state.handle_border_brush);     // TopRight
+            draw_handle(&state.d2d_context, left, bottom, &state.handle_brush, &state.handle_border_brush);   // BottomLeft
+            draw_handle(&state.d2d_context, right, bottom, &state.handle_brush, &state.handle_border_brush);  // BottomRight
+            
+            // Edges
+            draw_handle(&state.d2d_context, cx, top, &state.handle_brush, &state.handle_border_brush);        // Top
+            draw_handle(&state.d2d_context, cx, bottom, &state.handle_brush, &state.handle_border_brush);     // Bottom
+            draw_handle(&state.d2d_context, left, cy, &state.handle_brush, &state.handle_border_brush);       // Left
+            draw_handle(&state.d2d_context, right, cy, &state.handle_brush, &state.handle_border_brush);      // Right
         }
         
         state.d2d_context.EndDraw(None, None)?;
@@ -600,11 +772,41 @@ unsafe extern "system" fn overlay_wnd_proc(
         }
         
         WM_SETCURSOR => {
-            // Always show crosshair cursor
             if (lparam.0 as u32 & 0xFFFF) == HTCLIENT as u32 {
-                if let Ok(cursor) = LoadCursorW(None, IDC_CROSS) {
-                    SetCursor(cursor);
-                    return LRESULT(1);
+                if !state_ptr.is_null() {
+                    let state = &*state_ptr;
+                    
+                    if state.is_adjusting {
+                        // In adjustment mode - show appropriate resize cursor
+                        let handle = if state.is_adjust_dragging {
+                            // While dragging, keep showing the cursor for the handle being dragged
+                            state.adjust_handle
+                        } else {
+                            // Check what's under cursor
+                            hit_test_handle(state.cursor_x, state.cursor_y, 
+                                          state.sel_left, state.sel_top, state.sel_right, state.sel_bottom)
+                        };
+                        
+                        let cursor_id = match handle {
+                            HandlePosition::TopLeft | HandlePosition::BottomRight => IDC_SIZENWSE,
+                            HandlePosition::TopRight | HandlePosition::BottomLeft => IDC_SIZENESW,
+                            HandlePosition::Top | HandlePosition::Bottom => IDC_SIZENS,
+                            HandlePosition::Left | HandlePosition::Right => IDC_SIZEWE,
+                            HandlePosition::Interior => IDC_SIZEALL,
+                            HandlePosition::None => IDC_ARROW,
+                        };
+                        
+                        if let Ok(cursor) = LoadCursorW(None, cursor_id) {
+                            SetCursor(cursor);
+                            return LRESULT(1);
+                        }
+                    } else {
+                        // Normal mode - show crosshair
+                        if let Ok(cursor) = LoadCursorW(None, IDC_CROSS) {
+                            SetCursor(cursor);
+                            return LRESULT(1);
+                        }
+                    }
                 }
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -623,12 +825,29 @@ unsafe extern "system" fn overlay_wnd_proc(
                 let x = (lparam.0 & 0xFFFF) as i16 as i32;
                 let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
                 
-                state.is_selecting = true;
-                state.is_dragging = false;
-                state.start_x = x;
-                state.start_y = y;
-                state.current_x = x;
-                state.current_y = y;
+                if state.is_adjusting {
+                    // In adjustment mode - check if clicking on a handle or inside
+                    let handle = hit_test_handle(x, y, state.sel_left, state.sel_top, state.sel_right, state.sel_bottom);
+                    if handle != HandlePosition::None {
+                        state.adjust_handle = handle;
+                        state.is_adjust_dragging = true;
+                        state.adjust_drag_start_x = x;
+                        state.adjust_drag_start_y = y;
+                        // Store original selection bounds
+                        state.orig_sel_left = state.sel_left;
+                        state.orig_sel_top = state.sel_top;
+                        state.orig_sel_right = state.sel_right;
+                        state.orig_sel_bottom = state.sel_bottom;
+                    }
+                } else {
+                    // Normal selection mode
+                    state.is_selecting = true;
+                    state.is_dragging = false;
+                    state.start_x = x;
+                    state.start_y = y;
+                    state.current_x = x;
+                    state.current_y = y;
+                }
             }
             LRESULT(0)
         }
@@ -642,7 +861,61 @@ unsafe extern "system" fn overlay_wnd_proc(
                 state.cursor_x = x;
                 state.cursor_y = y;
                 
-                if state.is_selecting {
+                if state.is_adjusting {
+                    if state.is_adjust_dragging {
+                        // Calculate delta from drag start
+                        let dx = x - state.adjust_drag_start_x;
+                        let dy = y - state.adjust_drag_start_y;
+                        
+                        // Apply delta based on which handle is being dragged
+                        match state.adjust_handle {
+                            HandlePosition::TopLeft => {
+                                state.sel_left = state.orig_sel_left + dx;
+                                state.sel_top = state.orig_sel_top + dy;
+                            }
+                            HandlePosition::Top => {
+                                state.sel_top = state.orig_sel_top + dy;
+                            }
+                            HandlePosition::TopRight => {
+                                state.sel_right = state.orig_sel_right + dx;
+                                state.sel_top = state.orig_sel_top + dy;
+                            }
+                            HandlePosition::Right => {
+                                state.sel_right = state.orig_sel_right + dx;
+                            }
+                            HandlePosition::BottomRight => {
+                                state.sel_right = state.orig_sel_right + dx;
+                                state.sel_bottom = state.orig_sel_bottom + dy;
+                            }
+                            HandlePosition::Bottom => {
+                                state.sel_bottom = state.orig_sel_bottom + dy;
+                            }
+                            HandlePosition::BottomLeft => {
+                                state.sel_left = state.orig_sel_left + dx;
+                                state.sel_bottom = state.orig_sel_bottom + dy;
+                            }
+                            HandlePosition::Left => {
+                                state.sel_left = state.orig_sel_left + dx;
+                            }
+                            HandlePosition::Interior => {
+                                // Move entire selection
+                                state.sel_left = state.orig_sel_left + dx;
+                                state.sel_top = state.orig_sel_top + dy;
+                                state.sel_right = state.orig_sel_right + dx;
+                                state.sel_bottom = state.orig_sel_bottom + dy;
+                            }
+                            HandlePosition::None => {}
+                        }
+                        
+                        // Ensure minimum size and correct orientation
+                        if state.sel_right < state.sel_left + 20 {
+                            state.sel_right = state.sel_left + 20;
+                        }
+                        if state.sel_bottom < state.sel_top + 20 {
+                            state.sel_bottom = state.sel_top + 20;
+                        }
+                    }
+                } else if state.is_selecting {
                     state.current_x = x;
                     state.current_y = y;
                     
@@ -669,11 +942,16 @@ unsafe extern "system" fn overlay_wnd_proc(
             if !state_ptr.is_null() {
                 let state = &mut *state_ptr;
                 
-                if state.is_selecting {
+                if state.is_adjusting {
+                    // End adjustment drag
+                    state.is_adjust_dragging = false;
+                    state.adjust_handle = HandlePosition::None;
+                    let _ = render_overlay(state);
+                } else if state.is_selecting {
                     state.is_selecting = false;
                     
                     if state.is_dragging {
-                        // Region selection completed
+                        // Region selection completed - enter adjustment mode
                         let mut x1 = state.start_x.min(state.current_x);
                         let mut y1 = state.start_y.min(state.current_y);
                         let mut x2 = state.start_x.max(state.current_x);
@@ -701,19 +979,28 @@ unsafe extern "system" fn overlay_wnd_proc(
                         let height = (y2 - y1) as u32;
                         
                         if width > 10 && height > 10 {
-                            let screen_x = state.monitor_x + x1;
-                            let screen_y = state.monitor_y + y1;
-                            
-                            state.selection_confirmed = true;
-                            state.final_selection = Some((screen_x, screen_y, width, height));
-                            state.should_close = true;
+                            // Enter adjustment mode instead of closing
+                            state.sel_left = x1;
+                            state.sel_top = y1;
+                            state.sel_right = x2;
+                            state.sel_bottom = y2;
+                            state.is_adjusting = true;
+                            state.is_dragging = false;
+                            let _ = render_overlay(state);
+                        } else {
+                            state.is_dragging = false;
                         }
-                        state.is_dragging = false;
                     } else if let Some(ref win) = state.hovered_window {
-                        // Window selection - user clicked on a detected window
-                        state.selection_confirmed = true;
-                        state.final_selection = Some((win.x, win.y, win.width, win.height));
-                        state.should_close = true;
+                        // Window selection - enter adjustment mode with window bounds
+                        let local_x = win.x - state.monitor_x;
+                        let local_y = win.y - state.monitor_y;
+                        state.sel_left = local_x;
+                        state.sel_top = local_y;
+                        state.sel_right = local_x + win.width as i32;
+                        state.sel_bottom = local_y + win.height as i32;
+                        state.is_adjusting = true;
+                        state.hovered_window = None;
+                        let _ = render_overlay(state);
                     }
                 }
             }
@@ -725,8 +1012,30 @@ unsafe extern "system" fn overlay_wnd_proc(
             if key == 0x1B { // ESC
                 if !state_ptr.is_null() {
                     let state = &mut *state_ptr;
+                    if state.is_adjusting {
+                        // In adjustment mode, ESC cancels and closes
+                        state.is_adjusting = false;
+                    }
                     state.should_close = true;
                     state.selection_confirmed = false;
+                }
+            } else if key == 0x0D { // VK_RETURN (Enter)
+                if !state_ptr.is_null() {
+                    let state = &mut *state_ptr;
+                    if state.is_adjusting {
+                        // Confirm the selection
+                        let width = (state.sel_right - state.sel_left) as u32;
+                        let height = (state.sel_bottom - state.sel_top) as u32;
+                        
+                        if width > 10 && height > 10 {
+                            let screen_x = state.monitor_x + state.sel_left;
+                            let screen_y = state.monitor_y + state.sel_top;
+                            
+                            state.selection_confirmed = true;
+                            state.final_selection = Some((screen_x, screen_y, width, height));
+                            state.should_close = true;
+                        }
+                    }
                 }
             } else if key == 0x10 { // VK_SHIFT
                 if !state_ptr.is_null() {
@@ -884,6 +1193,16 @@ pub fn show_dcomp_overlay(
             Some(&brush_props),
         ).map_err(|e| format!("Failed to create text bg brush: {:?}", e))?;
         
+        let handle_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }, // White fill
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create handle brush: {:?}", e))?;
+        
+        let handle_border_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 0.0, g: 0.47, b: 1.0, a: 1.0 }, // Blue border (same as selection)
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create handle border brush: {:?}", e))?;
+        
         // Create DirectWrite factory and text format
         let dwrite_factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
             .map_err(|e| format!("Failed to create DirectWrite factory: {:?}", e))?;
@@ -911,6 +1230,21 @@ pub fn show_dcomp_overlay(
             is_selecting: false,
             is_dragging: false,
             shift_held: false,
+            // Adjustment mode fields
+            is_adjusting: false,
+            adjust_handle: HandlePosition::None,
+            is_adjust_dragging: false,
+            adjust_drag_start_x: 0,
+            adjust_drag_start_y: 0,
+            sel_left: 0,
+            sel_top: 0,
+            sel_right: 0,
+            sel_bottom: 0,
+            orig_sel_left: 0,
+            orig_sel_top: 0,
+            orig_sel_right: 0,
+            orig_sel_bottom: 0,
+            // Initial selection coords
             start_x: 0,
             start_y: 0,
             current_x: 0,
@@ -933,6 +1267,8 @@ pub fn show_dcomp_overlay(
             crosshair_brush,
             text_brush,
             text_bg_brush,
+            handle_brush,
+            handle_border_brush,
             text_format,
             should_close: false,
             selection_confirmed: false,

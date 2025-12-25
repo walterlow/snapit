@@ -59,7 +59,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     LoadCursorW, PeekMessageW, RegisterClassW, SetCursor,
     ShowWindow, IsWindowVisible, GetWindowLongW, GetSystemMetrics,
     CS_HREDRAW, CS_VREDRAW, IDC_CROSS, IDC_ARROW, IDC_SIZEALL,
-    IDC_SIZENWSE, IDC_SIZENESW, IDC_SIZENS, IDC_SIZEWE,
+    IDC_SIZENWSE, IDC_SIZENESW, IDC_SIZENS, IDC_SIZEWE, IDC_HAND,
     MSG, PM_REMOVE,
     SW_SHOW, WINDOW_EX_STYLE, WNDCLASSW, WS_POPUP, GWL_STYLE, GWL_EXSTYLE,
     WM_CREATE, WM_DESTROY, WM_PAINT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
@@ -97,6 +97,34 @@ enum HandlePosition {
     Left,
     Interior, // For moving the entire selection
 }
+
+/// Panel button identifiers
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum PanelButton {
+    None,
+    Record,
+    Webcam,
+    SystemAudio,
+    Microphone,
+    Capture,
+    Reselect,
+    Cancel,
+}
+
+/// Result action from overlay
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum OverlayAction {
+    Cancelled,
+    StartRecording,
+    CaptureScreenshot,
+}
+
+// Panel constants
+const PANEL_HEIGHT: f32 = 50.0;
+const PANEL_PADDING: f32 = 8.0;
+const PANEL_BUTTON_SIZE: f32 = 36.0;
+const PANEL_BUTTON_GAP: f32 = 4.0;
+const PANEL_CORNER_RADIUS: f32 = 8.0;
 
 /// Overlay state - stored in window user data
 struct OverlayState {
@@ -159,15 +187,28 @@ struct OverlayState {
     text_bg_brush: ID2D1SolidColorBrush,
     handle_brush: ID2D1SolidColorBrush,
     handle_border_brush: ID2D1SolidColorBrush,
+    panel_bg_brush: ID2D1SolidColorBrush,
+    panel_button_brush: ID2D1SolidColorBrush,
+    panel_button_hover_brush: ID2D1SolidColorBrush,
+    record_button_brush: ID2D1SolidColorBrush,
+    icon_brush: ID2D1SolidColorBrush,
+    disabled_brush: ID2D1SolidColorBrush,
     
     // DirectWrite resources
     text_format: IDWriteTextFormat,
+    
+    // Panel state
+    hovered_button: PanelButton,
+    webcam_enabled: bool,
+    system_audio_enabled: bool,
+    mic_enabled: bool,
     
     // Control
     should_close: bool,
     
     // Result
     selection_confirmed: bool,
+    result_action: OverlayAction,
     final_selection: Option<(i32, i32, u32, u32)>,
 }
 
@@ -224,6 +265,133 @@ fn hit_test_handle(x: i32, y: i32, left: i32, top: i32, right: i32, bottom: i32)
     }
     
     HandlePosition::None
+}
+
+/// Calculate the panel position based on selection and monitor layout
+/// Returns (panel_x, panel_y, panel_width) in local overlay coordinates
+fn calculate_panel_position(
+    sel_left: i32, sel_top: i32, sel_right: i32, sel_bottom: i32,
+    _monitor_x: i32, _monitor_y: i32, monitor_width: u32, monitor_height: u32,
+) -> (f32, f32, f32) {
+    // Panel width calculation: buttons + dimensions + padding
+    // Record(36) + gap + Webcam(36) + gap + Audio(36) + gap + Mic(36) + gap + Dims(~100) + gap + Capture(36) + gap + Reselect(36) + gap + Cancel(36) + padding
+    let panel_width = PANEL_PADDING * 2.0 + PANEL_BUTTON_SIZE * 7.0 + PANEL_BUTTON_GAP * 8.0 + 100.0;
+    let panel_height = PANEL_HEIGHT;
+    
+    // Selection center and dimensions
+    let sel_center_x = (sel_left + sel_right) as f32 / 2.0;
+    let sel_width = (sel_right - sel_left) as u32;
+    let sel_height = (sel_bottom - sel_top) as u32;
+    
+    // Check if selection is nearly fullscreen on this monitor
+    let is_fullscreen = sel_width >= monitor_width - 20 && sel_height >= monitor_height - 20;
+    
+    // Default: center below selection
+    let mut panel_x = sel_center_x - panel_width / 2.0;
+    let mut panel_y = sel_bottom as f32 + 15.0;
+    
+    if is_fullscreen {
+        // For fullscreen, we need to check if there's another monitor
+        // For now, place at bottom center of the current monitor with some margin
+        panel_x = (monitor_width as f32 - panel_width) / 2.0;
+        panel_y = monitor_height as f32 - panel_height - 60.0;
+    } else {
+        // Check if panel would go off screen bottom
+        if panel_y + panel_height > monitor_height as f32 - 10.0 {
+            // Place above selection instead
+            panel_y = sel_top as f32 - panel_height - 15.0;
+            
+            // If still off screen (top), place inside at bottom
+            if panel_y < 10.0 {
+                panel_y = sel_bottom as f32 - panel_height - 15.0;
+            }
+        }
+        
+        // Clamp X to screen bounds
+        if panel_x < 10.0 {
+            panel_x = 10.0;
+        }
+        if panel_x + panel_width > monitor_width as f32 - 10.0 {
+            panel_x = monitor_width as f32 - panel_width - 10.0;
+        }
+    }
+    
+    (panel_x, panel_y, panel_width)
+}
+
+/// Get the button rectangles for hit testing
+/// Returns a list of (button_id, rect) tuples
+fn get_panel_button_rects(panel_x: f32, panel_y: f32) -> Vec<(PanelButton, D2D_RECT_F)> {
+    let mut buttons = Vec::new();
+    let mut x = panel_x + PANEL_PADDING;
+    let y = panel_y + (PANEL_HEIGHT - PANEL_BUTTON_SIZE) / 2.0;
+    
+    // Record button
+    buttons.push((PanelButton::Record, D2D_RECT_F {
+        left: x, top: y, right: x + PANEL_BUTTON_SIZE, bottom: y + PANEL_BUTTON_SIZE
+    }));
+    x += PANEL_BUTTON_SIZE + PANEL_BUTTON_GAP;
+    
+    // Webcam button
+    buttons.push((PanelButton::Webcam, D2D_RECT_F {
+        left: x, top: y, right: x + PANEL_BUTTON_SIZE, bottom: y + PANEL_BUTTON_SIZE
+    }));
+    x += PANEL_BUTTON_SIZE + PANEL_BUTTON_GAP;
+    
+    // System Audio button
+    buttons.push((PanelButton::SystemAudio, D2D_RECT_F {
+        left: x, top: y, right: x + PANEL_BUTTON_SIZE, bottom: y + PANEL_BUTTON_SIZE
+    }));
+    x += PANEL_BUTTON_SIZE + PANEL_BUTTON_GAP;
+    
+    // Microphone button
+    buttons.push((PanelButton::Microphone, D2D_RECT_F {
+        left: x, top: y, right: x + PANEL_BUTTON_SIZE, bottom: y + PANEL_BUTTON_SIZE
+    }));
+    x += PANEL_BUTTON_SIZE + PANEL_BUTTON_GAP;
+    
+    // Skip dimensions display area (100px)
+    x += 100.0 + PANEL_BUTTON_GAP;
+    
+    // Capture button
+    buttons.push((PanelButton::Capture, D2D_RECT_F {
+        left: x, top: y, right: x + PANEL_BUTTON_SIZE, bottom: y + PANEL_BUTTON_SIZE
+    }));
+    x += PANEL_BUTTON_SIZE + PANEL_BUTTON_GAP;
+    
+    // Reselect button
+    buttons.push((PanelButton::Reselect, D2D_RECT_F {
+        left: x, top: y, right: x + PANEL_BUTTON_SIZE, bottom: y + PANEL_BUTTON_SIZE
+    }));
+    x += PANEL_BUTTON_SIZE + PANEL_BUTTON_GAP;
+    
+    // Cancel button
+    buttons.push((PanelButton::Cancel, D2D_RECT_F {
+        left: x, top: y, right: x + PANEL_BUTTON_SIZE, bottom: y + PANEL_BUTTON_SIZE
+    }));
+    
+    buttons
+}
+
+/// Hit test which panel button is at the given point
+fn hit_test_panel_button(x: i32, y: i32, panel_x: f32, panel_y: f32, panel_width: f32) -> PanelButton {
+    let xf = x as f32;
+    let yf = y as f32;
+    
+    // First check if inside panel at all
+    if xf < panel_x || xf > panel_x + panel_width || 
+       yf < panel_y || yf > panel_y + PANEL_HEIGHT {
+        return PanelButton::None;
+    }
+    
+    // Check each button
+    for (button, rect) in get_panel_button_rects(panel_x, panel_y) {
+        if xf >= rect.left && xf <= rect.right && yf >= rect.top && yf <= rect.bottom {
+            return button;
+        }
+    }
+    
+    PanelButton::None
 }
 
 /// Check if a window is valid for selection (visible, not a system window, etc.)
@@ -674,39 +842,6 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
                 windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL,
             );
             
-            // In adjustment mode, show hint text
-            if draw_handles {
-                let hint_text = "Drag handles to resize, drag inside to move. Enter to confirm, Esc to cancel.";
-                let hint_text_wide: Vec<u16> = hint_text.encode_utf16().chain(std::iter::once(0)).collect();
-                
-                let hint_width = 450.0_f32;
-                let hint_height = 24.0_f32;
-                let hint_x = (width - hint_width) / 2.0;
-                let hint_y = height - hint_height - 20.0;
-                
-                let hint_bg_rect = D2D_RECT_F {
-                    left: hint_x,
-                    top: hint_y,
-                    right: hint_x + hint_width,
-                    bottom: hint_y + hint_height,
-                };
-                
-                let hint_rounded = windows::Win32::Graphics::Direct2D::D2D1_ROUNDED_RECT {
-                    rect: hint_bg_rect,
-                    radiusX: 4.0,
-                    radiusY: 4.0,
-                };
-                state.d2d_context.FillRoundedRectangle(&hint_rounded, &state.text_bg_brush);
-                
-                state.d2d_context.DrawText(
-                    &hint_text_wide[..hint_text_wide.len() - 1],
-                    &state.text_format,
-                    &hint_bg_rect,
-                    &state.text_brush,
-                    D2D1_DRAW_TEXT_OPTIONS_NONE,
-                    windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL,
-                );
-            }
         }
         
         // Draw resize handles in adjustment mode
@@ -745,6 +880,223 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
             draw_handle(&state.d2d_context, cx, bottom, &state.handle_brush, &state.handle_border_brush);     // Bottom
             draw_handle(&state.d2d_context, left, cy, &state.handle_brush, &state.handle_border_brush);       // Left
             draw_handle(&state.d2d_context, right, cy, &state.handle_brush, &state.handle_border_brush);      // Right
+            
+            // Draw recording settings panel
+            let (panel_x, panel_y, panel_width) = calculate_panel_position(
+                state.sel_left, state.sel_top, state.sel_right, state.sel_bottom,
+                state.monitor_x, state.monitor_y, state.monitor_width, state.monitor_height
+            );
+            
+            // Panel background
+            let panel_rect = D2D_RECT_F {
+                left: panel_x,
+                top: panel_y,
+                right: panel_x + panel_width,
+                bottom: panel_y + PANEL_HEIGHT,
+            };
+            let panel_rounded = windows::Win32::Graphics::Direct2D::D2D1_ROUNDED_RECT {
+                rect: panel_rect,
+                radiusX: PANEL_CORNER_RADIUS,
+                radiusY: PANEL_CORNER_RADIUS,
+            };
+            state.d2d_context.FillRoundedRectangle(&panel_rounded, &state.panel_bg_brush);
+            
+            // Draw panel buttons
+            let button_rects = get_panel_button_rects(panel_x, panel_y);
+            for (button_id, rect) in &button_rects {
+                let is_hovered = *button_id == state.hovered_button;
+                let btn_rounded = windows::Win32::Graphics::Direct2D::D2D1_ROUNDED_RECT {
+                    rect: *rect,
+                    radiusX: 4.0,
+                    radiusY: 4.0,
+                };
+                
+                // Button background
+                let bg_brush = if is_hovered {
+                    &state.panel_button_hover_brush
+                } else {
+                    &state.panel_button_brush
+                };
+                
+                // Special red background for record button
+                if *button_id == PanelButton::Record {
+                    state.d2d_context.FillRoundedRectangle(&btn_rounded, &state.record_button_brush);
+                } else {
+                    state.d2d_context.FillRoundedRectangle(&btn_rounded, bg_brush);
+                }
+                
+                // Draw button icons/symbols
+                let center_x = (rect.left + rect.right) / 2.0;
+                let center_y = (rect.top + rect.bottom) / 2.0;
+                
+                match button_id {
+                    PanelButton::Record => {
+                        // White filled circle for record
+                        let ellipse = windows::Win32::Graphics::Direct2D::D2D1_ELLIPSE {
+                            point: D2D_POINT_2F { x: center_x, y: center_y },
+                            radiusX: 10.0,
+                            radiusY: 10.0,
+                        };
+                        state.d2d_context.FillEllipse(&ellipse, &state.handle_brush);
+                    }
+                    PanelButton::Webcam => {
+                        // Simple camera icon (rectangle with lens circle)
+                        let cam_rect = D2D_RECT_F {
+                            left: center_x - 10.0, top: center_y - 6.0,
+                            right: center_x + 6.0, bottom: center_y + 6.0,
+                        };
+                        state.d2d_context.FillRectangle(&cam_rect, &state.icon_brush);
+                        // Lens
+                        let lens = windows::Win32::Graphics::Direct2D::D2D1_ELLIPSE {
+                            point: D2D_POINT_2F { x: center_x + 8.0, y: center_y },
+                            radiusX: 4.0,
+                            radiusY: 4.0,
+                        };
+                        state.d2d_context.FillEllipse(&lens, &state.icon_brush);
+                        // Cross out line if disabled
+                        if !state.webcam_enabled {
+                            state.d2d_context.DrawLine(
+                                D2D_POINT_2F { x: rect.left + 6.0, y: rect.bottom - 6.0 },
+                                D2D_POINT_2F { x: rect.right - 6.0, y: rect.top + 6.0 },
+                                &state.disabled_brush, 2.0, None
+                            );
+                        }
+                    }
+                    PanelButton::SystemAudio => {
+                        // Speaker icon
+                        let spk_rect = D2D_RECT_F {
+                            left: center_x - 4.0, top: center_y - 5.0,
+                            right: center_x + 2.0, bottom: center_y + 5.0,
+                        };
+                        state.d2d_context.FillRectangle(&spk_rect, &state.icon_brush);
+                        // Sound waves
+                        if state.system_audio_enabled {
+                            state.d2d_context.DrawLine(
+                                D2D_POINT_2F { x: center_x + 5.0, y: center_y - 6.0 },
+                                D2D_POINT_2F { x: center_x + 5.0, y: center_y + 6.0 },
+                                &state.icon_brush, 2.0, None
+                            );
+                            state.d2d_context.DrawLine(
+                                D2D_POINT_2F { x: center_x + 9.0, y: center_y - 8.0 },
+                                D2D_POINT_2F { x: center_x + 9.0, y: center_y + 8.0 },
+                                &state.icon_brush, 2.0, None
+                            );
+                        } else {
+                            state.d2d_context.DrawLine(
+                                D2D_POINT_2F { x: rect.left + 6.0, y: rect.bottom - 6.0 },
+                                D2D_POINT_2F { x: rect.right - 6.0, y: rect.top + 6.0 },
+                                &state.disabled_brush, 2.0, None
+                            );
+                        }
+                    }
+                    PanelButton::Microphone => {
+                        // Mic icon (rounded rect + stand)
+                        let mic_body = windows::Win32::Graphics::Direct2D::D2D1_ROUNDED_RECT {
+                            rect: D2D_RECT_F {
+                                left: center_x - 4.0, top: center_y - 8.0,
+                                right: center_x + 4.0, bottom: center_y + 2.0,
+                            },
+                            radiusX: 4.0, radiusY: 4.0,
+                        };
+                        let mic_brush = if state.mic_enabled { &state.record_button_brush } else { &state.icon_brush };
+                        state.d2d_context.FillRoundedRectangle(&mic_body, mic_brush);
+                        // Stand
+                        state.d2d_context.DrawLine(
+                            D2D_POINT_2F { x: center_x, y: center_y + 2.0 },
+                            D2D_POINT_2F { x: center_x, y: center_y + 8.0 },
+                            &state.icon_brush, 2.0, None
+                        );
+                        if !state.mic_enabled {
+                            state.d2d_context.DrawLine(
+                                D2D_POINT_2F { x: rect.left + 6.0, y: rect.bottom - 6.0 },
+                                D2D_POINT_2F { x: rect.right - 6.0, y: rect.top + 6.0 },
+                                &state.disabled_brush, 2.0, None
+                            );
+                        }
+                    }
+                    PanelButton::Capture => {
+                        // Camera/screenshot icon
+                        let cam_rect = D2D_RECT_F {
+                            left: center_x - 10.0, top: center_y - 6.0,
+                            right: center_x + 10.0, bottom: center_y + 8.0,
+                        };
+                        state.d2d_context.DrawRectangle(&cam_rect, &state.icon_brush, 2.0, None);
+                        let lens = windows::Win32::Graphics::Direct2D::D2D1_ELLIPSE {
+                            point: D2D_POINT_2F { x: center_x, y: center_y + 1.0 },
+                            radiusX: 5.0,
+                            radiusY: 5.0,
+                        };
+                        state.d2d_context.DrawEllipse(&lens, &state.icon_brush, 2.0, None);
+                    }
+                    PanelButton::Reselect => {
+                        // Circular arrow (refresh icon)
+                        let arc = windows::Win32::Graphics::Direct2D::D2D1_ELLIPSE {
+                            point: D2D_POINT_2F { x: center_x, y: center_y },
+                            radiusX: 8.0,
+                            radiusY: 8.0,
+                        };
+                        state.d2d_context.DrawEllipse(&arc, &state.icon_brush, 2.0, None);
+                        // Arrow head
+                        state.d2d_context.DrawLine(
+                            D2D_POINT_2F { x: center_x + 8.0, y: center_y },
+                            D2D_POINT_2F { x: center_x + 4.0, y: center_y - 4.0 },
+                            &state.icon_brush, 2.0, None
+                        );
+                        state.d2d_context.DrawLine(
+                            D2D_POINT_2F { x: center_x + 8.0, y: center_y },
+                            D2D_POINT_2F { x: center_x + 12.0, y: center_y - 4.0 },
+                            &state.icon_brush, 2.0, None
+                        );
+                    }
+                    PanelButton::Cancel => {
+                        // X icon
+                        state.d2d_context.DrawLine(
+                            D2D_POINT_2F { x: center_x - 8.0, y: center_y - 8.0 },
+                            D2D_POINT_2F { x: center_x + 8.0, y: center_y + 8.0 },
+                            &state.icon_brush, 2.0, None
+                        );
+                        state.d2d_context.DrawLine(
+                            D2D_POINT_2F { x: center_x + 8.0, y: center_y - 8.0 },
+                            D2D_POINT_2F { x: center_x - 8.0, y: center_y + 8.0 },
+                            &state.icon_brush, 2.0, None
+                        );
+                    }
+                    PanelButton::None => {}
+                }
+            }
+            
+            // Draw dimensions display
+            let sel_w = (state.sel_right - state.sel_left) as u32;
+            let sel_h = (state.sel_bottom - state.sel_top) as u32;
+            let dims_text = format!("{} x {}", sel_w, sel_h);
+            let dims_text_wide: Vec<u16> = dims_text.encode_utf16().chain(std::iter::once(0)).collect();
+            
+            // Position after mic button, before capture button
+            let dims_x = panel_x + PANEL_PADDING + (PANEL_BUTTON_SIZE + PANEL_BUTTON_GAP) * 4.0;
+            let dims_y = panel_y + (PANEL_HEIGHT - 24.0) / 2.0;
+            let dims_rect = D2D_RECT_F {
+                left: dims_x,
+                top: dims_y,
+                right: dims_x + 100.0,
+                bottom: dims_y + 24.0,
+            };
+            
+            // Draw dims background
+            let dims_rounded = windows::Win32::Graphics::Direct2D::D2D1_ROUNDED_RECT {
+                rect: dims_rect,
+                radiusX: 4.0,
+                radiusY: 4.0,
+            };
+            state.d2d_context.FillRoundedRectangle(&dims_rounded, &state.panel_button_brush);
+            
+            state.d2d_context.DrawText(
+                &dims_text_wide[..dims_text_wide.len() - 1],
+                &state.text_format,
+                &dims_rect,
+                &state.text_brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL,
+            );
         }
         
         state.d2d_context.EndDraw(None, None)?;
@@ -777,6 +1129,21 @@ unsafe extern "system" fn overlay_wnd_proc(
                     let state = &*state_ptr;
                     
                     if state.is_adjusting {
+                        // Check if over panel button first
+                        let (panel_x, panel_y, panel_width) = calculate_panel_position(
+                            state.sel_left, state.sel_top, state.sel_right, state.sel_bottom,
+                            state.monitor_x, state.monitor_y, state.monitor_width, state.monitor_height
+                        );
+                        let button = hit_test_panel_button(state.cursor_x, state.cursor_y, panel_x, panel_y, panel_width);
+                        
+                        if button != PanelButton::None {
+                            // Show hand cursor for buttons
+                            if let Ok(cursor) = LoadCursorW(None, IDC_HAND) {
+                                SetCursor(cursor);
+                                return LRESULT(1);
+                            }
+                        }
+                        
                         // In adjustment mode - show appropriate resize cursor
                         let handle = if state.is_adjust_dragging {
                             // While dragging, keep showing the cursor for the handle being dragged
@@ -826,18 +1193,77 @@ unsafe extern "system" fn overlay_wnd_proc(
                 let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
                 
                 if state.is_adjusting {
-                    // In adjustment mode - check if clicking on a handle or inside
-                    let handle = hit_test_handle(x, y, state.sel_left, state.sel_top, state.sel_right, state.sel_bottom);
-                    if handle != HandlePosition::None {
-                        state.adjust_handle = handle;
-                        state.is_adjust_dragging = true;
-                        state.adjust_drag_start_x = x;
-                        state.adjust_drag_start_y = y;
-                        // Store original selection bounds
-                        state.orig_sel_left = state.sel_left;
-                        state.orig_sel_top = state.sel_top;
-                        state.orig_sel_right = state.sel_right;
-                        state.orig_sel_bottom = state.sel_bottom;
+                    // Check panel button click first
+                    let (panel_x, panel_y, panel_width) = calculate_panel_position(
+                        state.sel_left, state.sel_top, state.sel_right, state.sel_bottom,
+                        state.monitor_x, state.monitor_y, state.monitor_width, state.monitor_height
+                    );
+                    let button = hit_test_panel_button(x, y, panel_x, panel_y, panel_width);
+                    
+                    match button {
+                        PanelButton::Record => {
+                            // Start recording
+                            let width = (state.sel_right - state.sel_left) as u32;
+                            let height = (state.sel_bottom - state.sel_top) as u32;
+                            let screen_x = state.monitor_x + state.sel_left;
+                            let screen_y = state.monitor_y + state.sel_top;
+                            state.selection_confirmed = true;
+                            state.result_action = OverlayAction::StartRecording;
+                            state.final_selection = Some((screen_x, screen_y, width, height));
+                            state.should_close = true;
+                        }
+                        PanelButton::Webcam => {
+                            state.webcam_enabled = !state.webcam_enabled;
+                            let _ = render_overlay(state);
+                        }
+                        PanelButton::SystemAudio => {
+                            state.system_audio_enabled = !state.system_audio_enabled;
+                            let _ = render_overlay(state);
+                        }
+                        PanelButton::Microphone => {
+                            state.mic_enabled = !state.mic_enabled;
+                            let _ = render_overlay(state);
+                        }
+                        PanelButton::Capture => {
+                            // Capture screenshot
+                            let width = (state.sel_right - state.sel_left) as u32;
+                            let height = (state.sel_bottom - state.sel_top) as u32;
+                            let screen_x = state.monitor_x + state.sel_left;
+                            let screen_y = state.monitor_y + state.sel_top;
+                            state.selection_confirmed = true;
+                            state.result_action = OverlayAction::CaptureScreenshot;
+                            state.final_selection = Some((screen_x, screen_y, width, height));
+                            state.should_close = true;
+                        }
+                        PanelButton::Reselect => {
+                            // Go back to selection mode
+                            state.is_adjusting = false;
+                            state.sel_left = 0;
+                            state.sel_top = 0;
+                            state.sel_right = 0;
+                            state.sel_bottom = 0;
+                            let _ = render_overlay(state);
+                        }
+                        PanelButton::Cancel => {
+                            state.should_close = true;
+                            state.selection_confirmed = false;
+                            state.result_action = OverlayAction::Cancelled;
+                        }
+                        PanelButton::None => {
+                            // Check if clicking on a handle or inside selection
+                            let handle = hit_test_handle(x, y, state.sel_left, state.sel_top, state.sel_right, state.sel_bottom);
+                            if handle != HandlePosition::None {
+                                state.adjust_handle = handle;
+                                state.is_adjust_dragging = true;
+                                state.adjust_drag_start_x = x;
+                                state.adjust_drag_start_y = y;
+                                // Store original selection bounds
+                                state.orig_sel_left = state.sel_left;
+                                state.orig_sel_top = state.sel_top;
+                                state.orig_sel_right = state.sel_right;
+                                state.orig_sel_bottom = state.sel_bottom;
+                            }
+                        }
                     }
                 } else {
                     // Normal selection mode
@@ -913,6 +1339,17 @@ unsafe extern "system" fn overlay_wnd_proc(
                         }
                         if state.sel_bottom < state.sel_top + 20 {
                             state.sel_bottom = state.sel_top + 20;
+                        }
+                    } else {
+                        // Not dragging - update hovered button
+                        let (panel_x, panel_y, panel_width) = calculate_panel_position(
+                            state.sel_left, state.sel_top, state.sel_right, state.sel_bottom,
+                            state.monitor_x, state.monitor_y, state.monitor_width, state.monitor_height
+                        );
+                        let new_hovered = hit_test_panel_button(x, y, panel_x, panel_y, panel_width);
+                        if new_hovered != state.hovered_button {
+                            state.hovered_button = new_hovered;
+                            // Re-render to show hover effect
                         }
                     }
                 } else if state.is_selecting {
@@ -1203,6 +1640,37 @@ pub fn show_dcomp_overlay(
             Some(&brush_props),
         ).map_err(|e| format!("Failed to create handle border brush: {:?}", e))?;
         
+        // Panel brushes
+        let panel_bg_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 0.15, g: 0.15, b: 0.15, a: 0.95 }, // Dark gray panel background
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create panel bg brush: {:?}", e))?;
+        
+        let panel_button_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 0.25, g: 0.25, b: 0.25, a: 1.0 }, // Button background
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create panel button brush: {:?}", e))?;
+        
+        let panel_button_hover_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 0.35, g: 0.35, b: 0.35, a: 1.0 }, // Hovered button
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create panel button hover brush: {:?}", e))?;
+        
+        let record_button_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 0.8, g: 0.2, b: 0.2, a: 1.0 }, // Red for record
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create record button brush: {:?}", e))?;
+        
+        let icon_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 0.9, g: 0.9, b: 0.9, a: 1.0 }, // Light gray icons
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create icon brush: {:?}", e))?;
+        
+        let disabled_brush = render_target.CreateSolidColorBrush(
+            &D2D1_COLOR_F { r: 0.9, g: 0.3, b: 0.3, a: 1.0 }, // Red for disabled slash
+            Some(&brush_props),
+        ).map_err(|e| format!("Failed to create disabled brush: {:?}", e))?;
+        
         // Create DirectWrite factory and text format
         let dwrite_factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
             .map_err(|e| format!("Failed to create DirectWrite factory: {:?}", e))?;
@@ -1269,9 +1737,21 @@ pub fn show_dcomp_overlay(
             text_bg_brush,
             handle_brush,
             handle_border_brush,
+            panel_bg_brush,
+            panel_button_brush,
+            panel_button_hover_brush,
+            record_button_brush,
+            icon_brush,
+            disabled_brush,
             text_format,
+            // Panel state
+            hovered_button: PanelButton::None,
+            webcam_enabled: false,
+            system_audio_enabled: true,
+            mic_enabled: true,
             should_close: false,
             selection_confirmed: false,
+            result_action: OverlayAction::Cancelled,
             final_selection: None,
         });
         

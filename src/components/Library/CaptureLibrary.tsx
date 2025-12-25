@@ -137,50 +137,19 @@ export const CaptureLibrary: React.FC = () => {
   };
 
   // Start video/gif recording using DirectComposition overlay (avoids video blackout)
+  // This uses the unified toolbar flow - the dcomp toolbar handles both selection and recording controls
   const startVideoRecording = async (format: RecordingFormat) => {
-    const { setFormat, setMode, startRecording, setCountdown } = useVideoRecordingStore.getState();
-    
     try {
-      // Use DirectComposition overlay for region selection (doesn't black out videos)
-      // Pass null to auto-detect monitor based on cursor position
-      const result = await invoke<[number, number, number, number] | null>('show_dcomp_video_overlay', {
-        monitorIndex: null,
-      });
-      
-      if (!result) {
-        // User cancelled
-        return;
-      }
-      
-      const [x, y, width, height] = result;
-      
-      // Configure recording settings
+      // Set format in store before triggering capture
+      // The trigger_capture flow will use this format
+      const { setFormat } = useVideoRecordingStore.getState();
       setFormat(format);
-      setMode({ type: 'region', x, y, width, height });
-      setCountdown(3); // 3 second countdown
       
-      // Show recording controls and border
-      await invoke('show_recording_controls', {
-        x,
-        y: y + height,
-        regionWidth: width,
-      });
-      
-      await invoke('show_recording_border', {
-        x,
-        y,
-        width,
-        height,
-      });
-      
-      // Start recording
-      const success = await startRecording({ type: 'region', x, y, width, height });
-      if (!success) {
-        console.error('Failed to start recording');
-        await invoke('hide_recording_controls');
-        await invoke('hide_recording_border');
-        toast.error('Failed to start recording');
-      }
+      // Use show_overlay which routes to trigger_capture
+      // For video/gif, this shows the DirectComposition overlay with the unified toolbar
+      // The toolbar handles: selection confirmation, recording start, pause/resume, stop
+      // Recording is started automatically when user clicks Record in the toolbar
+      await invoke('show_overlay', { captureType: format === 'gif' ? 'gif' : 'video' });
     } catch (error) {
       console.error('Failed to start video recording:', error);
       toast.error('Failed to start capture');

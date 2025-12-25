@@ -308,7 +308,7 @@ pub async fn get_recording_status() -> Result<RecordingStatus, String> {
 // ============================================================================
 
 /// Generate a unique output path for the recording.
-fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, String> {
+pub fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, String> {
     // Get the default save directory from settings
     let save_dir = crate::commands::settings::get_default_save_dir_sync()
         .unwrap_or_else(|_| {

@@ -1245,6 +1245,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
           }}
         >
           <RecordingToolbar
+            mode="selection"
             captureType={captureType}
             width={confirmedRegion.width}
             height={confirmedRegion.height}

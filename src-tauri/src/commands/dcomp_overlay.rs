@@ -2271,7 +2271,9 @@ pub fn show_dcomp_overlay(
         };
         
         // Emit overlay closed event for React toolbar
-        if !SHOW_D2D_PANEL {
+        // Only emit if NOT starting recording - when recording starts, the toolbar stays open
+        // to show recording controls (timer, pause/resume, stop)
+        if !SHOW_D2D_PANEL && state.result_action != OverlayAction::StartRecording {
             let _ = state.app_handle.emit("dcomp-overlay-closed", ());
         }
         

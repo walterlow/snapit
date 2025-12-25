@@ -131,7 +131,9 @@ pub async fn start_recording(
         let progress_clone = Arc::clone(&progress);
         let command_rx_clone = command_rx.clone();
 
-        tokio::spawn(async move {
+        // Use tauri's async runtime instead of tokio::spawn to ensure the task
+        // persists even when called from a temporary runtime (like in trigger_capture)
+        tauri::async_runtime::spawn(async move {
             for i in (1..=settings_clone.countdown_secs).rev() {
                 // Check for stop/cancel commands during countdown
                 match command_rx_clone.try_recv() {

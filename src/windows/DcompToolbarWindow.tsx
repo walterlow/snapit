@@ -1,20 +1,19 @@
 /**
- * DcompToolbarWindow - Toolbar for DirectComposition overlay region selection.
+ * DcompToolbarWindow - Unified toolbar for DirectComposition overlay.
  * 
- * This window appears below the selection region when using the DirectComposition
- * overlay for video/GIF recording. It provides controls for:
- * - Starting recording
- * - Taking a screenshot
- * - Redoing region selection
- * - Canceling
+ * This window appears below the selection region and handles BOTH:
+ * 1. Selection mode: region selection controls (record, screenshot, redo, cancel)
+ * 2. Recording mode: recording controls (timer, pause/resume, stop, cancel)
+ * 
+ * The toolbar transitions between modes based on recording state events.
  */
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { RecordingToolbar } from '../components/RegionSelector/RecordingToolbar';
-import type { CaptureType } from '../types';
+import { RecordingToolbar, type ToolbarMode } from '../components/RegionSelector/RecordingToolbar';
+import type { CaptureType, RecordingState, RecordingFormat } from '../types';
 
 const DcompToolbarWindow: React.FC = () => {
   // Parse initial dimensions from URL params (passed when window is created)
@@ -30,6 +29,19 @@ const DcompToolbarWindow: React.FC = () => {
   const [includeCursor, setIncludeCursor] = useState(true);
   // For now, default to 'video' - could be passed via window label or event
   const captureType: CaptureType = 'video';
+
+  // Recording state
+  const [mode, setMode] = useState<ToolbarMode>('selection');
+  const [format, setFormat] = useState<RecordingFormat>('mp4');
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>();
+  
+  // Track if we've already started the local timer for current recording session
+  const isRecordingActiveRef = useRef(false);
+  
+  // Track if we've initiated recording (to prevent closing on overlay-closed event)
+  const recordingInitiatedRef = useRef(false);
 
   // Expose global function for Rust to call via eval()
   // This bypasses Tauri events which have issues in this context
@@ -48,16 +60,94 @@ const DcompToolbarWindow: React.FC = () => {
     };
   }, []);
 
-  // Listen for overlay closed event
+  // Listen for overlay closed event and recording state changes
   useEffect(() => {
     let unlistenClosed: UnlistenFn | null = null;
+    let unlistenState: UnlistenFn | null = null;
+    let unlistenFormat: UnlistenFn | null = null;
 
     const setupListeners = async () => {
       const currentWindow = getCurrentWebviewWindow();
       
       // Listen for overlay closed event
+      // Only close if we haven't initiated recording (recording keeps toolbar open)
       unlistenClosed = await listen('dcomp-overlay-closed', () => {
-        currentWindow.close().catch(console.error);
+        if (!recordingInitiatedRef.current) {
+          currentWindow.close().catch(console.error);
+        }
+      });
+
+      // Listen for recording state changes
+      unlistenState = await listen<RecordingState>('recording-state-changed', (event) => {
+        const state = event.payload;
+        console.log('[DcompToolbar] State changed:', state.status);
+        
+        switch (state.status) {
+          case 'countdown':
+            // Recording starting - reset state
+            isRecordingActiveRef.current = false;
+            setMode('starting');
+            setElapsedTime(0);
+            setProgress(0);
+            setErrorMessage(undefined);
+            break;
+          case 'recording':
+            // Only reset elapsed time when first transitioning to recording
+            if (!isRecordingActiveRef.current) {
+              isRecordingActiveRef.current = true;
+              setElapsedTime('elapsedSecs' in state ? state.elapsedSecs : 0);
+            }
+            setMode('recording');
+            break;
+          case 'paused':
+            setMode('paused');
+            if ('elapsedSecs' in state) {
+              setElapsedTime(state.elapsedSecs);
+            }
+            break;
+          case 'processing':
+            setMode('processing');
+            if ('progress' in state) {
+              setProgress(state.progress);
+            }
+            break;
+          case 'completed':
+          case 'idle':
+            // Recording ended - reset to selection mode
+            isRecordingActiveRef.current = false;
+            setMode('selection');
+            setElapsedTime(0);
+            setProgress(0);
+            // Hide windows and restore main window
+            invoke('hide_recording_border').catch(() => {});
+            invoke('restore_main_window').catch(() => {});
+            // Close toolbar window
+            currentWindow.close().catch(console.error);
+            break;
+          case 'error':
+            const errorMsg = 'message' in state ? state.message : 'Unknown error';
+            isRecordingActiveRef.current = false;
+            setErrorMessage(errorMsg);
+            setMode('error');
+            // Hide border
+            invoke('hide_recording_border').catch(() => {});
+            // Auto-close after showing error
+            setTimeout(() => {
+              setMode('selection');
+              setElapsedTime(0);
+              setProgress(0);
+              setErrorMessage(undefined);
+              invoke('restore_main_window').catch(() => {});
+              currentWindow.close().catch(console.error);
+            }, 3000);
+            break;
+        }
+      });
+
+      // Listen for format changes
+      unlistenFormat = await listen<RecordingFormat>('recording-format', (event) => {
+        console.log('[DcompToolbar] Format changed:', event.payload);
+        setFormat(event.payload);
       });
     };
 
@@ -65,15 +155,36 @@ const DcompToolbarWindow: React.FC = () => {
 
     return () => {
       unlistenClosed?.();
+      unlistenState?.();
+      unlistenFormat?.();
     };
   }, []);
+
+  // Timer for elapsed time during recording
+  useEffect(() => {
+    if (mode !== 'recording') return;
+    const interval = setInterval(() => setElapsedTime(t => t + 0.1), 100);
+    return () => clearInterval(interval);
+  }, [mode]);
 
   // Handlers
   const handleRecord = useCallback(async () => {
     try {
+      // Mark that we've initiated recording so we don't close on overlay-closed event
+      recordingInitiatedRef.current = true;
+      setMode('starting');
+      
+      // Confirm the overlay selection - this triggers the Rust side to:
+      // 1. Close the overlay
+      // 2. Show the recording border
+      // 3. Start the recording
+      // The toolbar stays open and will receive recording-state-changed events
       await invoke('dcomp_overlay_confirm', { action: 'recording' });
+      
     } catch (e) {
       console.error('Failed to start recording:', e);
+      recordingInitiatedRef.current = false;
+      setMode('selection');
     }
   }, []);
 
@@ -95,19 +206,55 @@ const DcompToolbarWindow: React.FC = () => {
 
   const handleCancel = useCallback(async () => {
     try {
-      await invoke('dcomp_overlay_cancel');
+      // If we're recording, cancel the recording
+      if (mode !== 'selection') {
+        console.log('[DcompToolbar] Cancel clicked during recording, invoking cancel_recording...');
+        await invoke('cancel_recording');
+      } else {
+        // Selection mode - cancel the overlay
+        await invoke('dcomp_overlay_cancel');
+      }
     } catch (e) {
       console.error('Failed to cancel:', e);
     }
-  }, []);
+  }, [mode]);
 
   const handleToggleCursor = useCallback(() => {
     setIncludeCursor(prev => !prev);
   }, []);
 
+  // Recording control handlers
+  const handlePause = useCallback(async () => {
+    console.log('[DcompToolbar] Pause clicked');
+    try {
+      await invoke('pause_recording');
+    } catch (e) {
+      console.error('Failed to pause recording:', e);
+    }
+  }, []);
+
+  const handleResume = useCallback(async () => {
+    console.log('[DcompToolbar] Resume clicked');
+    try {
+      await invoke('resume_recording');
+    } catch (e) {
+      console.error('Failed to resume recording:', e);
+    }
+  }, []);
+
+  const handleStop = useCallback(async () => {
+    console.log('[DcompToolbar] Stop clicked');
+    try {
+      await invoke('stop_recording');
+    } catch (e) {
+      console.error('Failed to stop recording:', e);
+    }
+  }, []);
+
   return (
     <div className="w-full h-full flex items-center justify-center pointer-events-none">
       <RecordingToolbar
+        mode={mode}
         captureType={captureType}
         width={dimensions.width}
         height={dimensions.height}
@@ -117,6 +264,14 @@ const DcompToolbarWindow: React.FC = () => {
         onScreenshot={handleScreenshot}
         onRedo={handleRedo}
         onCancel={handleCancel}
+        // Recording mode props
+        format={format}
+        elapsedTime={elapsedTime}
+        progress={progress}
+        errorMessage={errorMessage}
+        onPause={handlePause}
+        onResume={handleResume}
+        onStop={handleStop}
       />
     </div>
   );

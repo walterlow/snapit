@@ -150,15 +150,67 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
             let _ = main_window.hide();
         }
         
+        // Clone capture type as owned String for use in spawned thread
+        let is_gif = ct == "gif";
+        
         // Launch DirectComposition overlay in background
         let app_clone = app.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 match crate::commands::dcomp_overlay::show_dcomp_video_overlay(app_clone.clone(), None).await {
-                    Ok(Some((_x, _y, _width, _height))) => {
-                        // Selection confirmed - the overlay already emitted events
-                        // The React toolbar handles the next steps
+                    Ok(Some((x, y, width, height))) => {
+                        // Selection confirmed - start the recording
+                        // The dcomp-toolbar window stays open and handles recording controls
+                        
+                        // Show recording border around the selection
+                        if let Err(e) = crate::commands::window::show_recording_border_sync(
+                            &app_clone, x, y, width, height
+                        ) {
+                            eprintln!("Failed to show recording border: {}", e);
+                        }
+                        
+                        // Determine format based on capture type
+                        let format = if is_gif {
+                            crate::commands::video_recording::RecordingFormat::Gif
+                        } else {
+                            crate::commands::video_recording::RecordingFormat::Mp4
+                        };
+                        
+                        // Emit format to the toolbar so it displays the correct badge
+                        let format_str = if is_gif { "gif" } else { "mp4" };
+                        let _ = app_clone.emit("recording-format", format_str);
+                        
+                        // Start the recording with the selected region
+                        let settings = crate::commands::video_recording::RecordingSettings {
+                            format,
+                            mode: crate::commands::video_recording::RecordingMode::Region {
+                                x, y, width, height
+                            },
+                            fps: 30,
+                            max_duration_secs: None,
+                            include_cursor: true,
+                            audio: crate::commands::video_recording::AudioSettings::default(),
+                            quality: 80,
+                            countdown_secs: 3, // Use countdown
+                        };
+                        
+                        if let Err(e) = crate::commands::video_recording::recorder::start_recording(
+                            app_clone.clone(), settings.clone(), 
+                            crate::commands::video_recording::generate_output_path(&settings)
+                                .unwrap_or_else(|_| std::env::temp_dir().join("recording.mp4"))
+                        ).await {
+                            eprintln!("Failed to start recording: {}", e);
+                            // Close toolbar and restore main window on error
+                            if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                                let _ = toolbar.close();
+                            }
+                            if let Some(main_window) = app_clone.get_webview_window("main") {
+                                if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                                    let _ = main_window.show();
+                                }
+                            }
+                        }
                     }
                     Ok(None) => {
                         // Cancelled - restore main window
@@ -515,6 +567,17 @@ fn exclude_window_from_capture(_window: &tauri::WebviewWindow) -> Result<(), Str
     Ok(())
 }
 
+/// Show the recording border window (synchronous version for internal use).
+pub fn show_recording_border_sync(
+    app: &AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    show_recording_border_impl(app.clone(), x, y, width, height)
+}
+
 /// Show the recording border window around the recording region.
 /// This is a transparent click-through window that shows a border to indicate
 /// what area is being recorded. The window is excluded from screen capture
@@ -525,6 +588,16 @@ fn exclude_window_from_capture(_window: &tauri::WebviewWindow) -> Result<(), Str
 /// - width, height: Dimensions of the recording region
 #[command]
 pub async fn show_recording_border(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    show_recording_border_impl(app, x, y, width, height)
+}
+
+fn show_recording_border_impl(
     app: AppHandle,
     x: i32,
     y: i32,

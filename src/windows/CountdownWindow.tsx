@@ -43,17 +43,8 @@ const CountdownWindow: React.FC = () => {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
-      {/* Semi-transparent backdrop */}
-      <div
-        className="absolute inset-0"
-        style={{
-          background: 'rgba(0, 0, 0, 0.4)',
-          backdropFilter: 'blur(2px)',
-        }}
-      />
-
-      {/* Countdown container */}
-      <div className="relative z-10">
+      {/* Countdown container - no backdrop, just the countdown circle */}
+      <div className="relative">
         {/* Countdown circle */}
         <div
           key={count}

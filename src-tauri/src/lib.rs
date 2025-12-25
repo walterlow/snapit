@@ -116,6 +116,7 @@ pub fn run() {
             commands::window::show_dcomp_toolbar,
             commands::window::update_dcomp_toolbar,
             commands::window::hide_dcomp_toolbar,
+            commands::window::resize_dcomp_toolbar,
             commands::window::restore_main_window,
             commands::window::show_countdown_window,
             commands::window::hide_countdown_window,

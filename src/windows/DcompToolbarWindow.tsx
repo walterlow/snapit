@@ -46,6 +46,9 @@ const DcompToolbarWindow: React.FC = () => {
   
   // Track if we've initiated recording (to prevent closing on overlay-closed event)
   const recordingInitiatedRef = useRef(false);
+  
+  // Ref to measure toolbar content for dynamic window resizing
+  const toolbarRef = useRef<HTMLDivElement>(null);
 
   // Expose global function for Rust to call via eval()
   // This bypasses Tauri events which have issues in this context
@@ -126,27 +129,33 @@ const DcompToolbarWindow: React.FC = () => {
             setMode('selection');
             setElapsedTime(0);
             setProgress(0);
-            // Hide windows and restore main window
-            invoke('hide_recording_border').catch(() => {});
-            invoke('restore_main_window').catch(() => {});
-            // Close toolbar window
-            currentWindow.close().catch(console.error);
+            // Hide windows and restore main window, then close toolbar
+            // Must await these before closing to ensure they complete
+            Promise.all([
+              invoke('hide_recording_border').catch(() => {}),
+              invoke('hide_countdown_window').catch(() => {}),
+              invoke('restore_main_window').catch(() => {}),
+            ]).finally(() => {
+              currentWindow.close().catch(console.error);
+            });
             break;
           case 'error':
             const errorMsg = 'message' in state ? state.message : 'Unknown error';
             isRecordingActiveRef.current = false;
             setErrorMessage(errorMsg);
             setMode('error');
-            // Hide border
+            // Hide border and countdown immediately
             invoke('hide_recording_border').catch(() => {});
+            invoke('hide_countdown_window').catch(() => {});
             // Auto-close after showing error
             setTimeout(() => {
               setMode('selection');
               setElapsedTime(0);
               setProgress(0);
               setErrorMessage(undefined);
-              invoke('restore_main_window').catch(() => {});
-              currentWindow.close().catch(console.error);
+              invoke('restore_main_window').catch(() => {}).finally(() => {
+                currentWindow.close().catch(console.error);
+              });
             }, 3000);
             break;
         }
@@ -174,6 +183,25 @@ const DcompToolbarWindow: React.FC = () => {
     const interval = setInterval(() => setElapsedTime(t => t + 0.1), 100);
     return () => clearInterval(interval);
   }, [mode]);
+
+  // Resize window to fit toolbar content
+  useEffect(() => {
+    // Small delay to ensure DOM is rendered
+    const timer = setTimeout(() => {
+      if (toolbarRef.current) {
+        const rect = toolbarRef.current.getBoundingClientRect();
+        // Add padding around the content
+        const padding = 24;
+        const width = Math.ceil(rect.width) + padding;
+        const height = Math.ceil(rect.height) + padding;
+        
+        console.log('[DcompToolbar] Resizing window to:', width, height);
+        invoke('resize_dcomp_toolbar', { width, height }).catch(console.error);
+      }
+    }, 50);
+    
+    return () => clearTimeout(timer);
+  }, [mode]); // Re-measure when mode changes (different toolbar layouts)
 
   // Handlers
   const handleRecord = useCallback(async () => {
@@ -268,30 +296,32 @@ const DcompToolbarWindow: React.FC = () => {
 
   return (
     <div className="w-full h-full flex items-center justify-center pointer-events-none">
-      <RecordingToolbar
-        mode={mode}
-        captureType={captureType}
-        width={dimensions.width}
-        height={dimensions.height}
-        includeCursor={includeCursor}
-        onToggleCursor={handleToggleCursor}
-        onRecord={handleRecord}
-        onScreenshot={handleScreenshot}
-        onRedo={handleRedo}
-        onCancel={handleCancel}
-        // Recording mode props
-        format={format}
-        elapsedTime={elapsedTime}
-        progress={progress}
-        errorMessage={errorMessage}
-        onPause={handlePause}
-        onResume={handleResume}
-        onStop={handleStop}
-        // Countdown props
-        countdownSeconds={countdownSeconds}
-        countdownEnabled={countdownEnabled}
-        onToggleCountdown={handleToggleCountdown}
-      />
+      <div ref={toolbarRef}>
+        <RecordingToolbar
+          mode={mode}
+          captureType={captureType}
+          width={dimensions.width}
+          height={dimensions.height}
+          includeCursor={includeCursor}
+          onToggleCursor={handleToggleCursor}
+          onRecord={handleRecord}
+          onScreenshot={handleScreenshot}
+          onRedo={handleRedo}
+          onCancel={handleCancel}
+          // Recording mode props
+          format={format}
+          elapsedTime={elapsedTime}
+          progress={progress}
+          errorMessage={errorMessage}
+          onPause={handlePause}
+          onResume={handleResume}
+          onStop={handleStop}
+          // Countdown props
+          countdownSeconds={countdownSeconds}
+          countdownEnabled={countdownEnabled}
+          onToggleCountdown={handleToggleCountdown}
+        />
+      </div>
     </div>
   );
 };

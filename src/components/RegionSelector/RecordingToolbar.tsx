@@ -123,11 +123,8 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
 
   // Common wrapper styles
   const wrapperStyle = {
-    background: 'rgba(30, 30, 30, 0.95)',
-    backdropFilter: 'blur(12px)',
-    WebkitBackdropFilter: 'blur(12px)',
+    background: 'rgba(24, 24, 24, 0.97)',
     border: '1px solid rgba(255, 255, 255, 0.1)',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
   };
 
   // === STARTING STATE (countdown) ===
@@ -136,26 +133,26 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
     
     return (
       <div
-        className="flex items-center gap-3 px-4 py-3 rounded-xl pointer-events-auto"
-        style={wrapperStyle}
-        onPointerDown={stopPropagation}
-        onClick={stopPropagation}
-      >
+          className="flex items-center gap-3 px-4 h-11 rounded-lg pointer-events-auto"
+          style={wrapperStyle}
+          onPointerDown={stopPropagation}
+          onClick={stopPropagation}
+        >
         {/* Drag handle */}
         <div
           data-tauri-drag-region
-          className="flex items-center justify-center w-6 h-8 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
+          className="flex items-center justify-center w-5 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
           title="Drag to move"
           onMouseDown={handleDragStart}
         >
-          <GripVertical size={16} className="pointer-events-none" />
+          <GripVertical size={14} className="pointer-events-none" />
         </div>
 
         {showCountdown ? (
           // Show countdown number with circle
           <>
-            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-500/20 border-2 border-red-500">
-              <span className="text-red-400 text-xl font-bold select-none animate-pulse">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-red-500/20 border-2 border-red-500">
+              <span className="text-red-400 text-lg font-bold select-none animate-pulse">
                 {countdownSeconds}
               </span>
             </div>
@@ -172,12 +169,13 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
         <button
           type="button"
           onClick={onCancel}
-          className="ml-2 p-1.5 rounded-lg transition-colors hover:bg-red-500/20"
+          className="ml-1 p-1.5 rounded-lg transition-colors hover:bg-red-500/20"
           title="Cancel"
         >
-          <X size={16} className="text-red-400" />
+          <X size={14} className="text-red-400" />
         </button>
-      </div>
+        </div>
+      
     );
   }
 
@@ -185,35 +183,36 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
   if (mode === 'processing') {
     return (
       <div
-        className="flex items-center gap-3 px-4 py-3 rounded-xl pointer-events-auto"
-        style={wrapperStyle}
-        onPointerDown={stopPropagation}
-        onClick={stopPropagation}
-      >
-        {/* Drag handle */}
-        <div
-          data-tauri-drag-region
-          className="flex items-center justify-center w-6 h-8 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
-          title="Drag to move"
-          onMouseDown={handleDragStart}
+          className="flex items-center gap-3 px-4 h-11 rounded-lg pointer-events-auto"
+          style={wrapperStyle}
+          onPointerDown={stopPropagation}
+          onClick={stopPropagation}
         >
-          <GripVertical size={16} className="pointer-events-none" />
-        </div>
+          {/* Drag handle */}
+          <div
+            data-tauri-drag-region
+            className="flex items-center justify-center w-5 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
+            title="Drag to move"
+            onMouseDown={handleDragStart}
+          >
+            <GripVertical size={14} className="pointer-events-none" />
+          </div>
 
-        <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-        <span className="text-white/70 text-sm select-none">
-          Encoding GIF... {Math.round(progress * 100)}%
-        </span>
-        
-        <button
-          type="button"
-          onClick={onCancel}
-          className="ml-2 p-1.5 rounded-lg transition-colors hover:bg-red-500/20"
-          title="Cancel"
-        >
-          <X size={16} className="text-red-400" />
-        </button>
-      </div>
+          <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+          <span className="text-white/70 text-sm select-none">
+            Encoding GIF... {Math.round(progress * 100)}%
+          </span>
+          
+          <button
+            type="button"
+            onClick={onCancel}
+            className="ml-1 p-1.5 rounded-lg transition-colors hover:bg-red-500/20"
+            title="Cancel"
+          >
+            <X size={14} className="text-red-400" />
+          </button>
+        </div>
+      
     );
   }
 
@@ -221,29 +220,30 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
   if (mode === 'error') {
     return (
       <div
-        className="flex items-center gap-3 px-4 py-3 rounded-xl pointer-events-auto"
-        style={{
-          ...wrapperStyle,
-          border: '1px solid rgba(239, 68, 68, 0.5)',
-        }}
-        onPointerDown={stopPropagation}
-        onClick={stopPropagation}
-      >
-        {/* Drag handle */}
-        <div
-          data-tauri-drag-region
-          className="flex items-center justify-center w-6 h-8 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
-          title="Drag to move"
-          onMouseDown={handleDragStart}
+          className="flex items-center gap-3 px-4 h-11 rounded-lg pointer-events-auto"
+          style={{
+            ...wrapperStyle,
+            border: '1px solid rgba(239, 68, 68, 0.5)',
+          }}
+          onPointerDown={stopPropagation}
+          onClick={stopPropagation}
         >
-          <GripVertical size={16} className="pointer-events-none" />
-        </div>
+          {/* Drag handle */}
+          <div
+            data-tauri-drag-region
+            className="flex items-center justify-center w-5 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
+            title="Drag to move"
+            onMouseDown={handleDragStart}
+          >
+            <GripVertical size={14} className="pointer-events-none" />
+          </div>
 
-        <div className="w-4 h-4 rounded-full bg-red-500" />
-        <span className="text-red-400 text-sm select-none max-w-[300px] truncate">
-          {errorMessage || 'Recording failed'}
-        </span>
-      </div>
+          <div className="w-3 h-3 rounded-full bg-red-500" />
+          <span className="text-red-400 text-sm select-none max-w-[280px] truncate">
+            {errorMessage || 'Recording failed'}
+          </span>
+        </div>
+      
     );
   }
 
@@ -254,40 +254,43 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
 
     return (
       <div
-        className="flex items-center gap-2 pl-1 pr-3 py-2 rounded-xl pointer-events-auto"
-        style={wrapperStyle}
-        onPointerDown={stopPropagation}
-        onPointerUp={stopPropagation}
-        onPointerMove={stopPropagation}
-        onClick={stopPropagation}
-      >
+          className="flex items-center gap-3 px-4 h-11 rounded-lg pointer-events-auto"
+          style={{
+            background: 'rgba(18, 18, 18, 0.97)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+          }}
+          onPointerDown={stopPropagation}
+          onPointerUp={stopPropagation}
+          onPointerMove={stopPropagation}
+          onClick={stopPropagation}
+        >
         {/* Drag handle */}
         <div
           data-tauri-drag-region
-          className="flex items-center justify-center w-6 h-10 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
+          className="text-white/40 hover:text-white/70 transition-colors cursor-grab active:cursor-grabbing"
           title="Drag to move"
           onMouseDown={handleDragStart}
         >
-          <GripVertical size={16} className="pointer-events-none" />
+          <GripVertical size={14} className="pointer-events-none" />
         </div>
 
         {/* Recording indicator + timer */}
         <div className="flex items-center gap-2 select-none">
           <Circle
-            size={12}
+            size={10}
             className={isRecording ? 'text-red-500 animate-pulse' : 'text-yellow-500'}
             fill="currentColor"
           />
-          <span className="text-white font-mono text-sm font-medium min-w-[52px]">
+          <span className="text-white font-mono text-sm font-medium tabular-nums">
             {formatTime(elapsedTime)}
           </span>
         </div>
 
         {/* Format badge */}
         <div
-          className="px-2 py-0.5 rounded text-xs font-medium uppercase select-none"
+          className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide select-none"
           style={{
-            background: isGif ? 'rgba(168, 85, 247, 0.3)' : 'rgba(59, 130, 246, 0.3)',
+            background: isGif ? 'rgba(168, 85, 247, 0.25)' : 'rgba(59, 130, 246, 0.25)',
             color: isGif ? '#c084fc' : '#93c5fd',
           }}
         >
@@ -295,51 +298,55 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
         </div>
 
         {/* Divider */}
-        <div className="w-px h-8 bg-white/20" />
+        <div className="w-px h-5 bg-white/15" />
 
-        {/* Pause/Resume button (not for GIF) */}
-        {!isGif && (
+        {/* Control buttons */}
+        <div className="flex items-center gap-0.5">
+          {/* Pause/Resume button (not for GIF) */}
+          {!isGif && (
+            <button
+              type="button"
+              onClick={handlePauseResume}
+              className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10"
+              title={isPaused ? 'Resume' : 'Pause'}
+            >
+              {isPaused ? (
+                <Play size={14} className="text-green-400" fill="currentColor" />
+              ) : (
+                <Pause size={14} className="text-yellow-400" fill="currentColor" />
+              )}
+            </button>
+          )}
+
+          {/* Stop button */}
           <button
             type="button"
-            onClick={handlePauseResume}
-            className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors hover:bg-white/10"
-            title={isPaused ? 'Resume' : 'Pause'}
+            onClick={onStop}
+            className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10"
+            title="Stop and save"
           >
-            {isPaused ? (
-              <Play size={18} className="text-green-400" fill="currentColor" />
-            ) : (
-              <Pause size={18} className="text-yellow-400" fill="currentColor" />
-            )}
+            <Square size={14} className="text-white" fill="currentColor" />
           </button>
-        )}
 
-        {/* Stop button */}
-        <button
-          type="button"
-          onClick={onStop}
-          className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors hover:bg-white/10"
-          title="Stop and save"
-        >
-          <Square size={18} className="text-white" fill="currentColor" />
-        </button>
-
-        {/* Cancel button */}
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors text-white/70 hover:text-red-400 hover:bg-red-500/10"
-          title="Cancel recording"
-        >
-          <X size={18} />
-        </button>
-      </div>
+          {/* Cancel button */}
+          <button
+            type="button"
+            onClick={onCancel}
+            className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-red-500/20"
+            title="Cancel recording"
+          >
+            <X size={14} className="text-red-400" strokeWidth={2.5} />
+          </button>
+        </div>
+        </div>
+      
     );
   }
 
   // === SELECTION STATE (default) ===
   return (
     <div
-      className="flex items-center gap-2 pl-1 pr-3 py-2 rounded-xl pointer-events-auto"
+      className="flex items-center gap-1.5 px-3 h-12 rounded-lg pointer-events-auto"
       style={wrapperStyle}
       onPointerDown={stopPropagation}
       onPointerUp={stopPropagation}
@@ -349,61 +356,61 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
       {/* Drag handle - click to drag the toolbar window */}
       <div
         data-tauri-drag-region
-        className="flex items-center justify-center w-6 h-10 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
+        className="flex items-center justify-center w-6 cursor-grab active:cursor-grabbing text-white/40 hover:text-white/70 transition-colors"
         title="Drag to move"
         onMouseDown={handleDragStart}
       >
-        <GripVertical size={16} className="pointer-events-none" />
+        <GripVertical size={14} className="pointer-events-none" />
       </div>
 
       {/* Record button */}
       <button
         onClick={onRecord}
-        className="flex items-center justify-center w-10 h-10 rounded-lg transition-all hover:scale-105"
+        className="flex items-center justify-center w-9 h-9 rounded-full transition-all hover:scale-105 hover:brightness-110"
         style={{
-          background: '#ef4444',
+          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
         }}
         title={`Start ${isGif ? 'GIF' : 'video'} recording`}
       >
-        <Circle size={20} className="text-white" fill="currentColor" />
+        <Circle size={16} className="text-white" fill="currentColor" />
       </button>
 
       {/* Divider */}
-      <div className="w-px h-8 bg-white/20" />
+      <div className="w-px h-6 bg-white/15 mx-0.5" />
 
       {/* Cursor toggle */}
       <button
         onClick={onToggleCursor}
-        className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${
+        className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
           includeCursor ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white hover:bg-white/10'
         }`}
         title={includeCursor ? 'Cursor: Visible' : 'Cursor: Hidden'}
       >
-        <MousePointer2 size={18} />
+        <MousePointer2 size={16} />
       </button>
 
       {/* Countdown toggle */}
       {onToggleCountdown && (
         <button
           onClick={onToggleCountdown}
-          className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${
+          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
             countdownEnabled ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white hover:bg-white/10'
           }`}
           title={countdownEnabled ? 'Countdown: 3s (click to disable)' : 'Countdown: Off (click to enable)'}
         >
-          {countdownEnabled ? <Timer size={18} /> : <TimerOff size={18} />}
+          {countdownEnabled ? <Timer size={16} /> : <TimerOff size={16} />}
         </button>
       )}
 
       {/* Divider */}
-      <div className="w-px h-8 bg-white/20" />
+      <div className="w-px h-6 bg-white/15 mx-0.5" />
 
       {/* Dimensions display */}
       <div
-        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-mono"
+        className="flex items-center gap-0.5 px-2.5 py-1 rounded-md text-xs font-mono tabular-nums"
         style={{
-          background: 'rgba(255, 255, 255, 0.1)',
-          color: 'rgba(255, 255, 255, 0.8)',
+          background: 'rgba(255, 255, 255, 0.08)',
+          color: 'rgba(255, 255, 255, 0.7)',
         }}
       >
         <span>{Math.round(width)}</span>
@@ -412,35 +419,36 @@ export const RecordingToolbar: React.FC<RecordingToolbarProps> = ({
       </div>
 
       {/* Divider */}
-      <div className="w-px h-8 bg-white/20" />
+      <div className="w-px h-6 bg-white/15 mx-0.5" />
 
       {/* Screenshot button */}
       <button
         onClick={onScreenshot}
-        className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors text-white/70 hover:text-white hover:bg-white/10"
+        className="flex items-center justify-center w-8 h-8 rounded-lg transition-colors text-white/60 hover:text-white hover:bg-white/10"
         title="Take screenshot instead"
       >
-        <Camera size={18} />
+        <Camera size={16} />
       </button>
 
       {/* Redo button */}
       <button
         onClick={onRedo}
-        className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors text-white/70 hover:text-white hover:bg-white/10"
+        className="flex items-center justify-center w-8 h-8 rounded-lg transition-colors text-white/60 hover:text-white hover:bg-white/10"
         title="Redraw region"
       >
-        <RotateCcw size={18} />
+        <RotateCcw size={16} />
       </button>
 
       {/* Cancel button */}
       <button
         onClick={onCancel}
-        className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors text-white/70 hover:text-red-400 hover:bg-red-500/10"
+        className="flex items-center justify-center w-8 h-8 rounded-lg transition-colors text-white/60 hover:text-red-400 hover:bg-red-500/10"
         title="Cancel"
       >
-        <X size={18} />
+        <X size={16} />
       </button>
-    </div>
+      </div>
+    
   );
 };
 

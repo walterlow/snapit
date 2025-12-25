@@ -114,11 +114,23 @@ enum PanelButton {
 }
 
 /// Result action from overlay
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum OverlayAction {
     Cancelled,
     StartRecording,
     CaptureScreenshot,
+}
+
+/// Result from overlay selection - includes selection bounds and action
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayResult {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub action: OverlayAction,
 }
 
 /// Event payload for dcomp-overlay-adjustment-ready
@@ -146,6 +158,9 @@ const PANEL_CORNER_RADIUS: f32 = 8.0;
 struct OverlayState {
     // Tauri app handle for emitting events
     app_handle: AppHandle,
+    
+    // Capture type - determines behavior after selection
+    capture_type: CaptureType,
     
     // Mode: true = region selection in progress, false = window detection mode
     is_selecting: bool,
@@ -1605,18 +1620,26 @@ unsafe extern "system" fn overlay_wnd_proc(
                         let height = (y2 - y1) as u32;
                         
                         if width > 10 && height > 10 {
-                            // Enter adjustment mode instead of closing
-                            state.sel_left = x1;
-                            state.sel_top = y1;
-                            state.sel_right = x2;
-                            state.sel_bottom = y2;
-                            state.is_adjusting = true;
-                            state.is_dragging = false;
+                            let screen_x = state.monitor_x + x1;
+                            let screen_y = state.monitor_y + y1;
                             
-                            // Show and position React toolbar (when D2D panel is hidden)
-                            if !SHOW_D2D_PANEL {
-                                let screen_x = state.monitor_x + state.sel_left;
-                                let screen_y = state.monitor_y + state.sel_top;
+                            // For screenshots, skip adjustment mode and capture immediately
+                            if state.capture_type == CaptureType::Screenshot {
+                                state.selection_confirmed = true;
+                                state.result_action = OverlayAction::CaptureScreenshot;
+                                state.final_selection = Some((screen_x, screen_y, width, height));
+                                state.should_close = true;
+                            } else {
+                                // Enter adjustment mode for video/gif
+                                state.sel_left = x1;
+                                state.sel_top = y1;
+                                state.sel_right = x2;
+                                state.sel_bottom = y2;
+                                state.is_adjusting = true;
+                                state.is_dragging = false;
+                            
+                                // Show and position React toolbar (when D2D panel is hidden)
+                                if !SHOW_D2D_PANEL {
                                 
                                 // Emit event to create/show toolbar window
                                 let _ = state.app_handle.emit("dcomp-overlay-adjustment-ready", OverlayAdjustmentEvent {
@@ -1688,25 +1711,35 @@ unsafe extern "system" fn overlay_wnd_proc(
                             }
                             
                             let _ = render_overlay(state);
+                            }
                         } else {
                             state.is_dragging = false;
                         }
                     } else if let Some(ref win) = state.hovered_window {
-                        // Window selection - enter adjustment mode with window bounds
-                        let local_x = win.x - state.monitor_x;
-                        let local_y = win.y - state.monitor_y;
-                        state.sel_left = local_x;
-                        state.sel_top = local_y;
-                        state.sel_right = local_x + win.width as i32;
-                        state.sel_bottom = local_y + win.height as i32;
-                        state.is_adjusting = true;
+                        // Window selection
+                        let screen_x = win.x;
+                        let screen_y = win.y;
+                        let sel_width = win.width;
+                        let sel_height = win.height;
                         
-                        // Show and position React toolbar (when D2D panel is hidden)
-                        if !SHOW_D2D_PANEL {
-                            let screen_x = state.monitor_x + state.sel_left;
-                            let screen_y = state.monitor_y + state.sel_top;
-                            let sel_width = (state.sel_right - state.sel_left) as u32;
-                            let sel_height = (state.sel_bottom - state.sel_top) as u32;
+                        // For screenshots, skip adjustment mode and capture immediately
+                        if state.capture_type == CaptureType::Screenshot {
+                            state.selection_confirmed = true;
+                            state.result_action = OverlayAction::CaptureScreenshot;
+                            state.final_selection = Some((screen_x, screen_y, sel_width, sel_height));
+                            state.should_close = true;
+                        } else {
+                            // Enter adjustment mode for video/gif
+                            let local_x = win.x - state.monitor_x;
+                            let local_y = win.y - state.monitor_y;
+                            state.sel_left = local_x;
+                            state.sel_top = local_y;
+                            state.sel_right = local_x + win.width as i32;
+                            state.sel_bottom = local_y + win.height as i32;
+                            state.is_adjusting = true;
+                        
+                            // Show and position React toolbar (when D2D panel is hidden)
+                            if !SHOW_D2D_PANEL {
                             
                             // Emit event to create/show toolbar window
                             let _ = state.app_handle.emit("dcomp-overlay-adjustment-ready", OverlayAdjustmentEvent {
@@ -1779,6 +1812,7 @@ unsafe extern "system" fn overlay_wnd_proc(
                         
                         state.hovered_window = None;
                         let _ = render_overlay(state);
+                        }
                     } else {
                         // No window hovered and no drag - select fullscreen of the clicked monitor
                         // Convert click position to screen coordinates
@@ -1802,62 +1836,70 @@ unsafe extern "system" fn overlay_wnd_proc(
                                 let mon_w = mon.width().unwrap_or(1920) as i32;
                                 let mon_h = mon.height().unwrap_or(1080) as i32;
                                 
-                                // Convert monitor bounds to local coordinates (relative to overlay origin)
-                                state.sel_left = mon_x - state.monitor_x;
-                                state.sel_top = mon_y - state.monitor_y;
-                                state.sel_right = state.sel_left + mon_w;
-                                state.sel_bottom = state.sel_top + mon_h;
-                                state.is_adjusting = true;
-                                
-                                // Show and position React toolbar (when D2D panel is hidden)
-                                if !SHOW_D2D_PANEL {
-                                    let screen_x = mon_x;
-                                    let screen_y = mon_y;
-                                    let sel_width = mon_w as u32;
-                                    let sel_height = mon_h as u32;
+                                // For screenshots, skip adjustment mode and capture immediately
+                                if state.capture_type == CaptureType::Screenshot {
+                                    state.selection_confirmed = true;
+                                    state.result_action = OverlayAction::CaptureScreenshot;
+                                    state.final_selection = Some((mon_x, mon_y, mon_w as u32, mon_h as u32));
+                                    state.should_close = true;
+                                } else {
+                                    // Convert monitor bounds to local coordinates (relative to overlay origin)
+                                    state.sel_left = mon_x - state.monitor_x;
+                                    state.sel_top = mon_y - state.monitor_y;
+                                    state.sel_right = state.sel_left + mon_w;
+                                    state.sel_bottom = state.sel_top + mon_h;
+                                    state.is_adjusting = true;
                                     
-                                    // Emit event to create/show toolbar window
-                                    let _ = state.app_handle.emit("dcomp-overlay-adjustment-ready", OverlayAdjustmentEvent {
-                                        x: screen_x,
-                                        y: screen_y,
-                                        width: sel_width,
-                                        height: sel_height,
-                                    });
-                                    
-                                    // Give the window time to be created, then position it correctly
-                                    std::thread::sleep(std::time::Duration::from_millis(50));
-                                    
-                                    if let Some(toolbar_window) = state.app_handle.get_webview_window("dcomp-toolbar") {
-                                        let toolbar_width = 380i32;
-                                        let toolbar_height = 56i32;
-                                        let screen_sel_bottom = screen_y + sel_height as i32;
-                                        let screen_sel_center_x = screen_x + sel_width as i32 / 2;
+                                    // Show and position React toolbar (when D2D panel is hidden)
+                                    if !SHOW_D2D_PANEL {
+                                        let screen_x = mon_x;
+                                        let screen_y = mon_y;
+                                        let sel_width = mon_w as u32;
+                                        let sel_height = mon_h as u32;
                                         
-                                        // Fullscreen selection - find alternate monitor for toolbar
-                                        let alternate = monitors.iter().find(|m| {
-                                            let mx = m.x().unwrap_or(0);
-                                            let my = m.y().unwrap_or(0);
-                                            mx != mon_x || my != mon_y
+                                        // Emit event to create/show toolbar window
+                                        let _ = state.app_handle.emit("dcomp-overlay-adjustment-ready", OverlayAdjustmentEvent {
+                                            x: screen_x,
+                                            y: screen_y,
+                                            width: sel_width,
+                                            height: sel_height,
                                         });
                                         
-                                        let (pos_x, pos_y) = if let Some(alt_mon) = alternate {
-                                            let alt_x = alt_mon.x().unwrap_or(0);
-                                            let alt_y = alt_mon.y().unwrap_or(0);
-                                            let alt_w = alt_mon.width().unwrap_or(1920) as i32;
-                                            let alt_h = alt_mon.height().unwrap_or(1080) as i32;
-                                            (alt_x + (alt_w - toolbar_width) / 2, alt_y + (alt_h - toolbar_height) / 2)
-                                        } else {
-                                            // No alternate monitor, place inside selection at bottom
-                                            (screen_sel_center_x - toolbar_width / 2, screen_sel_bottom - toolbar_height - 60)
-                                        };
+                                        // Give the window time to be created, then position it correctly
+                                        std::thread::sleep(std::time::Duration::from_millis(50));
                                         
-                                        if let Ok(hwnd) = toolbar_window.hwnd() {
-                                            let _ = SetWindowPos(HWND(hwnd.0), HWND_TOPMOST, pos_x, pos_y, toolbar_width, toolbar_height, SWP_NOACTIVATE);
+                                        if let Some(toolbar_window) = state.app_handle.get_webview_window("dcomp-toolbar") {
+                                            let toolbar_width = 380i32;
+                                            let toolbar_height = 56i32;
+                                            let screen_sel_bottom = screen_y + sel_height as i32;
+                                            let screen_sel_center_x = screen_x + sel_width as i32 / 2;
+                                            
+                                            // Fullscreen selection - find alternate monitor for toolbar
+                                            let alternate = monitors.iter().find(|m| {
+                                                let mx = m.x().unwrap_or(0);
+                                                let my = m.y().unwrap_or(0);
+                                                mx != mon_x || my != mon_y
+                                            });
+                                            
+                                            let (pos_x, pos_y) = if let Some(alt_mon) = alternate {
+                                                let alt_x = alt_mon.x().unwrap_or(0);
+                                                let alt_y = alt_mon.y().unwrap_or(0);
+                                                let alt_w = alt_mon.width().unwrap_or(1920) as i32;
+                                                let alt_h = alt_mon.height().unwrap_or(1080) as i32;
+                                                (alt_x + (alt_w - toolbar_width) / 2, alt_y + (alt_h - toolbar_height) / 2)
+                                            } else {
+                                                // No alternate monitor, place inside selection at bottom
+                                                (screen_sel_center_x - toolbar_width / 2, screen_sel_bottom - toolbar_height - 60)
+                                            };
+                                            
+                                            if let Ok(hwnd) = toolbar_window.hwnd() {
+                                                let _ = SetWindowPos(HWND(hwnd.0), HWND_TOPMOST, pos_x, pos_y, toolbar_width, toolbar_height, SWP_NOACTIVATE);
+                                            }
                                         }
                                     }
+                                    
+                                    let _ = render_overlay(state);
                                 }
-                                
-                                let _ = render_overlay(state);
                             }
                         }
                     }
@@ -1969,7 +2011,8 @@ pub fn show_dcomp_overlay(
     monitor_y: i32,
     monitor_width: u32,
     monitor_height: u32,
-) -> Result<Option<(i32, i32, u32, u32)>, String> {
+    capture_type: CaptureType,
+) -> Result<Option<OverlayResult>, String> {
     register_overlay_class().map_err(|e| format!("Failed to register class: {:?}", e))?;
     
     unsafe {
@@ -2114,6 +2157,7 @@ pub fn show_dcomp_overlay(
         // Create state on heap
         let mut state = Box::new(OverlayState {
             app_handle: app,
+            capture_type,
             is_selecting: false,
             is_dragging: false,
             shift_held: false,
@@ -2265,7 +2309,15 @@ pub fn show_dcomp_overlay(
         }
         
         let result = if state.selection_confirmed {
-            state.final_selection
+            state.final_selection.map(|(x, y, width, height)| {
+                OverlayResult {
+                    x,
+                    y,
+                    width,
+                    height,
+                    action: state.result_action,
+                }
+            })
         } else {
             None
         };
@@ -2285,14 +2337,38 @@ pub fn show_dcomp_overlay(
     }
 }
 
-/// Tauri command to show DirectComposition overlay for video/gif selection
+/// Capture type for the overlay
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CaptureType {
+    Screenshot,
+    Video,
+    Gif,
+}
+
+impl CaptureType {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "video" => CaptureType::Video,
+            "gif" => CaptureType::Gif,
+            _ => CaptureType::Screenshot,
+        }
+    }
+}
+
+/// Tauri command to show DirectComposition overlay for region selection
 /// Spans the entire virtual screen (all monitors) for seamless multi-monitor support
+/// 
+/// capture_type: "screenshot", "video", or "gif"
+/// - For screenshots: immediately captures after selection (no toolbar)
+/// - For video/gif: shows toolbar for recording controls
 #[tauri::command]
 pub async fn show_dcomp_video_overlay(
     app: AppHandle,
     _monitor_index: Option<usize>, // Ignored - we now span all monitors
-) -> Result<Option<(i32, i32, u32, u32)>, String> {
+    capture_type: Option<String>,
+) -> Result<Option<OverlayResult>, String> {
     let app_clone = app.clone();
+    let ct = CaptureType::from_str(capture_type.as_deref().unwrap_or("video"));
     
     // Get virtual screen bounds (spans all monitors)
     let (vscreen_x, vscreen_y, vscreen_width, vscreen_height) = unsafe {
@@ -2305,7 +2381,7 @@ pub async fn show_dcomp_video_overlay(
     };
     
     tokio::task::spawn_blocking(move || {
-        show_dcomp_overlay(app_clone, vscreen_x, vscreen_y, vscreen_width, vscreen_height)
+        show_dcomp_overlay(app_clone, vscreen_x, vscreen_y, vscreen_width, vscreen_height, ct)
     })
     .await
     .map_err(|e| format!("Task failed: {:?}", e))?

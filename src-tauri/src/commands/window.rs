@@ -69,6 +69,38 @@ fn apply_dwm_transparency(_window: &tauri::WebviewWindow) -> Result<(), String> 
     Ok(())
 }
 
+/// Apply Windows 11 native rounded corners to a window.
+/// This makes the OS clip the window to a rounded rectangle, eliminating
+/// the rectangular background issue with WebView2 transparent windows.
+#[cfg(target_os = "windows")]
+fn apply_rounded_corners(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE};
+    
+    // DWMWCP_ROUND = 2 (standard rounded corners)
+    // DWMWCP_ROUNDSMALL = 3 (smaller rounded corners)
+    const DWMWCP_ROUND: i32 = 2;
+    
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
+    
+    unsafe {
+        let preference = DWMWCP_ROUND;
+        DwmSetWindowAttribute(
+            HWND(hwnd.0),
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &preference as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
+        ).map_err(|e| format!("Failed to set rounded corners: {:?}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_rounded_corners(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
 /// Pre-create overlay windows at startup (hidden) for instant show later.
 /// Uses DWM-based transparency instead of WS_EX_LAYERED to avoid hardware video blackout.
 pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
@@ -130,85 +162,143 @@ pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Trigger the capture overlay - just show pre-created windows (fast!)
+/// Trigger the capture overlay - uses DirectComposition overlay for all capture types.
 /// capture_type: "screenshot", "video", or "gif"
 /// 
-/// For video/gif capture, uses DirectComposition overlay to avoid blackout issues
-/// with hardware-accelerated video content.
+/// Uses DirectComposition overlay to avoid blackout issues with hardware-accelerated
+/// video content. This works for all capture types (screenshot, video, gif).
 pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<(), String> {
-    let ct = capture_type.unwrap_or("screenshot");
+    // Convert to owned String early to avoid lifetime issues with thread spawn
+    let ct = capture_type.unwrap_or("screenshot").to_string();
     
-    // For video/gif, use DirectComposition overlay to avoid video blackout
-    if ct == "video" || ct == "gif" {
-        // Hide main window first
-        if let Some(main_window) = app.get_webview_window("main") {
-            let was_visible = main_window.is_visible().unwrap_or(false);
-            MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
-            let _ = main_window.hide();
-        }
-        
-        // Clone capture type as owned String for use in spawned thread
-        let is_gif = ct == "gif";
-        
-        // Launch DirectComposition overlay in background
-        let app_clone = app.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                match crate::commands::dcomp_overlay::show_dcomp_video_overlay(app_clone.clone(), None).await {
-                    Ok(Some((x, y, width, height))) => {
-                        // Selection confirmed - start the recording
-                        // The dcomp-toolbar window stays open and handles recording controls
-                        
-                        // Show recording border around the selection
-                        if let Err(e) = crate::commands::window::show_recording_border_sync(
-                            &app_clone, x, y, width, height
-                        ) {
-                            eprintln!("Failed to show recording border: {}", e);
-                        }
-                        
-                        // Determine format based on capture type
-                        let format = if is_gif {
-                            crate::commands::video_recording::RecordingFormat::Gif
-                        } else {
-                            crate::commands::video_recording::RecordingFormat::Mp4
-                        };
-                        
-                        // Emit format to the toolbar so it displays the correct badge
-                        let format_str = if is_gif { "gif" } else { "mp4" };
-                        let _ = app_clone.emit("recording-format", format_str);
-                        
-                        // Get countdown setting (set by frontend via set_recording_countdown command)
-                        let countdown_secs = crate::commands::video_recording::get_countdown_secs();
-                        
-                        // Show countdown overlay window if countdown is enabled
-                        if countdown_secs > 0 {
-                            if let Err(e) = show_countdown_window(app_clone.clone(), x, y, width, height).await {
-                                eprintln!("Failed to show countdown window: {}", e);
+    // Hide main window first
+    if let Some(main_window) = app.get_webview_window("main") {
+        let was_visible = main_window.is_visible().unwrap_or(false);
+        MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
+        let _ = main_window.hide();
+    }
+    
+    // Clone capture type as owned String for use in spawned thread
+    let is_gif = ct == "gif";
+    let ct_for_thread = ct.clone();
+    
+    // Launch DirectComposition overlay in background
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            use crate::commands::dcomp_overlay::{OverlayAction, OverlayResult};
+            
+            match crate::commands::dcomp_overlay::show_dcomp_video_overlay(app_clone.clone(), None, Some(ct_for_thread)).await {
+                Ok(Some(result)) => {
+                    let OverlayResult { x, y, width, height, action } = result;
+                    
+                    match action {
+                        OverlayAction::StartRecording => {
+                            // Start recording flow
+                            // The dcomp-toolbar window stays open and handles recording controls
+                            
+                            // Show recording border around the selection
+                            if let Err(e) = crate::commands::window::show_recording_border_sync(
+                                &app_clone, x, y, width, height
+                            ) {
+                                eprintln!("Failed to show recording border: {}", e);
+                            }
+                            
+                            // Determine format based on capture type
+                            let format = if is_gif {
+                                crate::commands::video_recording::RecordingFormat::Gif
+                            } else {
+                                crate::commands::video_recording::RecordingFormat::Mp4
+                            };
+                            
+                            // Emit format to the toolbar so it displays the correct badge
+                            let format_str = if is_gif { "gif" } else { "mp4" };
+                            let _ = app_clone.emit("recording-format", format_str);
+                            
+                            // Get countdown setting (set by frontend via set_recording_countdown command)
+                            let countdown_secs = crate::commands::video_recording::get_countdown_secs();
+                            
+                            // Show countdown overlay window if countdown is enabled
+                            if countdown_secs > 0 {
+                                if let Err(e) = show_countdown_window(app_clone.clone(), x, y, width, height).await {
+                                    eprintln!("Failed to show countdown window: {}", e);
+                                }
+                            }
+                            
+                            // Start the recording with the selected region
+                            let settings = crate::commands::video_recording::RecordingSettings {
+                                format,
+                                mode: crate::commands::video_recording::RecordingMode::Region {
+                                    x, y, width, height
+                                },
+                                fps: 30,
+                                max_duration_secs: None,
+                                include_cursor: true,
+                                audio: crate::commands::video_recording::AudioSettings::default(),
+                                quality: 80,
+                                countdown_secs,
+                            };
+                            
+                            if let Err(e) = crate::commands::video_recording::recorder::start_recording(
+                                app_clone.clone(), settings.clone(), 
+                                crate::commands::video_recording::generate_output_path(&settings)
+                                    .unwrap_or_else(|_| std::env::temp_dir().join("recording.mp4"))
+                            ).await {
+                                eprintln!("Failed to start recording: {}", e);
+                                // Close toolbar and restore main window on error
+                                if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                                    let _ = toolbar.close();
+                                }
+                                if let Some(main_window) = app_clone.get_webview_window("main") {
+                                    if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                                        let _ = main_window.show();
+                                    }
+                                }
                             }
                         }
-                        
-                        // Start the recording with the selected region
-                        let settings = crate::commands::video_recording::RecordingSettings {
-                            format,
-                            mode: crate::commands::video_recording::RecordingMode::Region {
-                                x, y, width, height
-                            },
-                            fps: 30,
-                            max_duration_secs: None,
-                            include_cursor: true,
-                            audio: crate::commands::video_recording::AudioSettings::default(),
-                            quality: 80,
-                            countdown_secs,
-                        };
-                        
-                        if let Err(e) = crate::commands::video_recording::recorder::start_recording(
-                            app_clone.clone(), settings.clone(), 
-                            crate::commands::video_recording::generate_output_path(&settings)
-                                .unwrap_or_else(|_| std::env::temp_dir().join("recording.mp4"))
-                        ).await {
-                            eprintln!("Failed to start recording: {}", e);
-                            // Close toolbar and restore main window on error
+                        OverlayAction::CaptureScreenshot => {
+                            // Screenshot flow - close toolbar, capture region, open editor
+                            if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                                let _ = toolbar.close();
+                            }
+                            
+                            // Capture the region
+                            let selection = crate::commands::capture::ScreenRegionSelection {
+                                x, y, width, height,
+                            };
+                            
+                            match crate::commands::capture::capture_screen_region_fast(selection).await {
+                                Ok(result) => {
+                                    // Open editor with the captured image
+                                    if let Err(e) = crate::commands::window::open_editor_fast(
+                                        app_clone.clone(),
+                                        result.file_path,
+                                        result.width,
+                                        result.height,
+                                    ).await {
+                                        eprintln!("Failed to open editor: {}", e);
+                                        // Restore main window on error
+                                        if let Some(main_window) = app_clone.get_webview_window("main") {
+                                            if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                                                let _ = main_window.show();
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to capture screenshot: {}", e);
+                                    // Restore main window on error
+                                    if let Some(main_window) = app_clone.get_webview_window("main") {
+                                        if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                                            let _ = main_window.show();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        OverlayAction::Cancelled => {
+                            // User cancelled - close toolbar and restore main window
                             if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
                                 let _ = toolbar.close();
                             }
@@ -219,87 +309,34 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             }
                         }
                     }
-                    Ok(None) => {
-                        // Cancelled - restore main window
-                        if let Some(main_window) = app_clone.get_webview_window("main") {
-                            if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-                                let _ = main_window.show();
-                            }
-                        }
+                }
+                Ok(None) => {
+                    // Cancelled (no selection made) - restore main window
+                    if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                        let _ = toolbar.close();
                     }
-                    Err(e) => {
-                        eprintln!("DComp overlay error: {}", e);
-                        // Restore main window on error
-                        if let Some(main_window) = app_clone.get_webview_window("main") {
-                            if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-                                let _ = main_window.show();
-                            }
+                    if let Some(main_window) = app_clone.get_webview_window("main") {
+                        if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                            let _ = main_window.show();
                         }
                     }
                 }
-            });
+                Err(e) => {
+                    eprintln!("DComp overlay error: {}", e);
+                    // Restore main window on error
+                    if let Some(toolbar) = app_clone.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+                        let _ = toolbar.close();
+                    }
+                    if let Some(main_window) = app_clone.get_webview_window("main") {
+                        if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                            let _ = main_window.show();
+                        }
+                    }
+                }
+            }
         });
-        
-        return Ok(());
-    }
+    });
     
-    let monitors = get_monitors().map_err(|e| format!("Failed to get monitors: {}", e))?;
-    let current_monitor_count = monitors.len();
-
-    // Check if we need to recreate overlays (monitor count changed or not created yet)
-    let labels = OVERLAY_LABELS.lock().unwrap();
-    let existing_overlay_count = labels.len();
-    drop(labels); // Release lock before potential recreation
-
-    if !OVERLAYS_CREATED.load(Ordering::SeqCst) || existing_overlay_count != current_monitor_count {
-        // Close any existing overlays first
-        let labels = OVERLAY_LABELS.lock().unwrap();
-        for label in labels.iter() {
-            if let Some(window) = app.get_webview_window(label) {
-                let _ = window.close();
-            }
-        }
-        drop(labels);
-
-        // Reset the flag and recreate
-        OVERLAYS_CREATED.store(false, Ordering::SeqCst);
-        precreate_overlays(app)?;
-    }
-
-    let labels = OVERLAY_LABELS.lock().unwrap();
-
-    // Only track main window visibility if we're starting a NEW capture session
-    // This prevents overwriting the saved state if trigger_capture is called multiple times
-    if !CAPTURE_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        // This is a new capture session - save the current main window visibility
-        if let Some(main_window) = app.get_webview_window("main") {
-            let was_visible = main_window.is_visible().unwrap_or(false);
-            MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
-            let _ = main_window.hide();
-        }
-    }
-
-    // Show and position pre-created overlays (fast - no window creation!)
-    for (idx, label) in labels.iter().enumerate() {
-        if let Some(window) = app.get_webview_window(label) {
-            if let Some(monitor) = monitors.get(idx) {
-                // Reset overlay state BEFORE showing to avoid flash of old content
-                // Include capture type so overlay knows what mode to start in
-                let payload = serde_json::json!({ "captureType": ct });
-                let _ = window.emit("reset-overlay", payload);
-
-                let _ = window.set_position(tauri::Position::Physical(
-                    tauri::PhysicalPosition { x: monitor.x, y: monitor.y }
-                ));
-                let _ = window.show();
-                let _ = window.set_focus();
-            } else {
-                // No matching monitor - ensure overlay is hidden
-                let _ = window.hide();
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -571,6 +608,11 @@ fn show_recording_border_impl(
 
     // CRITICAL: Exclude window from screen capture so it doesn't appear in recordings
     exclude_window_from_capture(&window)?;
+    
+    // Apply DWM blur-behind for true transparency on Windows
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency to border: {}", e);
+    }
 
     // Make it click-through so users can interact with the content below
     window.set_ignore_cursor_events(true)
@@ -611,9 +653,11 @@ pub async fn show_dcomp_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Window dimensions - matches RecordingToolbar component size (including drag handle)
-    let window_width: i32 = 412;
-    let window_height: i32 = 56;
+    // Initial window dimensions - generous size to let frontend toolbar render naturally
+    // Frontend will measure content and call resize_dcomp_toolbar to fit exactly
+    // Extra space is transparent and click-through until resize happens
+    let window_width: i32 = 600;
+    let window_height: i32 = 80;
 
     // Get monitors to detect fullscreen and find alternate monitor
     let monitors = get_monitors().unwrap_or_default();
@@ -639,7 +683,7 @@ pub async fn show_dcomp_toolbar(
     // Calculate toolbar position - centered horizontally below selection
     let toolbar_x = sel_center_x - window_width / 2;
     
-    let (pos_x, pos_y) = if is_fullscreen {
+    let (mut pos_x, mut pos_y) = if is_fullscreen {
         // For fullscreen, try to find alternate monitor
         let alternate = monitors.iter().find(|m| {
             if let Some(curr) = current_monitor {
@@ -663,6 +707,35 @@ pub async fn show_dcomp_toolbar(
         // Normal selection: place below selection, horizontally centered
         (toolbar_x, sel_bottom + 12)
     };
+    
+    // Bounds checking: ensure toolbar is fully visible on current monitor
+    if let Some(mon) = current_monitor {
+        let mon_right = mon.x + mon.width as i32;
+        let mon_bottom = mon.y + mon.height as i32;
+        let margin = 8; // Small margin from screen edges
+        
+        // Check if toolbar would be off-screen at the bottom
+        if pos_y + window_height > mon_bottom - margin {
+            // Try placing above the selection instead
+            let above_y = y - window_height - 12;
+            if above_y >= mon.y + margin {
+                pos_y = above_y;
+            } else {
+                // Can't fit above either, place inside selection at bottom
+                pos_y = sel_bottom - window_height - 20;
+            }
+        }
+        
+        // Clamp horizontal position to screen bounds
+        if pos_x < mon.x + margin {
+            pos_x = mon.x + margin;
+        } else if pos_x + window_width > mon_right - margin {
+            pos_x = mon_right - window_width - margin;
+        }
+        
+        // Final safety check: ensure toolbar is at least partially visible
+        pos_y = pos_y.max(mon.y + margin).min(mon_bottom - window_height - margin);
+    }
     
     // Check if window already exists
     if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
@@ -698,6 +771,16 @@ pub async fn show_dcomp_toolbar(
 
     // Exclude from capture so it doesn't appear in recordings
     let _ = exclude_window_from_capture(&window);
+    
+    // Apply DWM blur-behind for true transparency on Windows
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency to toolbar: {}", e);
+    }
+    
+    // Note: Rounded corners disabled for testing square layout
+    // if let Err(e) = apply_rounded_corners(&window) {
+    //     eprintln!("Warning: Failed to apply rounded corners: {}", e);
+    // }
 
     // Ensure always on top
     window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
@@ -716,13 +799,55 @@ pub async fn update_dcomp_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Window dimensions - matches RecordingToolbar component size (including drag handle)
-    let window_width: f64 = 412.0;
+    // Window dimensions - use generous defaults for positioning calculations
+    // Frontend controls actual size via resize_dcomp_toolbar
+    let window_width: i32 = 600;
+    let window_height: i32 = 80;
 
     // Position toolbar centered below the selection
     let selection_bottom = y + height as i32;
-    let pos_x = x + (width as i32 / 2) - (window_width as i32 / 2);
-    let pos_y = selection_bottom + 12; // 12px below selection
+    let sel_center_x = x + (width as i32) / 2;
+    let mut pos_x = sel_center_x - window_width / 2;
+    let mut pos_y = selection_bottom + 12; // 12px below selection
+    
+    // Get monitors for bounds checking
+    let monitors = get_monitors().unwrap_or_default();
+    let sel_center_y = y + (height as i32) / 2;
+    
+    // Find which monitor contains the selection center
+    let current_monitor = monitors.iter().find(|m| {
+        sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
+        sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
+    });
+    
+    // Bounds checking: ensure toolbar is fully visible on current monitor
+    if let Some(mon) = current_monitor {
+        let mon_right = mon.x + mon.width as i32;
+        let mon_bottom = mon.y + mon.height as i32;
+        let margin = 8;
+        
+        // Check if toolbar would be off-screen at the bottom
+        if pos_y + window_height > mon_bottom - margin {
+            // Try placing above the selection instead
+            let above_y = y - window_height - 12;
+            if above_y >= mon.y + margin {
+                pos_y = above_y;
+            } else {
+                // Can't fit above either, place inside selection at bottom
+                pos_y = selection_bottom - window_height - 20;
+            }
+        }
+        
+        // Clamp horizontal position to screen bounds
+        if pos_x < mon.x + margin {
+            pos_x = mon.x + margin;
+        } else if pos_x + window_width > mon_right - margin {
+            pos_x = mon_right - window_width - margin;
+        }
+        
+        // Final safety check
+        pos_y = pos_y.max(mon.y + margin).min(mon_bottom - window_height - margin);
+    }
 
     if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
         // Reposition the toolbar
@@ -770,6 +895,22 @@ pub async fn hide_dcomp_toolbar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Resize the DirectComposition overlay toolbar window.
+/// Called by frontend after measuring its content size.
+#[command]
+pub async fn resize_dcomp_toolbar(
+    app: AppHandle,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(DCOMP_TOOLBAR_LABEL) {
+        window.set_size(tauri::Size::Physical(
+            tauri::PhysicalSize { width, height }
+        )).map_err(|e| format!("Failed to resize toolbar: {}", e))?;
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Countdown Window
 // ============================================================================
@@ -796,20 +937,36 @@ pub async fn show_countdown_window(
     let window = WebviewWindowBuilder::new(&app, COUNTDOWN_WINDOW_LABEL, url)
         .title("Countdown")
         .inner_size(width as f64, height as f64)
-        .position(x as f64, y as f64)
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
         .shadow(false)
-        .visible(true)
+        .visible(false) // Start hidden, position first
         .build()
         .map_err(|e| format!("Failed to create countdown window: {}", e))?;
+
+    // Use physical coordinates to match the recording region exactly
+    window.set_position(tauri::Position::Physical(
+        tauri::PhysicalPosition { x, y }
+    )).map_err(|e| format!("Failed to set position: {}", e))?;
+    
+    window.set_size(tauri::Size::Physical(
+        tauri::PhysicalSize { width, height }
+    )).map_err(|e| format!("Failed to set size: {}", e))?;
 
     // Make click-through
     window.set_ignore_cursor_events(true)
         .map_err(|e| format!("Failed to set cursor events: {}", e))?;
+    
+    // Apply DWM blur-behind for true transparency on Windows
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency to countdown: {}", e);
+    }
+    
+    // Now show the window
+    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
 
     // Exclude from capture
     let _ = exclude_window_from_capture(&window);

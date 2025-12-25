@@ -134,6 +134,10 @@ pub async fn start_recording(
         // Use tauri's async runtime instead of tokio::spawn to ensure the task
         // persists even when called from a temporary runtime (like in trigger_capture)
         tauri::async_runtime::spawn(async move {
+            // Brief delay to allow countdown window to initialize its event listener
+            // Without this, the first countdown event (3) may be emitted before the window is ready
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            
             for i in (1..=settings_clone.countdown_secs).rev() {
                 // Check for stop/cancel commands during countdown
                 match command_rx_clone.try_recv() {

@@ -82,6 +82,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
 
 [target.'cfg(windows)'.dependencies]
+# Note: We access WebView2 via raw COM pointers to avoid version conflicts
 windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Controls",

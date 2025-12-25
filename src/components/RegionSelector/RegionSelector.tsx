@@ -69,6 +69,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
   const [isSelecting, setIsSelecting] = useState(false);
   const [selection, setSelection] = useState<SelectionRect | null>(null);
   const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
+  const [isMouseOnMonitor, setIsMouseOnMonitor] = useState(false);
   const [hoveredWindow, setHoveredWindow] = useState<WindowInfo | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [sharedSelection, setSharedSelection] = useState<SharedSelection | null>(null);
@@ -565,6 +566,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
 
   // Handle pointer enter - pick up active drag from another monitor
   const handlePointerEnter = useCallback((e: React.PointerEvent) => {
+    setIsMouseOnMonitor(true);
+    
     // If there's an active shared selection from another monitor AND mouse button is pressed, continue the drag here
     if (sharedSelection && sharedSelection.isActive && sharedSelection.originMonitor !== monitorIndex && e.buttons === 1) {
       const rect = containerRef.current?.getBoundingClientRect();
@@ -595,6 +598,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
 
   // Handle pointer leave - clear hovered window but DON'T cancel active drag
   const handlePointerLeave = useCallback(() => {
+    setIsMouseOnMonitor(false);
+    
     // Clear any pending window detection
     if (windowDetectTimeoutRef.current) {
       clearTimeout(windowDetectTimeoutRef.current);
@@ -874,13 +879,15 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
            toolbarY >= monitorY && toolbarY < monitorY + monitorHeight;
   })();
 
-  // For video/gif mode, use transparent overlay to avoid blacking out hardware-accelerated video
+  // For video/gif mode, check if we need different handling
   const isVideoOrGifMode = captureType === 'video' || captureType === 'gif';
   
   // Determine background color based on mode
+  // With DWM-based transparency, we can use transparent backgrounds for video/gif
+  // that work properly with hardware-accelerated video
   const getBackgroundColor = () => {
     if (isVideoOrGifMode) {
-      // Fully transparent for video/gif - no overlay dimming
+      // Transparent for video/gif - DWM handles this without WS_EX_LAYERED blackout
       return 'transparent';
     }
     // Normal dimming for screenshots
@@ -903,24 +910,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       onPointerEnter={showCountdown ? undefined : handlePointerEnter}
       onPointerLeave={showCountdown ? undefined : handlePointerLeave}
     >
-      {/* Window highlight border for video/gif mode (no darkening, just border) */}
-      {windowHighlight && mode === 'window' && !isDragging && !confirmedRegion && isVideoOrGifMode && (
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            left: windowHighlight.x,
-            top: windowHighlight.y,
-            width: windowHighlight.width,
-            height: windowHighlight.height,
-            outline: '3px solid #F97066',
-            outlineOffset: '-2px',
-            boxShadow: '0 0 20px rgba(249, 112, 102, 0.5), 0 0 40px rgba(249, 112, 102, 0.3)',
-          }}
-        />
-      )}
-
-      {/* Window highlight mode with darkening - for screenshots only */}
-      {windowHighlight && mode === 'window' && !isDragging && !confirmedRegion && !isVideoOrGifMode && (
+      {/* Window highlight mode with darkening */}
+      {windowHighlight && mode === 'window' && !isDragging && !confirmedRegion && (
         <>
           {/* Darken outside the window */}
           <div className="absolute inset-0 pointer-events-none">
@@ -971,8 +962,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
         </>
       )}
 
-      {/* Crosshair guides - only show in region mode, hide when confirmed region exists or during countdown */}
-      {!isSelecting && mode === 'region' && !confirmedRegion && !showCountdown && (
+      {/* Crosshair guides - show during selection phase for video/gif mode (no dimming), or in region mode for screenshots */}
+      {/* Only show on the monitor where the mouse currently is */}
+      {!isSelecting && !confirmedRegion && !showCountdown && isMouseOnMonitor && (isVideoOrGifMode || mode === 'region') && (
         <>
           {/* Horizontal line */}
           <div
@@ -980,7 +972,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
             style={{
               top: cursorPos.y,
               height: '1px',
-              backgroundImage: 'linear-gradient(to right, rgba(59, 130, 246, 0.5) 50%, transparent 50%)',
+              backgroundImage: isVideoOrGifMode 
+                ? 'linear-gradient(to right, rgba(249, 112, 102, 0.7) 50%, transparent 50%)'
+                : 'linear-gradient(to right, rgba(59, 130, 246, 0.5) 50%, transparent 50%)',
               backgroundSize: '8px 1px',
             }}
           />
@@ -990,7 +984,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
             style={{
               left: cursorPos.x,
               width: '1px',
-              backgroundImage: 'linear-gradient(to bottom, rgba(59, 130, 246, 0.5) 50%, transparent 50%)',
+              backgroundImage: isVideoOrGifMode
+                ? 'linear-gradient(to bottom, rgba(249, 112, 102, 0.7) 50%, transparent 50%)'
+                : 'linear-gradient(to bottom, rgba(59, 130, 246, 0.5) 50%, transparent 50%)',
               backgroundSize: '1px 8px',
             }}
           />

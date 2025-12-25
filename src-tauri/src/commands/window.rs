@@ -22,7 +22,55 @@ static OVERLAYS_CREATED: AtomicBool = AtomicBool::new(false);
 // Store overlay window labels for reuse
 static OVERLAY_LABELS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// Pre-create overlay windows at startup (hidden) for instant show later
+/// Apply DWM blur-behind transparency to a window.
+/// This uses a tiny off-screen blur region trick (from PowerToys) to get
+/// DWM-composited transparency without WS_EX_LAYERED, avoiding hardware video blackout.
+#[cfg(target_os = "windows")]
+fn apply_dwm_transparency(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmEnableBlurBehindWindow, DWM_BLURBEHIND, DWM_BB_ENABLE, DWM_BB_BLURREGION};
+    use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, HRGN};
+    use windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics;
+    use windows::Win32::UI::WindowsAndMessaging::SM_CXVIRTUALSCREEN;
+    
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
+    
+    unsafe {
+        // Create a tiny region way off-screen (PowerToys trick)
+        // This enables DWM blur/transparency without actually blurring anything visible
+        let pos = -GetSystemMetrics(SM_CXVIRTUALSCREEN) - 8;
+        let hrgn: HRGN = CreateRectRgn(pos, 0, pos + 1, 1);
+        
+        if hrgn.is_invalid() {
+            return Err("Failed to create region".to_string());
+        }
+        
+        let blur_behind = DWM_BLURBEHIND {
+            dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
+            fEnable: true.into(),
+            hRgnBlur: hrgn,
+            fTransitionOnMaximized: false.into(),
+        };
+        
+        let result = DwmEnableBlurBehindWindow(HWND(hwnd.0), &blur_behind);
+        
+        // Clean up the region
+        let _ = DeleteObject(hrgn);
+        
+        result.map_err(|e| format!("Failed to enable blur behind: {:?}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_dwm_transparency(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    // DWM is Windows-only, use regular transparency on other platforms
+    Ok(())
+}
+
+/// Pre-create overlay windows at startup (hidden) for instant show later.
+/// Uses DWM-based transparency instead of WS_EX_LAYERED to avoid hardware video blackout.
 pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
     if OVERLAYS_CREATED.load(Ordering::SeqCst) {
         return Ok(());
@@ -49,6 +97,8 @@ pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
             .into(),
         );
 
+        // Use transparent(true) for proper alpha blending.
+        // We also apply DWM blur-behind which may help with hardware video composition.
         let window = WebviewWindowBuilder::new(app, &label, url)
             .title("")
             .inner_size(width, height)
@@ -62,6 +112,11 @@ pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
             .visible(false) // Start hidden!
             .build()
             .map_err(|e| format!("Failed to create overlay: {}", e))?;
+
+        // Apply DWM blur-behind (may help with hardware video composition)
+        if let Err(e) = apply_dwm_transparency(&window) {
+            eprintln!("Warning: Failed to apply DWM blur-behind to overlay {}: {}", idx, e);
+        }
 
         // Move off-screen initially
         let _ = window.set_position(tauri::Position::Physical(
@@ -187,9 +242,8 @@ pub async fn show_overlay(app: AppHandle, capture_type: Option<String>) -> Resul
 
 #[command]
 pub async fn hide_overlay(app: AppHandle, restore_main_window: Option<bool>) -> Result<(), String> {
+    // Hide overlays
     let labels = OVERLAY_LABELS.lock().unwrap();
-
-    // Hide overlays (don't reset state here - reset happens when showing for next capture)
     for label in labels.iter() {
         if let Some(window) = app.get_webview_window(label) {
             // Move off-screen and hide
@@ -199,6 +253,7 @@ pub async fn hide_overlay(app: AppHandle, restore_main_window: Option<bool>) -> 
             let _ = window.hide();
         }
     }
+    drop(labels);
 
     // Mark capture as no longer in progress
     CAPTURE_IN_PROGRESS.store(false, Ordering::SeqCst);

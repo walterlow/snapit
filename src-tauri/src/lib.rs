@@ -162,6 +162,8 @@ pub fn run() {
             commands::logging::get_log_dir,
             commands::logging::open_log_dir,
             commands::logging::get_recent_logs,
+            // DirectComposition overlay for video/gif (avoids video blackout)
+            commands::dcomp_overlay::show_dcomp_video_overlay,
         ])
         .setup(|app| {
             // Initialize logging system first

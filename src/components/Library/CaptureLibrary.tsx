@@ -6,7 +6,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection } from '../../types';
+import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
+import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection, RecordingFormat } from '../../types';
 
 import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock } from './hooks';
 import {
@@ -135,22 +136,62 @@ export const CaptureLibrary: React.FC = () => {
     }
   };
 
-  const handleNewVideo = async () => {
+  // Start video/gif recording using DirectComposition overlay (avoids video blackout)
+  const startVideoRecording = async (format: RecordingFormat) => {
+    const { setFormat, setMode, startRecording, setCountdown } = useVideoRecordingStore.getState();
+    
     try {
-      await invoke('show_overlay', { captureType: 'video' });
+      // Use DirectComposition overlay for region selection (doesn't black out videos)
+      const result = await invoke<[number, number, number, number] | null>('show_dcomp_video_overlay', {
+        monitorIndex: 0, // TODO: Support multi-monitor
+      });
+      
+      if (!result) {
+        // User cancelled
+        return;
+      }
+      
+      const [x, y, width, height] = result;
+      
+      // Configure recording settings
+      setFormat(format);
+      setMode({ type: 'region', x, y, width, height });
+      setCountdown(3); // 3 second countdown
+      
+      // Show recording controls and border
+      await invoke('show_recording_controls', {
+        x,
+        y: y + height,
+        regionWidth: width,
+      });
+      
+      await invoke('show_recording_border', {
+        x,
+        y,
+        width,
+        height,
+      });
+      
+      // Start recording
+      const success = await startRecording({ type: 'region', x, y, width, height });
+      if (!success) {
+        console.error('Failed to start recording');
+        await invoke('hide_recording_controls');
+        await invoke('hide_recording_border');
+        toast.error('Failed to start recording');
+      }
     } catch (error) {
-      console.error('Failed to start capture:', error);
+      console.error('Failed to start video recording:', error);
       toast.error('Failed to start capture');
     }
   };
 
+  const handleNewVideo = async () => {
+    await startVideoRecording('mp4');
+  };
+
   const handleNewGif = async () => {
-    try {
-      await invoke('show_overlay', { captureType: 'gif' });
-    } catch (error) {
-      console.error('Failed to start capture:', error);
-      toast.error('Failed to start capture');
-    }
+    await startVideoRecording('gif');
   };
 
   const handleAllMonitorsCapture = async () => {

@@ -1,4 +1,5 @@
 pub mod capture;
+pub mod dcomp_overlay;
 pub mod fonts;
 pub mod image;
 pub mod keyboard_hook;

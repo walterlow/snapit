@@ -15,7 +15,6 @@ import type {
   RecordingState,
   RecordingStatus,
   StartRecordingResult,
-  StopRecordingResult,
 } from '../types';
 
 interface VideoRecordingStore {
@@ -42,7 +41,7 @@ interface VideoRecordingStore {
 
   // Recording controls
   startRecording: (mode?: RecordingMode) => Promise<boolean>;
-  stopRecording: () => Promise<StopRecordingResult | null>;
+  stopRecording: () => Promise<boolean>;
   cancelRecording: () => Promise<void>;
   pauseRecording: () => Promise<void>;
   resumeRecording: () => Promise<void>;
@@ -226,17 +225,19 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
   },
 
   // Stop recording and save
+  // Returns immediately after sending stop command.
+  // Actual completion comes via 'recording-state-changed' event.
   stopRecording: async () => {
     const { recordingState } = get();
 
     if (recordingState.status !== 'recording' && recordingState.status !== 'paused') {
       console.warn('Cannot stop recording: not recording');
-      return null;
+      return false;
     }
 
     try {
-      const result = await invoke<StopRecordingResult>('stop_recording');
-      return result;
+      await invoke('stop_recording');
+      return true;
     } catch (error) {
       console.error('Failed to stop recording:', error);
       set({
@@ -245,7 +246,7 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
           message: String(error),
         },
       });
-      return null;
+      return false;
     }
   },
 

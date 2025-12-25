@@ -268,8 +268,10 @@ pub async fn start_recording(
 }
 
 /// Stop the current recording and save the file.
+/// Returns immediately after sending the stop command.
+/// The actual completion is signaled via 'recording-state-changed' event.
 #[command]
-pub async fn stop_recording(app: AppHandle) -> Result<StopRecordingResult, String> {
+pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
     recorder::stop_recording(app).await
 }
 

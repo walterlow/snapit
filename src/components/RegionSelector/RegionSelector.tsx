@@ -874,6 +874,19 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
            toolbarY >= monitorY && toolbarY < monitorY + monitorHeight;
   })();
 
+  // For video/gif mode, use transparent overlay to avoid blacking out hardware-accelerated video
+  const isVideoOrGifMode = captureType === 'video' || captureType === 'gif';
+  
+  // Determine background color based on mode
+  const getBackgroundColor = () => {
+    if (isVideoOrGifMode) {
+      // Fully transparent for video/gif - no overlay dimming
+      return 'transparent';
+    }
+    // Normal dimming for screenshots
+    return mode === 'window' && !isDragging ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.4)';
+  };
+
   return (
     <div
       ref={containerRef}
@@ -881,7 +894,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       style={{
         width: monitorWidth,
         height: monitorHeight,
-        backgroundColor: mode === 'window' && !isDragging ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.4)',
+        backgroundColor: getBackgroundColor(),
         touchAction: 'none', // Required for proper pointer capture
       }}
       onPointerDown={showCountdown ? undefined : handlePointerDown}
@@ -890,8 +903,24 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       onPointerEnter={showCountdown ? undefined : handlePointerEnter}
       onPointerLeave={showCountdown ? undefined : handlePointerLeave}
     >
-      {/* Window highlight mode - hide when we have a confirmed region */}
-      {windowHighlight && mode === 'window' && !isDragging && !confirmedRegion && (
+      {/* Window highlight border for video/gif mode (no darkening, just border) */}
+      {windowHighlight && mode === 'window' && !isDragging && !confirmedRegion && isVideoOrGifMode && (
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            left: windowHighlight.x,
+            top: windowHighlight.y,
+            width: windowHighlight.width,
+            height: windowHighlight.height,
+            outline: '3px solid #F97066',
+            outlineOffset: '-2px',
+            boxShadow: '0 0 20px rgba(249, 112, 102, 0.5), 0 0 40px rgba(249, 112, 102, 0.3)',
+          }}
+        />
+      )}
+
+      {/* Window highlight mode with darkening - for screenshots only */}
+      {windowHighlight && mode === 'window' && !isDragging && !confirmedRegion && !isVideoOrGifMode && (
         <>
           {/* Darken outside the window */}
           <div className="absolute inset-0 pointer-events-none">
@@ -971,37 +1000,39 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       {/* Selection rectangle - hide when we have a confirmed region (video/gif mode) */}
       {displayRect && displayRect.width > 0 && displayRect.height > 0 && !confirmedRegion && (
         <>
-          {/* Dark overlay outside selection */}
-          <div className="absolute inset-0 pointer-events-none">
-            {/* Top */}
-            <div
-              className="absolute left-0 right-0 top-0 bg-black/60"
-              style={{ height: Math.floor(displayRect.y) }}
-            />
-            {/* Bottom */}
-            <div
-              className="absolute left-0 right-0 bottom-0 bg-black/60"
-              style={{ top: Math.floor(displayRect.y + displayRect.height) }}
-            />
-            {/* Left */}
-            <div
-              className="absolute left-0 bg-black/60"
-              style={{
-                top: Math.floor(displayRect.y) - 1,
-                height: Math.ceil(displayRect.height) + 2,
-                width: Math.floor(displayRect.x),
-              }}
-            />
-            {/* Right */}
-            <div
-              className="absolute right-0 bg-black/60"
-              style={{
-                top: Math.floor(displayRect.y) - 1,
-                height: Math.ceil(displayRect.height) + 2,
-                left: Math.floor(displayRect.x + displayRect.width),
-              }}
-            />
-          </div>
+          {/* Dark overlay outside selection - only for screenshots, not video/gif */}
+          {!isVideoOrGifMode && (
+            <div className="absolute inset-0 pointer-events-none">
+              {/* Top */}
+              <div
+                className="absolute left-0 right-0 top-0 bg-black/60"
+                style={{ height: Math.floor(displayRect.y) }}
+              />
+              {/* Bottom */}
+              <div
+                className="absolute left-0 right-0 bottom-0 bg-black/60"
+                style={{ top: Math.floor(displayRect.y + displayRect.height) }}
+              />
+              {/* Left */}
+              <div
+                className="absolute left-0 bg-black/60"
+                style={{
+                  top: Math.floor(displayRect.y) - 1,
+                  height: Math.ceil(displayRect.height) + 2,
+                  width: Math.floor(displayRect.x),
+                }}
+              />
+              {/* Right */}
+              <div
+                className="absolute right-0 bg-black/60"
+                style={{
+                  top: Math.floor(displayRect.y) - 1,
+                  height: Math.ceil(displayRect.height) + 2,
+                  left: Math.floor(displayRect.x + displayRect.width),
+                }}
+              />
+            </div>
+          )}
 
           {/* Selection border - premium blue accent (outline doesn't affect size) */}
           <div
@@ -1084,37 +1115,39 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
 
         return (
           <>
-            {/* Dark overlay outside shared selection */}
-            <div className="absolute inset-0 pointer-events-none">
-              {/* Top */}
-              <div
-                className="absolute left-0 right-0 top-0 bg-black/60"
-                style={{ height: Math.floor(sharedRect.y) }}
-              />
-              {/* Bottom */}
-              <div
-                className="absolute left-0 right-0 bottom-0 bg-black/60"
-                style={{ top: Math.floor(sharedRect.y + sharedRect.height) }}
-              />
-              {/* Left */}
-              <div
-                className="absolute left-0 bg-black/60"
-                style={{
-                  top: Math.floor(sharedRect.y) - 1,
-                  height: Math.ceil(sharedRect.height) + 2,
-                  width: Math.floor(sharedRect.x),
-                }}
-              />
-              {/* Right */}
-              <div
-                className="absolute right-0 bg-black/60"
-                style={{
-                  top: Math.floor(sharedRect.y) - 1,
-                  height: Math.ceil(sharedRect.height) + 2,
-                  left: Math.floor(sharedRect.x + sharedRect.width),
-                }}
-              />
-            </div>
+            {/* Dark overlay outside shared selection - only for screenshots */}
+            {!isVideoOrGifMode && (
+              <div className="absolute inset-0 pointer-events-none">
+                {/* Top */}
+                <div
+                  className="absolute left-0 right-0 top-0 bg-black/60"
+                  style={{ height: Math.floor(sharedRect.y) }}
+                />
+                {/* Bottom */}
+                <div
+                  className="absolute left-0 right-0 bottom-0 bg-black/60"
+                  style={{ top: Math.floor(sharedRect.y + sharedRect.height) }}
+                />
+                {/* Left */}
+                <div
+                  className="absolute left-0 bg-black/60"
+                  style={{
+                    top: Math.floor(sharedRect.y) - 1,
+                    height: Math.ceil(sharedRect.height) + 2,
+                    width: Math.floor(sharedRect.x),
+                  }}
+                />
+                {/* Right */}
+                <div
+                  className="absolute right-0 bg-black/60"
+                  style={{
+                    top: Math.floor(sharedRect.y) - 1,
+                    height: Math.ceil(sharedRect.height) + 2,
+                    left: Math.floor(sharedRect.x + sharedRect.width),
+                  }}
+                />
+              </div>
+            )}
 
             {/* Shared selection border - dashed to indicate it's from another monitor */}
             <div
@@ -1126,7 +1159,9 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
                 height: sharedRect.height,
                 outline: '2px solid #3B82F6',
                 outlineOffset: '-1px',
-                boxShadow: 'inset 0 0 0 1px rgba(59, 130, 246, 0.3)',
+                boxShadow: isVideoOrGifMode 
+                  ? '0 0 20px rgba(59, 130, 246, 0.5), 0 0 40px rgba(59, 130, 246, 0.3)'
+                  : 'inset 0 0 0 1px rgba(59, 130, 246, 0.3)',
               }}
             />
           </>
@@ -1136,39 +1171,8 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
       {/* Confirmed region for video/gif - shows dashed border and toolbar */}
       {confirmedRect && confirmedRect.width > 0 && confirmedRect.height > 0 && !showCountdown && (
         <>
-          {/* Dark overlay outside confirmed region */}
-          <div className="absolute inset-0 pointer-events-none">
-            {/* Top */}
-            <div
-              className="absolute left-0 right-0 top-0 bg-black/60"
-              style={{ height: Math.floor(confirmedRect.y) }}
-            />
-            {/* Bottom */}
-            <div
-              className="absolute left-0 right-0 bottom-0 bg-black/60"
-              style={{ top: Math.floor(confirmedRect.y + confirmedRect.height) }}
-            />
-            {/* Left */}
-            <div
-              className="absolute left-0 bg-black/60"
-              style={{
-                top: Math.floor(confirmedRect.y) - 1,
-                height: Math.ceil(confirmedRect.height) + 2,
-                width: Math.floor(confirmedRect.x),
-              }}
-            />
-            {/* Right */}
-            <div
-              className="absolute right-0 bg-black/60"
-              style={{
-                top: Math.floor(confirmedRect.y) - 1,
-                height: Math.ceil(confirmedRect.height) + 2,
-                left: Math.floor(confirmedRect.x + confirmedRect.width),
-              }}
-            />
-          </div>
-
           {/* Confirmed region border - dashed yellow/orange like Snagit */}
+          {/* No darkening overlay for video/gif mode to avoid blacking out hardware-accelerated video */}
           <div
             className="absolute pointer-events-none"
             style={{
@@ -1177,7 +1181,7 @@ export const RegionSelector: React.FC<RegionSelectorProps> = ({
               width: confirmedRect.width,
               height: confirmedRect.height,
               border: '3px dashed #F59E0B',
-              boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(245, 158, 11, 0.3)',
+              boxShadow: '0 0 20px rgba(245, 158, 11, 0.5), 0 0 40px rgba(245, 158, 11, 0.3)',
             }}
           >
             {/* Corner handles - white circles with yellow border */}

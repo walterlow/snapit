@@ -279,12 +279,18 @@ impl RecordingController {
     
     /// Send a command to the active recording.
     pub fn send_command(&self, command: RecorderCommand) -> Result<(), String> {
+        eprintln!("[CONTROLLER] send_command called: {:?}", command);
         if let Some(ref active) = self.active {
-            active
+            let result = active
                 .command_tx
-                .send(command)
-                .map_err(|e| format!("Failed to send command: {}", e))
+                .send(command);
+            match &result {
+                Ok(()) => eprintln!("[CONTROLLER] Command sent successfully"),
+                Err(e) => eprintln!("[CONTROLLER] Command send failed: {}", e),
+            }
+            result.map_err(|e| format!("Failed to send command: {}", e))
         } else {
+            eprintln!("[CONTROLLER] No active recording!");
             Err("No active recording".to_string())
         }
     }

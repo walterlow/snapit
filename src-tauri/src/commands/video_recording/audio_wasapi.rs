@@ -175,7 +175,7 @@ impl WasapiLoopback {
                 }
                 // Drain audio buffer during pause to prevent accumulation
                 // This keeps the audio device happy and prevents buffer overflow
-                if self.event_handle.wait_for_event(10_000).is_ok() {
+                if self.event_handle.wait_for_event(10).is_ok() {
                     let _ = self.capture_client.read_from_device_to_deque(&mut sample_queue);
                     sample_queue.clear(); // Discard paused audio
                 }
@@ -196,7 +196,7 @@ impl WasapiLoopback {
                             break; // Don't block if stopping
                         }
                         // Very short timeout (10ms)
-                        if self.event_handle.wait_for_event(10_000).is_ok() {
+                        if self.event_handle.wait_for_event(10).is_ok() {
                             if let Ok(_) = self.capture_client.read_from_device_to_deque(&mut sample_queue) {
                                 if !sample_queue.is_empty() {
                                     drained_samples += sample_queue.len();
@@ -214,8 +214,9 @@ impl WasapiLoopback {
                 }
             }
 
-            // Wait for buffer event (with timeout of 100ms = 100_000 * 100ns)
-            if self.event_handle.wait_for_event(100_000).is_err() {
+            // Wait for buffer event (with timeout of 100ms)
+            // Note: wait_for_event takes milliseconds, not 100ns units
+            if self.event_handle.wait_for_event(100).is_err() {
                 // Timeout - check flags and continue
                 continue;
             }

@@ -34,6 +34,15 @@ const RecordingControlsWindow: React.FC = () => {
   useEffect(() => {
     log.info('Setting up event listeners');
     
+    // Diagnostic: Test if invoke works
+    invoke('get_recording_status')
+      .then((result) => {
+        log.info('Tauri invoke test PASSED, get_recording_status returned:', JSON.stringify(result));
+      })
+      .catch((e) => {
+        log.error('Tauri invoke test FAILED:', e);
+      });
+    
     const unlistenState = listen<RecordingState>('recording-state-changed', (event) => {
       const state = event.payload;
       log.debug('State changed:', state.status, 'isRecordingActive:', isRecordingActiveRef.current, 'payload:', JSON.stringify(state));
@@ -144,23 +153,39 @@ const RecordingControlsWindow: React.FC = () => {
   }, [uiStatus]);
 
   // Handlers
-  const handleStop = useCallback(() => {
-    console.log('[RecordingControls] Stop clicked');
-    invoke('stop_recording').catch(e => console.error('Stop failed:', e));
+  const handleStop = useCallback(async () => {
+    console.log('[RecordingControls] Stop clicked, invoking stop_recording...');
+    try {
+      const result = await invoke('stop_recording');
+      console.log('[RecordingControls] Stop succeeded:', result);
+    } catch (e) {
+      console.error('[RecordingControls] Stop failed:', e);
+    }
   }, []);
 
-  const handlePauseResume = useCallback(() => {
+  const handlePauseResume = useCallback(async () => {
     console.log('[RecordingControls] Pause/Resume clicked, status:', uiStatus);
-    if (uiStatus === 'paused') {
-      invoke('resume_recording').catch(e => console.error('Resume failed:', e));
-    } else {
-      invoke('pause_recording').catch(e => console.error('Pause failed:', e));
+    try {
+      if (uiStatus === 'paused') {
+        await invoke('resume_recording');
+        console.log('[RecordingControls] Resume succeeded');
+      } else {
+        await invoke('pause_recording');
+        console.log('[RecordingControls] Pause succeeded');
+      }
+    } catch (e) {
+      console.error('[RecordingControls] Pause/Resume failed:', e);
     }
   }, [uiStatus]);
 
-  const handleCancel = useCallback(() => {
-    console.log('[RecordingControls] Cancel clicked');
-    invoke('cancel_recording').catch(e => console.error('Cancel failed:', e));
+  const handleCancel = useCallback(async () => {
+    console.log('[RecordingControls] Cancel clicked, invoking cancel_recording...');
+    try {
+      await invoke('cancel_recording');
+      console.log('[RecordingControls] Cancel succeeded');
+    } catch (e) {
+      console.error('[RecordingControls] Cancel failed:', e);
+    }
   }, []);
 
   // === RENDER ===
@@ -168,7 +193,7 @@ const RecordingControlsWindow: React.FC = () => {
   // Starting
   if (uiStatus === 'starting') {
     return (
-      <div className="w-full h-full flex items-center justify-center">
+      <div className="w-full h-full flex items-center justify-center pointer-events-none">
         <div
           data-tauri-drag-region
           className="flex items-center gap-3 px-6 py-3 rounded-full pointer-events-auto cursor-move"
@@ -196,7 +221,7 @@ const RecordingControlsWindow: React.FC = () => {
   // Processing (GIF encoding)
   if (uiStatus === 'processing') {
     return (
-      <div className="w-full h-full flex items-center justify-center">
+      <div className="w-full h-full flex items-center justify-center pointer-events-none">
         <div
           data-tauri-drag-region
           className="px-6 py-3 rounded-xl pointer-events-auto cursor-move"
@@ -228,7 +253,7 @@ const RecordingControlsWindow: React.FC = () => {
   // Error state - show error message before closing
   if (uiStatus === 'error') {
     return (
-      <div className="w-full h-full flex items-center justify-center">
+      <div className="w-full h-full flex items-center justify-center pointer-events-none">
         <div
           data-tauri-drag-region
           className="px-6 py-3 rounded-xl pointer-events-auto cursor-move"
@@ -260,7 +285,7 @@ const RecordingControlsWindow: React.FC = () => {
   const isGif = format === 'gif';
 
   return (
-    <div className="w-full h-full flex items-center justify-center">
+    <div className="w-full h-full flex items-center justify-center pointer-events-none">
       <div 
         data-tauri-drag-region
         className="flex items-center gap-4 pl-5 pr-0 h-12 rounded-xl pointer-events-auto cursor-move"

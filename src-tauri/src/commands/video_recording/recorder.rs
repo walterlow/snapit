@@ -19,7 +19,7 @@ use windows_capture::{
 use super::audio_sync::AudioCaptureManager;
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
-use super::{emit_state_change, RecordingFormat, RecordingMode, RecordingSettings, RecordingState, StopRecordingResult};
+use super::{emit_state_change, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
 // ============================================================================
 // Audio Helpers
@@ -113,6 +113,8 @@ pub async fn start_recording(
     settings: RecordingSettings,
     output_path: PathBuf,
 ) -> Result<(), String> {
+    // Use eprintln for immediate output (stderr is unbuffered)
+    eprintln!("[START] start_recording called, format={:?}, countdown={}", settings.format, settings.countdown_secs);
     println!("[START] start_recording called, format={:?}", settings.format);
 
     let (progress, command_rx) = {
@@ -208,11 +210,16 @@ fn start_capture_thread(
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
 ) {
+    println!("[START] About to spawn capture thread...");
     let app_clone = app.clone();
     let output_path_clone = output_path.clone();
+    let format_for_log = settings.format;
 
-    std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || {
         println!("[THREAD] Capture thread started, format={:?}", settings.format);
+        
+        // Catch any panics to ensure we log them
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 
         // Resolve Window mode to Region mode (fixed region capture)
         let resolved_mode = match resolve_window_to_region(&settings.mode) {
@@ -303,7 +310,28 @@ fn start_capture_thread(
                 emit_state_change(&app_clone, &RecordingState::Error { message: e });
             }
         }
+        })); // End of catch_unwind
+        
+        // Handle panics
+        if let Err(panic_info) = result {
+            let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic".to_string()
+            };
+            println!("[THREAD] PANIC in capture thread: {}", panic_msg);
+            if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                controller.set_error(format!("Capture thread panicked: {}", panic_msg));
+            }
+            emit_state_change(&app_clone, &RecordingState::Error { 
+                message: format!("Capture thread panicked: {}", panic_msg) 
+            });
+        }
     });
+    
+    println!("[START] Capture thread spawned successfully, handle: {:?}", handle.thread().id());
 }
 
 /// Run video (MP4) capture using DXGI Duplication API.
@@ -427,21 +455,32 @@ fn run_video_capture(
     let mut pause_time = Duration::ZERO;
     let mut pause_start: Option<Instant> = None;
 
+    let mut loop_count: u64 = 0;
     loop {
+        loop_count += 1;
+        
+        // Log every 100 loops to show we're alive
+        if loop_count % 100 == 0 {
+            eprintln!("[CAPTURE] Loop iteration {}, checking commands...", loop_count);
+        }
+        
         // Check for commands
         match command_rx.try_recv() {
             Ok(RecorderCommand::Stop) => {
+                eprintln!("[CAPTURE] Received Stop command!");
                 println!("[CAPTURE] Received Stop command");
                 should_stop.store(true, Ordering::SeqCst);
                 break;
             }
             Ok(RecorderCommand::Cancel) => {
+                eprintln!("[CAPTURE] Received Cancel command!");
                 println!("[CAPTURE] Received Cancel command");
                 should_stop.store(true, Ordering::SeqCst);
                 progress.mark_cancelled();
                 break;
             }
             Ok(RecorderCommand::Pause) => {
+                eprintln!("[CAPTURE] Received Pause command!");
                 println!("[CAPTURE] Received Pause command");
                 if !paused {
                     paused = true;
@@ -451,6 +490,7 @@ fn run_video_capture(
                 }
             }
             Ok(RecorderCommand::Resume) => {
+                eprintln!("[CAPTURE] Received Resume command!");
                 println!("[CAPTURE] Received Resume command");
                 if paused {
                     if let Some(ps) = pause_start.take() {
@@ -463,6 +503,7 @@ fn run_video_capture(
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
+                eprintln!("[CAPTURE] Channel disconnected!");
                 println!("[CAPTURE] Channel disconnected");
                 should_stop.store(true, Ordering::SeqCst);
                 break;
@@ -599,7 +640,15 @@ fn run_video_capture(
         println!("[CAPTURE] Audio capture stopped");
     }
 
-    // Finish encoding
+    // Check if recording was cancelled - if so, skip encoding and let the file be deleted
+    if progress.was_cancelled() {
+        println!("[CAPTURE] Recording was cancelled, skipping encoder finish");
+        // Drop the encoder without finishing to avoid saving the file
+        drop(encoder);
+        return Ok(());
+    }
+
+    // Finish encoding (only for Stop, not Cancel)
     println!("[CAPTURE] Finishing encoder...");
     encoder.finish().map_err(|e| format!("Failed to finish encoding: {:?}", e))?;
     println!("[CAPTURE] Encoder finished successfully");
@@ -776,78 +825,27 @@ fn run_gif_capture(
 }
 
 /// Stop the current recording.
-pub async fn stop_recording(_app: AppHandle) -> Result<StopRecordingResult, String> {
+/// 
+/// This sends the stop command and returns immediately.
+/// The actual completion is signaled via the 'recording-state-changed' event
+/// when the state becomes Completed or Error.
+pub async fn stop_recording(_app: AppHandle) -> Result<(), String> {
+    eprintln!("[STOP] stop_recording called");
     println!("[STOP] stop_recording called");
 
-    let (_output_path, format) = {
-        let controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
+    let controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
 
-        if !controller.is_active() {
-            return Err("No recording in progress".to_string());
-        }
-
-        let output_path = controller
-            .active
-            .as_ref()
-            .map(|a| a.output_path.clone())
-            .ok_or("No active recording")?;
-
-        let format = controller
-            .settings
-            .as_ref()
-            .map(|s| s.format)
-            .unwrap_or(RecordingFormat::Mp4);
-
-        println!("[STOP] Sending Stop command...");
-        controller.send_command(RecorderCommand::Stop)?;
-
-        (output_path, format)
-    };
-
-    // Wait for recording to finish
-    let start = Instant::now();
-    let timeout = match format {
-        RecordingFormat::Gif => Duration::from_secs(120),
-        RecordingFormat::Mp4 => Duration::from_secs(30),
-    };
-
-    loop {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let state = RECORDING_CONTROLLER
-            .lock()
-            .map(|c| c.state.clone())
-            .unwrap_or(RecordingState::Idle);
-
-        match state {
-            RecordingState::Completed {
-                output_path,
-                duration_secs,
-                file_size_bytes,
-            } => {
-                return Ok(StopRecordingResult {
-                    output_path,
-                    duration_secs,
-                    file_size_bytes,
-                    format,
-                });
-            }
-            RecordingState::Error { message } => {
-                return Err(message);
-            }
-            RecordingState::Idle => {
-                return Err("Recording was cancelled".to_string());
-            }
-            RecordingState::Processing { .. } => {
-                continue;
-            }
-            _ => {
-                if start.elapsed() > timeout {
-                    return Err("Timeout waiting for recording to finish".to_string());
-                }
-            }
-        }
+    if !controller.is_active() {
+        return Err("No recording in progress".to_string());
     }
+
+    println!("[STOP] Sending Stop command...");
+    controller.send_command(RecorderCommand::Stop)?;
+    println!("[STOP] Stop command sent successfully");
+
+    // Return immediately - don't wait for recording to finish
+    // The frontend will receive the completion via 'recording-state-changed' event
+    Ok(())
 }
 
 /// Cancel the current recording.

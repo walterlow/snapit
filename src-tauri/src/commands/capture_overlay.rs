@@ -35,10 +35,12 @@ use windows::Win32::Graphics::DirectComposition::{
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Factory1, ID2D1DeviceContext, ID2D1Device, ID2D1Bitmap1,
-    ID2D1SolidColorBrush, ID2D1RenderTarget,
+    ID2D1SolidColorBrush, ID2D1RenderTarget, ID2D1StrokeStyle1,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
     D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
     D2D1_BRUSH_PROPERTIES, D2D1_DRAW_TEXT_OPTIONS_NONE,
+    D2D1_STROKE_STYLE_PROPERTIES1, D2D1_CAP_STYLE_FLAT, D2D1_LINE_JOIN_MITER,
+    D2D1_DASH_STYLE_CUSTOM, D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat,
@@ -57,7 +59,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     GetWindowLongPtrW, SetWindowLongPtrW, GetWindowRect, SetWindowPos,
-    LoadCursorW, PeekMessageW, RegisterClassW, SetCursor,
+    LoadCursorW, PeekMessageW, RegisterClassW, SetCursor, GetCursorPos,
     ShowWindow, IsWindowVisible, GetWindowLongW, GetSystemMetrics,
     CS_HREDRAW, CS_VREDRAW, IDC_CROSS, IDC_ARROW, IDC_SIZEALL,
     IDC_SIZENWSE, IDC_SIZENESW, IDC_SIZENS, IDC_SIZEWE,
@@ -197,6 +199,7 @@ struct OverlayState {
     overlay_brush: ID2D1SolidColorBrush,
     border_brush: ID2D1SolidColorBrush,
     crosshair_brush: ID2D1SolidColorBrush,
+    crosshair_stroke_style: ID2D1StrokeStyle1,
     text_brush: ID2D1SolidColorBrush,
     text_bg_brush: ID2D1SolidColorBrush,
     handle_brush: ID2D1SolidColorBrush,
@@ -216,6 +219,7 @@ struct OverlayState {
 }
 
 static OVERLAY_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
+static OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
 const OVERLAY_CLASS_NAME: &str = "SnapItCaptureOverlay";
 const DRAG_THRESHOLD: i32 = 5;
 const HANDLE_SIZE: i32 = 10; // Size of resize handles in pixels
@@ -732,7 +736,7 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
                     D2D_POINT_2F { x: cx - gap, y: cy },
                     &state.crosshair_brush,
                     1.0,
-                    None,
+                    &state.crosshair_stroke_style,
                 );
             }
             // Horizontal line (right segment) - from cursor to monitor right edge
@@ -742,7 +746,7 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
                     D2D_POINT_2F { x: mon_right, y: cy },
                     &state.crosshair_brush,
                     1.0,
-                    None,
+                    &state.crosshair_stroke_style,
                 );
             }
             // Vertical line (top segment) - from monitor top edge to cursor
@@ -752,7 +756,7 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
                     D2D_POINT_2F { x: cx, y: cy - gap },
                     &state.crosshair_brush,
                     1.0,
-                    None,
+                    &state.crosshair_stroke_style,
                 );
             }
             // Vertical line (bottom segment) - from cursor to monitor bottom edge
@@ -762,7 +766,7 @@ fn render_overlay(state: &OverlayState) -> windows::core::Result<()> {
                     D2D_POINT_2F { x: cx, y: mon_bottom },
                     &state.crosshair_brush,
                     1.0,
-                    None,
+                    &state.crosshair_stroke_style,
                 );
             }
         } // End of crosshair drawing (not in adjustment mode)
@@ -1528,6 +1532,20 @@ fn run_overlay(
     monitor_height: u32,
     capture_type: CaptureType,
 ) -> Result<Option<OverlayResult>, String> {
+    // Prevent multiple overlays from being created simultaneously
+    if OVERLAY_ACTIVE.swap(true, Ordering::SeqCst) {
+        return Ok(None); // Another overlay is already active
+    }
+    
+    // Ensure we clear the flag when we exit (using a guard pattern)
+    struct OverlayGuard;
+    impl Drop for OverlayGuard {
+        fn drop(&mut self) {
+            OVERLAY_ACTIVE.store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = OverlayGuard;
+    
     register_overlay_class().map_err(|e| format!("Failed to register class: {:?}", e))?;
     
     unsafe {
@@ -1569,7 +1587,7 @@ fn run_overlay(
             create_compositor(&d3d_device, hwnd, &swap_chain)
                 .map_err(|e| format!("Failed to create DirectComposition: {:?}", e))?;
         
-        let (_d2d_factory, d2d_context) = create_d2d_context(&d3d_device)
+        let (d2d_factory, d2d_context) = create_d2d_context(&d3d_device)
             .map_err(|e| format!("Failed to create Direct2D context: {:?}", e))?;
         
         // Create brushes using ID2D1RenderTarget interface
@@ -1592,9 +1610,25 @@ fn run_overlay(
         ).map_err(|e| format!("Failed to create border brush: {:?}", e))?;
         
         let crosshair_brush = render_target.CreateSolidColorBrush(
-            &D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 0.7 }, // White semi-transparent
+            &D2D1_COLOR_F { r: 0.0, g: 0.47, b: 1.0, a: 0.9 }, // Blue (same as selection border)
             Some(&brush_props),
         ).map_err(|e| format!("Failed to create crosshair brush: {:?}", e))?;
+        
+        // Create dotted stroke style for crosshair (custom dash pattern: 4px dash, 4px gap)
+        let stroke_style_props = D2D1_STROKE_STYLE_PROPERTIES1 {
+            startCap: D2D1_CAP_STYLE_FLAT,
+            endCap: D2D1_CAP_STYLE_FLAT,
+            dashCap: D2D1_CAP_STYLE_FLAT,
+            lineJoin: D2D1_LINE_JOIN_MITER,
+            miterLimit: 10.0,
+            dashStyle: D2D1_DASH_STYLE_CUSTOM,
+            dashOffset: 0.0,
+            transformType: D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
+        };
+        // Custom dash pattern: [dash_length, gap_length] - 4px dash, 4px gap
+        let dashes: [f32; 2] = [4.0, 4.0];
+        let crosshair_stroke_style = d2d_factory.CreateStrokeStyle(&stroke_style_props, Some(&dashes))
+            .map_err(|e| format!("Failed to create crosshair stroke style: {:?}", e))?;
         
         let text_brush = render_target.CreateSolidColorBrush(
             &D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }, // White
@@ -1638,6 +1672,12 @@ fn run_overlay(
         text_format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)
             .map_err(|e| format!("Failed to set paragraph alignment: {:?}", e))?;
         
+        // Get initial cursor position (convert from screen coords to local overlay coords)
+        let mut cursor_pos = POINT::default();
+        let _ = GetCursorPos(&mut cursor_pos);
+        let initial_cursor_x = cursor_pos.x - monitor_x;
+        let initial_cursor_y = cursor_pos.y - monitor_y;
+        
         // Create state on heap
         let mut state = Box::new(OverlayState {
             app_handle: app,
@@ -1664,8 +1704,8 @@ fn run_overlay(
             start_y: 0,
             current_x: 0,
             current_y: 0,
-            cursor_x: 0,
-            cursor_y: 0,
+            cursor_x: initial_cursor_x,
+            cursor_y: initial_cursor_y,
             hovered_window: None,
             monitor_x,
             monitor_y,
@@ -1680,6 +1720,7 @@ fn run_overlay(
             overlay_brush,
             border_brush,
             crosshair_brush,
+            crosshair_stroke_style,
             text_brush,
             text_bg_brush,
             handle_brush,

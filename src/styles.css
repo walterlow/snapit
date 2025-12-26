@@ -1350,6 +1350,7 @@ body.overlay-window #root {
 /* Base glass panel - primary container */
 .glass-toolbar {
   width: max-content;
+  padding-right: 8px;
   background: linear-gradient(
     135deg,
     rgba(28, 28, 30, 0.92) 0%,
@@ -1390,6 +1391,8 @@ body.overlay-window #root {
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     inset 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
+
+
 
 /* Glass button - interactive elements */
 .glass-btn {
@@ -1673,15 +1676,19 @@ body.overlay-window #root {
 /* Glass drag handle */
 .glass-drag-handle {
   color: rgba(255, 255, 255, 0.3);
-  cursor: grab;
+  cursor: grab !important;
+  -webkit-app-region: drag;
   transition: color 180ms ease;
+  position: relative;
+  z-index: 10;
 }
 
 .glass-drag-handle:hover {
   color: rgba(255, 255, 255, 0.6);
+  cursor: grab !important;
 }
 
 .glass-drag-handle:active {
-  cursor: grabbing;
+  cursor: grabbing !important;
   color: rgba(255, 255, 255, 0.7);
 }

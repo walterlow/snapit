@@ -131,11 +131,8 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
     }
   }, [customDragStart]);
 
-  // Drag handle props - only include data-tauri-drag-region if no custom handler
-  // (the attribute overrides JS handlers at the window level)
-  const dragHandleProps = customDragStart
-    ? { onMouseDown: handleDragStart }
-    : { 'data-tauri-drag-region': true, onMouseDown: handleDragStart };
+  // Drag handle props - use JS handler for cursor control
+  const dragHandleProps = { onMouseDown: handleDragStart };
 
   // Handle pause/resume toggle
   const handlePauseResume = useCallback(() => {
@@ -337,23 +334,23 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   // === SELECTION STATE (default) ===
   return (
     <div
-      className="glass-toolbar flex items-center gap-2 px-3 h-14 pointer-events-auto whitespace-nowrap"
+      className="glass-toolbar flex items-center gap-3 pl-1.5 pr-5 h-14 pointer-events-auto whitespace-nowrap"
       onPointerDown={stopPropagation}
       onPointerUp={stopPropagation}
       onPointerMove={stopPropagation}
       onClick={stopPropagation}
     >
-      {/* Drag handle */}
+      {/* Drag handle - full height for better UX */}
       <div
         {...dragHandleProps}
-        className="glass-drag-handle flex items-center justify-center w-6 shrink-0"
+        className="glass-drag-handle flex items-center justify-center w-6 h-14 shrink-0 -ml-1.5"
         title="Drag to move"
       >
         <GripVertical size={14} className="pointer-events-none" />
       </div>
 
-      {/* Capture mode buttons - 3 circular icons */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* Container 1: Recording mode buttons */}
+      <div className="flex items-center gap-1.5 relative z-0">
         {/* Video button - Red */}
         <button
           onClick={() => {
@@ -391,8 +388,13 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         >
           <ImagePlay size={captureType === 'gif' ? 18 : 16} className="text-white" />
         </button>
+      </div>
 
-        {/* Screenshot button - Blue */}
+      {/* Divider */}
+      <div className="glass-divider h-7" />
+
+      {/* Container 2: Screenshot button */}
+      <div className="flex items-center">
         <button
           onClick={onScreenshot}
           className="glass-btn-action glass-btn-action--blue flex items-center justify-center w-9 h-9"
@@ -403,69 +405,74 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       </div>
 
       {/* Divider */}
-      <div className="glass-divider h-7 mx-1" />
+      <div className="glass-divider h-7" />
 
-      {/* Cursor toggle */}
-      <button
-        onClick={onToggleCursor}
-        className={`glass-btn w-8 h-8 ${includeCursor ? 'glass-btn--active' : ''}`}
-        title={includeCursor ? 'Cursor: Visible' : 'Cursor: Hidden'}
-      >
-        <MousePointer2 size={16} />
-      </button>
-
-      {/* Countdown toggle */}
-      {onToggleCountdown && (
+      {/* Container 3: Options (Cursor, Timer, Audio) */}
+      <div className="flex items-center gap-0.5">
+        {/* Cursor toggle */}
         <button
-          onClick={onToggleCountdown}
-          className={`glass-btn w-8 h-8 ${countdownEnabled ? 'glass-btn--active' : ''}`}
-          title={countdownEnabled ? 'Countdown: 3s (click to disable)' : 'Countdown: Off (click to enable)'}
+          onClick={onToggleCursor}
+          className={`glass-btn w-8 h-8 ${includeCursor ? 'glass-btn--active' : ''}`}
+          title={includeCursor ? 'Cursor: Visible' : 'Cursor: Hidden'}
         >
-          {countdownEnabled ? <Timer size={16} /> : <TimerOff size={16} />}
+          <MousePointer2 size={16} />
         </button>
-      )}
 
-      {/* System audio toggle */}
-      {onToggleSystemAudio && (
-        <button
-          onClick={onToggleSystemAudio}
-          className={`glass-btn w-8 h-8 ${systemAudioEnabled ? 'glass-btn--active' : ''}`}
-          title={systemAudioEnabled ? 'System Audio: On (click to disable)' : 'System Audio: Off (click to enable)'}
-        >
-          {systemAudioEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-        </button>
-      )}
+        {/* Countdown toggle */}
+        {onToggleCountdown && (
+          <button
+            onClick={onToggleCountdown}
+            className={`glass-btn w-8 h-8 ${countdownEnabled ? 'glass-btn--active' : ''}`}
+            title={countdownEnabled ? 'Countdown: 3s (click to disable)' : 'Countdown: Off (click to enable)'}
+          >
+            {countdownEnabled ? <Timer size={16} /> : <TimerOff size={16} />}
+          </button>
+        )}
 
-      {/* Divider */}
-      <div className="glass-divider h-7 mx-1" />
-
-      {/* Dimensions display */}
-      <div className="glass-badge flex items-center gap-1 px-2.5 py-1.5 text-xs select-none">
-        <span>{Math.round(width)}</span>
-        <span className="opacity-40">×</span>
-        <span>{Math.round(height)}</span>
+        {/* System audio toggle */}
+        {onToggleSystemAudio && (
+          <button
+            onClick={onToggleSystemAudio}
+            className={`glass-btn w-8 h-8 ${systemAudioEnabled ? 'glass-btn--active' : ''}`}
+            title={systemAudioEnabled ? 'System Audio: On (click to disable)' : 'System Audio: Off (click to enable)'}
+          >
+            {systemAudioEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
+        )}
       </div>
 
       {/* Divider */}
-      <div className="glass-divider h-7 mx-1" />
+      <div className="glass-divider h-7" />
 
-      {/* Redo button */}
-      <button
-        onClick={onRedo}
-        className="glass-btn w-8 h-8"
-        title="Redraw region"
-      >
-        <RotateCcw size={16} />
-      </button>
+      {/* Container 4: Dimensions + Actions */}
+      <div className="flex items-center gap-1">
+        {/* Dimensions display - two separate boxes */}
+        <div className="glass-badge flex items-center justify-center h-8 min-w-[3.5rem] px-2 text-xs select-none tabular-nums">
+          {Math.round(width)}
+        </div>
+        <span className="text-white/40 text-xs select-none">×</span>
+        <div className="glass-badge flex items-center justify-center h-8 min-w-[3.5rem] px-2 text-xs select-none tabular-nums">
+          {Math.round(height)}
+        </div>
 
-      {/* Cancel button */}
-      <button
-        onClick={onCancel}
-        className="glass-btn glass-btn--danger w-8 h-8"
-        title="Cancel"
-      >
-        <X size={16} />
-      </button>
+        {/* Redo button */}
+        <button
+          onClick={onRedo}
+          className="glass-btn w-8 h-8"
+          title="Redraw region"
+        >
+          <RotateCcw size={16} />
+        </button>
+
+        {/* Cancel button */}
+        <button
+          onClick={onCancel}
+          className="glass-btn glass-btn--danger w-8 h-8 mr-1"
+          title="Cancel"
+        >
+          <X size={16} />
+        </button>
+      </div>
     </div>
   );
 };

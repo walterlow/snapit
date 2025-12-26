@@ -400,7 +400,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
       {/* Container 1: Recording mode buttons */}
       <div className="flex items-center gap-1.5 relative z-0">
-        {/* Video button - Red */}
+        {/* Video button - Coral icon */}
         <button
           onClick={() => {
             if (captureType === 'video') {
@@ -416,10 +416,10 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
           }`}
           title={captureType === 'video' ? 'Start video recording' : 'Switch to video'}
         >
-          <Video size={captureType === 'video' ? 18 : 16} className="text-white" />
+          <Video size={captureType === 'video' ? 18 : 16} />
         </button>
 
-        {/* GIF button - Purple */}
+        {/* GIF button - Teal icon */}
         <button
           onClick={() => {
             if (captureType === 'gif') {
@@ -428,14 +428,14 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
               onCaptureTypeChange?.('gif');
             }
           }}
-          className={`glass-btn-action glass-btn-action--purple flex items-center justify-center ${
+          className={`glass-btn-action flex items-center justify-center ${
             captureType === 'gif'
               ? 'w-11 h-11'
               : 'w-9 h-9 glass-btn-action--inactive'
           }`}
           title={captureType === 'gif' ? 'Start GIF recording' : 'Switch to GIF'}
         >
-          <ImagePlay size={captureType === 'gif' ? 18 : 16} className="text-white" />
+          <ImagePlay size={captureType === 'gif' ? 18 : 16} />
         </button>
       </div>
 
@@ -446,10 +446,10 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       <div className="flex items-center">
         <button
           onClick={onScreenshot}
-          className="glass-btn-action glass-btn-action--blue flex items-center justify-center w-9 h-9"
+          className="glass-btn-action flex items-center justify-center w-9 h-9"
           title="Take screenshot"
         >
-          <Camera size={16} className="text-white" />
+          <Camera size={16} />
         </button>
       </div>
 

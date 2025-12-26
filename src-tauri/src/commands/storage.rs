@@ -848,37 +848,89 @@ pub async fn get_project_image(app: AppHandle, project_id: String) -> Result<Str
     Ok(STANDARD.encode(&image_data))
 }
 
-#[command]
-pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), String> {
-    let base_dir = get_app_data_dir(&app)?;
+/// Determines the type of capture based on its ID and returns the appropriate file path.
+/// Returns (capture_type, file_path) where capture_type is "project", "video", "gif", or "unknown"
+fn determine_capture_type(
+    app: &AppHandle,
+    project_id: &str,
+) -> Result<(String, Option<PathBuf>), String> {
+    let base_dir = get_app_data_dir(app)?;
+    let captures_dir = get_captures_dir(app)?;
 
-    let project_dir = base_dir.join("projects").join(&project_id);
+    // 1. Check if it's a screenshot project (has project.json)
+    let project_dir = base_dir.join("projects").join(project_id);
     let project_file = project_dir.join("project.json");
-
     if project_file.exists() {
+        // It's a screenshot project - get the image path from project.json
         if let Ok(content) = fs::read_to_string(&project_file) {
             if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
-                // Handle both old format (filename only) and new format (full path)
                 let original_path = PathBuf::from(&project.original_image);
                 let image_path = if original_path.is_absolute() {
                     original_path
                 } else {
                     base_dir.join("captures").join(&project.original_image)
                 };
+                return Ok(("project".to_string(), Some(image_path)));
+            }
+        }
+        // project.json exists but couldn't be parsed - still treat as project
+        return Ok(("project".to_string(), None));
+    }
+
+    // 2. Check if it's a video file (.mp4)
+    let video_path = captures_dir.join(format!("{}.mp4", project_id));
+    if video_path.exists() {
+        return Ok(("video".to_string(), Some(video_path)));
+    }
+
+    // 3. Check if it's a GIF file
+    let gif_path = captures_dir.join(format!("{}.gif", project_id));
+    if gif_path.exists() {
+        return Ok(("gif".to_string(), Some(gif_path)));
+    }
+
+    // Unknown type - might be already deleted or invalid ID
+    Ok(("unknown".to_string(), None))
+}
+
+#[command]
+pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), String> {
+    let base_dir = get_app_data_dir(&app)?;
+
+    // Determine what type of capture this is
+    let (capture_type, file_path) = determine_capture_type(&app, &project_id)?;
+
+    match capture_type.as_str() {
+        "project" => {
+            // Screenshot project - delete original image, project dir, and thumbnail
+            if let Some(image_path) = file_path {
                 let _ = fs::remove_file(image_path);
             }
+
+            let project_dir = base_dir.join("projects").join(&project_id);
+            if project_dir.exists() {
+                fs::remove_dir_all(&project_dir)
+                    .map_err(|e| format!("Failed to delete project: {}", e))?;
+            }
+        }
+        "video" | "gif" => {
+            // Video/GIF recording - delete the media file directly
+            if let Some(media_path) = file_path {
+                fs::remove_file(&media_path)
+                    .map_err(|e| format!("Failed to delete {} file: {}", capture_type, e))?;
+            }
+        }
+        _ => {
+            // Unknown type - nothing to delete, but don't error
+            // The item might have already been deleted
         }
     }
 
+    // Always try to delete the thumbnail (common to all types)
     let thumbnail_path = base_dir
         .join("thumbnails")
         .join(format!("{}_thumb.png", &project_id));
     let _ = fs::remove_file(thumbnail_path);
-
-    if project_dir.exists() {
-        fs::remove_dir_all(&project_dir)
-            .map_err(|e| format!("Failed to delete project: {}", e))?;
-    }
 
     Ok(())
 }

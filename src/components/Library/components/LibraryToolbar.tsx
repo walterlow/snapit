@@ -178,10 +178,6 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
               <Button
                 onClick={onAllMonitorsCapture}
                 className="glass-btn-action h-9 w-9 p-0"
-                style={{
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  boxShadow: '0 4px 16px rgba(16, 185, 129, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)',
-                }}
               >
                 <ScreenShare className="w-4 h-4" />
               </Button>
@@ -210,7 +206,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
               <TooltipTrigger asChild>
                 <Button
                   onClick={onNewGif}
-                  className="glass-btn-action glass-btn-action--purple h-9 w-9 p-0"
+                  className="glass-btn-action h-9 w-9 p-0"
                 >
                   <Film className="w-4 h-4" />
                 </Button>
@@ -223,11 +219,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
               <TooltipTrigger asChild>
                 <Button
                   onClick={onNewImage}
-                  className="glass-btn-action glass-btn-action--blue h-9 w-9 p-0"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(37, 99, 235, 0.95) 100%)',
-                    boxShadow: '0 4px 16px rgba(59, 130, 246, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)',
-                  }}
+                  className="glass-btn-action h-9 w-9 p-0"
                 >
                   <Camera className="w-4 h-4" />
                 </Button>

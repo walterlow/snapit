@@ -1,25 +1,17 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use super::capture::fallback::get_monitors;
-
 // Recording border window label (legacy, kept for compatibility)
 const RECORDING_BORDER_LABEL: &str = "recording-border";
 
-// Capture toolbar window label (legacy, kept for compatibility)
+// Capture toolbar window label
 const CAPTURE_TOOLBAR_LABEL: &str = "capture-toolbar";
-
-// Unified capture controls window - combines border + toolbar in single fullscreen WebView
-const CAPTURE_CONTROLS_LABEL: &str = "capture-controls";
 
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
-/// Close all capture-related windows (unified controls and legacy separate windows)
+/// Close all capture-related windows
 fn close_capture_windows(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(CAPTURE_CONTROLS_LABEL) {
-        let _ = window.close();
-    }
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         let _ = window.close();
     }
@@ -234,11 +226,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                     .unwrap_or_else(|_| std::env::temp_dir().join("recording.mp4"))
                             ).await {
                                 eprintln!("Failed to start recording: {}", e);
-                                // Close controls window and restore main window on error
-                                if let Some(controls) = app_clone.get_webview_window(CAPTURE_CONTROLS_LABEL) {
-                                    let _ = controls.close();
-                                }
-                                // Also try legacy window names
+                                // Close toolbar window and restore main window on error
                                 if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                                     let _ = toolbar.close();
                                 }
@@ -650,136 +638,6 @@ pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         window.close().map_err(|e| format!("Failed to close dcomp toolbar: {}", e))?;
     }
-    Ok(())
-}
-
-// ============================================================================
-// Unified Capture Controls Window
-// ============================================================================
-
-/// Show the unified capture controls window.
-/// This is a single fullscreen transparent WebView that contains both:
-/// - Recording border (CSS positioned, pointer-events: none)
-/// - Toolbar (CSS positioned, receives clicks)
-/// 
-/// No window sizing complexity - just CSS positioning in a fullscreen window.
-#[command]
-pub async fn show_capture_controls(
-    app: AppHandle,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-) -> Result<(), String> {
-    // Get virtual screen bounds (all monitors)
-    let (vs_x, vs_y, vs_w, vs_h) = get_virtual_screen_bounds();
-    
-    // Get monitor info for toolbar positioning
-    let monitors = get_monitors().unwrap_or_default();
-    let sel_center_x = x + (width as i32) / 2;
-    let sel_center_y = y + (height as i32) / 2;
-    
-    let current_monitor = monitors.iter().find(|m| {
-        sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
-        sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
-    });
-    
-    let mon_params = if let Some(mon) = current_monitor {
-        format!("&monX={}&monY={}&monW={}&monH={}", mon.x, mon.y, mon.width, mon.height)
-    } else {
-        format!("&monX={}&monY={}&monW={}&monH={}", vs_x, vs_y, vs_w, vs_h)
-    };
-    
-    // Close existing window if any
-    if let Some(window) = app.get_webview_window(CAPTURE_CONTROLS_LABEL) {
-        let _ = window.close();
-    }
-    
-    // Also close legacy windows if they exist
-    if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
-        let _ = window.close();
-    }
-    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        let _ = window.close();
-    }
-
-    // URL with selection + monitor + virtual screen info
-    let url = WebviewUrl::App(
-        format!("capture-controls.html?x={}&y={}&width={}&height={}{}&vsX={}&vsY={}&vsW={}&vsH={}",
-            x, y, width, height, mon_params, vs_x, vs_y, vs_w, vs_h).into()
-    );
-    
-    let window = WebviewWindowBuilder::new(&app, CAPTURE_CONTROLS_LABEL, url)
-        .title("Capture Controls")
-        .transparent(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .visible(false) // Start hidden, position first
-        .focused(false)
-        .build()
-        .map_err(|e| format!("Failed to create capture controls window: {}", e))?;
-    
-    // Use physical coordinates to match screen coordinates from capture overlay
-    set_physical_bounds(&window, vs_x, vs_y, vs_w, vs_h)?;
-    
-    // Now show
-    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
-
-    // Apply DWM blur-behind for true transparency
-    if let Err(e) = apply_dwm_transparency(&window) {
-        eprintln!("Warning: Failed to apply DWM transparency: {}", e);
-    }
-    
-    // Don't set ignore_cursor_events - let CSS handle it:
-    // - Container has pointer-events: none (click-through for transparent areas)
-    // - Toolbar wrapper has pointer-events: auto (receives clicks)
-
-    Ok(())
-}
-
-/// Get virtual screen bounds (spans all monitors)
-fn get_virtual_screen_bounds() -> (i32, i32, u32, u32) {
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN};
-    
-    unsafe {
-        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN) as u32;
-        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN) as u32;
-        (x, y, width, height)
-    }
-}
-
-/// Hide the capture controls window.
-#[command]
-pub async fn hide_capture_controls(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(CAPTURE_CONTROLS_LABEL) {
-        window.close().map_err(|e| format!("Failed to close capture controls: {}", e))?;
-    }
-    Ok(())
-}
-
-/// Update the capture controls with new selection (for repositioning during resize).
-#[command]
-pub async fn update_capture_controls(
-    app: AppHandle,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-) -> Result<(), String> {
-    let Some(window) = app.get_webview_window(CAPTURE_CONTROLS_LABEL) else {
-        return Ok(());
-    };
-    
-    // Emit selection update to frontend
-    let _ = window.emit("selection-updated", serde_json::json!({
-        "x": x, "y": y, "width": width, "height": height
-    }));
-    
     Ok(())
 }
 

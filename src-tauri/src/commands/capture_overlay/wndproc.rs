@@ -353,12 +353,8 @@ fn emit_adjustment_ready(state: &OverlayState, bounds: Rect) {
 /// Emit dimensions update during adjustment drag
 fn emit_dimensions_update(state: &OverlayState) {
     let screen_bounds = state.monitor.local_rect_to_screen(state.adjustment.bounds);
-    
-    // Try unified capture-controls window first, fallback to legacy capture-toolbar
-    let window = state.app_handle.get_webview_window("capture-controls")
-        .or_else(|| state.app_handle.get_webview_window("capture-toolbar"));
-    
-    if let Some(win) = window {
+
+    if let Some(win) = state.app_handle.get_webview_window("capture-toolbar") {
         let _ = win.emit("selection-updated", serde_json::json!({
             "x": screen_bounds.left,
             "y": screen_bounds.top,
@@ -372,11 +368,7 @@ fn emit_dimensions_update(state: &OverlayState) {
 fn emit_final_selection(state: &OverlayState) {
     let screen_bounds = state.monitor.local_rect_to_screen(state.adjustment.bounds);
 
-    // Try unified capture-controls window first, fallback to legacy capture-toolbar
-    let window = state.app_handle.get_webview_window("capture-controls")
-        .or_else(|| state.app_handle.get_webview_window("capture-toolbar"));
-    
-    if let Some(win) = window {
+    if let Some(win) = state.app_handle.get_webview_window("capture-toolbar") {
         let _ = win.emit("selection-updated", serde_json::json!({
             "x": screen_bounds.left,
             "y": screen_bounds.top,

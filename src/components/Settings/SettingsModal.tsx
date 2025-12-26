@@ -60,17 +60,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
           className="flex-1 min-h-0 flex flex-col"
         >
           {/* Tabs */}
-          <div className="flex-shrink-0 px-5 pt-4 border-b border-[var(--polar-frost)] bg-[var(--card)]">
-            <Tabs.List className="relative flex gap-0">
+          <div className="shrink-0 px-4 pt-3 pb-0 bg-[var(--card)]">
+            <Tabs.List className="relative flex w-full p-1 rounded-lg bg-[var(--polar-frost)]/60">
               <Tabs.Tab
                 value="general"
-                className="relative px-4 py-2 text-sm font-medium border-b-2 border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-all duration-200 data-[active]:border-[var(--coral-400)] data-[active]:text-[var(--coral-500)]"
+                className="relative flex-1 py-2 text-sm font-medium text-center rounded-md text-[var(--ink-muted)] transition-all duration-200 ease-out hover:text-[var(--ink-dark)] hover:bg-white/50 data-[active]:bg-white data-[active]:text-[var(--coral-500)] data-[active]:shadow-sm"
               >
                 General
               </Tabs.Tab>
               <Tabs.Tab
                 value="shortcuts"
-                className="relative px-4 py-2 text-sm font-medium border-b-2 border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-all duration-200 data-[active]:border-[var(--coral-400)] data-[active]:text-[var(--coral-500)]"
+                className="relative flex-1 py-2 text-sm font-medium text-center rounded-md text-[var(--ink-muted)] transition-all duration-200 ease-out hover:text-[var(--ink-dark)] hover:bg-white/50 data-[active]:bg-white data-[active]:text-[var(--coral-500)] data-[active]:shadow-sm"
               >
                 Shortcuts
               </Tabs.Tab>

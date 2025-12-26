@@ -75,6 +75,15 @@ export const GlassBlobToolbar: React.FC<GlassBlobToolbarProps> = ({
       setSearchExpanded(false);
     }
   };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onSearchChange('');
+      setSearchExpanded(false);
+      searchInputRef.current?.blur();
+    }
+  };
   return (
     <div className="cloud-toolbar">
       <div className="cloud-toolbar__glass" />
@@ -99,12 +108,13 @@ export const GlassBlobToolbar: React.FC<GlassBlobToolbarProps> = ({
             </TooltipContent>
           </Tooltip>
           {searchExpanded && (
-            <input
+          <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               onBlur={handleSearchBlur}
+              onKeyDown={handleSearchKeyDown}
               placeholder="Search..."
               className="cloud-search__input"
             />

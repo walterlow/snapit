@@ -136,8 +136,8 @@ export const CaptureLibrary: React.FC = () => {
     }
   };
 
-  // Start video/gif recording using DirectComposition overlay (avoids video blackout)
-  // This uses the unified toolbar flow - the dcomp toolbar handles both selection and recording controls
+  // Start video/gif recording using native overlay (avoids video blackout)
+  // The capture toolbar handles both selection and recording controls
   const startVideoRecording = async (format: RecordingFormat) => {
     try {
       // Set format in store before triggering capture

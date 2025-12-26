@@ -278,7 +278,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                     restore_main_if_visible(&app_clone);
                 }
                 Err(e) => {
-                    eprintln!("DComp overlay error: {}", e);
+                    eprintln!("Capture overlay error: {}", e);
                     close_capture_windows(&app_clone);
                     restore_main_if_visible(&app_clone);
                 }
@@ -632,11 +632,11 @@ pub async fn update_capture_toolbar(
     Ok(())
 }
 
-/// Hide the DirectComposition overlay toolbar window.
+/// Hide the capture toolbar window.
 #[command]
 pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        window.close().map_err(|e| format!("Failed to close dcomp toolbar: {}", e))?;
+        window.close().map_err(|e| format!("Failed to close capture toolbar: {}", e))?;
     }
     Ok(())
 }

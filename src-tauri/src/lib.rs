@@ -169,9 +169,9 @@ pub fn run() {
             commands::logging::get_recent_logs,
             // Capture overlay for video/gif region selection (uses DirectComposition to avoid video blackout)
             commands::capture_overlay::show_capture_overlay,
-            commands::capture_overlay::capture_overlay_confirm,
-            commands::capture_overlay::capture_overlay_cancel,
-            commands::capture_overlay::capture_overlay_reselect,
+            commands::capture_overlay::commands::capture_overlay_confirm,
+            commands::capture_overlay::commands::capture_overlay_cancel,
+            commands::capture_overlay::commands::capture_overlay_reselect,
         ])
         .setup(|app| {
             // Initialize logging system first

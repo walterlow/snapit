@@ -58,7 +58,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOPMOST, WS_POPUP,
 };
 
-use commands::take_pending_command;
+use commands::{take_pending_command, take_pending_dimensions};
 use graphics::{compositor, d2d, d3d};
 use state::{GraphicsState, MonitorInfo, OverlayState};
 use types::*;
@@ -264,6 +264,26 @@ fn run_overlay(
                     }
                     OverlayCommand::Cancel => {
                         state.cancel();
+                    }
+                    OverlayCommand::SetDimensions => {
+                        let (new_width, new_height) = take_pending_dimensions();
+                        if new_width > 0 && new_height > 0 {
+                            // Calculate new bounds centered on current selection
+                            let current = state.adjustment.bounds;
+                            let (cx, cy) = current.center();
+                            let half_w = new_width as i32 / 2;
+                            let half_h = new_height as i32 / 2;
+                            state.adjustment.bounds = Rect::new(
+                                cx - half_w,
+                                cy - half_h,
+                                cx - half_w + new_width as i32,
+                                cy - half_h + new_height as i32,
+                            );
+                            // Emit selection update and re-render
+                            let screen_sel = state.monitor.local_rect_to_screen(state.adjustment.bounds);
+                            let _ = state.app_handle.emit("selection-updated", SelectionEvent::from(screen_sel));
+                            let _ = render::render(&state);
+                        }
                     }
                     OverlayCommand::None => {}
                 }

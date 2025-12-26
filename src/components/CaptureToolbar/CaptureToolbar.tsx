@@ -16,7 +16,7 @@
  * - Cancel recording
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
   Camera, RotateCcw, X, MousePointer2, GripVertical,
   Square, Pause, Play, Timer, TimerOff, Volume2, VolumeX,
@@ -79,6 +79,8 @@ interface CaptureToolbarProps {
   // Drag props
   /** Custom drag start handler (for moving toolbar without moving border) */
   onDragStart?: (e: React.MouseEvent) => void;
+  /** Callback when user changes dimensions via input */
+  onDimensionChange?: (width: number, height: number) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -112,8 +114,55 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   systemAudioEnabled = true,
   onToggleSystemAudio,
   onDragStart: customDragStart,
+  onDimensionChange,
 }) => {
   const isGif = captureType === 'gif' || format === 'gif';
+
+  // Local state for dimension inputs
+  const [widthInput, setWidthInput] = useState(String(Math.round(width)));
+  const [heightInput, setHeightInput] = useState(String(Math.round(height)));
+
+  // Sync local state when props change
+  useEffect(() => {
+    setWidthInput(String(Math.round(width)));
+  }, [width]);
+
+  useEffect(() => {
+    setHeightInput(String(Math.round(height)));
+  }, [height]);
+
+  // Handle dimension input change
+  const handleWidthChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setWidthInput(e.target.value);
+  }, []);
+
+  const handleHeightChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setHeightInput(e.target.value);
+  }, []);
+
+  // Apply dimension change on blur or Enter
+  const applyDimensionChange = useCallback(() => {
+    const newWidth = parseInt(widthInput, 10);
+    const newHeight = parseInt(heightInput, 10);
+    if (!isNaN(newWidth) && !isNaN(newHeight) && newWidth > 0 && newHeight > 0) {
+      onDimensionChange?.(newWidth, newHeight);
+    } else {
+      // Reset to current values if invalid
+      setWidthInput(String(Math.round(width)));
+      setHeightInput(String(Math.round(height)));
+    }
+  }, [widthInput, heightInput, width, height, onDimensionChange]);
+
+  const handleDimensionKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      applyDimensionChange();
+      (e.target as HTMLInputElement).blur();
+    } else if (e.key === 'Escape') {
+      setWidthInput(String(Math.round(width)));
+      setHeightInput(String(Math.round(height)));
+      (e.target as HTMLInputElement).blur();
+    }
+  }, [applyDimensionChange, width, height]);
 
   // Stop all pointer events from bubbling up to RegionSelector
   const stopPropagation = (e: React.MouseEvent | React.PointerEvent) => {
@@ -446,14 +495,26 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
       {/* Container 4: Dimensions + Actions */}
       <div className="flex items-center gap-1">
-        {/* Dimensions display - two separate boxes */}
-        <div className="glass-badge flex items-center justify-center h-8 min-w-[3.5rem] px-2 text-xs select-none tabular-nums">
-          {Math.round(width)}
-        </div>
+        {/* Dimensions input - two separate boxes */}
+        <input
+          type="text"
+          value={widthInput}
+          onChange={handleWidthChange}
+          onBlur={applyDimensionChange}
+          onKeyDown={handleDimensionKeyDown}
+          className="glass-badge h-8 w-14 px-2 text-xs text-center tabular-nums bg-transparent outline-none focus:ring-1 focus:ring-white/20"
+          title="Width"
+        />
         <span className="text-white/40 text-xs select-none">×</span>
-        <div className="glass-badge flex items-center justify-center h-8 min-w-[3.5rem] px-2 text-xs select-none tabular-nums">
-          {Math.round(height)}
-        </div>
+        <input
+          type="text"
+          value={heightInput}
+          onChange={handleHeightChange}
+          onBlur={applyDimensionChange}
+          onKeyDown={handleDimensionKeyDown}
+          className="glass-badge h-8 w-14 px-2 text-xs text-center tabular-nums bg-transparent outline-none focus:ring-1 focus:ring-white/20"
+          title="Height"
+        />
 
         {/* Redo button */}
         <button

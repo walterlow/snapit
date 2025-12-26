@@ -317,6 +317,7 @@ pub enum OverlayCommand {
     ConfirmScreenshot = 2,
     Reselect = 3,
     Cancel = 4,
+    SetDimensions = 5,
 }
 
 impl From<u8> for OverlayCommand {
@@ -326,6 +327,7 @@ impl From<u8> for OverlayCommand {
             2 => Self::ConfirmScreenshot,
             3 => Self::Reselect,
             4 => Self::Cancel,
+            5 => Self::SetDimensions,
             _ => Self::None,
         }
     }

@@ -205,6 +205,14 @@ const CaptureToolbarWindow: React.FC = () => {
     try { await invoke('stop_recording'); } catch (e) { console.error('Failed to stop:', e); }
   }, []);
 
+  const handleDimensionChange = useCallback(async (width: number, height: number) => {
+    try {
+      await invoke('capture_overlay_set_dimensions', { width, height });
+    } catch (e) {
+      console.error('Failed to set dimensions:', e);
+    }
+  }, []);
+
   return (
     <div className="toolbar-container">
       <CaptureToolbar
@@ -231,6 +239,7 @@ const CaptureToolbarWindow: React.FC = () => {
         onToggleCountdown={() => setCountdownEnabled(p => !p)}
         systemAudioEnabled={systemAudioEnabled}
         onToggleSystemAudio={() => setSystemAudioEnabled(p => !p)}
+        onDimensionChange={handleDimensionChange}
       />
     </div>
   );

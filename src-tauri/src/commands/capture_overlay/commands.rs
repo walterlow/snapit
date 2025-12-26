@@ -5,7 +5,7 @@
 //!
 //! Communication uses an atomic pending command that the overlay polls.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 use super::types::OverlayCommand;
 
@@ -15,12 +15,26 @@ use super::types::OverlayCommand;
 /// from the toolbar.
 static PENDING_COMMAND: AtomicU8 = AtomicU8::new(0);
 
+/// Pending dimensions for SetDimensions command
+static PENDING_WIDTH: AtomicU32 = AtomicU32::new(0);
+static PENDING_HEIGHT: AtomicU32 = AtomicU32::new(0);
+
 /// Get and clear the pending command.
 ///
 /// Returns the current pending command and resets it to None.
 /// This is called by the overlay's message loop.
 pub fn take_pending_command() -> OverlayCommand {
     OverlayCommand::from(PENDING_COMMAND.swap(0, Ordering::SeqCst))
+}
+
+/// Get and clear pending dimensions.
+///
+/// Returns the pending width and height, then clears them.
+/// Should be called when handling SetDimensions command.
+pub fn take_pending_dimensions() -> (u32, u32) {
+    let width = PENDING_WIDTH.swap(0, Ordering::SeqCst);
+    let height = PENDING_HEIGHT.swap(0, Ordering::SeqCst);
+    (width, height)
 }
 
 /// Set a pending command for the overlay.
@@ -65,6 +79,21 @@ pub async fn capture_overlay_cancel() -> Result<(), String> {
 #[tauri::command]
 pub async fn capture_overlay_reselect() -> Result<(), String> {
     set_pending_command(OverlayCommand::Reselect);
+    Ok(())
+}
+
+/// Set the selection dimensions.
+///
+/// Called from the toolbar when the user edits the dimension inputs.
+/// The overlay will resize the selection to match while keeping the center point.
+#[tauri::command]
+pub async fn capture_overlay_set_dimensions(width: u32, height: u32) -> Result<(), String> {
+    if width < 20 || height < 20 {
+        return Err("Dimensions must be at least 20x20".to_string());
+    }
+    PENDING_WIDTH.store(width, Ordering::SeqCst);
+    PENDING_HEIGHT.store(height, Ordering::SeqCst);
+    set_pending_command(OverlayCommand::SetDimensions);
     Ok(())
 }
 

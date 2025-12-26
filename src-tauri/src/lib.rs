@@ -174,6 +174,7 @@ pub fn run() {
             commands::capture_overlay::commands::capture_overlay_confirm,
             commands::capture_overlay::commands::capture_overlay_cancel,
             commands::capture_overlay::commands::capture_overlay_reselect,
+            commands::capture_overlay::commands::capture_overlay_set_dimensions,
         ])
         .setup(|app| {
             // Initialize logging system first

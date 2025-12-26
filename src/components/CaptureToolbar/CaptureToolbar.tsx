@@ -76,6 +76,9 @@ interface CaptureToolbarProps {
   systemAudioEnabled?: boolean;
   /** Toggle system audio capture on/off */
   onToggleSystemAudio?: () => void;
+  // Drag props
+  /** Custom drag start handler (for moving toolbar without moving border) */
+  onDragStart?: (e: React.MouseEvent) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -108,6 +111,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   onToggleCountdown,
   systemAudioEnabled = true,
   onToggleSystemAudio,
+  onDragStart: customDragStart,
 }) => {
   const isGif = captureType === 'gif' || format === 'gif';
 
@@ -116,12 +120,22 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
     e.stopPropagation();
   };
 
-  // Handle drag start - use Tauri's startDragging API
+  // Handle drag start - use custom handler if provided, otherwise Tauri's startDragging
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    getCurrentWebviewWindow().startDragging().catch(console.error);
-  }, []);
+    if (customDragStart) {
+      customDragStart(e);
+    } else {
+      getCurrentWebviewWindow().startDragging().catch(console.error);
+    }
+  }, [customDragStart]);
+
+  // Drag handle props - only include data-tauri-drag-region if no custom handler
+  // (the attribute overrides JS handlers at the window level)
+  const dragHandleProps = customDragStart
+    ? { onMouseDown: handleDragStart }
+    : { 'data-tauri-drag-region': true, onMouseDown: handleDragStart };
 
   // Handle pause/resume toggle
   const handlePauseResume = useCallback(() => {
@@ -144,10 +158,9 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       >
         {/* Drag handle */}
         <div
-          data-tauri-drag-region
+          {...dragHandleProps}
           className="glass-drag-handle flex items-center justify-center w-5 shrink-0"
           title="Drag to move"
-          onMouseDown={handleDragStart}
         >
           <GripVertical size={14} className="pointer-events-none" />
         </div>
@@ -190,10 +203,9 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       >
         {/* Drag handle */}
         <div
-          data-tauri-drag-region
+          {...dragHandleProps}
           className="glass-drag-handle flex items-center justify-center w-5 shrink-0"
           title="Drag to move"
-          onMouseDown={handleDragStart}
         >
           <GripVertical size={14} className="pointer-events-none" />
         </div>
@@ -226,10 +238,9 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       >
         {/* Drag handle */}
         <div
-          data-tauri-drag-region
+          {...dragHandleProps}
           className="glass-drag-handle flex items-center justify-center w-5 shrink-0"
           title="Drag to move"
-          onMouseDown={handleDragStart}
         >
           <GripVertical size={14} className="pointer-events-none" />
         </div>
@@ -256,10 +267,9 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       >
         {/* Drag handle */}
         <div
-          data-tauri-drag-region
+          {...dragHandleProps}
           className="glass-drag-handle shrink-0"
           title="Drag to move"
-          onMouseDown={handleDragStart}
         >
           <GripVertical size={14} className="pointer-events-none" />
         </div>
@@ -335,10 +345,9 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
     >
       {/* Drag handle */}
       <div
-        data-tauri-drag-region
+        {...dragHandleProps}
         className="glass-drag-handle flex items-center justify-center w-6 shrink-0"
         title="Drag to move"
-        onMouseDown={handleDragStart}
       >
         <GripVertical size={14} className="pointer-events-none" />
       </div>

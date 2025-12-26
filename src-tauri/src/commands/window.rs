@@ -181,8 +181,11 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                     match action {
                         OverlayAction::StartRecording => {
                             // Start recording flow
-                            // The unified capture-controls window handles both border and toolbar
-                            // (created by show_toolbar in wndproc.rs when selection was finalized)
+                            // The toolbar was created by show_toolbar in wndproc.rs
+                            // We need to show the recording border separately
+                            if let Err(e) = show_recording_border(app_clone.clone(), x, y, width, height).await {
+                                eprintln!("Failed to show recording border: {}", e);
+                            }
                             
                             // Determine format based on capture type
                             let format = if is_gif {
@@ -529,59 +532,9 @@ pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-// Generous toolbar window dimensions - large enough for any content + shadows
-// Content centers via CSS, transparent areas are invisible
-const TOOLBAR_WINDOW_WIDTH: i32 = 900;
-const TOOLBAR_WINDOW_HEIGHT: i32 = 160;
-const TOOLBAR_MARGIN: i32 = 8;
-
-/// Calculate toolbar position based on selection and monitor bounds.
-/// Positions toolbar centered below selection, with fallbacks for edge cases.
-fn calculate_toolbar_position(
-    sel_x: i32,
-    sel_y: i32,
-    sel_width: u32,
-    sel_height: u32,
-    mon_x: i32,
-    mon_y: i32,
-    mon_width: u32,
-    mon_height: u32,
-) -> (i32, i32) {
-    let sel_center_x = sel_x + (sel_width as i32) / 2;
-    let sel_bottom = sel_y + sel_height as i32;
-    let mon_right = mon_x + mon_width as i32;
-    let mon_bottom = mon_y + mon_height as i32;
-    
-    // Default: centered below selection
-    let mut pos_x = sel_center_x - TOOLBAR_WINDOW_WIDTH / 2;
-    let mut pos_y = sel_bottom + TOOLBAR_MARGIN;
-    
-    // Check if toolbar would be off-screen at bottom
-    if pos_y + TOOLBAR_WINDOW_HEIGHT > mon_bottom - TOOLBAR_MARGIN {
-        // Try placing above selection
-        let above_y = sel_y - TOOLBAR_WINDOW_HEIGHT - TOOLBAR_MARGIN;
-        if above_y >= mon_y + TOOLBAR_MARGIN {
-            pos_y = above_y;
-        } else {
-            // Place inside selection at bottom
-            pos_y = sel_bottom - TOOLBAR_WINDOW_HEIGHT - 20;
-        }
-    }
-    
-    // Clamp horizontal position to monitor bounds
-    if pos_x < mon_x + TOOLBAR_MARGIN {
-        pos_x = mon_x + TOOLBAR_MARGIN;
-    } else if pos_x + TOOLBAR_WINDOW_WIDTH > mon_right - TOOLBAR_MARGIN {
-        pos_x = mon_right - TOOLBAR_MARGIN - TOOLBAR_WINDOW_WIDTH;
-    }
-    
-    // Final vertical clamp
-    let min_y = mon_y + TOOLBAR_MARGIN;
-    let max_y = mon_bottom - TOOLBAR_MARGIN - TOOLBAR_WINDOW_HEIGHT;
-    pos_y = pos_y.max(min_y).min(max_y);
-    
-    (pos_x, pos_y)
-}
+// Use the dedicated toolbar positioning module
+// See toolbar_position.rs for the positioning algorithm and rules
+use super::toolbar_position::{self, SelectionBounds, TOOLBAR_WIDTH, TOOLBAR_HEIGHT};
 
 /// Show the capture toolbar window.
 /// Uses fixed window size with CSS-centered content for instant, flicker-free appearance.
@@ -594,30 +547,14 @@ pub async fn show_capture_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Get monitor info for positioning
-    let monitors = get_monitors().unwrap_or_default();
-    
-    // Find which monitor contains the selection center
-    let sel_center_x = x + (width as i32) / 2;
-    let sel_center_y = y + (height as i32) / 2;
-    
-    let current_monitor = monitors.iter().find(|m| {
-        sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
-        sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
-    });
-    
-    // Calculate position
-    let (pos_x, pos_y) = if let Some(mon) = current_monitor {
-        calculate_toolbar_position(x, y, width, height, mon.x, mon.y, mon.width, mon.height)
-    } else {
-        // Fallback: centered below selection
-        (x + (width as i32) / 2 - TOOLBAR_WINDOW_WIDTH / 2, y + height as i32 + TOOLBAR_MARGIN)
-    };
+    // Calculate position using the dedicated toolbar positioning module
+    let selection = SelectionBounds { x, y, width, height };
+    let pos = toolbar_position::calculate_position(selection);
     
     // Check if window already exists
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         // Reposition existing window using physical coordinates
-        let _ = set_physical_position(&window, pos_x, pos_y);
+        let _ = set_physical_position(&window, pos.x, pos.y);
         window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
         
         // Emit selection update for dimension display
@@ -634,18 +571,23 @@ pub async fn show_capture_toolbar(
     
     let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
         .title("Selection Toolbar")
-        .inner_size(TOOLBAR_WINDOW_WIDTH as f64, TOOLBAR_WINDOW_HEIGHT as f64)
-        .position(pos_x as f64, pos_y as f64)
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
         .shadow(false)
-        .visible(true) // Show immediately - no flicker
+        .visible(false) // Start hidden, position first
         .focused(false)
         .build()
         .map_err(|e| format!("Failed to create capture toolbar window: {}", e))?;
+
+    // Use physical coordinates for both position AND size to match screen coordinates
+    // from capture overlay. Mixing logical size with physical position causes offset on scaled displays.
+    set_physical_bounds(&window, pos.x, pos.y, TOOLBAR_WIDTH as u32, TOOLBAR_HEIGHT as u32)?;
+    
+    // Now show
+    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
 
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
@@ -669,24 +611,10 @@ pub async fn update_capture_toolbar(
         return Ok(());
     };
     
-    // Get monitor info for positioning
-    let monitors = get_monitors().unwrap_or_default();
-    let sel_center_x = x + (width as i32) / 2;
-    let sel_center_y = y + (height as i32) / 2;
-    
-    let current_monitor = monitors.iter().find(|m| {
-        sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
-        sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
-    });
-    
-    // Calculate and set new position
-    let (pos_x, pos_y) = if let Some(mon) = current_monitor {
-        calculate_toolbar_position(x, y, width, height, mon.x, mon.y, mon.width, mon.height)
-    } else {
-        (x + (width as i32) / 2 - TOOLBAR_WINDOW_WIDTH / 2, y + height as i32 + TOOLBAR_MARGIN)
-    };
-    
-    let _ = set_physical_position(&window, pos_x, pos_y);
+    // Calculate and set new position using the dedicated toolbar positioning module
+    let selection = SelectionBounds { x, y, width, height };
+    let pos = toolbar_position::calculate_position(selection);
+    let _ = set_physical_position(&window, pos.x, pos.y);
     
     // Emit selection update for dimension display only
     let _ = window.emit("selection-updated", serde_json::json!({

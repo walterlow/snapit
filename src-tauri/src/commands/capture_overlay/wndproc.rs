@@ -401,11 +401,13 @@ fn emit_final_selection(state: &OverlayState) {
     }
 }
 
-/// Show the unified capture controls window (border + toolbar in one fullscreen WebView)
+/// Show the capture toolbar window (positioned near selection, doesn't block D2D overlay)
 fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
-    use crate::commands::window::show_capture_controls;
+    use crate::commands::window::show_capture_toolbar;
     
-    // Spawn async task to create the unified capture controls window
+    // Spawn async task to create the toolbar window
+    // Using show_capture_toolbar instead of show_capture_controls to avoid
+    // a fullscreen WebView that would block mouse events to the D2D overlay's gizmos.
     let app = state.app_handle.clone();
     let x = screen_bounds.left;
     let y = screen_bounds.top;
@@ -413,8 +415,8 @@ fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
     let height = screen_bounds.height();
     
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = show_capture_controls(app, x, y, width, height).await {
-            eprintln!("Failed to show capture controls: {}", e);
+        if let Err(e) = show_capture_toolbar(app, x, y, width, height).await {
+            eprintln!("Failed to show capture toolbar: {}", e);
         }
     });
 }

@@ -75,17 +75,66 @@ const CaptureControlsWindow: React.FC = () => {
   const [systemAudioEnabled, setSystemAudioEnabled] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   
+  // Custom toolbar drag offset (for repositioning toolbar without moving border)
+  const [toolbarOffset, setToolbarOffset] = useState({ x: 0, y: 0 });
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+  
+  // Exit animation state - fade out before closing window
+  const [isExiting, setIsExiting] = useState(false);
+  
   // Refs
   const isRecordingActiveRef = useRef(false);
   const recordingInitiatedRef = useRef(false);
+  
+  // Smooth exit: fade out then close window (use ref so listeners can access latest)
+  const exitAndCloseRef = useRef<() => void>(() => {});
+  exitAndCloseRef.current = () => {
+    if (isExiting) return;
+    setIsExiting(true);
+    setTimeout(() => {
+      getCurrentWebviewWindow().close().catch(console.error);
+    }, 150); // Match CSS transition duration
+  };
+  
+  // Custom drag handlers - moves toolbar within window without moving border
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isDraggingRef.current = true;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      offsetX: toolbarOffset.x,
+      offsetY: toolbarOffset.y,
+    };
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      setToolbarOffset({
+        x: dragStartRef.current.offsetX + dx,
+        y: dragStartRef.current.offsetY + dy,
+      });
+    };
+    
+    const handleMouseUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [toolbarOffset]);
 
   // Calculate toolbar position (below selection, or above if no room)
+  // Uses center anchor point so width changes don't shift the toolbar
   const toolbarPosition = useMemo(() => {
     const selBottom = selection.y + selection.height;
     const selCenterX = selection.x + selection.width / 2;
     
-    // Check if toolbar fits below selection
-    const toolbarWidth = 500; // Approximate max width
     const belowY = selBottom + TOOLBAR_MARGIN;
     const monitorBottom = monitor.y + monitor.height;
     
@@ -97,14 +146,16 @@ const CaptureControlsWindow: React.FC = () => {
       posY = selection.y - TOOLBAR_HEIGHT - TOOLBAR_MARGIN;
     }
     
-    // Center horizontally, clamp to monitor bounds
-    let posX = selCenterX - toolbarWidth / 2;
-    posX = Math.max(monitor.x + TOOLBAR_MARGIN, posX);
-    posX = Math.min(monitor.x + monitor.width - toolbarWidth - TOOLBAR_MARGIN, posX);
+    // Use center X position - CSS transform will handle centering
+    // Clamp to keep toolbar on screen (with some margin for the toolbar width)
+    const maxToolbarHalfWidth = 300; // Half of max possible toolbar width
+    let centerX = selCenterX;
+    centerX = Math.max(monitor.x + maxToolbarHalfWidth, centerX);
+    centerX = Math.min(monitor.x + monitor.width - maxToolbarHalfWidth, centerX);
     
     // Convert to CSS position (relative to virtual screen origin)
     return {
-      left: posX - virtualScreen.x,
+      left: centerX - virtualScreen.x,
       top: posY - virtualScreen.y,
     };
   }, [selection, monitor, virtualScreen]);
@@ -138,11 +189,9 @@ const CaptureControlsWindow: React.FC = () => {
     let unlistenFormat: UnlistenFn | null = null;
 
     const setupListeners = async () => {
-      const currentWindow = getCurrentWebviewWindow();
-      
       unlistenClosed = await listen('capture-overlay-closed', () => {
         if (!recordingInitiatedRef.current) {
-          currentWindow.close().catch(console.error);
+          exitAndCloseRef.current();
         }
       });
 
@@ -186,7 +235,7 @@ const CaptureControlsWindow: React.FC = () => {
               invoke('hide_countdown_window').catch(() => {}),
               invoke('restore_main_window').catch(() => {}),
             ]).finally(() => {
-              currentWindow.close().catch(console.error);
+              exitAndCloseRef.current();
             });
             break;
           case 'error':
@@ -200,7 +249,7 @@ const CaptureControlsWindow: React.FC = () => {
               setProgress(0);
               setErrorMessage(undefined);
               invoke('restore_main_window').catch(() => {}).finally(() => {
-                currentWindow.close().catch(console.error);
+                exitAndCloseRef.current();
               });
             }, 3000);
             break;
@@ -288,7 +337,13 @@ const CaptureControlsWindow: React.FC = () => {
   const borderPulse = mode === 'recording'; // Only pulse during active recording
 
   return (
-    <div className="capture-controls-container">
+    <div 
+      className="capture-controls-container"
+      style={{
+        opacity: isExiting ? 0 : 1,
+        transition: 'opacity 100ms ease-out',
+      }}
+    >
       {/* Recording Border - shown during countdown, recording, and paused */}
       {showBorder && (
         <div
@@ -306,11 +361,13 @@ const CaptureControlsWindow: React.FC = () => {
       )}
 
       {/* Toolbar - always shown, receives clicks */}
+      {/* Uses transform for center-anchored positioning so width changes don't shift it */}
       <div
         className="toolbar-wrapper absolute"
         style={{
-          left: toolbarPosition.left,
-          top: toolbarPosition.top,
+          left: toolbarPosition.left + toolbarOffset.x,
+          top: toolbarPosition.top + toolbarOffset.y,
+          transform: 'translateX(-50%)',
         }}
       >
         <CaptureToolbar
@@ -318,6 +375,7 @@ const CaptureControlsWindow: React.FC = () => {
           captureType={captureType}
           width={selection.width}
           height={selection.height}
+          onDragStart={handleDragStart}
           includeCursor={includeCursor}
           onToggleCursor={() => setIncludeCursor(p => !p)}
           onRecord={handleRecord}

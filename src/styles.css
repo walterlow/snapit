@@ -1359,12 +1359,13 @@ body.overlay-window #root {
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
+  /* No external shadow - only inset for glass effect */
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    0 2px 8px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     inset 0 -1px 0 rgba(0, 0, 0, 0.2);
   position: relative;
+  /* Center anchor for all transforms/transitions */
+  transform-origin: center center;
 }
 
 /* Subtle inner glow effect */
@@ -1385,8 +1386,6 @@ body.overlay-window #root {
 .glass-toolbar--focused {
   border-color: rgba(249, 112, 102, 0.5);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    0 2px 8px rgba(0, 0, 0, 0.3),
     0 0 0 1px rgba(249, 112, 102, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     inset 0 -1px 0 rgba(0, 0, 0, 0.2);

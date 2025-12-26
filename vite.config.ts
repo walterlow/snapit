@@ -22,6 +22,7 @@ export default defineConfig(async () => ({
         main: resolve(__dirname, "index.html"),
         "recording-border": resolve(__dirname, "recording-border.html"),
         "capture-toolbar": resolve(__dirname, "capture-toolbar.html"),
+        "capture-controls": resolve(__dirname, "capture-controls.html"),
         countdown: resolve(__dirname, "countdown.html"),
       },
     },

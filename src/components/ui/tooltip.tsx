@@ -51,11 +51,11 @@ interface TooltipContentProps extends React.HTMLAttributes<HTMLDivElement> {
 const TooltipContent = React.forwardRef<HTMLDivElement, TooltipContentProps>(
   ({ className, side = "top", sideOffset = 4, children, ...props }, ref) => (
     <Tooltip.Portal>
-      <Tooltip.Positioner side={side} sideOffset={sideOffset}>
+      <Tooltip.Positioner side={side} sideOffset={sideOffset} className="z-9999">
         <Tooltip.Popup
           ref={ref}
           className={cn(
-            "z-50 overflow-hidden rounded-lg bg-neutral-900 px-3 py-2 text-xs text-white shadow-lg",
+            "overflow-hidden rounded-lg bg-neutral-900 px-3 py-2 text-xs text-white shadow-lg",
             className
           )}
           {...props}

@@ -8,6 +8,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{command, AppHandle, Manager};
+use tokio::fs as async_fs;
 
 /// Get the user's configured save directory from settings, falling back to Pictures/SnapIt
 fn get_captures_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -644,145 +645,149 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
 
     let mut captures: Vec<CaptureListItem> = Vec::new();
 
-    // 1. Load screenshot projects
-    if projects_dir.exists() {
-        let entries =
-            fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects dir: {}", e))?;
+    // 1. Load screenshot projects (async I/O)
+    if async_fs::try_exists(&projects_dir).await.unwrap_or(false) {
+        let mut entries = async_fs::read_dir(&projects_dir)
+            .await
+            .map_err(|e| format!("Failed to read projects dir: {}", e))?;
 
-        for entry in entries {
-            let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        while let Some(entry) = entries.next_entry().await.map_err(|e| format!("Failed to read entry: {}", e))? {
             let path = entry.path();
 
             if path.is_dir() {
                 let project_file = path.join("project.json");
-                if project_file.exists() {
-                    if let Ok(content) = fs::read_to_string(&project_file) {
-                        if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
-                            let thumbnail_path = thumbnails_dir
-                                .join(format!("{}_thumb.png", &project.id))
-                                .to_string_lossy()
-                                .to_string();
+                if let Ok(content) = async_fs::read_to_string(&project_file).await {
+                    if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
+                        let thumbnail_path = thumbnails_dir
+                            .join(format!("{}_thumb.png", &project.id))
+                            .to_string_lossy()
+                            .to_string();
 
-                            // Handle both old format (filename only) and new format (full path)
-                            let original_path = PathBuf::from(&project.original_image);
-                            let image_path_buf = if original_path.is_absolute() {
-                                original_path
-                            } else {
-                                // Legacy: construct path from app data dir
-                                base_dir.join("captures").join(&project.original_image)
-                            };
-                            let image_path = image_path_buf.to_string_lossy().to_string();
+                        // Handle both old format (filename only) and new format (full path)
+                        let original_path = PathBuf::from(&project.original_image);
+                        let image_path_buf = if original_path.is_absolute() {
+                            original_path
+                        } else {
+                            // Legacy: construct path from app data dir
+                            base_dir.join("captures").join(&project.original_image)
+                        };
+                        let image_path = image_path_buf.to_string_lossy().to_string();
 
-                            // Check if the original image file exists
-                            let is_missing = !image_path_buf.exists();
+                        // Check if the original image file exists (async)
+                        let is_missing = !async_fs::try_exists(&image_path_buf).await.unwrap_or(false);
 
-                            captures.push(CaptureListItem {
-                                id: project.id,
-                                created_at: project.created_at,
-                                updated_at: project.updated_at,
-                                capture_type: project.capture_type,
-                                dimensions: project.dimensions,
-                                thumbnail_path,
-                                image_path,
-                                has_annotations: !project.annotations.is_empty(),
-                                tags: project.tags,
-                                favorite: project.favorite,
-                                is_missing,
-                            });
-                        }
+                        captures.push(CaptureListItem {
+                            id: project.id,
+                            created_at: project.created_at,
+                            updated_at: project.updated_at,
+                            capture_type: project.capture_type,
+                            dimensions: project.dimensions,
+                            thumbnail_path,
+                            image_path,
+                            has_annotations: !project.annotations.is_empty(),
+                            tags: project.tags,
+                            favorite: project.favorite,
+                            is_missing,
+                        });
                     }
                 }
             }
         }
     }
 
-    // 2. Scan for video/GIF recordings in the captures directory
-    if captures_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&captures_dir) {
-            for entry in entries.flatten() {
+    // 2. Scan for video/GIF recordings in the captures directory (async I/O)
+    if async_fs::try_exists(&captures_dir).await.unwrap_or(false) {
+        if let Ok(mut entries) = async_fs::read_dir(&captures_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
                 let path = entry.path();
-                if path.is_file() {
-                    let extension = path.extension()
-                        .and_then(|e| e.to_str())
-                        .map(|e| e.to_lowercase());
-                    
-                    // Check for video/gif files
-                    if let Some(ext) = extension {
-                        if ext == "mp4" || ext == "gif" {
-                            // Get file metadata for timestamps
-                            if let Ok(metadata) = fs::metadata(&path) {
-                                let file_name = path.file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or("recording")
-                                    .to_string();
-                                
-                                // Use file name as ID (without extension)
-                                let id = path.file_stem()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or(&file_name)
-                                    .to_string();
-                                
-                                // Get creation/modification time
-                                let created_at = metadata.created()
-                                    .or_else(|_| metadata.modified())
-                                    .map(|t| DateTime::<Utc>::from(t))
-                                    .unwrap_or_else(|_| Utc::now());
-                                
-                                let updated_at = metadata.modified()
-                                    .map(|t| DateTime::<Utc>::from(t))
-                                    .unwrap_or(created_at);
-                                
-                                let capture_type = if ext == "gif" { "gif" } else { "video" };
-                                
-                                // Generate thumbnail if missing
-                                let thumbnail_filename = format!("{}_thumb.png", &id);
-                                let thumbnail_path = thumbnails_dir.join(&thumbnail_filename);
-                                
-                                if !thumbnail_path.exists() {
-                                    // Generate thumbnail in background to avoid blocking UI
-                                    let video_path = path.clone();
-                                    let thumb_path = thumbnail_path.clone();
-                                    let is_gif = ext == "gif";
-                                    std::thread::spawn(move || {
-                                        if is_gif {
-                                            match generate_gif_thumbnail(&video_path, &thumb_path) {
-                                                Ok(()) => println!("[THUMB] GIF OK: {:?}", thumb_path),
-                                                Err(e) => println!("[THUMB] GIF FAILED: {}", e),
-                                            }
-                                        } else {
-                                            match generate_video_thumbnail(&video_path, &thumb_path) {
-                                                Ok(()) => println!("[THUMB] Video OK: {:?}", thumb_path),
-                                                Err(e) => println!("[THUMB] Video FAILED: {}", e),
-                                            }
+
+                // Check file type async
+                let is_file = async_fs::metadata(&path).await.map(|m| m.is_file()).unwrap_or(false);
+                if !is_file {
+                    continue;
+                }
+
+                let extension = path.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_lowercase());
+
+                // Check for video/gif files
+                if let Some(ext) = extension {
+                    if ext == "mp4" || ext == "gif" {
+                        // Get file metadata for timestamps (async)
+                        if let Ok(metadata) = async_fs::metadata(&path).await {
+                            let file_name = path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("recording")
+                                .to_string();
+
+                            // Use file name as ID (without extension)
+                            let id = path.file_stem()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or(&file_name)
+                                .to_string();
+
+                            // Get creation/modification time
+                            let created_at = metadata.created()
+                                .or_else(|_| metadata.modified())
+                                .map(|t| DateTime::<Utc>::from(t))
+                                .unwrap_or_else(|_| Utc::now());
+
+                            let updated_at = metadata.modified()
+                                .map(|t| DateTime::<Utc>::from(t))
+                                .unwrap_or(created_at);
+
+                            let capture_type = if ext == "gif" { "gif" } else { "video" };
+
+                            // Generate thumbnail if missing
+                            let thumbnail_filename = format!("{}_thumb.png", &id);
+                            let thumbnail_path = thumbnails_dir.join(&thumbnail_filename);
+
+                            let thumb_exists = async_fs::try_exists(&thumbnail_path).await.unwrap_or(false);
+                            if !thumb_exists {
+                                // Generate thumbnail in background to avoid blocking UI
+                                let video_path = path.clone();
+                                let thumb_path = thumbnail_path.clone();
+                                let is_gif = ext == "gif";
+                                std::thread::spawn(move || {
+                                    if is_gif {
+                                        match generate_gif_thumbnail(&video_path, &thumb_path) {
+                                            Ok(()) => println!("[THUMB] GIF OK: {:?}", thumb_path),
+                                            Err(e) => println!("[THUMB] GIF FAILED: {}", e),
                                         }
-                                    });
-                                }
-                                
-                                let thumbnail_path_str = if thumbnail_path.exists() {
-                                    thumbnail_path.to_string_lossy().to_string()
-                                } else {
-                                    String::new()
-                                };
-                                
-                                // Skip video dimension fetching on startup for faster load
-                                // Dimensions will be 0x0 until video is opened
-                                // This avoids blocking ffprobe calls for each video
-                                let dimensions = Dimensions { width: 0, height: 0 };
-                                
-                                captures.push(CaptureListItem {
-                                    id,
-                                    created_at,
-                                    updated_at,
-                                    capture_type: capture_type.to_string(),
-                                    dimensions,
-                                    thumbnail_path: thumbnail_path_str,
-                                    image_path: path.to_string_lossy().to_string(),
-                                    has_annotations: false,
-                                    tags: Vec::new(),
-                                    favorite: false,
-                                    is_missing: false,
+                                    } else {
+                                        match generate_video_thumbnail(&video_path, &thumb_path) {
+                                            Ok(()) => println!("[THUMB] Video OK: {:?}", thumb_path),
+                                            Err(e) => println!("[THUMB] Video FAILED: {}", e),
+                                        }
+                                    }
                                 });
                             }
+
+                            let thumbnail_path_str = if thumb_exists {
+                                thumbnail_path.to_string_lossy().to_string()
+                            } else {
+                                String::new()
+                            };
+
+                            // Skip video dimension fetching on startup for faster load
+                            // Dimensions will be 0x0 until video is opened
+                            // This avoids blocking ffprobe calls for each video
+                            let dimensions = Dimensions { width: 0, height: 0 };
+
+                            captures.push(CaptureListItem {
+                                id,
+                                created_at,
+                                updated_at,
+                                capture_type: capture_type.to_string(),
+                                dimensions,
+                                thumbnail_path: thumbnail_path_str,
+                                image_path: path.to_string_lossy().to_string(),
+                                has_annotations: false,
+                                tags: Vec::new(),
+                                favorite: false,
+                                is_missing: false,
+                            });
                         }
                     }
                 }

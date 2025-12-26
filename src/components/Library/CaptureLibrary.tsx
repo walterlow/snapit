@@ -2,8 +2,8 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, format, formatDistanceToNow } from 'date-fns';
+import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
@@ -414,19 +414,8 @@ export const CaptureLibrary: React.FC = () => {
           )}
 
           {loading ? (
-            <div className="capture-grid">
-              {[...Array(6)].map((_, i) => (
-                <div
-                  key={i}
-                  className="rounded-xl border border-[var(--polar-frost)] bg-[var(--card)] overflow-hidden"
-                >
-                  <Skeleton className="aspect-video w-full" />
-                  <div className="p-3 space-y-2">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-3 w-1/2" />
-                  </div>
-                </div>
-              ))}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="w-12 h-12 text-[var(--coral-400)] animate-spin" />
             </div>
           ) : captures.length === 0 ? (
             <EmptyState onNewCapture={handleNewImage} />

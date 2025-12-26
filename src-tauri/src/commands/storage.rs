@@ -375,7 +375,7 @@ fn ensure_directories(app: &AppHandle) -> Result<PathBuf, String> {
 fn generate_id() -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
         .as_millis();
     let random: u32 = rand::thread_rng().gen();
     format!("{:x}{:06x}", timestamp, random & 0xFFFFFF)

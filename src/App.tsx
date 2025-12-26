@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback, Activity } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
-import { writeFile } from '@tauri-apps/plugin-fs';
 import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
@@ -13,14 +12,17 @@ import { Toolbar } from './components/Editor/Toolbar';
 import { PropertiesPanel } from './components/Editor/PropertiesPanel';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
 import { SettingsModal } from './components/Settings/SettingsModal';
+import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore, undo, redo, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import { useUpdater } from './hooks/useUpdater';
 import { useTheme } from './hooks/useTheme';
-import { getContentBounds, calculateExportBounds, exportCanvas } from './utils/canvasExport';
-import type { Tool, CanvasShape, Annotation, CompositorSettings } from './types';
+import { exportToClipboard, exportToFile } from './utils/canvasExport';
+import { createErrorHandler } from './utils/errorReporting';
+import type { Tool, CanvasShape, Annotation, CropBoundsAnnotation, CompositorSettingsAnnotation } from './types';
+import { isCropBoundsAnnotation, isCompositorSettingsAnnotation } from './types';
 
 // Settings Modal Container - uses store for open/close state
 const SettingsModalContainer: React.FC = () => {
@@ -47,7 +49,7 @@ function App() {
   } = useCaptureStore();
 
   // Editor state from store
-  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize, setSelectedIds } = useEditorStore();
+  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize, selectedIds, setSelectedIds, canUndo, canRedo } = useEditorStore();
 
   // Initialize theme (applies theme class to document root)
   useTheme();
@@ -74,6 +76,9 @@ function App() {
   
   // Keyboard shortcuts help modal
   const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Command palette
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   // Delete confirmation dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -110,6 +115,35 @@ function App() {
 
   const handleCancelDelete = useCallback(() => {
     setDeleteDialogOpen(false);
+  }, []);
+
+  // Command palette action handlers
+  const handleFitToCenter = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('fit-to-center'));
+  }, []);
+
+  const handleToggleCompositor = useCallback(() => {
+    setCompositorSettings({ enabled: !compositorSettings.enabled });
+  }, [compositorSettings.enabled, setCompositorSettings]);
+
+  const handleBackToLibrary = useCallback(() => {
+    setView('library');
+  }, [setView]);
+
+  const handleOpenSettings = useCallback(() => {
+    useSettingsStore.getState().openSettingsModal();
+  }, []);
+
+  // Command palette shortcut (Ctrl+K / Cmd+K) - works in all views
+  useEffect(() => {
+    const handleCommandPalette = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(open => !open);
+      }
+    };
+    window.addEventListener('keydown', handleCommandPalette);
+    return () => window.removeEventListener('keydown', handleCommandPalette);
   }, []);
 
   // Keyboard shortcuts for undo/redo, compositor, and tools
@@ -184,10 +218,19 @@ function App() {
         return;
       }
 
-      // Escape: switch to select mode
+      // Escape: deselect shapes first, then switch to select tool
       if (e.key === 'Escape') {
         e.preventDefault();
-        handleToolChange('select');
+        // Priority 1: Deselect shapes if any are selected
+        if (selectedIds.length > 0) {
+          setSelectedIds([]);
+          return;
+        }
+        // Priority 2: Switch to select tool if on different tool
+        if (selectedTool !== 'select') {
+          handleToolChange('select');
+          return;
+        }
         return;
       }
 
@@ -200,7 +243,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings, selectedTool, handleToolChange]);
+  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings, selectedTool, handleToolChange, selectedIds, setSelectedIds]);
 
   // Load captures on mount
   useEffect(() => {
@@ -228,7 +271,9 @@ function App() {
 
   // Run startup cleanup (orphan temp files, missing thumbnails)
   useEffect(() => {
-    invoke('startup_cleanup').catch(() => {});
+    invoke('startup_cleanup').catch(
+      createErrorHandler({ operation: 'startup cleanup', silent: true })
+    );
   }, []);
 
   // Reset to select tool when a new image is loaded
@@ -404,40 +449,40 @@ function App() {
   // Load annotations when project changes
   useEffect(() => {
     if (currentProject?.annotations) {
-      // Separate special annotations from shape annotations
-      const cropBoundsAnn = currentProject.annotations.find((ann) => ann.type === '__crop_bounds__');
-      const compositorAnn = currentProject.annotations.find((ann) => ann.type === '__compositor_settings__');
+      // Separate special annotations from shape annotations using type guards
+      const cropBoundsAnn = currentProject.annotations.find(isCropBoundsAnnotation);
+      const compositorAnn = currentProject.annotations.find(isCompositorSettingsAnnotation);
       const shapeAnnotations = currentProject.annotations.filter(
-        (ann) => ann.type !== '__crop_bounds__' && ann.type !== '__compositor_settings__'
+        (ann) => !isCropBoundsAnnotation(ann) && !isCompositorSettingsAnnotation(ann)
       );
 
-      // Load crop bounds if present
+      // Load crop bounds if present (type is narrowed by type guard)
       if (cropBoundsAnn) {
         setCanvasBounds({
-          width: cropBoundsAnn.width as number,
-          height: cropBoundsAnn.height as number,
-          imageOffsetX: cropBoundsAnn.imageOffsetX as number,
-          imageOffsetY: cropBoundsAnn.imageOffsetY as number,
+          width: cropBoundsAnn.width,
+          height: cropBoundsAnn.height,
+          imageOffsetX: cropBoundsAnn.imageOffsetX,
+          imageOffsetY: cropBoundsAnn.imageOffsetY,
         });
       }
 
-      // Load compositor settings if present
+      // Load compositor settings if present (type is narrowed by type guard)
       if (compositorAnn) {
         setCompositorSettings({
-          enabled: compositorAnn.enabled as boolean,
-          backgroundType: (compositorAnn.backgroundType as CompositorSettings['backgroundType']) ?? 'gradient',
-          backgroundColor: (compositorAnn.backgroundColor as string) ?? '#6366f1',
-          gradientAngle: (compositorAnn.gradientAngle as number) ?? 135,
-          gradientStops: (compositorAnn.gradientStops as CompositorSettings['gradientStops']) ?? [
+          enabled: compositorAnn.enabled,
+          backgroundType: compositorAnn.backgroundType ?? 'gradient',
+          backgroundColor: compositorAnn.backgroundColor ?? '#6366f1',
+          gradientAngle: compositorAnn.gradientAngle ?? 135,
+          gradientStops: compositorAnn.gradientStops ?? [
             { color: '#667eea', position: 0 },
             { color: '#764ba2', position: 100 },
           ],
-          backgroundImage: (compositorAnn.backgroundImage as string | null) ?? null,
-          padding: (compositorAnn.padding as number) ?? 64,
-          borderRadius: (compositorAnn.borderRadius as number) ?? 12,
-          shadowEnabled: (compositorAnn.shadowEnabled as boolean) ?? true,
-          shadowIntensity: (compositorAnn.shadowIntensity as number) ?? 0.5,
-          aspectRatio: (compositorAnn.aspectRatio as CompositorSettings['aspectRatio']) ?? 'auto',
+          backgroundImage: compositorAnn.backgroundImage ?? null,
+          padding: compositorAnn.padding ?? 64,
+          borderRadius: compositorAnn.borderRadius ?? 12,
+          shadowEnabled: compositorAnn.shadowEnabled ?? true,
+          shadowIntensity: compositorAnn.shadowIntensity ?? 0.5,
+          aspectRatio: compositorAnn.aspectRatio ?? 'auto',
         });
       }
 
@@ -473,24 +518,7 @@ function App() {
 
     setIsCopying(true);
     try {
-      const stage = stageRef.current;
-      const layer = stage.findOne('Layer') as Konva.Layer;
-      if (!layer) return;
-
-      const content = getContentBounds(stage, canvasBounds);
-      const bounds = calculateExportBounds(content, compositorSettings);
-      const outputCanvas = exportCanvas(stage, layer, bounds);
-
-      // Browser native clipboard is faster (GPU accelerated, no disk I/O)
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        outputCanvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
-          'image/png'
-        );
-      });
-
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-
+      await exportToClipboard(stageRef, canvasBounds, compositorSettings);
       toast.success('Copied to clipboard');
     } catch {
       toast.error('Failed to copy to clipboard');
@@ -543,24 +571,7 @@ function App() {
       });
 
       if (filePath) {
-        const stage = stageRef.current;
-        const layer = stage.findOne('Layer') as Konva.Layer;
-        if (!layer) return;
-
-        const content = getContentBounds(stage, canvasBounds);
-        const bounds = calculateExportBounds(content, compositorSettings);
-        const outputCanvas = exportCanvas(stage, layer, bounds);
-
-        // Browser toBlob (GPU accelerated) + Tauri writeFile (direct binary, no IPC overhead)
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          outputCanvas.toBlob(
-            (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
-            'image/png'
-          );
-        });
-
-        const arrayBuffer = await blob.arrayBuffer();
-        await writeFile(filePath, new Uint8Array(arrayBuffer));
+        await exportToFile(stageRef, canvasBounds, compositorSettings, filePath);
         toast.success('Image saved successfully');
       }
     } catch (err) {
@@ -577,14 +588,10 @@ function App() {
 
     setIsSaving(true);
     try {
-      const stage = stageRef.current;
-      const layer = stage.findOne('Layer') as Konva.Layer;
-      if (!layer) return;
-
       const formatInfo = {
-        png: { ext: 'png', mime: 'image/png', name: 'PNG', quality: undefined },
-        jpg: { ext: 'jpg', mime: 'image/jpeg', name: 'JPEG', quality: 0.92 },
-        webp: { ext: 'webp', mime: 'image/webp', name: 'WebP', quality: 0.9 },
+        png: { ext: 'png', mime: 'image/png' as const, name: 'PNG', quality: undefined },
+        jpg: { ext: 'jpg', mime: 'image/jpeg' as const, name: 'JPEG', quality: 0.92 },
+        webp: { ext: 'webp', mime: 'image/webp' as const, name: 'WebP', quality: 0.9 },
       }[format];
 
       const filePath = await save({
@@ -593,21 +600,10 @@ function App() {
       });
 
       if (filePath) {
-        const content = getContentBounds(stage, canvasBounds);
-        const bounds = calculateExportBounds(content, compositorSettings);
-        const outputCanvas = exportCanvas(stage, layer, bounds);
-
-        // Browser toBlob (GPU accelerated) + Tauri writeFile (direct binary)
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          outputCanvas.toBlob(
-            (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
-            formatInfo.mime,
-            formatInfo.quality
-          );
+        await exportToFile(stageRef, canvasBounds, compositorSettings, filePath, {
+          format: formatInfo.mime,
+          quality: formatInfo.quality,
         });
-
-        const arrayBuffer = await blob.arrayBuffer();
-        await writeFile(filePath, new Uint8Array(arrayBuffer));
         toast.success(`Image saved as ${formatInfo.name}`);
       }
     } catch (err) {
@@ -638,24 +634,28 @@ function App() {
 
       // Save annotations in background (fire and forget)
       if (projectToSave) {
-        const annotations = shapesToSave.map((shape) => ({ ...shape }));
+        const annotations: Annotation[] = shapesToSave.map((shape) => ({ ...shape }));
         if (boundsToSave) {
-          annotations.push({
+          const cropAnnotation: CropBoundsAnnotation = {
             id: '__crop_bounds__',
             type: '__crop_bounds__',
             width: boundsToSave.width,
             height: boundsToSave.height,
             imageOffsetX: boundsToSave.imageOffsetX,
             imageOffsetY: boundsToSave.imageOffsetY,
-          } as any);
+          };
+          annotations.push(cropAnnotation);
         }
-        annotations.push({
+        const compositorAnnotation: CompositorSettingsAnnotation = {
           id: '__compositor_settings__',
           type: '__compositor_settings__',
           ...compositorToSave,
-        } as any);
+        };
+        annotations.push(compositorAnnotation);
 
-        updateAnnotations(annotations).catch(() => {});
+        updateAnnotations(annotations).catch(
+          createErrorHandler({ operation: 'save annotations', silent: true })
+        );
       }
     });
   };
@@ -695,11 +695,33 @@ function App() {
       />
       
       {/* Keyboard Shortcuts Help Modal */}
-      <KeyboardShortcutsModal 
-        open={showShortcuts} 
-        onClose={() => setShowShortcuts(false)} 
+      <KeyboardShortcutsModal
+        open={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
       />
-      
+
+      {/* Command Palette */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        view={view}
+        selectedTool={selectedTool}
+        hasProject={!!currentProject}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onToolChange={handleToolChange}
+        onCopy={handleCopy}
+        onSave={handleSave}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onFitToCenter={handleFitToCenter}
+        onShowShortcuts={() => setShowShortcuts(true)}
+        onOpenSettings={handleOpenSettings}
+        onBackToLibrary={handleBackToLibrary}
+        onRequestDelete={handleRequestDelete}
+        onToggleCompositor={handleToggleCompositor}
+      />
+
       {/* Settings Modal */}
       <SettingsModalContainer />
       

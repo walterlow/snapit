@@ -39,9 +39,10 @@ const sections: ShortcutSection[] = [
       { keys: ['Ctrl', 'Y'], description: 'Redo' },
       { keys: ['Ctrl', 'Shift', 'Z'], description: 'Redo (alternate)' },
       { keys: ['Ctrl', 'A'], description: 'Select all shapes' },
+      { keys: ['Ctrl', 'D'], description: 'Duplicate selected' },
       { keys: ['Delete'], description: 'Delete selected' },
       { keys: ['Backspace'], description: 'Delete selected' },
-      { keys: ['Escape'], description: 'Deselect all' },
+      { keys: ['Escape'], description: 'Deselect / Cancel' },
     ],
   },
   {

@@ -56,7 +56,9 @@ pub fn init_logging(app: &AppHandle) -> Result<(), String> {
 
     // Store log directory for later use
     {
-        let mut dir = LOG_DIR.lock().unwrap();
+        let mut dir = LOG_DIR
+            .lock()
+            .map_err(|e| format!("Failed to acquire log directory lock: {}", e))?;
         *dir = Some(log_dir.clone());
     }
 
@@ -69,7 +71,9 @@ pub fn init_logging(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to open log file: {}", e))?;
 
     {
-        let mut log_file = LOG_FILE.lock().unwrap();
+        let mut log_file = LOG_FILE
+            .lock()
+            .map_err(|e| format!("Failed to acquire log file lock: {}", e))?;
         *log_file = Some(file);
     }
 
@@ -118,8 +122,12 @@ fn cleanup_old_logs(log_dir: &PathBuf) {
 
 /// Check if log rotation is needed and rotate if necessary
 fn check_rotation() {
+    // Use safe locking - if lock is poisoned, skip rotation rather than panic
     let log_dir = {
-        let dir = LOG_DIR.lock().unwrap();
+        let dir = match LOG_DIR.lock() {
+            Ok(guard) => guard,
+            Err(_) => return, // Mutex poisoned, skip rotation
+        };
         match dir.as_ref() {
             Some(d) => d.clone(),
             None => return,
@@ -127,7 +135,7 @@ fn check_rotation() {
     };
 
     let current_path = get_current_log_path(&log_dir);
-    
+
     // Check file size
     if let Ok(metadata) = fs::metadata(&current_path) {
         if metadata.len() > MAX_LOG_SIZE {
@@ -142,8 +150,10 @@ fn check_rotation() {
                 .append(true)
                 .open(&current_path)
             {
-                let mut log_file = LOG_FILE.lock().unwrap();
-                *log_file = Some(file);
+                // Safe locking - skip update if mutex is poisoned
+                if let Ok(mut log_file) = LOG_FILE.lock() {
+                    *log_file = Some(file);
+                }
             }
 
             cleanup_old_logs(&log_dir);

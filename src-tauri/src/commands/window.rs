@@ -162,7 +162,19 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
     // Launch DirectComposition overlay in background
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[window] Failed to create async runtime: {}", e);
+                // Restore main window before returning since we hid it earlier
+                if let Some(main_window) = app_clone.get_webview_window("main") {
+                    if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                        let _ = main_window.show();
+                    }
+                }
+                return;
+            }
+        };
         rt.block_on(async {
             use crate::commands::capture_overlay::{OverlayAction, OverlayResult};
             

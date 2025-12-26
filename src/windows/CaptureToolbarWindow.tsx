@@ -13,6 +13,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
 import { useCaptureSettingsStore } from '../stores/captureSettingsStore';
+import { createErrorHandler } from '../utils/errorReporting';
 import type { RecordingState, RecordingFormat } from '../types';
 
 const CaptureToolbarWindow: React.FC = () => {
@@ -106,7 +107,9 @@ const CaptureToolbarWindow: React.FC = () => {
       
       unlistenClosed = await listen('capture-overlay-closed', () => {
         if (!recordingInitiatedRef.current) {
-          currentWindow.close().catch(console.error);
+          currentWindow.close().catch(
+            createErrorHandler({ operation: 'close toolbar on overlay closed', silent: true })
+          );
         }
       });
 
@@ -144,26 +147,42 @@ const CaptureToolbarWindow: React.FC = () => {
             setElapsedTime(0);
             setProgress(0);
             Promise.all([
-              invoke('hide_recording_border').catch(() => {}),
-              invoke('hide_countdown_window').catch(() => {}),
-              invoke('restore_main_window').catch(() => {}),
+              invoke('hide_recording_border').catch(
+                createErrorHandler({ operation: 'hide recording border', silent: true })
+              ),
+              invoke('hide_countdown_window').catch(
+                createErrorHandler({ operation: 'hide countdown window', silent: true })
+              ),
+              invoke('restore_main_window').catch(
+                createErrorHandler({ operation: 'restore main window', silent: true })
+              ),
             ]).finally(() => {
-              currentWindow.close().catch(console.error);
+              currentWindow.close().catch(
+                createErrorHandler({ operation: 'close toolbar window', silent: true })
+              );
             });
             break;
           case 'error':
             isRecordingActiveRef.current = false;
             setErrorMessage(state.message);
             setMode('error');
-            invoke('hide_recording_border').catch(() => {});
-            invoke('hide_countdown_window').catch(() => {});
+            invoke('hide_recording_border').catch(
+              createErrorHandler({ operation: 'hide recording border', silent: true })
+            );
+            invoke('hide_countdown_window').catch(
+              createErrorHandler({ operation: 'hide countdown window', silent: true })
+            );
             setTimeout(() => {
               setMode('selection');
               setElapsedTime(0);
               setProgress(0);
               setErrorMessage(undefined);
-              invoke('restore_main_window').catch(() => {}).finally(() => {
-                currentWindow.close().catch(console.error);
+              invoke('restore_main_window').catch(
+                createErrorHandler({ operation: 'restore main window', silent: true })
+              ).finally(() => {
+                currentWindow.close().catch(
+                  createErrorHandler({ operation: 'close toolbar window', silent: true })
+                );
               });
             }, 3000);
             break;

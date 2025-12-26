@@ -40,7 +40,6 @@ const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, dis
       value={String(value)}
       onValueChange={handleValueChange}
       disabled={disabled}
-      alignItemToTrigger={false}
     >
       <BaseSelect.Trigger className="glass-settings-select-trigger">
         <BaseSelect.Value>{currentLabel}</BaseSelect.Value>
@@ -50,7 +49,7 @@ const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, dis
       </BaseSelect.Trigger>
 
       <BaseSelect.Portal>
-        <BaseSelect.Positioner sideOffset={6} align="start" className="z-[9999]">
+        <BaseSelect.Positioner sideOffset={6} align="start" alignItemWithTrigger={false} className="z-[9999]">
           <BaseSelect.Popup className="glass-settings-select-popup">
             <BaseSelect.List>
               {options.map((opt) => (

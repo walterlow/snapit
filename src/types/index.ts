@@ -17,10 +17,50 @@ export interface CaptureSource {
   region?: Region;
 }
 
-export interface Annotation {
+// Base annotation interface for generic shapes
+export interface ShapeAnnotation {
   id: string;
   type: string;
   [key: string]: unknown;
+}
+
+// Special annotation for crop bounds (stored to persist crop state)
+export interface CropBoundsAnnotation {
+  id: '__crop_bounds__';
+  type: '__crop_bounds__';
+  width: number;
+  height: number;
+  imageOffsetX: number;
+  imageOffsetY: number;
+}
+
+// Special annotation for compositor settings (stored to persist background effects)
+export interface CompositorSettingsAnnotation {
+  id: '__compositor_settings__';
+  type: '__compositor_settings__';
+  enabled: boolean;
+  backgroundType: BackgroundType;
+  backgroundColor: string;
+  gradientAngle: number;
+  gradientStops: GradientStop[];
+  backgroundImage: string | null;
+  padding: number;
+  borderRadius: number;
+  shadowEnabled: boolean;
+  shadowIntensity: number;
+  aspectRatio: CompositorSettings['aspectRatio'];
+}
+
+// Union type for all annotation types
+export type Annotation = ShapeAnnotation | CropBoundsAnnotation | CompositorSettingsAnnotation;
+
+// Type guards for annotation types
+export function isCropBoundsAnnotation(ann: Annotation): ann is CropBoundsAnnotation {
+  return ann.type === '__crop_bounds__';
+}
+
+export function isCompositorSettingsAnnotation(ann: Annotation): ann is CompositorSettingsAnnotation {
+  return ann.type === '__compositor_settings__';
 }
 
 export interface CaptureProject {

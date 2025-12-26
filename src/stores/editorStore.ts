@@ -16,122 +16,15 @@ interface HistorySnapshot {
   canvasBounds: CanvasBounds | null;
 }
 
-// Manual history management - explicit snapshots only
-// No automatic tracking, no fighting with continuous updates
+// History configuration
 const HISTORY_LIMIT = 50;
-let undoStack: HistorySnapshot[] = [];
-let redoStack: HistorySnapshot[] = [];
-let pendingSnapshot: HistorySnapshot | null = null;
 
-// Helper to update reactive history state in the store
-const updateHistoryState = () => {
-  useEditorStore.setState({
-    canUndo: undoStack.length > 0,
-    canRedo: redoStack.length > 0,
-  });
-};
-
-// Take a snapshot BEFORE starting a user action (drag, transform, etc.)
-// Call this in onDragStart, onTransformStart, before shape creation, etc.
-export const takeSnapshot = () => {
-  if (pendingSnapshot) return; // Already have a pending snapshot
-
-  const state = useEditorStore.getState();
-  pendingSnapshot = {
-    shapes: structuredClone(state.shapes),
-    canvasBounds: state.canvasBounds ? structuredClone(state.canvasBounds) : null,
-  };
-};
-
-// Commit the pending snapshot to history AFTER an action completes
-// Call this in onDragEnd, onTransformEnd, after shape creation, etc.
-export const commitSnapshot = () => {
-  if (!pendingSnapshot) return;
-  
-  const state = useEditorStore.getState();
-  const currentSnapshot: HistorySnapshot = {
-    shapes: state.shapes,
-    canvasBounds: state.canvasBounds,
-  };
-  
-  // Only commit if state actually changed
-  const shapesChanged = JSON.stringify(pendingSnapshot.shapes) !== JSON.stringify(currentSnapshot.shapes);
-  const boundsChanged = JSON.stringify(pendingSnapshot.canvasBounds) !== JSON.stringify(currentSnapshot.canvasBounds);
-  
-  if (shapesChanged || boundsChanged) {
-    undoStack.push(pendingSnapshot);
-    if (undoStack.length > HISTORY_LIMIT) {
-      undoStack.shift();
-    }
-    redoStack = []; // Clear redo on new action
-    updateHistoryState();
-  }
-  
-  pendingSnapshot = null;
-};
-
-// Discard pending snapshot without committing (e.g., action cancelled)
-export const discardSnapshot = () => {
-  pendingSnapshot = null;
-};
-
-// Undo last action
-export const undo = () => {
-  if (undoStack.length === 0) return false;
-
-  const state = useEditorStore.getState();
-
-  // Save current state to redo stack
-  redoStack.push({
-    shapes: structuredClone(state.shapes),
-    canvasBounds: state.canvasBounds ? structuredClone(state.canvasBounds) : null,
-  });
-  
-  // Restore previous state
-  const snapshot = undoStack.pop()!;
-  state.setShapes(snapshot.shapes);
-  state.setCanvasBounds(snapshot.canvasBounds);
-  updateHistoryState();
-  
-  return true;
-};
-
-// Redo last undone action
-export const redo = () => {
-  if (redoStack.length === 0) return false;
-
-  const state = useEditorStore.getState();
-
-  // Save current state to undo stack
-  undoStack.push({
-    shapes: structuredClone(state.shapes),
-    canvasBounds: state.canvasBounds ? structuredClone(state.canvasBounds) : null,
-  });
-  
-  // Restore redo state
-  const snapshot = redoStack.pop()!;
-  state.setShapes(snapshot.shapes);
-  state.setCanvasBounds(snapshot.canvasBounds);
-  updateHistoryState();
-  
-  return true;
-};
-
-// Clear all history (e.g., when loading new image)
-export const clearHistory = () => {
-  undoStack = [];
-  redoStack = [];
-  pendingSnapshot = null;
-  updateHistoryState();
-};
-
-// Convenience: take snapshot + commit in one call for instant actions
-// Use for actions that don't have a drag phase (e.g., delete, paste)
-export const recordAction = (action: () => void) => {
-  takeSnapshot();
-  action();
-  commitSnapshot();
-};
+// History state managed within Zustand store
+interface HistoryState {
+  undoStack: HistorySnapshot[];
+  redoStack: HistorySnapshot[];
+  pendingSnapshot: HistorySnapshot | null;
+}
 
 // Preview state for smooth slider interactions (only affects CSS preview, not Konva)
 export interface CompositorPreview {
@@ -162,7 +55,8 @@ interface EditorState {
   canvasBounds: CanvasBounds | null;
   originalImageSize: { width: number; height: number } | null;
 
-  // History state (reactive for UI)
+  // History state (now part of store for better observability)
+  history: HistoryState;
   canUndo: boolean;
   canRedo: boolean;
 
@@ -183,6 +77,14 @@ interface EditorState {
   setCanvasBounds: (bounds: CanvasBounds | null) => void;
   setOriginalImageSize: (size: { width: number; height: number }) => void;
   resetCanvasBounds: () => void;
+
+  // History actions (internal, called via exported functions)
+  _takeSnapshot: () => void;
+  _commitSnapshot: () => void;
+  _discardSnapshot: () => void;
+  _undo: () => boolean;
+  _redo: () => boolean;
+  _clearHistory: () => void;
 }
 
 export const useEditorStore = create<EditorState>()((set, get) => ({
@@ -197,13 +99,20 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   fontSize: 36,
   canvasBounds: null,
   originalImageSize: null,
+
+  // History state - now part of Zustand for better observability
+  history: {
+    undoStack: [],
+    redoStack: [],
+    pendingSnapshot: null,
+  },
   canUndo: false,
   canRedo: false,
 
   setShapes: (shapes) => set({ shapes }),
   setSelectedIds: (ids) => set({ selectedIds: ids }),
   updateShape: (id, updates) => set((state) => ({
-    shapes: state.shapes.map(shape => 
+    shapes: state.shapes.map(shape =>
       shape.id === id ? { ...shape, ...updates } : shape
     ),
   })),
@@ -259,4 +168,181 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       set({ canvasBounds: null });
     }
   },
+
+  // History actions
+  _takeSnapshot: () => {
+    const { history, shapes, canvasBounds } = get();
+    if (history.pendingSnapshot) return; // Already have a pending snapshot
+
+    set({
+      history: {
+        ...history,
+        pendingSnapshot: {
+          shapes: structuredClone(shapes),
+          canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+        },
+      },
+    });
+  },
+
+  _commitSnapshot: () => {
+    const { history, shapes, canvasBounds } = get();
+    if (!history.pendingSnapshot) return;
+
+    const currentSnapshot: HistorySnapshot = { shapes, canvasBounds };
+    const prev = history.pendingSnapshot;
+
+    // Only commit if state actually changed
+    const shapesChanged = JSON.stringify(prev.shapes) !== JSON.stringify(currentSnapshot.shapes);
+    const boundsChanged = JSON.stringify(prev.canvasBounds) !== JSON.stringify(currentSnapshot.canvasBounds);
+
+    if (shapesChanged || boundsChanged) {
+      const newUndoStack = [...history.undoStack, prev];
+      if (newUndoStack.length > HISTORY_LIMIT) {
+        newUndoStack.shift();
+      }
+
+      set({
+        history: {
+          undoStack: newUndoStack,
+          redoStack: [], // Clear redo on new action
+          pendingSnapshot: null,
+        },
+        canUndo: true,
+        canRedo: false,
+      });
+    } else {
+      set({
+        history: { ...history, pendingSnapshot: null },
+      });
+    }
+  },
+
+  _discardSnapshot: () => {
+    set((state) => ({
+      history: { ...state.history, pendingSnapshot: null },
+    }));
+  },
+
+  _undo: () => {
+    const { history, shapes, canvasBounds } = get();
+    if (history.undoStack.length === 0) return false;
+
+    // Save current state to redo stack
+    const newRedoStack = [
+      ...history.redoStack,
+      {
+        shapes: structuredClone(shapes),
+        canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+      },
+    ];
+
+    // Get and remove last undo state
+    const newUndoStack = [...history.undoStack];
+    const snapshot = newUndoStack.pop()!;
+
+    set({
+      shapes: snapshot.shapes,
+      canvasBounds: snapshot.canvasBounds,
+      history: {
+        undoStack: newUndoStack,
+        redoStack: newRedoStack,
+        pendingSnapshot: null,
+      },
+      canUndo: newUndoStack.length > 0,
+      canRedo: true,
+    });
+
+    return true;
+  },
+
+  _redo: () => {
+    const { history, shapes, canvasBounds } = get();
+    if (history.redoStack.length === 0) return false;
+
+    // Save current state to undo stack
+    const newUndoStack = [
+      ...history.undoStack,
+      {
+        shapes: structuredClone(shapes),
+        canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+      },
+    ];
+
+    // Get and remove last redo state
+    const newRedoStack = [...history.redoStack];
+    const snapshot = newRedoStack.pop()!;
+
+    set({
+      shapes: snapshot.shapes,
+      canvasBounds: snapshot.canvasBounds,
+      history: {
+        undoStack: newUndoStack,
+        redoStack: newRedoStack,
+        pendingSnapshot: null,
+      },
+      canUndo: true,
+      canRedo: newRedoStack.length > 0,
+    });
+
+    return true;
+  },
+
+  _clearHistory: () => {
+    set({
+      history: {
+        undoStack: [],
+        redoStack: [],
+        pendingSnapshot: null,
+      },
+      canUndo: false,
+      canRedo: false,
+    });
+  },
 }));
+
+// ============================================================================
+// Exported convenience functions (maintain backwards compatibility)
+// ============================================================================
+
+/**
+ * Take a snapshot BEFORE starting a user action (drag, transform, etc.)
+ * Call this in onDragStart, onTransformStart, before shape creation, etc.
+ */
+export const takeSnapshot = () => useEditorStore.getState()._takeSnapshot();
+
+/**
+ * Commit the pending snapshot to history AFTER an action completes
+ * Call this in onDragEnd, onTransformEnd, after shape creation, etc.
+ */
+export const commitSnapshot = () => useEditorStore.getState()._commitSnapshot();
+
+/**
+ * Discard pending snapshot without committing (e.g., action cancelled)
+ */
+export const discardSnapshot = () => useEditorStore.getState()._discardSnapshot();
+
+/**
+ * Undo last action
+ */
+export const undo = () => useEditorStore.getState()._undo();
+
+/**
+ * Redo last undone action
+ */
+export const redo = () => useEditorStore.getState()._redo();
+
+/**
+ * Clear all history (e.g., when loading new image)
+ */
+export const clearHistory = () => useEditorStore.getState()._clearHistory();
+
+/**
+ * Convenience: take snapshot + commit in one call for instant actions
+ * Use for actions that don't have a drag phase (e.g., delete, paste)
+ */
+export const recordAction = (action: () => void) => {
+  takeSnapshot();
+  action();
+  commitSnapshot();
+};

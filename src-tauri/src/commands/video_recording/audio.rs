@@ -124,9 +124,12 @@ impl AudioCapture {
         T: cpal::SizedSample + cpal::FromSample<f32> + Into<f32>,
     {
         let data_callback = move |data: &[T], _: &cpal::InputCallbackInfo| {
-            let mut samples_lock = samples.lock().unwrap();
-            for &sample in data {
-                samples_lock.push(sample.into());
+            // Use safe locking - drop samples rather than panic if mutex is poisoned
+            // Audio callbacks must be resilient to avoid crashing the audio thread
+            if let Ok(mut samples_lock) = samples.lock() {
+                for &sample in data {
+                    samples_lock.push(sample.into());
+                }
             }
         };
         

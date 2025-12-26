@@ -1,15 +1,8 @@
 import React from 'react';
 import {
   Search,
-  Star,
   Trash2,
-  LayoutGrid,
-  List,
-  Camera,
-  Video,
-  Film,
   X,
-  FolderOpen,
   ScreenShare,
 } from 'lucide-react';
 
@@ -21,17 +14,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-
-type ViewMode = 'grid' | 'list';
 
 interface LibraryToolbarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   filterFavorites: boolean;
   onFilterFavoritesChange: (value: boolean) => void;
-  viewMode: ViewMode;
-  onViewModeChange: (mode: ViewMode) => void;
+  viewMode: 'grid' | 'list';
+  onViewModeChange: (mode: 'grid' | 'list') => void;
   selectedCount: number;
   onDeleteSelected: () => void;
   onClearSelection: () => void;
@@ -45,18 +35,10 @@ interface LibraryToolbarProps {
 export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
   searchQuery,
   onSearchChange,
-  filterFavorites,
-  onFilterFavoritesChange,
-  viewMode,
-  onViewModeChange,
   selectedCount,
   onDeleteSelected,
   onClearSelection,
-  onOpenLibraryFolder,
   onAllMonitorsCapture,
-  onNewImage,
-  onNewVideo,
-  onNewGif,
 }) => {
   return (
     <header className="header-bar">
@@ -73,56 +55,11 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
           />
         </div>
 
-        {/* View Controls */}
-        <div className="flex items-center gap-3">
-          {/* Favorites Filter */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onFilterFavoritesChange(!filterFavorites)}
-                className={`glass-btn h-9 w-9 ${
-                  filterFavorites ? 'glass-btn--active text-[var(--coral-400)]' : ''
-                }`}
-              >
-                <Star className="w-4 h-4" fill={filterFavorites ? 'currentColor' : 'none'} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p className="text-xs">Show favorites only</p>
-            </TooltipContent>
-          </Tooltip>
-
-          {/* View Toggle */}
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(val) => val && onViewModeChange(val as ViewMode)}
-            className="glass-badge p-1 rounded-lg"
-          >
-            <ToggleGroupItem
-              value="grid"
-              aria-label="Grid view"
-              className="h-7 w-7 rounded-md data-[state=on]:bg-[var(--glass-highlight)] data-[state=on]:text-[var(--coral-400)]"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="list"
-              aria-label="List view"
-              className="h-7 w-7 rounded-md data-[state=on]:bg-[var(--glass-highlight)] data-[state=on]:text-[var(--coral-400)]"
-            >
-              <List className="w-3.5 h-3.5" />
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
-
         <div className="flex-1" />
 
-        {/* Selection Actions (appears left of Open Folder when items selected) */}
+        {/* Selection Actions (appears when items selected) */}
         {selectedCount > 0 && (
-          <div className="flex items-center gap-2 mr-2">
+          <div className="flex items-center gap-2">
             <Badge
               variant="secondary"
               className="glass-badge text-xs"
@@ -163,73 +100,20 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
           </div>
         )}
 
-        {/* Capture Actions (always visible) */}
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={onOpenLibraryFolder}
-            variant="outline"
-            className="glass-btn h-8 px-3 gap-1.5 rounded-lg text-sm font-medium"
-          >
-            <FolderOpen className="w-3.5 h-3.5" />
-            Open Folder
-          </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={onAllMonitorsCapture}
-                className="glass-btn-action h-9 w-9 p-0"
-              >
-                <ScreenShare className="w-4 h-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p className="text-xs">All Monitors</p>
-            </TooltipContent>
-          </Tooltip>
-
-          {/* Circular Capture Buttons */}
-          <div className="flex items-center gap-1.5 ml-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={onNewVideo}
-                  className="glass-btn-action h-9 w-9 p-0"
-                >
-                  <Video className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p className="text-xs">New Video</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={onNewGif}
-                  className="glass-btn-action h-9 w-9 p-0"
-                >
-                  <Film className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p className="text-xs">New GIF</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={onNewImage}
-                  className="glass-btn-action h-9 w-9 p-0"
-                >
-                  <Camera className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p className="text-xs">New Screenshot</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
+        {/* All Monitors Quick Capture */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={onAllMonitorsCapture}
+              className="glass-btn-action h-9 w-9 p-0"
+            >
+              <ScreenShare className="w-4 h-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p className="text-xs">Capture All Monitors</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </header>
   );

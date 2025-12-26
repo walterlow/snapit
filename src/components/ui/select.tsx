@@ -56,7 +56,9 @@ const SelectContent = React.forwardRef<
           className
         )}
       >
-        {children}
+        <BaseSelect.List>
+          {children}
+        </BaseSelect.List>
       </BaseSelect.Popup>
     </BaseSelect.Positioner>
   </BaseSelect.Portal>

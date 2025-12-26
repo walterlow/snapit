@@ -16,7 +16,7 @@ import {
   DropZoneOverlay,
   CaptureCard,
   CaptureRow,
-  LibraryToolbar,
+  GlassBlobToolbar,
   DeleteDialog,
 } from './components';
 
@@ -83,7 +83,7 @@ export const CaptureLibrary: React.FC = () => {
     setFilterFavorites,
   } = useCaptureStore();
 
-  const { settings } = useSettingsStore();
+  const { settings, openSettingsModal } = useSettingsStore();
 
   const captures = useFilteredCaptures();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -392,28 +392,10 @@ export const CaptureLibrary: React.FC = () => {
         {/* Drop Zone Overlay */}
         {isDragOver && <DropZoneOverlay />}
 
-        {/* Toolbar */}
-        <LibraryToolbar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          filterFavorites={filterFavorites}
-          onFilterFavoritesChange={setFilterFavorites}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          selectedCount={selectedIds.size}
-          onDeleteSelected={handleRequestDeleteSelected}
-          onClearSelection={clearSelection}
-          onOpenLibraryFolder={handleOpenLibraryFolder}
-          onAllMonitorsCapture={handleAllMonitorsCapture}
-          onNewImage={handleNewImage}
-          onNewVideo={handleNewVideo}
-          onNewGif={handleNewGif}
-        />
-
         {/* Content - Scrollable area with marquee selection */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto p-8 relative select-none library-scroll"
+          className="flex-1 overflow-auto p-8 pb-32 relative select-none library-scroll"
           onMouseDown={handleMarqueeMouseDown}
           onMouseMove={handleMarqueeMouseMove}
           onMouseUp={handleMarqueeMouseUp}
@@ -462,6 +444,25 @@ export const CaptureLibrary: React.FC = () => {
           count={getDeleteCount()}
           onConfirm={handleConfirmDelete}
           onCancel={handleCancelDelete}
+        />
+
+        {/* Floating Bottom Toolbar */}
+        <GlassBlobToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          filterFavorites={filterFavorites}
+          onFilterFavoritesChange={setFilterFavorites}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          selectedCount={selectedIds.size}
+          onDeleteSelected={handleRequestDeleteSelected}
+          onClearSelection={clearSelection}
+          onOpenLibraryFolder={handleOpenLibraryFolder}
+          onAllMonitorsCapture={handleAllMonitorsCapture}
+          onNewImage={handleNewImage}
+          onNewVideo={handleNewVideo}
+          onNewGif={handleNewGif}
+          onOpenSettings={openSettingsModal}
         />
       </div>
     </TooltipProvider>

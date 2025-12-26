@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs } from '@base-ui/react/tabs';
 import { ShortcutsTab } from './ShortcutsTab';
 import { GeneralTab } from './GeneralTab';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -11,7 +11,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) => {
-  const { activeTab, setActiveTab } = useSettingsStore();
+  const { setActiveTab } = useSettingsStore();
 
   // Handle escape key
   useEffect(() => {
@@ -54,39 +54,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
         </div>
 
         {/* Content */}
-        <Tabs
-          value={activeTab}
+        <Tabs.Root
+          defaultValue="general"
           onValueChange={(value) => setActiveTab(value as 'shortcuts' | 'general')}
           className="flex-1 min-h-0 flex flex-col"
         >
-          {/* Sticky Tabs */}
+          {/* Tabs */}
           <div className="flex-shrink-0 px-5 pt-4 border-b border-[var(--polar-frost)] bg-[var(--card)]">
-            <TabsList className="relative w-full justify-start bg-transparent p-0 h-auto">
-              <TabsTrigger
+            <Tabs.List className="relative flex gap-0">
+              <Tabs.Tab
                 value="general"
-                className="relative px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--coral-400)] data-[state=active]:text-[var(--coral-500)] data-[state=active]:bg-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-all duration-200 data-[state=active]:scale-[1.02] hover:scale-[1.01]"
+                className="relative px-4 py-2 text-sm font-medium border-b-2 border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-all duration-200 data-[active]:border-[var(--coral-400)] data-[active]:text-[var(--coral-500)]"
               >
                 General
-              </TabsTrigger>
-              <TabsTrigger
+              </Tabs.Tab>
+              <Tabs.Tab
                 value="shortcuts"
-                className="relative px-4 py-2 text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--coral-400)] data-[state=active]:text-[var(--coral-500)] data-[state=active]:bg-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-all duration-200 data-[state=active]:scale-[1.02] hover:scale-[1.01]"
+                className="relative px-4 py-2 text-sm font-medium border-b-2 border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition-all duration-200 data-[active]:border-[var(--coral-400)] data-[active]:text-[var(--coral-500)]"
               >
                 Shortcuts
-              </TabsTrigger>
-            </TabsList>
+              </Tabs.Tab>
+            </Tabs.List>
           </div>
 
           {/* Scrollable Content */}
           <div className="flex-1 min-h-0 overflow-y-auto p-5">
-            <TabsContent value="general" className="m-0 focus-visible:outline-none animate-in fade-in-0 slide-in-from-top-2 duration-200">
+            <Tabs.Panel value="general">
               <GeneralTab />
-            </TabsContent>
-            <TabsContent value="shortcuts" className="m-0 focus-visible:outline-none animate-in fade-in-0 slide-in-from-top-2 duration-200">
+            </Tabs.Panel>
+            <Tabs.Panel value="shortcuts">
               <ShortcutsTab />
-            </TabsContent>
+            </Tabs.Panel>
           </div>
-        </Tabs>
+        </Tabs.Root>
       </div>
     </div>
   );

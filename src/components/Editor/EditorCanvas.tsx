@@ -654,8 +654,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   }
                 }}
               >
-                {/* Checkerboard pattern for transparency */}
-                {checkerPatternImage && !compositorSettings.enabled && (
+                {/* Checkerboard pattern - only when canvas extends beyond image (shows transparent areas) */}
+                {checkerPatternImage && !compositorSettings.enabled && canvasBounds && originalImageSize && (
+                  canvasBounds.imageOffsetX !== 0 || 
+                  canvasBounds.imageOffsetY !== 0 ||
+                  canvasBounds.width > originalImageSize.width ||
+                  canvasBounds.height > originalImageSize.height
+                ) && (
                   <Rect
                     name="checkerboard"
                     x={clipX}

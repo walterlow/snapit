@@ -30,15 +30,15 @@ export const CropControls: React.FC<CropControlsProps> = React.memo(({
       <div className="w-px h-4 bg-[var(--polar-frost)]" />
       <button
         onClick={onCancel}
-        className="p-1.5 hover:bg-[var(--polar-ice)] rounded-lg transition-colors"
+        className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group"
         title="Cancel (switch tool)"
       >
-        <X size={16} className="text-[var(--ink-muted)]" />
+        <X size={16} className="text-[var(--ink-muted)] group-hover:text-red-500 transition-colors" />
       </button>
       {isModified && (
         <button
           onClick={onReset}
-          className="px-2 py-1 text-xs text-[var(--ink-muted)] hover:bg-[var(--polar-ice)] rounded-lg transition-colors"
+          className="px-2 py-1 text-xs text-[var(--ink-muted)] hover:bg-[var(--polar-frost)] hover:text-[var(--ink-dark)] rounded-lg transition-colors"
           title="Reset to original"
         >
           Reset

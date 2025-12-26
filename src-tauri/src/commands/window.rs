@@ -527,6 +527,12 @@ pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
 /// - y: Y position (bottom) of the selection region (screen coordinates)
 /// - width: Width of the selection region
 /// - height: Height of the selection region (used to calculate toolbar position)
+///
+/// Initial shadow padding estimate for toolbar positioning.
+/// Frontend is the source of truth - it passes the actual value via resize_capture_toolbar.
+/// This is just used for initial window creation before frontend reports actual padding.
+const TOOLBAR_SHADOW_PADDING: i32 = 32;
+
 #[command]
 pub async fn show_capture_toolbar(
     app: AppHandle,
@@ -538,8 +544,11 @@ pub async fn show_capture_toolbar(
     // Initial window dimensions - generous size to let frontend toolbar render naturally
     // Frontend will measure content and call resize_capture_toolbar to fit exactly
     // Extra space is transparent and click-through until resize happens
-    let window_width: i32 = 600;
-    let window_height: i32 = 80;
+    // Add shadow padding on all sides for glassmorphism drop shadows
+    let toolbar_content_width: i32 = 500;
+    let toolbar_content_height: i32 = 60;
+    let window_width: i32 = toolbar_content_width + (TOOLBAR_SHADOW_PADDING * 2);
+    let window_height: i32 = toolbar_content_height + (TOOLBAR_SHADOW_PADDING * 2);
 
     // Get monitors to detect fullscreen and find alternate monitor
     let monitors = get_monitors().unwrap_or_default();
@@ -562,61 +571,85 @@ pub async fn show_capture_toolbar(
         false
     };
     
-    // Calculate toolbar position - centered horizontally below selection
-    let toolbar_x = sel_center_x - window_width / 2;
-    
-    let (mut pos_x, mut pos_y) = if is_fullscreen {
-        // For fullscreen, try to find alternate monitor
-        let alternate = monitors.iter().find(|m| {
-            if let Some(curr) = current_monitor {
-                m.x != curr.x || m.y != curr.y
-            } else {
-                false
-            }
-        });
-        
-        if let Some(alt_mon) = alternate {
-            // Place in center of alternate monitor
+    // Calculate where visible toolbar content should be centered (ignoring shadow padding)
+    // This is where the actual toolbar UI should appear on screen
+    let content_x = sel_center_x - toolbar_content_width / 2;
+
+    // Calculate window position by offsetting for shadow padding
+    // The window is larger than the content to accommodate shadows
+    // Also track which monitor we're placing the toolbar on for bounds checking
+    let (mut pos_x, mut pos_y, bounds_monitor) = if is_fullscreen {
+        // Determine if current monitor is primary
+        let current_is_primary = current_monitor.map(|m| m.is_primary).unwrap_or(true);
+
+        // Find target monitor: if on primary → secondary, if on secondary → primary
+        let target_monitor = if current_is_primary {
+            // On primary, find any non-primary
+            monitors.iter().find(|m| !m.is_primary)
+        } else {
+            // On non-primary, find the primary
+            monitors.iter().find(|m| m.is_primary)
+        };
+
+        if let Some(target) = target_monitor {
+            // Place in center of target monitor - use target for bounds checking
             (
-                alt_mon.x + (alt_mon.width as i32 - window_width) / 2,
-                alt_mon.y + (alt_mon.height as i32 - window_height) / 2
+                target.x + (target.width as i32 - window_width) / 2,
+                target.y + (target.height as i32 - window_height) / 2,
+                Some(target)
             )
         } else {
             // No alternate monitor, place at bottom center inside selection
-            (toolbar_x, sel_bottom - window_height - 60)
+            // Use full window dimensions to ensure it stays on screen
+            (sel_center_x - window_width / 2, sel_bottom - window_height - 60, current_monitor)
         }
     } else {
         // Normal selection: place below selection, horizontally centered
-        (toolbar_x, sel_bottom + 12)
+        // Window starts exactly at selection bottom so shadow doesn't overlap selection
+        // This is an initial estimate - resize_capture_toolbar will set the final position
+        (content_x - TOOLBAR_SHADOW_PADDING, sel_bottom, current_monitor)
     };
     
-    // Bounds checking: ensure toolbar is fully visible on current monitor
-    if let Some(mon) = current_monitor {
+    // Bounds checking: ensure full window (including shadow) is on screen
+    // Use the monitor where toolbar is actually placed, not the selection's monitor
+    if let Some(mon) = bounds_monitor {
         let mon_right = mon.x + mon.width as i32;
         let mon_bottom = mon.y + mon.height as i32;
         let margin = 8; // Small margin from screen edges
-        
-        // Check if toolbar would be off-screen at the bottom
-        if pos_y + window_height > mon_bottom - margin {
-            // Try placing above the selection instead
-            let above_y = y - window_height - 12;
-            if above_y >= mon.y + margin {
-                pos_y = above_y;
+
+        // Check full window bounds (including shadow padding on all sides)
+        let window_bottom = pos_y + window_height;
+
+        // Check if toolbar window would be off-screen at the bottom
+        if window_bottom > mon_bottom - margin {
+            // For fullscreen on alternate monitor, just clamp to bottom
+            // For non-fullscreen, try placing above selection first
+            if !is_fullscreen {
+                let above_pos_y = y - window_height;
+                if above_pos_y >= mon.y + margin {
+                    pos_y = above_pos_y;
+                } else {
+                    pos_y = sel_bottom - window_height - 20;
+                }
             } else {
-                // Can't fit above either, place inside selection at bottom
-                pos_y = sel_bottom - window_height - 20;
+                pos_y = mon_bottom - margin - window_height;
             }
         }
-        
-        // Clamp horizontal position to screen bounds
-        if pos_x < mon.x + margin {
+
+        // Clamp horizontal position so full window stays on screen
+        let window_left = pos_x;
+        let window_right = pos_x + window_width;
+
+        if window_left < mon.x + margin {
             pos_x = mon.x + margin;
-        } else if pos_x + window_width > mon_right - margin {
-            pos_x = mon_right - window_width - margin;
+        } else if window_right > mon_right - margin {
+            pos_x = mon_right - margin - window_width;
         }
-        
-        // Final safety check: ensure toolbar is at least partially visible
-        pos_y = pos_y.max(mon.y + margin).min(mon_bottom - window_height - margin);
+
+        // Final safety check for vertical position (full window bounds)
+        let min_pos_y = mon.y + margin;
+        let max_pos_y = mon_bottom - margin - window_height;
+        pos_y = pos_y.max(min_pos_y).min(max_pos_y);
     }
     
     // Check if window already exists
@@ -631,9 +664,9 @@ pub async fn show_capture_toolbar(
         return Ok(());
     }
 
-    // Create the window with dimensions in URL params
+    // Create the window with selection coordinates in URL params
     let url = WebviewUrl::App(
-        format!("capture-toolbar.html?width={}&height={}", width, height).into()
+        format!("capture-toolbar.html?x={}&y={}&width={}&height={}", x, y, width, height).into()
     );
     
     let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
@@ -649,7 +682,7 @@ pub async fn show_capture_toolbar(
         .visible(true)
         .focused(true)
         .build()
-        .map_err(|e| format!("Failed to create dcomp toolbar window: {}", e))?;
+        .map_err(|e| format!("Failed to create capture toolbar window: {}", e))?;
 
     // Exclude from capture so it doesn't appear in recordings
     let _ = exclude_window_from_capture(&window);
@@ -658,11 +691,11 @@ pub async fn show_capture_toolbar(
     if let Err(e) = apply_dwm_transparency(&window) {
         eprintln!("Warning: Failed to apply DWM transparency to toolbar: {}", e);
     }
-    
-    // Note: Rounded corners disabled for testing square layout
-    // if let Err(e) = apply_rounded_corners(&window) {
-    //     eprintln!("Warning: Failed to apply rounded corners: {}", e);
-    // }
+
+    // Apply Windows 11 native rounded corners to clip away any border artifacts
+    if let Err(e) = apply_rounded_corners(&window) {
+        eprintln!("Warning: Failed to apply rounded corners: {}", e);
+    }
 
     // Ensure always on top
     window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
@@ -681,54 +714,103 @@ pub async fn update_capture_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Window dimensions - use generous defaults for positioning calculations
-    // Frontend controls actual size via resize_capture_toolbar
-    let window_width: i32 = 600;
-    let window_height: i32 = 80;
+    // Use same dimensions as show_capture_toolbar
+    let toolbar_content_width: i32 = 500;
+    let toolbar_content_height: i32 = 60;
 
     // Position toolbar centered below the selection
     let selection_bottom = y + height as i32;
     let sel_center_x = x + (width as i32) / 2;
-    let mut pos_x = sel_center_x - window_width / 2;
-    let mut pos_y = selection_bottom + 12; // 12px below selection
-    
-    // Get monitors for bounds checking
-    let monitors = get_monitors().unwrap_or_default();
     let sel_center_y = y + (height as i32) / 2;
-    
+
+    // Window dimensions (content + shadow on all sides)
+    let window_width: i32 = toolbar_content_width + (TOOLBAR_SHADOW_PADDING * 2);
+    let window_height: i32 = toolbar_content_height + (TOOLBAR_SHADOW_PADDING * 2);
+
+    // Get monitors for bounds checking and fullscreen detection
+    let monitors = get_monitors().unwrap_or_default();
+
     // Find which monitor contains the selection center
     let current_monitor = monitors.iter().find(|m| {
         sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
         sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
     });
-    
-    // Bounds checking: ensure toolbar is fully visible on current monitor
-    if let Some(mon) = current_monitor {
+
+    // Check if selection is fullscreen (covers >90% of monitor)
+    let is_fullscreen = if let Some(mon) = current_monitor {
+        width >= (mon.width * 9 / 10) && height >= (mon.height * 9 / 10)
+    } else {
+        false
+    };
+
+    // Calculate initial position based on whether this is fullscreen
+    // Also track which monitor we're placing the toolbar on for bounds checking
+    let (mut pos_x, mut pos_y, bounds_monitor) = if is_fullscreen {
+        // Determine if current monitor is primary
+        let current_is_primary = current_monitor.map(|m| m.is_primary).unwrap_or(true);
+
+        // Find target monitor: if on primary → secondary, if on secondary → primary
+        let target_monitor = if current_is_primary {
+            monitors.iter().find(|m| !m.is_primary)
+        } else {
+            monitors.iter().find(|m| m.is_primary)
+        };
+
+        if let Some(target) = target_monitor {
+            // Place in center of target monitor - use target for bounds checking
+            (
+                target.x + (target.width as i32 - window_width) / 2,
+                target.y + (target.height as i32 - window_height) / 2,
+                Some(target)
+            )
+        } else {
+            // No alternate monitor, place at bottom center inside selection
+            (sel_center_x - window_width / 2, selection_bottom - window_height - 60, current_monitor)
+        }
+    } else {
+        // Normal selection: place below selection, horizontally centered
+        let content_x = sel_center_x - toolbar_content_width / 2;
+        (content_x - TOOLBAR_SHADOW_PADDING, selection_bottom, current_monitor)
+    };
+
+    // Bounds checking: ensure full window (including shadow) is on screen
+    // Use the monitor where toolbar is actually placed, not the selection's monitor
+    if let Some(mon) = bounds_monitor {
         let mon_right = mon.x + mon.width as i32;
         let mon_bottom = mon.y + mon.height as i32;
         let margin = 8;
-        
-        // Check if toolbar would be off-screen at the bottom
-        if pos_y + window_height > mon_bottom - margin {
-            // Try placing above the selection instead
-            let above_y = y - window_height - 12;
-            if above_y >= mon.y + margin {
-                pos_y = above_y;
+
+        // Check full window bounds (including shadow padding on all sides)
+        let window_bottom = pos_y + window_height;
+        if window_bottom > mon_bottom - margin {
+            // For fullscreen on alternate monitor, just clamp to bottom
+            // For non-fullscreen, try placing above selection first
+            if !is_fullscreen {
+                let above_pos_y = y - window_height;
+                if above_pos_y >= mon.y + margin {
+                    pos_y = above_pos_y;
+                } else {
+                    pos_y = selection_bottom - window_height - 20;
+                }
             } else {
-                // Can't fit above either, place inside selection at bottom
-                pos_y = selection_bottom - window_height - 20;
+                pos_y = mon_bottom - margin - window_height;
             }
         }
-        
-        // Clamp horizontal position to screen bounds
-        if pos_x < mon.x + margin {
+
+        // Clamp horizontal position so full window stays on screen
+        let window_left = pos_x;
+        let window_right = pos_x + window_width;
+
+        if window_left < mon.x + margin {
             pos_x = mon.x + margin;
-        } else if pos_x + window_width > mon_right - margin {
-            pos_x = mon_right - window_width - margin;
+        } else if window_right > mon_right - margin {
+            pos_x = mon_right - margin - window_width;
         }
-        
-        // Final safety check
-        pos_y = pos_y.max(mon.y + margin).min(mon_bottom - window_height - margin);
+
+        // Final safety check for vertical position (full window bounds)
+        let min_pos_y = mon.y + margin;
+        let max_pos_y = mon_bottom - margin - window_height;
+        pos_y = pos_y.max(min_pos_y).min(max_pos_y);
     }
 
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
@@ -779,16 +861,124 @@ pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
 
 /// Resize the DirectComposition overlay toolbar window.
 /// Called by frontend after measuring its content size.
+/// Recalculates position based on selection coordinates and shadow padding.
+///
+/// Parameters:
+/// - width, height: Total window size (content + shadow padding)
+/// - shadow_padding: CSS shadow padding (frontend is source of truth)
+/// - sel_x, sel_y, sel_width, sel_height: Selection region coordinates
 #[command]
 pub async fn resize_capture_toolbar(
     app: AppHandle,
     width: u32,
     height: u32,
+    shadow_padding: i32,
+    sel_x: i32,
+    sel_y: i32,
+    sel_width: u32,
+    sel_height: u32,
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        let window_width = width as i32;
+        let window_height = height as i32;
+        let content_width = window_width - shadow_padding * 2;
+
+        // Calculate selection geometry
+        let sel_center_x = sel_x + (sel_width as i32) / 2;
+        let sel_center_y = sel_y + (sel_height as i32) / 2;
+        let sel_bottom = sel_y + sel_height as i32;
+
+        // Get monitors for fullscreen detection and bounds checking
+        let monitors = get_monitors().unwrap_or_default();
+
+        // Find which monitor contains the selection center
+        let current_monitor = monitors.iter().find(|m| {
+            sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
+            sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
+        });
+
+        // Check if selection is fullscreen (covers >90% of monitor)
+        let is_fullscreen = if let Some(mon) = current_monitor {
+            sel_width >= (mon.width * 9 / 10) && sel_height >= (mon.height * 9 / 10)
+        } else {
+            false
+        };
+
+        // Calculate initial position based on whether this is fullscreen
+        // Also track which monitor we're placing the toolbar on for bounds checking
+        let (mut pos_x, mut pos_y, bounds_monitor) = if is_fullscreen {
+            // Determine if current monitor is primary
+            let current_is_primary = current_monitor.map(|m| m.is_primary).unwrap_or(true);
+
+            // Find target monitor: if on primary → secondary, if on secondary → primary
+            let target_monitor = if current_is_primary {
+                monitors.iter().find(|m| !m.is_primary)
+            } else {
+                monitors.iter().find(|m| m.is_primary)
+            };
+
+            if let Some(target) = target_monitor {
+                // Place in center of target monitor - use target for bounds checking
+                (
+                    target.x + (target.width as i32 - window_width) / 2,
+                    target.y + (target.height as i32 - window_height) / 2,
+                    Some(target)
+                )
+            } else {
+                // No alternate monitor, place at bottom center inside selection
+                (sel_center_x - window_width / 2, sel_bottom - window_height - 60, current_monitor)
+            }
+        } else {
+            // Normal selection: place below selection, horizontally centered
+            let content_x = sel_center_x - content_width / 2;
+            (content_x - shadow_padding, sel_bottom, current_monitor)
+        };
+
+        // Bounds checking: ensure full window is on screen
+        // Use the monitor where toolbar is actually placed, not the selection's monitor
+        if let Some(mon) = bounds_monitor {
+            let mon_right = mon.x + mon.width as i32;
+            let mon_bottom = mon.y + mon.height as i32;
+            let margin = 8;
+
+            // Check full window bounds
+            let window_bottom = pos_y + window_height;
+            if window_bottom > mon_bottom - margin {
+                // For fullscreen on alternate monitor, just clamp to bottom
+                // For non-fullscreen, try placing above selection first
+                if !is_fullscreen {
+                    let above_pos_y = sel_y - window_height;
+                    if above_pos_y >= mon.y + margin {
+                        pos_y = above_pos_y;
+                    } else {
+                        pos_y = sel_bottom - window_height - 20;
+                    }
+                } else {
+                    pos_y = mon_bottom - margin - window_height;
+                }
+            }
+
+            // Clamp horizontal position
+            if pos_x < mon.x + margin {
+                pos_x = mon.x + margin;
+            } else if pos_x + window_width > mon_right - margin {
+                pos_x = mon_right - margin - window_width;
+            }
+
+            // Final safety clamp for vertical position
+            let min_pos_y = mon.y + margin;
+            let max_pos_y = mon_bottom - margin - window_height;
+            pos_y = pos_y.max(min_pos_y).min(max_pos_y);
+        }
+
+        // Apply new size and position
         window.set_size(tauri::Size::Physical(
             tauri::PhysicalSize { width, height }
         )).map_err(|e| format!("Failed to resize toolbar: {}", e))?;
+
+        window.set_position(tauri::Position::Physical(
+            tauri::PhysicalPosition { x: pos_x, y: pos_y }
+        )).map_err(|e| format!("Failed to reposition toolbar: {}", e))?;
     }
     Ok(())
 }

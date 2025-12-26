@@ -16,16 +16,18 @@ import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/C
 import type { CaptureType, RecordingState, RecordingFormat } from '../types';
 
 const CaptureToolbarWindow: React.FC = () => {
-  // Parse initial dimensions from URL params (passed when window is created)
-  const initialDimensions = useMemo(() => {
+  // Parse selection region from URL params (passed when window is created)
+  const selectionRegion = useMemo(() => {
     const urlParams = new URLSearchParams(window.location.search);
     return {
+      x: parseInt(urlParams.get('x') || '0', 10),
+      y: parseInt(urlParams.get('y') || '0', 10),
       width: parseInt(urlParams.get('width') || '0', 10),
       height: parseInt(urlParams.get('height') || '0', 10),
     };
   }, []);
 
-  const [dimensions, setDimensions] = useState(initialDimensions);
+  const [dimensions, setDimensions] = useState({ width: selectionRegion.width, height: selectionRegion.height });
   const [includeCursor, setIncludeCursor] = useState(true);
   // Capture type state - can be toggled between video and gif
   const [captureType, setCaptureType] = useState<CaptureType>('video');
@@ -201,22 +203,34 @@ const CaptureToolbarWindow: React.FC = () => {
     return () => clearInterval(interval);
   }, [mode]);
 
+  // Shadow padding for CSS drop shadows - THIS IS THE SOURCE OF TRUTH
+  // Rust will use this value for positioning calculations
+  const SHADOW_PADDING = 32;
+
   // Resize window to fit toolbar content
   useEffect(() => {
     // Small delay to ensure DOM is rendered
     const timer = setTimeout(() => {
       if (toolbarRef.current) {
         const rect = toolbarRef.current.getBoundingClientRect();
-        // Add padding around the content
-        const padding = 24;
-        const width = Math.ceil(rect.width) + padding;
-        const height = Math.ceil(rect.height) + padding;
-        
-        console.log('[CaptureToolbar] Resizing window to:', width, height);
-        invoke('resize_capture_toolbar', { width, height }).catch(console.error);
+        // Add padding on each side for CSS shadow to render without clipping
+        // Total padding = SHADOW_PADDING * 2 (left + right, top + bottom)
+        const width = Math.ceil(rect.width) + (SHADOW_PADDING * 2);
+        const height = Math.ceil(rect.height) + (SHADOW_PADDING * 2);
+
+        console.log('[CaptureToolbar] Resizing window to:', width, height, '(content:', rect.width, 'x', rect.height, ')');
+        invoke('resize_capture_toolbar', {
+          width,
+          height,
+          shadowPadding: SHADOW_PADDING,
+          selX: selectionRegion.x,
+          selY: selectionRegion.y,
+          selWidth: selectionRegion.width,
+          selHeight: selectionRegion.height,
+        }).catch(console.error);
       }
     }, 50);
-    
+
     return () => clearTimeout(timer);
   }, [mode]); // Re-measure when mode changes (different toolbar layouts)
 
@@ -323,8 +337,11 @@ const CaptureToolbarWindow: React.FC = () => {
   }, []);
 
   return (
-    <div className="w-full h-full flex items-center justify-center pointer-events-none">
-      <div ref={toolbarRef}>
+    <div
+      className="w-full h-full pointer-events-none"
+      style={{ padding: SHADOW_PADDING }}
+    >
+      <div ref={toolbarRef} className="inline-block">
         <CaptureToolbar
           mode={mode}
           captureType={captureType}

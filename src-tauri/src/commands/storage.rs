@@ -50,7 +50,7 @@ fn get_captures_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(snapit_path)
 }
 
-const THUMBNAIL_SIZE: u32 = 200;
+const THUMBNAIL_SIZE: u32 = 400;
 
 /// Find ffmpeg binary - checks bundled location, sidecar cache, then system PATH.
 pub fn find_ffmpeg() -> Option<PathBuf> {

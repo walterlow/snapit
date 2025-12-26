@@ -12,7 +12,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
-import type { CaptureType, RecordingState, RecordingFormat } from '../types';
+import { useCaptureSettingsStore } from '../stores/captureSettingsStore';
+import type { RecordingState, RecordingFormat } from '../types';
 
 const CaptureToolbarWindow: React.FC = () => {
   // Parse initial dimensions from URL
@@ -24,22 +25,61 @@ const CaptureToolbarWindow: React.FC = () => {
     };
   }, []);
 
+  // Capture settings from store
+  const {
+    settings,
+    activeMode: captureType,
+    isInitialized,
+    loadSettings,
+    setActiveMode: setCaptureType,
+  } = useCaptureSettingsStore();
+
   // UI state
   const [dimensions, setDimensions] = useState(initialDimensions);
-  const [includeCursor, setIncludeCursor] = useState(true);
-  const [captureType, setCaptureType] = useState<CaptureType>('video');
   const [mode, setMode] = useState<ToolbarMode>('selection');
   const [format, setFormat] = useState<RecordingFormat>('mp4');
   const [elapsedTime, setElapsedTime] = useState(0);
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
-  const [countdownEnabled, setCountdownEnabled] = useState(true);
   const [countdownSeconds, setCountdownSeconds] = useState<number | undefined>();
-  const [systemAudioEnabled, setSystemAudioEnabled] = useState(true);
-  
+
   // Refs
   const isRecordingActiveRef = useRef(false);
   const recordingInitiatedRef = useRef(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  // Load settings on mount
+  useEffect(() => {
+    if (!isInitialized) {
+      loadSettings();
+    }
+  }, [isInitialized, loadSettings]);
+
+  // Measure content and resize window to fit (with buffer for dropdowns)
+  useEffect(() => {
+    const DROPDOWN_BUFFER = 200; // Extra space for dropdown menus
+
+    const measureAndResize = async () => {
+      if (!toolbarRef.current) return;
+
+      // Use getBoundingClientRect to get actual rendered size
+      const rect = toolbarRef.current.getBoundingClientRect();
+      const width = Math.ceil(rect.width);
+      const height = Math.ceil(rect.height) + DROPDOWN_BUFFER;
+
+      if (width > 0 && height > 0) {
+        try {
+          await invoke('resize_capture_toolbar', { width, height });
+        } catch (e) {
+          console.error('Failed to resize toolbar:', e);
+        }
+      }
+    };
+
+    // Measure after render settles
+    const timeoutId = setTimeout(measureAndResize, 50);
+    return () => clearTimeout(timeoutId);
+  }, [mode, captureType]); // Re-measure when mode or capture type changes
 
   // Listen for selection updates (dimensions only - Rust handles repositioning)
   useEffect(() => {
@@ -151,27 +191,31 @@ const CaptureToolbarWindow: React.FC = () => {
   }, [mode]);
 
   // Handlers
-  const handleRecord = useCallback(async () => {
+  const handleCapture = useCallback(async () => {
     try {
-      recordingInitiatedRef.current = true;
-      setMode('starting');
-      await invoke('set_recording_countdown', { secs: countdownEnabled ? 3 : 0 });
-      await invoke('set_recording_system_audio', { enabled: systemAudioEnabled });
-      await invoke('capture_overlay_confirm', { action: 'recording' });
+      if (captureType === 'screenshot') {
+        // Screenshot capture
+        await invoke('capture_overlay_confirm', { action: 'screenshot' });
+      } else {
+        // Video or GIF recording
+        recordingInitiatedRef.current = true;
+        setMode('starting');
+
+        // Get settings based on capture type
+        const captureSettings = captureType === 'video' ? settings.video : settings.gif;
+        const countdownSecs = captureSettings.countdownSecs;
+        const systemAudioEnabled = captureType === 'video' ? settings.video.captureSystemAudio : false;
+
+        await invoke('set_recording_countdown', { secs: countdownSecs });
+        await invoke('set_recording_system_audio', { enabled: systemAudioEnabled });
+        await invoke('capture_overlay_confirm', { action: 'recording' });
+      }
     } catch (e) {
-      console.error('Failed to start recording:', e);
+      console.error('Failed to capture:', e);
       recordingInitiatedRef.current = false;
       setMode('selection');
     }
-  }, [countdownEnabled, systemAudioEnabled]);
-
-  const handleScreenshot = useCallback(async () => {
-    try {
-      await invoke('capture_overlay_confirm', { action: 'screenshot' });
-    } catch (e) {
-      console.error('Failed to take screenshot:', e);
-    }
-  }, []);
+  }, [captureType, settings]);
 
   const handleRedo = useCallback(async () => {
     try {
@@ -214,16 +258,13 @@ const CaptureToolbarWindow: React.FC = () => {
   }, []);
 
   return (
-    <div className="toolbar-container">
+    <div ref={toolbarRef} className="toolbar-container">
       <CaptureToolbar
         mode={mode}
         captureType={captureType}
         width={dimensions.width}
         height={dimensions.height}
-        includeCursor={includeCursor}
-        onToggleCursor={() => setIncludeCursor(p => !p)}
-        onRecord={handleRecord}
-        onScreenshot={handleScreenshot}
+        onCapture={handleCapture}
         onCaptureTypeChange={setCaptureType}
         onRedo={handleRedo}
         onCancel={handleCancel}
@@ -235,10 +276,6 @@ const CaptureToolbarWindow: React.FC = () => {
         onResume={handleResume}
         onStop={handleStop}
         countdownSeconds={countdownSeconds}
-        countdownEnabled={countdownEnabled}
-        onToggleCountdown={() => setCountdownEnabled(p => !p)}
-        systemAudioEnabled={systemAudioEnabled}
-        onToggleSystemAudio={() => setSystemAudioEnabled(p => !p)}
         onDimensionChange={handleDimensionChange}
       />
     </div>

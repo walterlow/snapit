@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod capture_overlay;
+pub mod capture_settings;
 pub mod fonts;
 pub mod image;
 pub mod keyboard_hook;

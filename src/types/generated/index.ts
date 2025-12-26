@@ -9,3 +9,10 @@ export type { RecordingState } from './RecordingState';
 export type { RecordingStatus } from './RecordingStatus';
 export type { StartRecordingResult } from './StartRecordingResult';
 export type { StopRecordingResult } from './StopRecordingResult';
+
+// Capture settings types
+export type { CaptureSettings } from './CaptureSettings';
+export type { ScreenshotFormat } from './ScreenshotFormat';
+export type { ScreenshotSettings } from './ScreenshotSettings';
+export type { VideoSettings } from './VideoSettings';
+export type { GifSettings } from './GifSettings';

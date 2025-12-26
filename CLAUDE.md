@@ -1,5 +1,7 @@
 # SnapIt Development Notes
 
+use base-ui. docs can be found here https://base-ui.com/llms.txt 
+
 ## Tauri Capabilities
 
 When creating new windows or debugging event issues:

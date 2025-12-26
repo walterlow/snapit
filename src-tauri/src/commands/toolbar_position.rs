@@ -20,11 +20,11 @@
 use super::capture::fallback::get_monitors;
 use super::capture::types::MonitorInfo;
 
-/// Toolbar window width in pixels
-pub const TOOLBAR_WIDTH: i32 = 600;
+/// Initial toolbar window width in pixels (generous, frontend will resize to fit content)
+pub const TOOLBAR_WIDTH: i32 = 700;
 
-/// Toolbar window height in pixels
-pub const TOOLBAR_HEIGHT: i32 = 64;
+/// Initial toolbar window height in pixels (generous, frontend will resize to fit content)
+pub const TOOLBAR_HEIGHT: i32 = 130;
 
 /// Margin from edges in pixels
 pub const MARGIN: i32 = 8;
@@ -137,52 +137,53 @@ impl MonitorBounds {
 ///    - Secondary → Primary (centered)
 /// 5. If no alternate monitor, clamp to current monitor bounds
 /// 6. If no monitor found, use virtual screen bounds
+///
 pub fn calculate_position(selection: SelectionBounds) -> ToolbarPosition {
     let monitors: Vec<MonitorBounds> = get_monitors()
         .unwrap_or_default()
         .iter()
         .map(MonitorBounds::from)
         .collect();
-    
+
     // Find monitor containing selection center
     let current_monitor = monitors.iter().find(|m| {
         m.contains_point(selection.center_x(), selection.center_y())
     });
-    
-    // Calculate default position: centered below selection
+
+    // Calculate position centered below selection
     let below_x = selection.center_x() - TOOLBAR_WIDTH / 2;
     let below_y = selection.bottom() + MARGIN;
-    
+
     // Calculate above position
     let above_y = selection.top() - TOOLBAR_HEIGHT - MARGIN;
-    
+
     if let Some(current) = current_monitor {
         // Try 1: Below selection
         if current.toolbar_fits(below_x, below_y) {
             return ToolbarPosition { x: below_x, y: below_y };
         }
-        
+
         // Try 2: Above selection
         if current.toolbar_fits(below_x, above_y) {
             return ToolbarPosition { x: below_x, y: above_y };
         }
-        
+
         // Try 3: Alternate monitor
         let alternate = if current.is_primary {
             monitors.iter().find(|m| !m.is_primary)
         } else {
             monitors.iter().find(|m| m.is_primary)
         };
-        
+
         if let Some(alt) = alternate {
             // Place at center of alternate monitor
             return alt.centered();
         }
-        
+
         // Try 4: Clamp to current monitor
         return current.clamp_toolbar(below_x, below_y);
     }
-    
+
     // Fallback: Use virtual screen bounds
     let (vs_x, vs_y, vs_w, vs_h) = get_virtual_screen_bounds();
     let vs = MonitorBounds {

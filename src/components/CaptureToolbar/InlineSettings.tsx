@@ -1,0 +1,315 @@
+/**
+ * InlineSettings - Two-column layout for toolbar settings.
+ *
+ * Column 1: FPS + Quality (technical settings)
+ * Column 2: Cursor + Audio + Countdown + Max (capture behavior)
+ *
+ * Uses base-ui Select with glass styling for dropdowns.
+ */
+
+import React, { useCallback } from 'react';
+import { Select as BaseSelect } from '@base-ui/react/select';
+import { ChevronDown } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
+import type { CaptureType } from '@/types';
+
+interface SettingsColProps {
+  mode: CaptureType;
+}
+
+// Glass-styled Select component for settings
+interface GlassSelectProps {
+  value: string | number;
+  options: { value: string | number; label: string }[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}
+
+const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, disabled }) => {
+  const handleValueChange = useCallback((val: string | null) => {
+    if (val !== null) {
+      onChange(val);
+    }
+  }, [onChange]);
+
+  const currentLabel = options.find(o => String(o.value) === String(value))?.label || String(value);
+
+  return (
+    <BaseSelect.Root
+      value={String(value)}
+      onValueChange={handleValueChange}
+      disabled={disabled}
+      alignItemToTrigger={false}
+    >
+      <BaseSelect.Trigger className="glass-settings-select-trigger">
+        <BaseSelect.Value>{currentLabel}</BaseSelect.Value>
+        <BaseSelect.Icon className="glass-settings-select-icon">
+          <ChevronDown size={10} />
+        </BaseSelect.Icon>
+      </BaseSelect.Trigger>
+
+      <BaseSelect.Portal>
+        <BaseSelect.Positioner sideOffset={6} align="start" className="z-[9999]">
+          <BaseSelect.Popup className="glass-settings-select-popup">
+            <BaseSelect.List>
+              {options.map((opt) => (
+                <BaseSelect.Item
+                  key={opt.value}
+                  value={String(opt.value)}
+                  className="glass-settings-select-item"
+                >
+                  <BaseSelect.ItemText>{opt.label}</BaseSelect.ItemText>
+                </BaseSelect.Item>
+              ))}
+            </BaseSelect.List>
+          </BaseSelect.Popup>
+        </BaseSelect.Positioner>
+      </BaseSelect.Portal>
+    </BaseSelect.Root>
+  );
+};
+
+/**
+ * Column 1: FPS + Quality (for video/gif) or Format + Quality (for screenshot)
+ */
+export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
+  const { settings, updateScreenshotSettings, updateVideoSettings, updateGifSettings } =
+    useCaptureSettingsStore();
+
+  switch (mode) {
+    case 'screenshot':
+      return (
+        <>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Format</span>
+            <GlassSelect
+              value={settings.screenshot.format}
+              options={[
+                { value: 'png', label: 'PNG' },
+                { value: 'jpg', label: 'JPG' },
+                { value: 'webp', label: 'WebP' },
+              ]}
+              onChange={(v) => updateScreenshotSettings({ format: v as 'png' | 'jpg' | 'webp' })}
+            />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Quality</span>
+            <GlassSelect
+              value={settings.screenshot.jpgQuality}
+              options={[
+                { value: 60, label: '60%' },
+                { value: 70, label: '70%' },
+                { value: 80, label: '80%' },
+                { value: 90, label: '90%' },
+                { value: 100, label: '100%' },
+              ]}
+              onChange={(v) => updateScreenshotSettings({ jpgQuality: parseInt(v) })}
+              disabled={settings.screenshot.format === 'png'}
+            />
+          </div>
+        </>
+      );
+
+    case 'video':
+      return (
+        <>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">FPS</span>
+            <GlassSelect
+              value={settings.video.fps}
+              options={[
+                { value: 15, label: '15' },
+                { value: 24, label: '24' },
+                { value: 30, label: '30' },
+                { value: 60, label: '60' },
+              ]}
+              onChange={(v) => updateVideoSettings({ fps: parseInt(v) })}
+            />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Quality</span>
+            <GlassSelect
+              value={settings.video.quality}
+              options={[
+                { value: 40, label: '40%' },
+                { value: 50, label: '50%' },
+                { value: 60, label: '60%' },
+                { value: 70, label: '70%' },
+                { value: 80, label: '80%' },
+                { value: 90, label: '90%' },
+                { value: 100, label: '100%' },
+              ]}
+              onChange={(v) => updateVideoSettings({ quality: parseInt(v) })}
+            />
+          </div>
+        </>
+      );
+
+    case 'gif':
+      return (
+        <>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">FPS</span>
+            <GlassSelect
+              value={settings.gif.fps}
+              options={[
+                { value: 10, label: '10' },
+                { value: 15, label: '15' },
+                { value: 20, label: '20' },
+                { value: 30, label: '30' },
+              ]}
+              onChange={(v) => updateGifSettings({ fps: parseInt(v) })}
+            />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Quality</span>
+            <GlassSelect
+              value={settings.gif.quality}
+              options={[
+                { value: 40, label: '40%' },
+                { value: 50, label: '50%' },
+                { value: 60, label: '60%' },
+                { value: 70, label: '70%' },
+                { value: 80, label: '80%' },
+                { value: 90, label: '90%' },
+                { value: 100, label: '100%' },
+              ]}
+              onChange={(v) => updateGifSettings({ quality: parseInt(v) })}
+            />
+          </div>
+        </>
+      );
+
+    default:
+      return null;
+  }
+};
+
+/**
+ * Column 2: Cursor + Audio + Countdown + Max duration
+ */
+export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
+  const { settings, updateScreenshotSettings, updateVideoSettings, updateGifSettings } =
+    useCaptureSettingsStore();
+
+  // Get current cursor setting based on mode
+  const getCursorEnabled = () => {
+    switch (mode) {
+      case 'screenshot':
+        return settings.screenshot.includeCursor;
+      case 'video':
+        return settings.video.includeCursor;
+      case 'gif':
+        return settings.gif.includeCursor;
+      default:
+        return false;
+    }
+  };
+
+  // Update cursor setting for current mode
+  const setCursorEnabled = (enabled: boolean) => {
+    switch (mode) {
+      case 'screenshot':
+        updateScreenshotSettings({ includeCursor: enabled });
+        break;
+      case 'video':
+        updateVideoSettings({ includeCursor: enabled });
+        break;
+      case 'gif':
+        updateGifSettings({ includeCursor: enabled });
+        break;
+    }
+  };
+
+  switch (mode) {
+    case 'screenshot':
+      return (
+        <div className="glass-inline-group">
+          <span className="glass-inline-label">Cursor</span>
+          <Switch checked={getCursorEnabled()} onCheckedChange={setCursorEnabled} />
+        </div>
+      );
+
+    case 'video':
+      return (
+        <>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Cursor</span>
+            <Switch checked={getCursorEnabled()} onCheckedChange={setCursorEnabled} />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Audio</span>
+            <Switch
+              checked={settings.video.captureSystemAudio}
+              onCheckedChange={(c) => updateVideoSettings({ captureSystemAudio: c })}
+            />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Countdown</span>
+            <GlassSelect
+              value={settings.video.countdownSecs}
+              options={[
+                { value: 0, label: 'Off' },
+                { value: 3, label: '3s' },
+                { value: 5, label: '5s' },
+              ]}
+              onChange={(v) => updateVideoSettings({ countdownSecs: parseInt(v) })}
+            />
+          </div>
+        </>
+      );
+
+    case 'gif':
+      return (
+        <>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Cursor</span>
+            <Switch checked={getCursorEnabled()} onCheckedChange={setCursorEnabled} />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Countdown</span>
+            <GlassSelect
+              value={settings.gif.countdownSecs}
+              options={[
+                { value: 0, label: 'Off' },
+                { value: 3, label: '3s' },
+                { value: 5, label: '5s' },
+              ]}
+              onChange={(v) => updateGifSettings({ countdownSecs: parseInt(v) })}
+            />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Max</span>
+            <GlassSelect
+              value={settings.gif.maxDurationSecs}
+              options={[
+                { value: 10, label: '10s' },
+                { value: 30, label: '30s' },
+                { value: 60, label: '60s' },
+                { value: 0, label: '∞' },
+              ]}
+              onChange={(v) => updateGifSettings({ maxDurationSecs: parseInt(v) })}
+            />
+          </div>
+        </>
+      );
+
+    default:
+      return null;
+  }
+};
+
+// Legacy exports for backwards compatibility
+export const SettingsRow1 = SettingsCol1;
+export const SettingsRow2 = SettingsCol2;
+
+export const InlineSettings: React.FC<SettingsColProps> = ({ mode }) => (
+  <div className="flex items-center gap-3">
+    <SettingsCol1 mode={mode} />
+    <div className="glass-divider h-5" />
+    <SettingsCol2 mode={mode} />
+  </div>
+);
+
+export default InlineSettings;

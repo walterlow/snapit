@@ -641,6 +641,28 @@ pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Resize the capture toolbar window based on actual content size.
+/// Called by frontend after measuring rendered content via getBoundingClientRect().
+#[command]
+pub async fn resize_capture_toolbar(
+    app: AppHandle,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    // Get current position to maintain it
+    let current_pos = window.outer_position()
+        .map_err(|e| format!("Failed to get position: {}", e))?;
+
+    // Resize using physical coordinates for consistency with set_physical_bounds
+    set_physical_bounds(&window, current_pos.x, current_pos.y, width, height)?;
+
+    Ok(())
+}
+
 // ============================================================================
 // Countdown Window
 // ============================================================================

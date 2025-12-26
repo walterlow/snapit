@@ -354,26 +354,38 @@ fn emit_adjustment_ready(state: &OverlayState, bounds: Rect) {
 fn emit_dimensions_update(state: &OverlayState) {
     let screen_bounds = state.monitor.local_rect_to_screen(state.adjustment.bounds);
     
-    if let Some(toolbar_window) = state.app_handle.get_webview_window("capture-toolbar") {
-        let js = format!(
-            "if (window.__updateDimensions) {{ window.__updateDimensions({}, {}); }}",
-            screen_bounds.width(),
-            screen_bounds.height()
-        );
-        let _ = toolbar_window.eval(&js);
+    // Try unified capture-controls window first, fallback to legacy capture-toolbar
+    let window = state.app_handle.get_webview_window("capture-controls")
+        .or_else(|| state.app_handle.get_webview_window("capture-toolbar"));
+    
+    if let Some(win) = window {
+        let _ = win.emit("selection-updated", serde_json::json!({
+            "x": screen_bounds.left,
+            "y": screen_bounds.top,
+            "width": screen_bounds.width(),
+            "height": screen_bounds.height()
+        }));
     }
 }
 
 /// Emit final selection when adjustment drag ends
 fn emit_final_selection(state: &OverlayState) {
     let screen_bounds = state.monitor.local_rect_to_screen(state.adjustment.bounds);
-    let event = SelectionEvent::from(screen_bounds);
 
-    if let Some(toolbar_window) = state.app_handle.get_webview_window("capture-toolbar") {
-        let _ = toolbar_window.emit("capture-overlay-selection-updated", &event);
+    // Try unified capture-controls window first, fallback to legacy capture-toolbar
+    let window = state.app_handle.get_webview_window("capture-controls")
+        .or_else(|| state.app_handle.get_webview_window("capture-toolbar"));
+    
+    if let Some(win) = window {
+        let _ = win.emit("selection-updated", serde_json::json!({
+            "x": screen_bounds.left,
+            "y": screen_bounds.top,
+            "width": screen_bounds.width(),
+            "height": screen_bounds.height()
+        }));
 
-        // Bring toolbar to front
-        if let Ok(hwnd) = toolbar_window.hwnd() {
+        // Bring window to front
+        if let Ok(hwnd) = win.hwnd() {
             unsafe {
                 let _ = SetWindowPos(
                     HWND(hwnd.0),
@@ -389,95 +401,20 @@ fn emit_final_selection(state: &OverlayState) {
     }
 }
 
-/// Position and show the toolbar window
+/// Show the unified capture controls window (border + toolbar in one fullscreen WebView)
 fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
-    // Give the window time to be created
-    std::thread::sleep(std::time::Duration::from_millis(50));
-
-    if let Some(toolbar_window) = state.app_handle.get_webview_window("capture-toolbar") {
-        let toolbar_width = 380i32;
-        let toolbar_height = 56i32;
-
-        // Calculate position
-        let (pos_x, pos_y) = calculate_toolbar_position(
-            screen_bounds,
-            toolbar_width,
-            toolbar_height,
-        );
-
-        if let Ok(hwnd) = toolbar_window.hwnd() {
-            unsafe {
-                let _ = SetWindowPos(
-                    HWND(hwnd.0),
-                    HWND_TOPMOST,
-                    pos_x,
-                    pos_y,
-                    toolbar_width,
-                    toolbar_height,
-                    SWP_NOACTIVATE,
-                );
-            }
+    use crate::commands::window::show_capture_controls;
+    
+    // Spawn async task to create the unified capture controls window
+    let app = state.app_handle.clone();
+    let x = screen_bounds.left;
+    let y = screen_bounds.top;
+    let width = screen_bounds.width();
+    let height = screen_bounds.height();
+    
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = show_capture_controls(app, x, y, width, height).await {
+            eprintln!("Failed to show capture controls: {}", e);
         }
-    }
-}
-
-/// Calculate toolbar position based on selection
-fn calculate_toolbar_position(
-    selection: Rect,
-    toolbar_width: i32,
-    toolbar_height: i32,
-) -> (i32, i32) {
-    let (sel_cx, sel_cy) = selection.center();
-    let sel_bottom = selection.bottom;
-
-    if let Ok(monitors) = xcap::Monitor::all() {
-        // Find the monitor containing the selection center
-        let current_monitor = monitors.iter().find(|m| {
-            let mx = m.x().unwrap_or(0);
-            let my = m.y().unwrap_or(0);
-            let mw = m.width().unwrap_or(1920) as i32;
-            let mh = m.height().unwrap_or(1080) as i32;
-            sel_cx >= mx && sel_cx < mx + mw && sel_cy >= my && sel_cy < my + mh
-        });
-
-        if let Some(cur_mon) = current_monitor {
-            let cur_x = cur_mon.x().unwrap_or(0);
-            let cur_y = cur_mon.y().unwrap_or(0);
-            let cur_w = cur_mon.width().unwrap_or(1920);
-            let cur_h = cur_mon.height().unwrap_or(1080);
-
-            // Check if selection is fullscreen (>90% of monitor)
-            let is_fullscreen =
-                selection.width() >= (cur_w * 9 / 10) && selection.height() >= (cur_h * 9 / 10);
-
-            if is_fullscreen {
-                // Find alternate monitor for toolbar
-                let alternate = monitors.iter().find(|m| {
-                    let mx = m.x().unwrap_or(0);
-                    let my = m.y().unwrap_or(0);
-                    mx != cur_x || my != cur_y
-                });
-
-                if let Some(alt_mon) = alternate {
-                    let alt_x = alt_mon.x().unwrap_or(0);
-                    let alt_y = alt_mon.y().unwrap_or(0);
-                    let alt_w = alt_mon.width().unwrap_or(1920) as i32;
-                    let alt_h = alt_mon.height().unwrap_or(1080) as i32;
-                    return (
-                        alt_x + (alt_w - toolbar_width) / 2,
-                        alt_y + (alt_h - toolbar_height) / 2,
-                    );
-                } else {
-                    // No alternate monitor, place inside selection at bottom
-                    return (
-                        sel_cx - toolbar_width / 2,
-                        sel_bottom - toolbar_height - 60,
-                    );
-                }
-            }
-        }
-    }
-
-    // Default: below selection, centered
-    (sel_cx - toolbar_width / 2, sel_bottom + 12)
+    });
 }

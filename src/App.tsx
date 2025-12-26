@@ -333,35 +333,8 @@ function App() {
     };
   }, []);
 
-  // Listen for capture overlay events (for video/gif region selection toolbar)
-  useEffect(() => {
-    // When the capture overlay enters adjustment mode, show the toolbar window
-    const unlistenReady = listen<{ x: number; y: number; width: number; height: number }>(
-      'capture-overlay-adjustment-ready',
-      async (event) => {
-        try {
-          const { x, y, width, height } = event.payload;
-          await invoke('show_capture_toolbar', { x, y, width, height });
-        } catch (error) {
-          console.error('Failed to show capture toolbar:', error);
-        }
-      }
-    );
-
-    // When the capture overlay closes, hide the toolbar window
-    const unlistenClosed = listen('capture-overlay-closed', async () => {
-      try {
-        await invoke('hide_capture_toolbar');
-      } catch (error) {
-        console.error('Failed to hide capture toolbar:', error);
-      }
-    });
-
-    return () => {
-      unlistenReady.then((fn) => fn());
-      unlistenClosed.then((fn) => fn());
-    };
-  }, []);
+  // Note: Capture overlay toolbar is now created directly by Rust (show_capture_controls)
+  // when selection is finalized in wndproc.rs. No frontend listener needed.
 
   // Note: Shortcut event listeners are now set up in hotkeyManager.ts
   // when registerShortcut is called with allowOverride=true

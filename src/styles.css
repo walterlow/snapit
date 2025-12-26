@@ -1349,6 +1349,7 @@ body.overlay-window #root {
 
 /* Base glass panel - primary container */
 .glass-toolbar {
+  width: max-content;
   background: linear-gradient(
     135deg,
     rgba(28, 28, 30, 0.92) 0%,
@@ -1364,7 +1365,6 @@ body.overlay-window #root {
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     inset 0 -1px 0 rgba(0, 0, 0, 0.2);
   position: relative;
-  overflow: hidden;
 }
 
 /* Subtle inner glow effect */

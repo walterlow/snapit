@@ -138,14 +138,14 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
     return (
       <div
-        className="glass-toolbar flex items-center gap-3 px-4 h-12 pointer-events-auto"
+        className="glass-toolbar flex items-center gap-3 px-4 h-12 pointer-events-auto whitespace-nowrap"
         onPointerDown={stopPropagation}
         onClick={stopPropagation}
       >
         {/* Drag handle */}
         <div
           data-tauri-drag-region
-          className="glass-drag-handle flex items-center justify-center w-5"
+          className="glass-drag-handle flex items-center justify-center w-5 shrink-0"
           title="Drag to move"
           onMouseDown={handleDragStart}
         >
@@ -154,24 +154,24 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
         {showCountdown ? (
           <>
-            <div className="glass-countdown select-none">
+            <div className="glass-countdown select-none shrink-0">
               {countdownSeconds}
             </div>
-            <span className="glass-text--muted text-sm select-none">
+            <span className="glass-text--muted text-sm select-none shrink-0">
               Starting in {countdownSeconds}...
             </span>
           </>
         ) : (
           <>
-            <div className="glass-spinner" />
-            <span className="glass-text--muted text-sm select-none">Starting...</span>
+            <div className="glass-spinner shrink-0" />
+            <span className="glass-text--muted text-sm select-none shrink-0">Starting...</span>
           </>
         )}
 
         <button
           type="button"
           onClick={onCancel}
-          className="glass-btn glass-btn--danger w-8 h-8 ml-1"
+          className="glass-btn glass-btn--danger w-8 h-8 ml-1 shrink-0"
           title="Cancel"
         >
           <X size={14} />
@@ -184,29 +184,29 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   if (mode === 'processing') {
     return (
       <div
-        className="glass-toolbar flex items-center gap-3 px-4 h-12 pointer-events-auto"
+        className="glass-toolbar flex items-center gap-3 px-4 h-12 pointer-events-auto whitespace-nowrap"
         onPointerDown={stopPropagation}
         onClick={stopPropagation}
       >
         {/* Drag handle */}
         <div
           data-tauri-drag-region
-          className="glass-drag-handle flex items-center justify-center w-5"
+          className="glass-drag-handle flex items-center justify-center w-5 shrink-0"
           title="Drag to move"
           onMouseDown={handleDragStart}
         >
           <GripVertical size={14} className="pointer-events-none" />
         </div>
 
-        <div className="glass-spinner" />
-        <span className="glass-text--muted text-sm select-none">
+        <div className="glass-spinner shrink-0" />
+        <span className="glass-text--muted text-sm select-none shrink-0">
           Encoding GIF... {Math.round(progress * 100)}%
         </span>
 
         <button
           type="button"
           onClick={onCancel}
-          className="glass-btn glass-btn--danger w-8 h-8 ml-1"
+          className="glass-btn glass-btn--danger w-8 h-8 ml-1 shrink-0"
           title="Cancel"
         >
           <X size={14} />
@@ -219,7 +219,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   if (mode === 'error') {
     return (
       <div
-        className="glass-toolbar flex items-center gap-3 px-4 h-12 pointer-events-auto"
+        className="glass-toolbar flex items-center gap-3 px-4 h-12 pointer-events-auto whitespace-nowrap"
         style={{ borderColor: 'rgba(239, 68, 68, 0.4)' }}
         onPointerDown={stopPropagation}
         onClick={stopPropagation}
@@ -227,15 +227,15 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         {/* Drag handle */}
         <div
           data-tauri-drag-region
-          className="glass-drag-handle flex items-center justify-center w-5"
+          className="glass-drag-handle flex items-center justify-center w-5 shrink-0"
           title="Drag to move"
           onMouseDown={handleDragStart}
         >
           <GripVertical size={14} className="pointer-events-none" />
         </div>
 
-        <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
-        <span className="text-red-400 text-sm select-none max-w-[280px] truncate">
+        <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] shrink-0" />
+        <span className="text-red-400 text-sm select-none max-w-[280px] truncate shrink-0">
           {errorMessage || 'Recording failed'}
         </span>
       </div>
@@ -248,7 +248,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
     return (
       <div
-        className="glass-toolbar flex items-center gap-3 px-4 h-12 pointer-events-auto"
+        className="glass-toolbar flex items-center gap-3 pl-4 pr-5 h-12 pointer-events-auto whitespace-nowrap"
         onPointerDown={stopPropagation}
         onPointerUp={stopPropagation}
         onPointerMove={stopPropagation}
@@ -257,7 +257,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         {/* Drag handle */}
         <div
           data-tauri-drag-region
-          className="glass-drag-handle"
+          className="glass-drag-handle shrink-0"
           title="Drag to move"
           onMouseDown={handleDragStart}
         >
@@ -265,7 +265,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         </div>
 
         {/* Recording indicator + timer */}
-        <div className="flex items-center gap-2.5 select-none">
+        <div className="flex items-center gap-2.5 select-none shrink-0">
           <div className={`glass-recording-dot ${isPaused ? 'glass-recording-dot--paused' : ''}`} />
           <span className="glass-text glass-text--mono text-sm font-medium">
             {formatTime(elapsedTime)}
@@ -273,17 +273,17 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         </div>
 
         {/* Format badge */}
-        <div className={`glass-badge px-2.5 py-1 text-[10px] uppercase tracking-wider select-none ${
+        <div className={`glass-badge px-2.5 py-1 text-[10px] uppercase tracking-wider select-none shrink-0 ${
           isGif ? 'glass-badge--purple' : 'glass-badge--blue'
         }`}>
           {format}
         </div>
 
         {/* Divider */}
-        <div className="glass-divider h-6" />
+        <div className="glass-divider h-6 shrink-0" />
 
         {/* Control buttons */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           {/* Pause/Resume button (not for GIF) */}
           {!isGif && (
             <button
@@ -314,7 +314,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
           <button
             type="button"
             onClick={onCancel}
-            className="glass-btn glass-btn--danger w-8 h-8"
+            className="glass-btn glass-btn--danger w-8 h-8 shrink-0 mr-1"
             title="Cancel recording"
           >
             <X size={14} strokeWidth={2.5} />
@@ -327,7 +327,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   // === SELECTION STATE (default) ===
   return (
     <div
-      className="glass-toolbar flex items-center gap-2 px-3 h-14 pointer-events-auto"
+      className="glass-toolbar flex items-center gap-2 px-3 h-14 pointer-events-auto whitespace-nowrap"
       onPointerDown={stopPropagation}
       onPointerUp={stopPropagation}
       onPointerMove={stopPropagation}
@@ -336,7 +336,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       {/* Drag handle */}
       <div
         data-tauri-drag-region
-        className="glass-drag-handle flex items-center justify-center w-6"
+        className="glass-drag-handle flex items-center justify-center w-6 shrink-0"
         title="Drag to move"
         onMouseDown={handleDragStart}
       >
@@ -344,7 +344,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       </div>
 
       {/* Capture mode buttons - 3 circular icons */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         {/* Video button - Red */}
         <button
           onClick={() => {

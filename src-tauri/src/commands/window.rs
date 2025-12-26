@@ -3,16 +3,69 @@ use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuild
 
 use super::capture::fallback::get_monitors;
 
-// Recording border window label
+// Recording border window label (legacy, kept for compatibility)
 const RECORDING_BORDER_LABEL: &str = "recording-border";
 
-// Capture toolbar window label
+// Capture toolbar window label (legacy, kept for compatibility)
 const CAPTURE_TOOLBAR_LABEL: &str = "capture-toolbar";
+
+// Unified capture controls window - combines border + toolbar in single fullscreen WebView
+const CAPTURE_CONTROLS_LABEL: &str = "capture-controls";
 
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
+/// Close all capture-related windows (unified controls and legacy separate windows)
+fn close_capture_windows(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(CAPTURE_CONTROLS_LABEL) {
+        let _ = window.close();
+    }
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        let _ = window.close();
+    }
+    if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
+        let _ = window.close();
+    }
+}
 
+/// Restore main window if it was visible before capture started
+fn restore_main_if_visible(app: &AppHandle) {
+    if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.show();
+        }
+    }
+}
+
+// ============================================================================
+// Physical Coordinate Helpers
+// ============================================================================
+// Windows APIs return physical (pixel) coordinates. Tauri's builder methods
+// use logical coordinates which don't match on scaled displays.
+// These helpers ensure windows are positioned/sized using physical coordinates.
+
+/// Position a window using physical (pixel) coordinates.
+/// Use this when you have screen coordinates from Windows APIs.
+fn set_physical_position(window: &tauri::WebviewWindow, x: i32, y: i32) -> Result<(), String> {
+    window.set_position(tauri::Position::Physical(
+        tauri::PhysicalPosition { x, y }
+    )).map_err(|e| format!("Failed to set position: {}", e))
+}
+
+/// Resize a window using physical (pixel) dimensions.
+/// Use this when you have dimensions from Windows APIs.
+fn set_physical_size(window: &tauri::WebviewWindow, width: u32, height: u32) -> Result<(), String> {
+    window.set_size(tauri::Size::Physical(
+        tauri::PhysicalSize { width, height }
+    )).map_err(|e| format!("Failed to set size: {}", e))
+}
+
+/// Position and resize a window using physical (pixel) coordinates.
+/// Convenience wrapper for set_physical_position + set_physical_size.
+fn set_physical_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, width: u32, height: u32) -> Result<(), String> {
+    set_physical_position(window, x, y)?;
+    set_physical_size(window, width, height)
+}
 
 /// Apply DWM blur-behind transparency to a window.
 /// This uses a tiny off-screen blur region trick (from PowerToys) to get
@@ -128,14 +181,8 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                     match action {
                         OverlayAction::StartRecording => {
                             // Start recording flow
-                            // The dcomp-toolbar window stays open and handles recording controls
-                            
-                            // Show recording border around the selection
-                            if let Err(e) = crate::commands::window::show_recording_border_sync(
-                                &app_clone, x, y, width, height
-                            ) {
-                                eprintln!("Failed to show recording border: {}", e);
-                            }
+                            // The unified capture-controls window handles both border and toolbar
+                            // (created by show_toolbar in wndproc.rs when selection was finalized)
                             
                             // Determine format based on capture type
                             let format = if is_gif {
@@ -144,11 +191,11 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 crate::commands::video_recording::RecordingFormat::Mp4
                             };
                             
-                            // Emit format to the toolbar so it displays the correct badge
+                            // Emit format to the controls window
                             let format_str = if is_gif { "gif" } else { "mp4" };
                             let _ = app_clone.emit("recording-format", format_str);
                             
-                            // Get countdown setting (set by frontend via set_recording_countdown command)
+                            // Get countdown setting
                             let countdown_secs = crate::commands::video_recording::get_countdown_secs();
                             
                             // Show countdown overlay window if countdown is enabled
@@ -158,7 +205,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 }
                             }
                             
-                            // Get system audio setting (set by frontend via set_recording_system_audio command)
+                            // Get system audio setting
                             let system_audio_enabled = crate::commands::video_recording::get_system_audio_enabled();
                             
                             // Start the recording with the selected region
@@ -184,7 +231,11 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                     .unwrap_or_else(|_| std::env::temp_dir().join("recording.mp4"))
                             ).await {
                                 eprintln!("Failed to start recording: {}", e);
-                                // Close toolbar and restore main window on error
+                                // Close controls window and restore main window on error
+                                if let Some(controls) = app_clone.get_webview_window(CAPTURE_CONTROLS_LABEL) {
+                                    let _ = controls.close();
+                                }
+                                // Also try legacy window names
                                 if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                                     let _ = toolbar.close();
                                 }
@@ -196,10 +247,8 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             }
                         }
                         OverlayAction::CaptureScreenshot => {
-                            // Screenshot flow - close toolbar, capture region, open editor
-                            if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-                                let _ = toolbar.close();
-                            }
+                            // Screenshot flow - close controls, capture region, open editor
+                            close_capture_windows(&app_clone);
                             
                             // Capture the region
                             let selection = crate::commands::capture::ScreenRegionSelection {
@@ -216,60 +265,31 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                         result.height,
                                     ).await {
                                         eprintln!("Failed to open editor: {}", e);
-                                        // Restore main window on error
-                                        if let Some(main_window) = app_clone.get_webview_window("main") {
-                                            if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-                                                let _ = main_window.show();
-                                            }
-                                        }
+                                        restore_main_if_visible(&app_clone);
                                     }
                                 }
                                 Err(e) => {
                                     eprintln!("Failed to capture screenshot: {}", e);
-                                    // Restore main window on error
-                                    if let Some(main_window) = app_clone.get_webview_window("main") {
-                                        if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-                                            let _ = main_window.show();
-                                        }
-                                    }
+                                    restore_main_if_visible(&app_clone);
                                 }
                             }
                         }
                         OverlayAction::Cancelled => {
-                            // User cancelled - close toolbar and restore main window
-                            if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-                                let _ = toolbar.close();
-                            }
-                            if let Some(main_window) = app_clone.get_webview_window("main") {
-                                if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-                                    let _ = main_window.show();
-                                }
-                            }
+                            // User cancelled - close windows and restore main
+                            close_capture_windows(&app_clone);
+                            restore_main_if_visible(&app_clone);
                         }
                     }
                 }
                 Ok(None) => {
                     // Cancelled (no selection made) - restore main window
-                    if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-                        let _ = toolbar.close();
-                    }
-                    if let Some(main_window) = app_clone.get_webview_window("main") {
-                        if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-                            let _ = main_window.show();
-                        }
-                    }
+                    close_capture_windows(&app_clone);
+                    restore_main_if_visible(&app_clone);
                 }
                 Err(e) => {
                     eprintln!("DComp overlay error: {}", e);
-                    // Restore main window on error
-                    if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-                        let _ = toolbar.close();
-                    }
-                    if let Some(main_window) = app_clone.get_webview_window("main") {
-                        if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-                            let _ = main_window.show();
-                        }
-                    }
+                    close_capture_windows(&app_clone);
+                    restore_main_if_visible(&app_clone);
                 }
             }
         });
@@ -451,12 +471,7 @@ fn show_recording_border_impl(
     // Check if window already exists
     if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
         // Window exists - reposition and resize it using physical coordinates
-        let _ = window.set_position(tauri::Position::Physical(
-            tauri::PhysicalPosition { x: window_x, y: window_y }
-        ));
-        let _ = window.set_size(tauri::Size::Physical(
-            tauri::PhysicalSize { width: window_width, height: window_height }
-        ));
+        let _ = set_physical_bounds(&window, window_x, window_y, window_width, window_height);
         window.show().map_err(|e| format!("Failed to show recording border: {}", e))?;
         window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
         return Ok(());
@@ -479,17 +494,12 @@ fn show_recording_border_impl(
         .build()
         .map_err(|e| format!("Failed to create recording border window: {}", e))?;
 
-    // Set position using physical coordinates to match recording coordinates
-    window.set_position(tauri::Position::Physical(
-        tauri::PhysicalPosition { x: window_x, y: window_y }
-    )).map_err(|e| format!("Failed to set position: {}", e))?;
-    
-    window.set_size(tauri::Size::Physical(
-        tauri::PhysicalSize { width: window_width, height: window_height }
-    )).map_err(|e| format!("Failed to set size: {}", e))?;
+    // Set position/size using physical coordinates to match recording coordinates
+    set_physical_bounds(&window, window_x, window_y, window_width, window_height)?;
 
     // CRITICAL: Exclude window from screen capture so it doesn't appear in recordings
-    exclude_window_from_capture(&window)?;
+    // TEMPORARILY DISABLED FOR MARKETING SCREENSHOTS
+    // exclude_window_from_capture(&window)?;
     
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
@@ -519,20 +529,63 @@ pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Show the DirectComposition overlay toolbar window.
-/// Creates the window if it doesn't exist, or repositions and shows it if hidden.
-/// 
-/// Parameters:
-/// - x: X position of the selection region (screen coordinates)
-/// - y: Y position (bottom) of the selection region (screen coordinates)
-/// - width: Width of the selection region
-/// - height: Height of the selection region (used to calculate toolbar position)
-///
-/// Initial shadow padding estimate for toolbar positioning.
-/// Frontend is the source of truth - it passes the actual value via resize_capture_toolbar.
-/// This is just used for initial window creation before frontend reports actual padding.
-const TOOLBAR_SHADOW_PADDING: i32 = 32;
+// Generous toolbar window dimensions - large enough for any content + shadows
+// Content centers via CSS, transparent areas are invisible
+const TOOLBAR_WINDOW_WIDTH: i32 = 900;
+const TOOLBAR_WINDOW_HEIGHT: i32 = 160;
+const TOOLBAR_MARGIN: i32 = 8;
 
+/// Calculate toolbar position based on selection and monitor bounds.
+/// Positions toolbar centered below selection, with fallbacks for edge cases.
+fn calculate_toolbar_position(
+    sel_x: i32,
+    sel_y: i32,
+    sel_width: u32,
+    sel_height: u32,
+    mon_x: i32,
+    mon_y: i32,
+    mon_width: u32,
+    mon_height: u32,
+) -> (i32, i32) {
+    let sel_center_x = sel_x + (sel_width as i32) / 2;
+    let sel_bottom = sel_y + sel_height as i32;
+    let mon_right = mon_x + mon_width as i32;
+    let mon_bottom = mon_y + mon_height as i32;
+    
+    // Default: centered below selection
+    let mut pos_x = sel_center_x - TOOLBAR_WINDOW_WIDTH / 2;
+    let mut pos_y = sel_bottom + TOOLBAR_MARGIN;
+    
+    // Check if toolbar would be off-screen at bottom
+    if pos_y + TOOLBAR_WINDOW_HEIGHT > mon_bottom - TOOLBAR_MARGIN {
+        // Try placing above selection
+        let above_y = sel_y - TOOLBAR_WINDOW_HEIGHT - TOOLBAR_MARGIN;
+        if above_y >= mon_y + TOOLBAR_MARGIN {
+            pos_y = above_y;
+        } else {
+            // Place inside selection at bottom
+            pos_y = sel_bottom - TOOLBAR_WINDOW_HEIGHT - 20;
+        }
+    }
+    
+    // Clamp horizontal position to monitor bounds
+    if pos_x < mon_x + TOOLBAR_MARGIN {
+        pos_x = mon_x + TOOLBAR_MARGIN;
+    } else if pos_x + TOOLBAR_WINDOW_WIDTH > mon_right - TOOLBAR_MARGIN {
+        pos_x = mon_right - TOOLBAR_MARGIN - TOOLBAR_WINDOW_WIDTH;
+    }
+    
+    // Final vertical clamp
+    let min_y = mon_y + TOOLBAR_MARGIN;
+    let max_y = mon_bottom - TOOLBAR_MARGIN - TOOLBAR_WINDOW_HEIGHT;
+    pos_y = pos_y.max(min_y).min(max_y);
+    
+    (pos_x, pos_y)
+}
+
+/// Show the capture toolbar window.
+/// Uses fixed window size with CSS-centered content for instant, flicker-free appearance.
+/// Rust calculates position and shows window immediately - no frontend round-trips.
 #[command]
 pub async fn show_capture_toolbar(
     app: AppHandle,
@@ -541,137 +594,47 @@ pub async fn show_capture_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Initial window dimensions - generous size to let frontend toolbar render naturally
-    // Frontend will measure content and call resize_capture_toolbar to fit exactly
-    // Extra space is transparent and click-through until resize happens
-    // Add shadow padding on all sides for glassmorphism drop shadows
-    let toolbar_content_width: i32 = 500;
-    let toolbar_content_height: i32 = 60;
-    let window_width: i32 = toolbar_content_width + (TOOLBAR_SHADOW_PADDING * 2);
-    let window_height: i32 = toolbar_content_height + (TOOLBAR_SHADOW_PADDING * 2);
-
-    // Get monitors to detect fullscreen and find alternate monitor
+    // Get monitor info for positioning
     let monitors = get_monitors().unwrap_or_default();
     
-    // Calculate selection center and bottom for positioning
+    // Find which monitor contains the selection center
     let sel_center_x = x + (width as i32) / 2;
     let sel_center_y = y + (height as i32) / 2;
-    let sel_bottom = y + height as i32;
     
-    // Find which monitor contains the selection center
     let current_monitor = monitors.iter().find(|m| {
         sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
         sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
     });
     
-    // Check if selection is fullscreen (covers >90% of monitor)
-    let is_fullscreen = if let Some(mon) = current_monitor {
-        width >= (mon.width * 9 / 10) && height >= (mon.height * 9 / 10)
+    // Calculate position
+    let (pos_x, pos_y) = if let Some(mon) = current_monitor {
+        calculate_toolbar_position(x, y, width, height, mon.x, mon.y, mon.width, mon.height)
     } else {
-        false
+        // Fallback: centered below selection
+        (x + (width as i32) / 2 - TOOLBAR_WINDOW_WIDTH / 2, y + height as i32 + TOOLBAR_MARGIN)
     };
-    
-    // Calculate where visible toolbar content should be centered (ignoring shadow padding)
-    // This is where the actual toolbar UI should appear on screen
-    let content_x = sel_center_x - toolbar_content_width / 2;
-
-    // Calculate window position by offsetting for shadow padding
-    // The window is larger than the content to accommodate shadows
-    // Also track which monitor we're placing the toolbar on for bounds checking
-    let (mut pos_x, mut pos_y, bounds_monitor) = if is_fullscreen {
-        // Determine if current monitor is primary
-        let current_is_primary = current_monitor.map(|m| m.is_primary).unwrap_or(true);
-
-        // Find target monitor: if on primary → secondary, if on secondary → primary
-        let target_monitor = if current_is_primary {
-            // On primary, find any non-primary
-            monitors.iter().find(|m| !m.is_primary)
-        } else {
-            // On non-primary, find the primary
-            monitors.iter().find(|m| m.is_primary)
-        };
-
-        if let Some(target) = target_monitor {
-            // Place in center of target monitor - use target for bounds checking
-            (
-                target.x + (target.width as i32 - window_width) / 2,
-                target.y + (target.height as i32 - window_height) / 2,
-                Some(target)
-            )
-        } else {
-            // No alternate monitor, place at bottom center inside selection
-            // Use full window dimensions to ensure it stays on screen
-            (sel_center_x - window_width / 2, sel_bottom - window_height - 60, current_monitor)
-        }
-    } else {
-        // Normal selection: place below selection, horizontally centered
-        // Window starts exactly at selection bottom so shadow doesn't overlap selection
-        // This is an initial estimate - resize_capture_toolbar will set the final position
-        (content_x - TOOLBAR_SHADOW_PADDING, sel_bottom, current_monitor)
-    };
-    
-    // Bounds checking: ensure full window (including shadow) is on screen
-    // Use the monitor where toolbar is actually placed, not the selection's monitor
-    if let Some(mon) = bounds_monitor {
-        let mon_right = mon.x + mon.width as i32;
-        let mon_bottom = mon.y + mon.height as i32;
-        let margin = 8; // Small margin from screen edges
-
-        // Check full window bounds (including shadow padding on all sides)
-        let window_bottom = pos_y + window_height;
-
-        // Check if toolbar window would be off-screen at the bottom
-        if window_bottom > mon_bottom - margin {
-            // For fullscreen on alternate monitor, just clamp to bottom
-            // For non-fullscreen, try placing above selection first
-            if !is_fullscreen {
-                let above_pos_y = y - window_height;
-                if above_pos_y >= mon.y + margin {
-                    pos_y = above_pos_y;
-                } else {
-                    pos_y = sel_bottom - window_height - 20;
-                }
-            } else {
-                pos_y = mon_bottom - margin - window_height;
-            }
-        }
-
-        // Clamp horizontal position so full window stays on screen
-        let window_left = pos_x;
-        let window_right = pos_x + window_width;
-
-        if window_left < mon.x + margin {
-            pos_x = mon.x + margin;
-        } else if window_right > mon_right - margin {
-            pos_x = mon_right - margin - window_width;
-        }
-
-        // Final safety check for vertical position (full window bounds)
-        let min_pos_y = mon.y + margin;
-        let max_pos_y = mon_bottom - margin - window_height;
-        pos_y = pos_y.max(min_pos_y).min(max_pos_y);
-    }
     
     // Check if window already exists
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        // Window exists - reposition and show it
-        let _ = window.set_position(tauri::Position::Physical(
-            tauri::PhysicalPosition { x: pos_x, y: pos_y }
-        ));
-        window.show().map_err(|e| format!("Failed to show dcomp toolbar: {}", e))?;
+        // Reposition existing window using physical coordinates
+        let _ = set_physical_position(&window, pos_x, pos_y);
         window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
-        window.set_focus().map_err(|e| format!("Failed to focus dcomp toolbar: {}", e))?;
+        
+        // Emit selection update for dimension display
+        let _ = window.emit("selection-updated", serde_json::json!({
+            "x": x, "y": y, "width": width, "height": height
+        }));
         return Ok(());
     }
 
-    // Create the window with selection coordinates in URL params
+    // URL with selection dimensions for the dimension badge
     let url = WebviewUrl::App(
         format!("capture-toolbar.html?x={}&y={}&width={}&height={}", x, y, width, height).into()
     );
     
     let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
         .title("Selection Toolbar")
-        .inner_size(window_width as f64, window_height as f64)
+        .inner_size(TOOLBAR_WINDOW_WIDTH as f64, TOOLBAR_WINDOW_HEIGHT as f64)
         .position(pos_x as f64, pos_y as f64)
         .transparent(true)
         .decorations(false)
@@ -679,33 +642,21 @@ pub async fn show_capture_toolbar(
         .skip_taskbar(true)
         .resizable(false)
         .shadow(false)
-        .visible(true)
-        .focused(true)
+        .visible(true) // Show immediately - no flicker
+        .focused(false)
         .build()
         .map_err(|e| format!("Failed to create capture toolbar window: {}", e))?;
 
-    // Exclude from capture so it doesn't appear in recordings
-    let _ = exclude_window_from_capture(&window);
-    
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
         eprintln!("Warning: Failed to apply DWM transparency to toolbar: {}", e);
     }
 
-    // Apply Windows 11 native rounded corners to clip away any border artifacts
-    if let Err(e) = apply_rounded_corners(&window) {
-        eprintln!("Warning: Failed to apply rounded corners: {}", e);
-    }
-
-    // Ensure always on top
-    window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
-    window.set_focus().map_err(|e| format!("Failed to focus dcomp toolbar: {}", e))?;
-
     Ok(())
 }
 
-/// Update the DirectComposition overlay toolbar position and dimensions.
-/// This is called during resize to update the toolbar in real-time.
+/// Update the capture toolbar with new selection dimensions.
+/// Rust handles repositioning directly - no frontend round-trips.
 #[command]
 pub async fn update_capture_toolbar(
     app: AppHandle,
@@ -714,135 +665,50 @@ pub async fn update_capture_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Use same dimensions as show_capture_toolbar
-    let toolbar_content_width: i32 = 500;
-    let toolbar_content_height: i32 = 60;
-
-    // Position toolbar centered below the selection
-    let selection_bottom = y + height as i32;
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+    
+    // Get monitor info for positioning
+    let monitors = get_monitors().unwrap_or_default();
     let sel_center_x = x + (width as i32) / 2;
     let sel_center_y = y + (height as i32) / 2;
-
-    // Window dimensions (content + shadow on all sides)
-    let window_width: i32 = toolbar_content_width + (TOOLBAR_SHADOW_PADDING * 2);
-    let window_height: i32 = toolbar_content_height + (TOOLBAR_SHADOW_PADDING * 2);
-
-    // Get monitors for bounds checking and fullscreen detection
-    let monitors = get_monitors().unwrap_or_default();
-
-    // Find which monitor contains the selection center
+    
     let current_monitor = monitors.iter().find(|m| {
         sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
         sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
     });
-
-    // Check if selection is fullscreen (covers >90% of monitor)
-    let is_fullscreen = if let Some(mon) = current_monitor {
-        width >= (mon.width * 9 / 10) && height >= (mon.height * 9 / 10)
+    
+    // Calculate and set new position
+    let (pos_x, pos_y) = if let Some(mon) = current_monitor {
+        calculate_toolbar_position(x, y, width, height, mon.x, mon.y, mon.width, mon.height)
     } else {
-        false
+        (x + (width as i32) / 2 - TOOLBAR_WINDOW_WIDTH / 2, y + height as i32 + TOOLBAR_MARGIN)
     };
-
-    // Calculate initial position based on whether this is fullscreen
-    // Also track which monitor we're placing the toolbar on for bounds checking
-    let (mut pos_x, mut pos_y, bounds_monitor) = if is_fullscreen {
-        // Determine if current monitor is primary
-        let current_is_primary = current_monitor.map(|m| m.is_primary).unwrap_or(true);
-
-        // Find target monitor: if on primary → secondary, if on secondary → primary
-        let target_monitor = if current_is_primary {
-            monitors.iter().find(|m| !m.is_primary)
-        } else {
-            monitors.iter().find(|m| m.is_primary)
-        };
-
-        if let Some(target) = target_monitor {
-            // Place in center of target monitor - use target for bounds checking
-            (
-                target.x + (target.width as i32 - window_width) / 2,
-                target.y + (target.height as i32 - window_height) / 2,
-                Some(target)
-            )
-        } else {
-            // No alternate monitor, place at bottom center inside selection
-            (sel_center_x - window_width / 2, selection_bottom - window_height - 60, current_monitor)
-        }
-    } else {
-        // Normal selection: place below selection, horizontally centered
-        let content_x = sel_center_x - toolbar_content_width / 2;
-        (content_x - TOOLBAR_SHADOW_PADDING, selection_bottom, current_monitor)
-    };
-
-    // Bounds checking: ensure full window (including shadow) is on screen
-    // Use the monitor where toolbar is actually placed, not the selection's monitor
-    if let Some(mon) = bounds_monitor {
-        let mon_right = mon.x + mon.width as i32;
-        let mon_bottom = mon.y + mon.height as i32;
-        let margin = 8;
-
-        // Check full window bounds (including shadow padding on all sides)
-        let window_bottom = pos_y + window_height;
-        if window_bottom > mon_bottom - margin {
-            // For fullscreen on alternate monitor, just clamp to bottom
-            // For non-fullscreen, try placing above selection first
-            if !is_fullscreen {
-                let above_pos_y = y - window_height;
-                if above_pos_y >= mon.y + margin {
-                    pos_y = above_pos_y;
-                } else {
-                    pos_y = selection_bottom - window_height - 20;
-                }
-            } else {
-                pos_y = mon_bottom - margin - window_height;
-            }
-        }
-
-        // Clamp horizontal position so full window stays on screen
-        let window_left = pos_x;
-        let window_right = pos_x + window_width;
-
-        if window_left < mon.x + margin {
-            pos_x = mon.x + margin;
-        } else if window_right > mon_right - margin {
-            pos_x = mon_right - margin - window_width;
-        }
-
-        // Final safety check for vertical position (full window bounds)
-        let min_pos_y = mon.y + margin;
-        let max_pos_y = mon_bottom - margin - window_height;
-        pos_y = pos_y.max(min_pos_y).min(max_pos_y);
-    }
-
-    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        // Reposition the toolbar
-        let _ = window.set_position(tauri::Position::Physical(
-            tauri::PhysicalPosition { x: pos_x, y: pos_y }
-        ));
+    
+    let _ = set_physical_position(&window, pos_x, pos_y);
+    
+    // Emit selection update for dimension display only
+    let _ = window.emit("selection-updated", serde_json::json!({
+        "x": x, "y": y, "width": width, "height": height
+    }));
+    
+    // Ensure toolbar stays on top
+    let _ = window.set_always_on_top(true);
+    
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
         
-        // Emit dimensions update to the toolbar window
-        let _ = window.emit("dcomp-toolbar-dimensions", serde_json::json!({
-            "width": width,
-            "height": height
-        }));
-        
-        // Bring toolbar to front (it might have gone behind the overlay)
-        let _ = window.set_always_on_top(true);
-        
-        // Use Win32 API to ensure it's truly on top
-        #[cfg(target_os = "windows")]
-        {
-            use windows::Win32::Foundation::HWND;
-            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
-            
-            if let Ok(hwnd) = window.hwnd() {
-                unsafe {
-                    let _ = SetWindowPos(
-                        HWND(hwnd.0),
-                        HWND_TOPMOST,
-                        0, 0, 0, 0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-                    );
-                }
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let _ = SetWindowPos(
+                    HWND(hwnd.0),
+                    HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+                );
             }
         }
     }
@@ -859,127 +725,133 @@ pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Resize the DirectComposition overlay toolbar window.
-/// Called by frontend after measuring its content size.
-/// Recalculates position based on selection coordinates and shadow padding.
-///
-/// Parameters:
-/// - width, height: Total window size (content + shadow padding)
-/// - shadow_padding: CSS shadow padding (frontend is source of truth)
-/// - sel_x, sel_y, sel_width, sel_height: Selection region coordinates
+// ============================================================================
+// Unified Capture Controls Window
+// ============================================================================
+
+/// Show the unified capture controls window.
+/// This is a single fullscreen transparent WebView that contains both:
+/// - Recording border (CSS positioned, pointer-events: none)
+/// - Toolbar (CSS positioned, receives clicks)
+/// 
+/// No window sizing complexity - just CSS positioning in a fullscreen window.
 #[command]
-pub async fn resize_capture_toolbar(
+pub async fn show_capture_controls(
     app: AppHandle,
+    x: i32,
+    y: i32,
     width: u32,
     height: u32,
-    shadow_padding: i32,
-    sel_x: i32,
-    sel_y: i32,
-    sel_width: u32,
-    sel_height: u32,
 ) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        let window_width = width as i32;
-        let window_height = height as i32;
-        let content_width = window_width - shadow_padding * 2;
-
-        // Calculate selection geometry
-        let sel_center_x = sel_x + (sel_width as i32) / 2;
-        let sel_center_y = sel_y + (sel_height as i32) / 2;
-        let sel_bottom = sel_y + sel_height as i32;
-
-        // Get monitors for fullscreen detection and bounds checking
-        let monitors = get_monitors().unwrap_or_default();
-
-        // Find which monitor contains the selection center
-        let current_monitor = monitors.iter().find(|m| {
-            sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
-            sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
-        });
-
-        // Check if selection is fullscreen (covers >90% of monitor)
-        let is_fullscreen = if let Some(mon) = current_monitor {
-            sel_width >= (mon.width * 9 / 10) && sel_height >= (mon.height * 9 / 10)
-        } else {
-            false
-        };
-
-        // Calculate initial position based on whether this is fullscreen
-        // Also track which monitor we're placing the toolbar on for bounds checking
-        let (mut pos_x, mut pos_y, bounds_monitor) = if is_fullscreen {
-            // Determine if current monitor is primary
-            let current_is_primary = current_monitor.map(|m| m.is_primary).unwrap_or(true);
-
-            // Find target monitor: if on primary → secondary, if on secondary → primary
-            let target_monitor = if current_is_primary {
-                monitors.iter().find(|m| !m.is_primary)
-            } else {
-                monitors.iter().find(|m| m.is_primary)
-            };
-
-            if let Some(target) = target_monitor {
-                // Place in center of target monitor - use target for bounds checking
-                (
-                    target.x + (target.width as i32 - window_width) / 2,
-                    target.y + (target.height as i32 - window_height) / 2,
-                    Some(target)
-                )
-            } else {
-                // No alternate monitor, place at bottom center inside selection
-                (sel_center_x - window_width / 2, sel_bottom - window_height - 60, current_monitor)
-            }
-        } else {
-            // Normal selection: place below selection, horizontally centered
-            let content_x = sel_center_x - content_width / 2;
-            (content_x - shadow_padding, sel_bottom, current_monitor)
-        };
-
-        // Bounds checking: ensure full window is on screen
-        // Use the monitor where toolbar is actually placed, not the selection's monitor
-        if let Some(mon) = bounds_monitor {
-            let mon_right = mon.x + mon.width as i32;
-            let mon_bottom = mon.y + mon.height as i32;
-            let margin = 8;
-
-            // Check full window bounds
-            let window_bottom = pos_y + window_height;
-            if window_bottom > mon_bottom - margin {
-                // For fullscreen on alternate monitor, just clamp to bottom
-                // For non-fullscreen, try placing above selection first
-                if !is_fullscreen {
-                    let above_pos_y = sel_y - window_height;
-                    if above_pos_y >= mon.y + margin {
-                        pos_y = above_pos_y;
-                    } else {
-                        pos_y = sel_bottom - window_height - 20;
-                    }
-                } else {
-                    pos_y = mon_bottom - margin - window_height;
-                }
-            }
-
-            // Clamp horizontal position
-            if pos_x < mon.x + margin {
-                pos_x = mon.x + margin;
-            } else if pos_x + window_width > mon_right - margin {
-                pos_x = mon_right - margin - window_width;
-            }
-
-            // Final safety clamp for vertical position
-            let min_pos_y = mon.y + margin;
-            let max_pos_y = mon_bottom - margin - window_height;
-            pos_y = pos_y.max(min_pos_y).min(max_pos_y);
-        }
-
-        // Apply new size and position
-        window.set_size(tauri::Size::Physical(
-            tauri::PhysicalSize { width, height }
-        )).map_err(|e| format!("Failed to resize toolbar: {}", e))?;
-
-        window.set_position(tauri::Position::Physical(
-            tauri::PhysicalPosition { x: pos_x, y: pos_y }
-        )).map_err(|e| format!("Failed to reposition toolbar: {}", e))?;
+    // Get virtual screen bounds (all monitors)
+    let (vs_x, vs_y, vs_w, vs_h) = get_virtual_screen_bounds();
+    
+    // Get monitor info for toolbar positioning
+    let monitors = get_monitors().unwrap_or_default();
+    let sel_center_x = x + (width as i32) / 2;
+    let sel_center_y = y + (height as i32) / 2;
+    
+    let current_monitor = monitors.iter().find(|m| {
+        sel_center_x >= m.x && sel_center_x < m.x + m.width as i32 &&
+        sel_center_y >= m.y && sel_center_y < m.y + m.height as i32
+    });
+    
+    let mon_params = if let Some(mon) = current_monitor {
+        format!("&monX={}&monY={}&monW={}&monH={}", mon.x, mon.y, mon.width, mon.height)
+    } else {
+        format!("&monX={}&monY={}&monW={}&monH={}", vs_x, vs_y, vs_w, vs_h)
+    };
+    
+    // Close existing window if any
+    if let Some(window) = app.get_webview_window(CAPTURE_CONTROLS_LABEL) {
+        let _ = window.close();
     }
+    
+    // Also close legacy windows if they exist
+    if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
+        let _ = window.close();
+    }
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        let _ = window.close();
+    }
+
+    // URL with selection + monitor + virtual screen info
+    let url = WebviewUrl::App(
+        format!("capture-controls.html?x={}&y={}&width={}&height={}{}&vsX={}&vsY={}&vsW={}&vsH={}",
+            x, y, width, height, mon_params, vs_x, vs_y, vs_w, vs_h).into()
+    );
+    
+    let window = WebviewWindowBuilder::new(&app, CAPTURE_CONTROLS_LABEL, url)
+        .title("Capture Controls")
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false) // Start hidden, position first
+        .focused(false)
+        .build()
+        .map_err(|e| format!("Failed to create capture controls window: {}", e))?;
+    
+    // Use physical coordinates to match screen coordinates from capture overlay
+    set_physical_bounds(&window, vs_x, vs_y, vs_w, vs_h)?;
+    
+    // Now show
+    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+
+    // Apply DWM blur-behind for true transparency
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency: {}", e);
+    }
+    
+    // Don't set ignore_cursor_events - let CSS handle it:
+    // - Container has pointer-events: none (click-through for transparent areas)
+    // - Toolbar wrapper has pointer-events: auto (receives clicks)
+
+    Ok(())
+}
+
+/// Get virtual screen bounds (spans all monitors)
+fn get_virtual_screen_bounds() -> (i32, i32, u32, u32) {
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN};
+    
+    unsafe {
+        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN) as u32;
+        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN) as u32;
+        (x, y, width, height)
+    }
+}
+
+/// Hide the capture controls window.
+#[command]
+pub async fn hide_capture_controls(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(CAPTURE_CONTROLS_LABEL) {
+        window.close().map_err(|e| format!("Failed to close capture controls: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Update the capture controls with new selection (for repositioning during resize).
+#[command]
+pub async fn update_capture_controls(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_CONTROLS_LABEL) else {
+        return Ok(());
+    };
+    
+    // Emit selection update to frontend
+    let _ = window.emit("selection-updated", serde_json::json!({
+        "x": x, "y": y, "width": width, "height": height
+    }));
+    
     Ok(())
 }
 
@@ -1020,13 +892,7 @@ pub async fn show_countdown_window(
         .map_err(|e| format!("Failed to create countdown window: {}", e))?;
 
     // Use physical coordinates to match the recording region exactly
-    window.set_position(tauri::Position::Physical(
-        tauri::PhysicalPosition { x, y }
-    )).map_err(|e| format!("Failed to set position: {}", e))?;
-    
-    window.set_size(tauri::Size::Physical(
-        tauri::PhysicalSize { width, height }
-    )).map_err(|e| format!("Failed to set size: {}", e))?;
+    set_physical_bounds(&window, x, y, width, height)?;
 
     // Make click-through
     window.set_ignore_cursor_events(true)
@@ -1041,7 +907,8 @@ pub async fn show_countdown_window(
     window.show().map_err(|e| format!("Failed to show window: {}", e))?;
 
     // Exclude from capture
-    let _ = exclude_window_from_capture(&window);
+    // TEMPORARILY DISABLED FOR MARKETING SCREENSHOTS
+    // let _ = exclude_window_from_capture(&window);
 
     Ok(())
 }

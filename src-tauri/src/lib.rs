@@ -77,15 +77,24 @@ pub fn run() {
 
     builder
         .on_window_event(|window, event| {
-            // Minimize to tray instead of closing the main window (if enabled)
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    if commands::settings::is_close_to_tray() {
-                        api.prevent_close();
-                        let _ = window.hide();
-                    }
-                    // If close_to_tray is false, let the window close normally
+            match event {
+                // Fix Windows resize lag by adding small delay
+                // See: https://github.com/tauri-apps/tauri/issues/6322#issuecomment-2495685888
+                #[cfg(target_os = "windows")]
+                WindowEvent::Resized(_) => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                 }
+                // Minimize to tray instead of closing the main window (if enabled)
+                WindowEvent::CloseRequested { api, .. } => {
+                    if window.label() == "main" {
+                        if commands::settings::is_close_to_tray() {
+                            api.prevent_close();
+                            let _ = window.hide();
+                        }
+                        // If close_to_tray is false, let the window close normally
+                    }
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![

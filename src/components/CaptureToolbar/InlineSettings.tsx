@@ -119,8 +119,6 @@ export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
               value={settings.video.format}
               options={[
                 { value: 'mp4', label: 'MP4' },
-                { value: 'webm', label: 'WebM' },
-                { value: 'mkv', label: 'MKV' },
               ]}
               onChange={(v) => updateVideoSettings({ format: v as VideoFormat })}
             />

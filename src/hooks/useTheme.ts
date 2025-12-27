@@ -21,9 +21,11 @@ export function useTheme() {
       // Disable ALL transitions during theme switch for instant change
       root.style.setProperty('--theme-transition', 'none');
       root.classList.add('no-transitions');
-      
+
+      // Toggle both dark and light classes
       root.classList.toggle('dark', isDark);
-      
+      root.classList.toggle('light', !isDark);
+
       // Re-enable transitions after paint
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -49,6 +51,7 @@ export function useTheme() {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = (e: MediaQueryListEvent) => {
       document.documentElement.classList.toggle('dark', e.matches);
+      document.documentElement.classList.toggle('light', !e.matches);
     };
 
     mediaQuery.addEventListener('change', handler);

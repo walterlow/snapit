@@ -26,7 +26,6 @@ import { useState, useEffect } from 'react';
 import type { Tool } from '../../types';
 import { useEditorStore } from '../../stores/editorStore';
 
-import { Button } from '@/components/ui/button';
 import {
   Tooltip,
   TooltipContent,
@@ -40,7 +39,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Separator } from '@/components/ui/separator';
 
 interface ToolbarProps {
   selectedTool: Tool;
@@ -111,39 +109,35 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={300}>
-      <div className="flex items-center justify-center p-3 bg-[var(--polar-ice)] border-t border-[var(--polar-frost)]">
+      <div className="editor-toolbar-container">
         <div className="floating-toolbar animate-scale-in">
           {/* Back Button */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
                 onClick={onBack}
-                className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)]`}
+                className={`glass-btn ${buttonSize}`}
               >
                 <ArrowLeft className={iconSize} />
-              </Button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="top">
               <p className="text-xs">Back to Library</p>
             </TooltipContent>
           </Tooltip>
 
-          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--polar-frost)]" />
+          <div className="toolbar-divider" />
 
           {/* Undo/Redo Buttons */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
                 onClick={onUndo}
                 disabled={!canUndo}
-                className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)] disabled:opacity-30 disabled:cursor-not-allowed`}
+                className={`glass-btn ${buttonSize} disabled:opacity-30 disabled:cursor-not-allowed`}
               >
                 <Undo2 className={iconSize} />
-              </Button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="top">
               <div className="flex items-center gap-2">
@@ -155,15 +149,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
                 onClick={onRedo}
                 disabled={!canRedo}
-                className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)] disabled:opacity-30 disabled:cursor-not-allowed`}
+                className={`glass-btn ${buttonSize} disabled:opacity-30 disabled:cursor-not-allowed`}
               >
                 <Redo2 className={iconSize} />
-              </Button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="top">
               <div className="flex items-center gap-2">
@@ -173,7 +165,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </TooltipContent>
           </Tooltip>
 
-          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--polar-frost)]" />
+          <div className="toolbar-divider" />
 
           {/* Tool Buttons */}
           <div className="flex items-center gap-0.5">
@@ -197,20 +189,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             ))}
           </div>
 
-          <Separator orientation="vertical" className="h-6 mx-2 bg-[var(--polar-frost)]" />
+          <div className="toolbar-divider" />
 
           {/* Quick Copy Button */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
                 onClick={handleCopy}
                 disabled={isCopying}
-                className={`${buttonSize} rounded-lg transition-all ${
-                  copied
-                    ? 'bg-emerald-50 text-emerald-500'
-                    : 'text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)]'
+                className={`glass-btn ${buttonSize} ${
+                  copied ? 'glass-btn--success' : ''
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {isCopying ? (
@@ -220,7 +208,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 ) : (
                   <Copy className={iconSize} />
                 )}
-              </Button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="top">
               <div className="flex items-center gap-2">
@@ -235,20 +223,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
+                  <button
                     disabled={isSaving}
-                    className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)] disabled:opacity-50`}
+                    className={`glass-btn ${buttonSize} disabled:opacity-50`}
                   >
                     {isSaving ? (
                       <Loader2 className={`${iconSize} animate-spin`} />
                     ) : (
-                      <div className="flex items-center">
-                        <Save className={iconSize} />
-                      </div>
+                      <Save className={iconSize} />
                     )}
-                  </Button>
+                  </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="top">
@@ -287,14 +271,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Delete Button */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
                 onClick={onDelete}
-                className={`${buttonSize} rounded-lg text-[var(--ink-muted)] hover:text-red-500 hover:bg-red-50`}
+                className={`glass-btn glass-btn--danger ${buttonSize}`}
               >
                 <Trash2 className={iconSize} />
-              </Button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="top">
               <p className="text-xs">Delete Capture</p>

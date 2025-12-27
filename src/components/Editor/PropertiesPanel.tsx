@@ -1082,9 +1082,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const HeaderIcon = toolInfo.icon;
 
   return (
-    <div className="w-72 bg-[var(--card)] border-l border-[var(--polar-frost)] flex flex-col flex-shrink-0 h-full shadow-lg">
+    <div className="compositor-sidebar w-72 flex flex-col flex-shrink-0 h-full">
       {/* Header */}
-      <div className="flex items-center px-4 py-3 border-b border-[var(--polar-frost)] flex-shrink-0 bg-[var(--polar-ice)]">
+      <div className="properties-panel-header">
         <div className="flex items-center gap-2">
           <HeaderIcon className="w-4 h-4 text-[var(--coral-400)]" />
           <span className="text-sm font-medium text-[var(--ink-black)]">{toolInfo.label}</span>
@@ -1092,7 +1092,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       </div>
 
       {/* Content */}
-      <div className="p-4 overflow-y-auto flex-1">
+      <div className="p-4 overflow-y-auto flex-1 relative z-10">
         {renderToolProperties()}
       </div>
     </div>

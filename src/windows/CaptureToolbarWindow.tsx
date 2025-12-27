@@ -17,6 +17,7 @@ import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/C
 import { useCaptureSettingsStore } from '../stores/captureSettingsStore';
 import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
 import { createErrorHandler } from '../utils/errorReporting';
+import { useTheme } from '../hooks/useTheme';
 import type { RecordingState, RecordingFormat } from '../types';
 
 interface WebcamErrorEvent {
@@ -162,6 +163,9 @@ const CaptureToolbarWindow: React.FC = () => {
     };
   }, []);
 
+  // Apply theme to this window
+  useTheme();
+
   // Capture settings from store
   const {
     settings,
@@ -187,7 +191,6 @@ const CaptureToolbarWindow: React.FC = () => {
   // Refs
   const isRecordingActiveRef = useRef(false);
   const recordingInitiatedRef = useRef(false);
-  const isReselectingRef = useRef(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 

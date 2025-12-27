@@ -80,7 +80,7 @@ export function exportCanvas(
   // Hide editor-only elements
   const checkerboard = stage.findOne('[name=checkerboard]');
   const editorShadow = stage.findOne('[name=editor-shadow]');
-  const transformer = stage.findOne('Transformer');
+  const transformer = stage.findOne('[name=transformer]');
   if (checkerboard) checkerboard.hide();
   if (editorShadow) editorShadow.hide();
   if (transformer) transformer.hide();

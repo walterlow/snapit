@@ -19,7 +19,7 @@ import {
   Loader2,
   Pencil,
   FileImage,
-  Share2,
+  Save,
   Trash2,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -245,7 +245,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       <Loader2 className={`${iconSize} animate-spin`} />
                     ) : (
                       <div className="flex items-center">
-                        <Share2 className={iconSize} />
+                        <Save className={iconSize} />
                       </div>
                     )}
                   </Button>
@@ -253,8 +253,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </TooltipTrigger>
               <TooltipContent side="top">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs">{isSaving ? 'Saving...' : 'Export'}</span>
-                  <kbd className="kbd text-[10px] px-1.5 py-0.5">Ctrl+S</kbd>
+                  <span className="text-xs">{isSaving ? 'Saving...' : 'Save'}</span>
+                  <kbd className="kbd text-[10px] px-1.5 py-0.5">Ctrl+E</kbd>
                 </div>
               </TooltipContent>
             </Tooltip>
@@ -266,7 +266,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <DropdownMenuItem onClick={onSave} className="gap-2">
                 <Download className="w-4 h-4" />
                 <span>Save to File</span>
-                <span className="ml-auto text-[10px] text-[var(--ink-muted)]">Ctrl+S</span>
+                <span className="ml-auto text-[10px] text-[var(--ink-muted)]">Ctrl+E</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => onSaveAs?.('png')} className="gap-2">

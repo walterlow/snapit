@@ -25,7 +25,7 @@ interface BlurShapeProps {
 export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
   shape,
   sourceImage,
-  isSelected,
+  isSelected: _isSelected,
   isDraggable,
   isActivelyDrawing,
   onSelect,
@@ -34,6 +34,7 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
   onTransformStart,
   onTransformEnd,
 }) => {
+  void _isSelected; // Blur shapes don't show selection border
   const cursorHandlers = useShapeCursor(isDraggable);
   const rectRef = useRef<Konva.Rect>(null);
   const imageRef = useRef<Konva.Image>(null);
@@ -156,21 +157,44 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
     [onTransformEnd]
   );
 
-  // Fast preview during drawing - just a dashed rect
-  if (isActivelyDrawing) {
-    return (
-      <Rect
-        id={shape.id}
-        x={shape.x}
-        y={shape.y}
-        width={shape.width}
-        height={shape.height}
-        fill="rgba(0, 0, 0, 0.3)"
-        stroke="#fbbf24"
-        strokeWidth={2}
-        dash={[6, 3]}
-      />
+  // Live blur preview during drawing - with visible border
+  if (isActivelyDrawing && sourceImage && shapeWidth >= 1 && shapeHeight >= 1) {
+    const drawingBlur = renderBlurCanvas(
+      sourceImage,
+      shapeX,
+      shapeY,
+      shapeWidth,
+      shapeHeight,
+      blurType,
+      blurAmount
     );
+
+    if (drawingBlur) {
+      return (
+        <Group>
+          <Image
+            id={shape.id}
+            image={drawingBlur.canvas}
+            x={drawingBlur.x}
+            y={drawingBlur.y}
+            width={drawingBlur.width}
+            height={drawingBlur.height}
+            listening={false}
+          />
+          {/* Border while drawing */}
+          <Rect
+            x={shapeX}
+            y={shapeY}
+            width={shapeWidth}
+            height={shapeHeight}
+            stroke="#fbbf24"
+            strokeWidth={2}
+            dash={[6, 3]}
+            listening={false}
+          />
+        </Group>
+      );
+    }
   }
 
   // Placeholder while no image or blur completely outside bounds
@@ -184,8 +208,8 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
         width={shapeWidth || 50}
         height={shapeHeight || 50}
         fill="rgba(128, 128, 128, 0.5)"
-        stroke={isSelected ? '#fbbf24' : '#666'}
-        strokeWidth={isSelected ? 2 : 1}
+        stroke="#666"
+        strokeWidth={1}
         dash={[4, 4]}
         draggable={isDraggable}
         onMouseDown={onSelect}
@@ -228,8 +252,8 @@ export const BlurShape: React.FC<BlurShapeProps> = React.memo(({
         width={shapeWidth}
         height={shapeHeight}
         fill="transparent"
-        stroke={isSelected ? '#fbbf24' : 'transparent'}
-        strokeWidth={isSelected ? 2 : 0}
+        stroke="transparent"
+        strokeWidth={0}
         draggable={isDraggable}
         onMouseDown={onSelect}
         onTouchStart={onSelect}

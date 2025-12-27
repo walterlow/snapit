@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect, useState } from 'react';
+import React, { useRef, useMemo, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import { Stage, Layer, Image, Rect, Group, Transformer } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
@@ -68,7 +68,14 @@ interface EditorCanvasProps {
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
-export const EditorCanvas: React.FC<EditorCanvasProps> = ({
+/** Ref handle exposed by EditorCanvas for imperative operations */
+export interface EditorCanvasRef {
+  /** Force-finalize any in-progress drawing and return the current shapes.
+   *  Call this before saving to ensure no shapes are lost to race conditions. */
+  finalizeAndGetShapes: () => CanvasShape[];
+}
+
+export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
   imageData,
   selectedTool,
   onToolChange,
@@ -78,7 +85,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   shapes,
   onShapesChange,
   stageRef,
-}) => {
+}, ref) => {
   // Refs
   const layerRef = useRef<Konva.Layer>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -224,6 +231,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       }
     },
   });
+
+  // Expose imperative methods via ref
+  useImperativeHandle(ref, () => ({
+    finalizeAndGetShapes: drawing.finalizeAndGetShapes,
+  }), [drawing.finalizeAndGetShapes]);
 
   // Marquee selection hook
   const marquee = useMarqueeSelection({
@@ -778,6 +790,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
           <Transformer
             ref={transformerRef}
+            name="transformer"
             keepRatio={isShiftHeld || hasProportionalShape}
             enabledAnchors={hasProportionalShape
               ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
@@ -887,4 +900,4 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       />
     </div>
   );
-};
+});

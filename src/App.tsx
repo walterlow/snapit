@@ -8,7 +8,7 @@ import { toast, Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { DeleteDialog } from './components/Library/components/DeleteDialog';
-import { EditorCanvas } from './components/Editor/EditorCanvas';
+import { EditorCanvas, type EditorCanvasRef } from './components/Editor/EditorCanvas';
 import { Toolbar } from './components/Editor/Toolbar';
 import { PropertiesPanel } from './components/Editor/PropertiesPanel';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
@@ -70,7 +70,11 @@ function App() {
   const [fillColor, setFillColor] = useState('transparent');
   const [strokeWidth, setStrokeWidth] = useState(3);
   const stageRef = useRef<Konva.Stage>(null);
-  
+  const editorCanvasRef = useRef<EditorCanvasRef>(null);
+
+  // Guard to prevent racing when rapidly exiting/saving
+  const isSavingOnExitRef = useRef(false);
+
   // Loading states for async operations
   const [isCopying, setIsCopying] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -667,27 +671,36 @@ function App() {
     }
   };
 
-  // Go back to library - transition immediately, save in background
-  const handleBack = () => {
-    // Capture data for background save BEFORE clearing
-    const projectToSave = currentProject;
-    const shapesToSave = [...shapes];
-    const boundsToSave = canvasBounds;
-    const compositorToSave = { ...compositorSettings };
+  // Go back to library - finalize any in-progress drawing, save, then clear
+  const handleBack = useCallback(async () => {
+    // Guard against rapid multiple clicks causing race conditions
+    if (isSavingOnExitRef.current) return;
+    isSavingOnExitRef.current = true;
 
-    // Switch view immediately - library stays mounted so it's instant
-    setView('library');
-    setCurrentProject(null);
-    setCurrentImageData(null);
+    try {
+      // Finalize any in-progress drawing FIRST to capture shapes that might be in refs
+      // Then read DIRECTLY from store to get latest state (bypasses React batching)
+      editorCanvasRef.current?.finalizeAndGetShapes();
+      const storeState = useEditorStore.getState();
+      const finalizedShapes = storeState.shapes;
 
-    // Defer cleanup and save to next frame so UI updates first
-    requestAnimationFrame(() => {
+      // Capture data for save BEFORE any state changes
+      // Read from store directly to ensure we have latest values
+      const projectToSave = currentProject;
+      const boundsToSave = storeState.canvasBounds;
+      const compositorToSave = { ...storeState.compositorSettings };
+
+      // Switch view immediately for responsive UX
+      setView('library');
+      setCurrentProject(null);
+      setCurrentImageData(null);
       clearEditor();
       clearHistory();
 
-      // Save annotations in background (fire and forget)
+      // Save annotations in background using invoke directly (not updateAnnotations)
+      // because updateAnnotations reads currentProject from store which we just cleared
       if (projectToSave) {
-        const annotations: Annotation[] = shapesToSave.map((shape) => ({ ...shape }));
+        const annotations: Annotation[] = finalizedShapes.map((shape) => ({ ...shape }));
         if (boundsToSave) {
           const cropAnnotation: CropBoundsAnnotation = {
             id: '__crop_bounds__',
@@ -706,12 +719,16 @@ function App() {
         };
         annotations.push(compositorAnnotation);
 
-        updateAnnotations(annotations).catch(
-          createErrorHandler({ operation: 'save annotations', silent: true })
-        );
+        // Use invoke directly with captured projectId to bypass store's currentProject check
+        invoke('update_project_annotations', {
+          projectId: projectToSave.id,
+          annotations,
+        }).catch(createErrorHandler({ operation: 'save annotations', silent: true }));
       }
-    });
-  };
+    } finally {
+      isSavingOnExitRef.current = false;
+    }
+  }, [currentProject, setView, setCurrentProject, setCurrentImageData, clearEditor]);
 
   // Keyboard shortcuts for save/copy (separate useEffect since these handlers are defined later)
   useEffect(() => {
@@ -719,7 +736,7 @@ function App() {
       if (view !== 'editor') return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
         e.preventDefault();
         handleSave();
       }
@@ -797,6 +814,7 @@ function App() {
               <div className="flex-1 overflow-hidden min-h-0 relative">
                 {currentImageData && (
                   <EditorCanvas
+                    ref={editorCanvasRef}
                     imageData={currentImageData}
                     selectedTool={selectedTool}
                     onToolChange={handleToolChange}

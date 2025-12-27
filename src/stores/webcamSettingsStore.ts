@@ -13,6 +13,7 @@ interface WebcamSettingsState {
   previewOpen: boolean;
 
   // Actions
+  loadSettings: () => Promise<void>;
   loadDevices: () => Promise<void>;
   setEnabled: (enabled: boolean) => Promise<void>;
   setDevice: (deviceIndex: number) => Promise<void>;
@@ -47,6 +48,20 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
   isLoadingDevices: false,
   devicesError: null,
   previewOpen: false,
+
+  loadSettings: async () => {
+    try {
+      const settings = await invoke<WebcamSettings>('get_webcam_settings_cmd');
+      console.log('[WebcamStore] Loaded settings from Rust:', settings);
+      // Merge with current state to preserve previewOpen
+      set((state) => ({
+        settings: { ...state.settings, ...settings }
+      }));
+      console.log('[WebcamStore] After set, store state:', get().settings);
+    } catch (error) {
+      console.error('[WebcamStore] Failed to load settings from Rust:', error);
+    }
+  },
 
   loadDevices: async () => {
     set({ isLoadingDevices: true, devicesError: null });

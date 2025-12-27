@@ -139,6 +139,19 @@ export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
               onChange={(v) => updateVideoSettings({ fps: parseInt(v) })}
             />
           </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Quality</span>
+            <GlassSelect
+              value={settings.video.quality}
+              options={[
+                { value: 40, label: '40%' },
+                { value: 60, label: '60%' },
+                { value: 80, label: '80%' },
+                { value: 100, label: '100%' },
+              ]}
+              onChange={(v) => updateVideoSettings({ quality: parseInt(v) })}
+            />
+          </div>
         </>
       );
 
@@ -259,19 +272,6 @@ export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
               onChange={(v) => updateVideoSettings({
                 microphoneDeviceIndex: v === 'none' ? null : parseInt(v)
               })}
-            />
-          </div>
-          <div className="glass-inline-group">
-            <span className="glass-inline-label">Quality</span>
-            <GlassSelect
-              value={settings.video.quality}
-              options={[
-                { value: 40, label: '40%' },
-                { value: 60, label: '60%' },
-                { value: 80, label: '80%' },
-                { value: 100, label: '100%' },
-              ]}
-              onChange={(v) => updateVideoSettings({ quality: parseInt(v) })}
             />
           </div>
           <div className="glass-inline-group">

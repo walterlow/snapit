@@ -25,6 +25,61 @@ use super::wgc_capture::WgcVideoCapture;
 use super::{emit_state_change, emit_webcam_error, get_webcam_settings, is_webcam_enabled, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
 // ============================================================================
+// Video Validation
+// ============================================================================
+
+/// Validate that a video file is properly formed (has moov atom for MP4).
+/// Returns Ok(()) if valid, Err with message if corrupted.
+fn validate_video_file(path: &PathBuf) -> Result<(), String> {
+    // Only validate MP4 files
+    let extension = path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    if extension != "mp4" {
+        return Ok(()); // Skip validation for non-MP4 files
+    }
+
+    // Find ffprobe
+    let ffprobe_path = crate::commands::storage::find_ffprobe()
+        .ok_or_else(|| "ffprobe not available for validation".to_string())?;
+
+    // Run ffprobe to check if file is valid
+    // A corrupted MP4 (missing moov atom) will fail with an error
+    let output = std::process::Command::new(&ffprobe_path)
+        .args([
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            &path.to_string_lossy().to_string(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Check for common corruption indicators
+        if stderr.contains("moov atom not found")
+            || stderr.contains("Invalid data found")
+            || stderr.contains("could not find codec parameters")
+        {
+            return Err(format!("Video file is corrupted: {}", stderr.trim()));
+        }
+        return Err(format!("Video validation failed: {}", stderr.trim()));
+    }
+
+    // Check that we got a valid duration
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let duration_str = stdout.trim();
+    if duration_str.is_empty() || duration_str == "N/A" {
+        return Err("Video file has no valid duration (likely corrupted)".to_string());
+    }
+
+    Ok(())
+}
+
+// ============================================================================
 // Audio Helpers
 // ============================================================================
 
@@ -348,6 +403,25 @@ fn start_capture_thread(
             Ok(()) => {
                 println!("[THREAD] Recording OK, checking file at: {:?}", output_path_clone);
 
+                // Validate the video file to ensure it's not corrupted
+                // This catches issues like missing moov atom from improper shutdown
+                if let Err(validation_error) = validate_video_file(&output_path_clone) {
+                    println!("[THREAD] Video validation FAILED: {}", validation_error);
+                    // Delete the corrupted file
+                    if let Err(e) = std::fs::remove_file(&output_path_clone) {
+                        println!("[THREAD] Failed to delete corrupted file: {}", e);
+                    } else {
+                        println!("[THREAD] Deleted corrupted file: {:?}", output_path_clone);
+                    }
+                    // Emit error state
+                    let error_msg = format!("Recording failed: {}", validation_error);
+                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                        controller.set_error(error_msg.clone());
+                    }
+                    emit_state_change(&app_clone, &RecordingState::Error { message: error_msg });
+                    return;
+                }
+
                 let file_size = std::fs::metadata(&output_path_clone)
                     .map(|m| m.len())
                     .unwrap_or(0);
@@ -376,6 +450,8 @@ fn start_capture_thread(
             }
             Err(e) => {
                 println!("[THREAD] Recording FAILED: {}", e);
+                // Also try to clean up any partial file on error
+                let _ = std::fs::remove_file(&output_path_clone);
                 if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
                     controller.set_error(e.clone());
                 }

@@ -187,6 +187,7 @@ const CaptureToolbarWindow: React.FC = () => {
   // Refs
   const isRecordingActiveRef = useRef(false);
   const recordingInitiatedRef = useRef(false);
+  const isReselectingRef = useRef(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -198,18 +199,32 @@ const CaptureToolbarWindow: React.FC = () => {
     }
   }, [isInitialized, loadSettings]);
 
-  // Bring webcam preview to front after overlay is created
+  // Load webcam settings from Rust and restore preview state on mount
   useEffect(() => {
-    const bringWebcamToFront = async () => {
-      try {
-        await invoke('bring_webcam_preview_to_front');
-      } catch {
-        // Ignore - webcam preview might not exist
+    const initWebcam = async () => {
+      // Load settings from Rust (source of truth, shared across windows)
+      const { loadSettings } = useWebcamSettingsStore.getState();
+      await loadSettings();
+
+      const { settings, previewOpen, togglePreview } = useWebcamSettingsStore.getState();
+      console.log('[Toolbar] After loading - webcam state:', { enabled: settings.enabled, previewOpen });
+
+      // If webcam was enabled but preview isn't open, open it
+      if (settings.enabled && !previewOpen) {
+        console.log('[Toolbar] Reopening webcam preview');
+        await togglePreview();
+      } else if (settings.enabled && previewOpen) {
+        // Just bring existing preview to front
+        try {
+          await invoke('bring_webcam_preview_to_front');
+        } catch {
+          // Ignore - webcam preview might not exist
+        }
       }
     };
 
     // Delay to ensure overlay is created first
-    const timeoutId = setTimeout(bringWebcamToFront, 200);
+    const timeoutId = setTimeout(initWebcam, 200);
     return () => clearTimeout(timeoutId);
   }, []);
 
@@ -375,25 +390,21 @@ const CaptureToolbarWindow: React.FC = () => {
     initWebcamPosition();
   }, [initialBounds, moveWebcamToCurrentAnchor]);
 
-  // Cleanup: close webcam preview when toolbar window unmounts
-  useEffect(() => {
-    return () => {
-      // Close webcam preview on unmount (covers all edge cases)
-      closeWebcamPreview();
-    };
-  }, [closeWebcamPreview]);
+  // Note: We do NOT close webcam on unmount - it stays open during reselection
+  // Webcam is only closed via handleCancel or when recording completes
 
   // Listen for recording state changes
   useEffect(() => {
     let unlistenClosed: UnlistenFn | null = null;
+    let unlistenReselecting: UnlistenFn | null = null;
     let unlistenState: UnlistenFn | null = null;
     let unlistenFormat: UnlistenFn | null = null;
 
     const setupListeners = async () => {
       const currentWindow = getCurrentWebviewWindow();
-      
+
       unlistenClosed = await listen('capture-overlay-closed', async () => {
-        // Close webcam preview when overlay closes
+        // Close webcam preview when overlay closes (actual cancel/close)
         await closeWebcamPreview();
 
         if (!recordingInitiatedRef.current) {
@@ -401,6 +412,27 @@ const CaptureToolbarWindow: React.FC = () => {
             createErrorHandler({ operation: 'close toolbar on overlay closed', silent: true })
           );
         }
+      });
+
+      // Listen for reselection - close preview during selection, but remember enabled state
+      unlistenReselecting = await listen('capture-overlay-reselecting', async () => {
+        console.log('[Toolbar] Received capture-overlay-reselecting event');
+
+        // Close the preview window during selection (but enabled setting is preserved in Rust)
+        const { previewOpen } = useWebcamSettingsStore.getState();
+        if (previewOpen) {
+          // Just close the window, don't change enabled setting
+          try {
+            await invoke('close_webcam_preview');
+          } catch {
+            // Ignore
+          }
+          useWebcamSettingsStore.setState({ previewOpen: false });
+        }
+
+        currentWindow.close().catch(
+          createErrorHandler({ operation: 'close toolbar on reselecting', silent: true })
+        );
       });
 
       unlistenState = await listen<RecordingState>('recording-state-changed', (event) => {
@@ -487,6 +519,7 @@ const CaptureToolbarWindow: React.FC = () => {
     setupListeners();
     return () => {
       unlistenClosed?.();
+      unlistenReselecting?.();
       unlistenState?.();
       unlistenFormat?.();
     };
@@ -575,8 +608,10 @@ const CaptureToolbarWindow: React.FC = () => {
   }, [captureType, settings, webcamSettings.enabled]);
 
   const handleRedo = useCallback(async () => {
+    console.log('[Toolbar] handleRedo called');
     try {
       await invoke('capture_overlay_reselect');
+      console.log('[Toolbar] capture_overlay_reselect invoked');
     } catch (e) {
       console.error('Failed to reselect:', e);
     }

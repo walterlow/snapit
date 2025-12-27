@@ -259,7 +259,8 @@ fn run_overlay(
                     }
                     OverlayCommand::Reselect => {
                         state.reselect();
-                        let _ = state.app_handle.emit("capture-overlay-closed", ());
+                        // Emit reselecting event (NOT closed) - webcam should stay open
+                        let _ = state.app_handle.emit("capture-overlay-reselecting", ());
                         let _ = render::render(&state);
                     }
                     OverlayCommand::Cancel => {

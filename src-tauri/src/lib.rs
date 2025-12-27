@@ -178,6 +178,7 @@ pub fn run() {
             commands::video_recording::set_recording_max_duration,
             commands::video_recording::set_recording_microphone_device,
             // Webcam commands
+            commands::video_recording::get_webcam_settings_cmd,
             commands::video_recording::set_webcam_enabled,
             commands::video_recording::set_webcam_device,
             commands::video_recording::set_webcam_position,

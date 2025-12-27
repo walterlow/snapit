@@ -149,8 +149,7 @@ fn generate_video_thumbnail(
 }
 
 /// Find ffprobe binary - checks bundled location, sidecar cache, then system PATH.
-#[allow(dead_code)]
-fn find_ffprobe() -> Option<PathBuf> {
+pub fn find_ffprobe() -> Option<PathBuf> {
     let binary_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
     
     // Check bundled location (next to executable)

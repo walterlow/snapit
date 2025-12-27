@@ -159,9 +159,17 @@ lazy_static! {
     static ref WEBCAM_SETTINGS: Mutex<WebcamSettings> = Mutex::new(WebcamSettings::default());
 }
 
-/// Get the current webcam settings.
+/// Get the current webcam settings (internal use).
 pub fn get_webcam_settings() -> WebcamSettings {
     WEBCAM_SETTINGS.lock().unwrap().clone()
+}
+
+/// Get the current webcam settings (Tauri command).
+#[command]
+pub fn get_webcam_settings_cmd() -> WebcamSettings {
+    let settings = WEBCAM_SETTINGS.lock().unwrap().clone();
+    eprintln!("[WEBCAM] get_webcam_settings_cmd returning enabled={}", settings.enabled);
+    settings
 }
 
 /// Check if webcam capture is enabled.

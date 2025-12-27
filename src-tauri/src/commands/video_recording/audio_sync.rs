@@ -284,10 +284,22 @@ impl AudioCaptureManager {
                 let channels = config.channels() as usize;
 
                 log::info!(
-                    "Microphone config: {:?} Hz, {} channels, {:?}",
+                    "Microphone config: {} Hz, {} channels, {:?}",
                     sample_rate,
                     channels,
                     config.sample_format()
+                );
+
+                // Target format: 48000 Hz stereo (to match system audio/encoder)
+                const TARGET_SAMPLE_RATE: u32 = 48000;
+                const TARGET_CHANNELS: usize = 2;
+
+                let src_sample_rate = sample_rate;
+                let src_channels = channels;
+
+                log::info!(
+                    "Microphone: will resample from {} Hz {} ch -> {} Hz {} ch",
+                    src_sample_rate, src_channels, TARGET_SAMPLE_RATE, TARGET_CHANNELS
                 );
 
                 // Build the stream based on sample format
@@ -308,15 +320,24 @@ impl AudioCaptureManager {
                                         return;
                                     }
 
+                                    // Convert and resample the audio
+                                    let processed = process_mic_audio(
+                                        data,
+                                        src_sample_rate,
+                                        src_channels,
+                                        TARGET_SAMPLE_RATE,
+                                        TARGET_CHANNELS,
+                                    );
+
                                     // Calculate timestamp relative to start
                                     let elapsed = start_time.elapsed();
                                     let timestamp_100ns =
                                         (elapsed.as_nanos() / 100) as i64;
 
                                     let frame = AudioFrame {
-                                        samples: data.to_vec(),
+                                        samples: processed,
                                         timestamp_100ns,
-                                        frame_count: data.len() / channels,
+                                        frame_count: data.len() / src_channels,
                                     };
 
                                     let _ = tx_clone.try_send(frame);
@@ -340,19 +361,28 @@ impl AudioCaptureManager {
                                     }
 
                                     // Convert i16 to f32
-                                    let samples: Vec<f32> = data
+                                    let f32_samples: Vec<f32> = data
                                         .iter()
                                         .map(|&s| s as f32 / i16::MAX as f32)
                                         .collect();
+
+                                    // Convert and resample the audio
+                                    let processed = process_mic_audio(
+                                        &f32_samples,
+                                        src_sample_rate,
+                                        src_channels,
+                                        TARGET_SAMPLE_RATE,
+                                        TARGET_CHANNELS,
+                                    );
 
                                     let elapsed = start_time.elapsed();
                                     let timestamp_100ns =
                                         (elapsed.as_nanos() / 100) as i64;
 
                                     let frame = AudioFrame {
-                                        samples,
+                                        samples: processed,
                                         timestamp_100ns,
-                                        frame_count: data.len() / channels,
+                                        frame_count: data.len() / src_channels,
                                     };
 
                                     let _ = tx_clone.try_send(frame);
@@ -431,6 +461,70 @@ impl Drop for AudioCaptureManager {
 /// Returns (sender, receiver) tuple with appropriate buffer size.
 pub fn create_audio_channel() -> (Sender<AudioFrame>, Receiver<AudioFrame>) {
     bounded(AUDIO_CHANNEL_SIZE)
+}
+
+/// Process microphone audio: convert channels and resample to target format.
+///
+/// This handles:
+/// - Mono to stereo conversion (duplicate channel)
+/// - Sample rate conversion (linear interpolation)
+fn process_mic_audio(
+    samples: &[f32],
+    src_rate: u32,
+    src_channels: usize,
+    target_rate: u32,
+    target_channels: usize,
+) -> Vec<f32> {
+    // Step 1: Convert to target channel count
+    let stereo_samples = if src_channels == 1 && target_channels == 2 {
+        // Mono to stereo: duplicate each sample
+        samples.iter().flat_map(|&s| [s, s]).collect::<Vec<_>>()
+    } else if src_channels == target_channels {
+        // Same channel count, no conversion needed
+        samples.to_vec()
+    } else if src_channels == 2 && target_channels == 1 {
+        // Stereo to mono: average channels
+        samples.chunks(2).map(|c| (c[0] + c.get(1).unwrap_or(&0.0)) / 2.0).collect()
+    } else {
+        // Unsupported conversion, just use as-is
+        samples.to_vec()
+    };
+
+    // Step 2: Resample if rates differ
+    if src_rate == target_rate {
+        return stereo_samples;
+    }
+
+    // Linear interpolation resampling
+    let ratio = src_rate as f64 / target_rate as f64;
+    let src_frames = stereo_samples.len() / target_channels;
+    let target_frames = ((src_frames as f64) / ratio).ceil() as usize;
+
+    let mut resampled = Vec::with_capacity(target_frames * target_channels);
+
+    for i in 0..target_frames {
+        let src_pos = i as f64 * ratio;
+        let src_idx = src_pos.floor() as usize;
+        let frac = (src_pos - src_idx as f64) as f32;
+
+        for ch in 0..target_channels {
+            let idx = src_idx * target_channels + ch;
+            let next_idx = (src_idx + 1) * target_channels + ch;
+
+            let sample = if next_idx < stereo_samples.len() {
+                // Linear interpolation between samples
+                stereo_samples[idx] * (1.0 - frac) + stereo_samples[next_idx] * frac
+            } else if idx < stereo_samples.len() {
+                stereo_samples[idx]
+            } else {
+                0.0
+            };
+
+            resampled.push(sample);
+        }
+    }
+
+    resampled
 }
 
 #[cfg(test)]

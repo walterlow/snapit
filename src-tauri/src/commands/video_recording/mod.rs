@@ -16,6 +16,7 @@ pub mod gif_encoder;
 pub mod recorder;
 pub mod state;
 pub mod webcam;
+pub mod wgc_capture;
 
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Emitter, Manager};
@@ -34,6 +35,7 @@ static QUALITY: AtomicU32 = AtomicU32::new(80);
 static GIF_QUALITY_PRESET: AtomicU8 = AtomicU8::new(1); // 0=Fast, 1=Balanced, 2=High
 static INCLUDE_CURSOR: AtomicBool = AtomicBool::new(true);
 static MAX_DURATION_SECS: AtomicU32 = AtomicU32::new(0); // 0 = unlimited
+static MICROPHONE_DEVICE_INDEX: AtomicU32 = AtomicU32::new(u32::MAX); // u32::MAX = no microphone
 
 /// Get the current countdown setting
 pub fn get_countdown_secs() -> u32 {
@@ -123,6 +125,21 @@ pub fn get_max_duration_secs() -> Option<u32> {
 #[command]
 pub fn set_recording_max_duration(secs: u32) {
     MAX_DURATION_SECS.store(secs, Ordering::SeqCst);
+}
+
+/// Get the current microphone device index (None = no microphone)
+pub fn get_microphone_device_index() -> Option<usize> {
+    let val = MICROPHONE_DEVICE_INDEX.load(Ordering::SeqCst);
+    if val == u32::MAX { None } else { Some(val as usize) }
+}
+
+/// Set the microphone device index (called from frontend before starting recording)
+/// Pass None or a value >= u32::MAX to disable microphone capture.
+#[command]
+pub fn set_recording_microphone_device(index: Option<u32>) {
+    let store_val = index.unwrap_or(u32::MAX);
+    eprintln!("[SETTINGS] set_recording_microphone_device({:?}) -> storing {}", index, store_val);
+    MICROPHONE_DEVICE_INDEX.store(store_val, Ordering::SeqCst);
 }
 
 // ============================================================================

@@ -21,6 +21,7 @@ use super::cursor::{composite_cursor, CursorCapture};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
 use super::webcam::{self, composite_webcam};
+use super::wgc_capture::WgcVideoCapture;
 use super::{emit_state_change, emit_webcam_error, get_webcam_settings, is_webcam_enabled, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
 // ============================================================================
@@ -41,6 +42,69 @@ fn f32_to_i16_pcm(samples: &[f32]) -> Vec<u8> {
         pcm_bytes.extend_from_slice(&i16_sample.to_le_bytes());
     }
     pcm_bytes
+}
+
+// ============================================================================
+// DXGI Recovery Helpers
+// ============================================================================
+
+/// Capture backend abstraction.
+///
+/// Allows switching between DXGI and WGC capture methods.
+enum CaptureBackend {
+    /// DXGI Desktop Duplication (preferred, lower latency)
+    Dxgi(DxgiDuplicationApi),
+    /// Windows Graphics Capture (fallback, more compatible)
+    Wgc(WgcVideoCapture),
+}
+
+impl CaptureBackend {
+    fn width(&self) -> u32 {
+        match self {
+            CaptureBackend::Dxgi(dxgi) => dxgi.width(),
+            CaptureBackend::Wgc(wgc) => wgc.width(),
+        }
+    }
+
+    fn height(&self) -> u32 {
+        match self {
+            CaptureBackend::Dxgi(dxgi) => dxgi.height(),
+            CaptureBackend::Wgc(wgc) => wgc.height(),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            CaptureBackend::Dxgi(_) => "DXGI",
+            CaptureBackend::Wgc(_) => "WGC",
+        }
+    }
+}
+
+/// Result of trying to acquire a frame from the capture backend.
+enum FrameAcquireResult {
+    /// Successfully acquired a frame
+    Frame(Vec<u8>),
+    /// No frame available (timeout)
+    Timeout,
+    /// GPU device was lost - should switch to WGC
+    DeviceLost,
+    /// Other error
+    Error(String),
+}
+
+/// Try to switch from DXGI to WGC capture backend.
+fn switch_to_wgc(
+    monitor_index: usize,
+    include_cursor: bool,
+) -> Result<CaptureBackend, String> {
+    println!("[CAPTURE] GPU device lost - attempting to switch to WGC capture...");
+
+    let wgc = WgcVideoCapture::new(monitor_index, include_cursor)
+        .map_err(|e| format!("Failed to create WGC capture: {}", e))?;
+
+    println!("[CAPTURE] Successfully switched to WGC capture backend");
+    Ok(CaptureBackend::Wgc(wgc))
 }
 
 // ============================================================================
@@ -358,6 +422,36 @@ fn run_video_capture(
         _ => None,
     };
 
+    // Get monitor index for potential WGC fallback
+    // For region mode, find which monitor contains the region
+    let monitor_index = match &settings.mode {
+        RecordingMode::Monitor { monitor_index } => *monitor_index,
+        RecordingMode::Region { x, y, .. } => {
+            // Find monitor that contains this region's top-left corner
+            // Use xcap::Monitor which has position info
+            if let Ok(monitors) = xcap::Monitor::all() {
+                let mut found_idx = 0;
+                for (idx, m) in monitors.iter().enumerate() {
+                    let mx = m.x().unwrap_or(0);
+                    let my = m.y().unwrap_or(0);
+                    let mw = m.width().unwrap_or(0) as i32;
+                    let mh = m.height().unwrap_or(0) as i32;
+                    if *x >= mx && *x < mx + mw && *y >= my && *y < my + mh {
+                        found_idx = idx;
+                        eprintln!("[CAPTURE] Region ({}, {}) is on monitor {} at ({}, {})", x, y, idx, mx, my);
+                        break;
+                    }
+                }
+                found_idx
+            } else {
+                0
+            }
+        }
+        _ => 0, // Primary monitor for other modes
+    };
+
+    eprintln!("[CAPTURE] Detected monitor index for WGC fallback: {}", monitor_index);
+
     // Get monitor to capture
     let monitor = match &settings.mode {
         RecordingMode::Monitor { monitor_index } => {
@@ -373,18 +467,21 @@ fn run_video_capture(
 
     println!("[CAPTURE] Using monitor: {:?}", monitor.name());
 
-    // Create DXGI duplication session
-    let mut dxgi = DxgiDuplicationApi::new(monitor)
+    // Create DXGI duplication session (will fallback to WGC if needed)
+    let dxgi = DxgiDuplicationApi::new(monitor)
         .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
 
     // Small delay to let DXGI stabilize (helps with GPU power-saving states)
     std::thread::sleep(Duration::from_millis(50));
 
+    // Wrap in capture backend
+    let mut capture = CaptureBackend::Dxgi(dxgi);
+
     // Get capture dimensions
     let (width, height) = if let Some((_, _, w, h)) = crop_region {
         (w, h)
     } else {
-        (dxgi.width(), dxgi.height())
+        (capture.width(), capture.height())
     };
 
     println!("[CAPTURE] Dimensions: {}x{}, crop: {:?}, fps: {}", width, height, crop_region, settings.fps);
@@ -554,214 +651,202 @@ fn run_video_capture(
             continue;
         }
 
-        // Acquire next frame from DXGI
-        match dxgi.acquire_next_frame(100) {
-            Ok(mut frame) => {
-                last_frame_time = Instant::now();
+        // Acquire next frame from capture backend (DXGI or WGC)
+        let frame_result: Option<Vec<u8>> = match &mut capture {
+            CaptureBackend::Dxgi(dxgi) => {
+                match dxgi.acquire_next_frame(100) {
+                    Ok(mut frame) => {
+                        // Get frame buffer (with optional crop)
+                        let buffer_result = if let Some((x, y, w, h)) = crop_region {
+                            let start_x = x.max(0) as u32;
+                            let start_y = y.max(0) as u32;
+                            let end_x = start_x + w;
+                            let end_y = start_y + h;
+                            frame.buffer_crop(start_x, start_y, end_x, end_y)
+                        } else {
+                            frame.buffer()
+                        };
 
-                // Get frame buffer (with optional crop)
-                let buffer_result = if let Some((x, y, w, h)) = crop_region {
-                    let start_x = x.max(0) as u32;
-                    let start_y = y.max(0) as u32;
-                    let end_x = start_x + w;
-                    let end_y = start_y + h;
-                    frame.buffer_crop(start_x, start_y, end_x, end_y)
-                } else {
-                    frame.buffer()
-                };
-
-                match buffer_result {
-                    Ok(buffer) => {
-                        // Get raw pixel data
-                        let mut raw_data = Vec::new();
-                        let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
-
-                        // Copy to mutable buffer for cursor compositing
-                        let mut frame_data = pixel_data.to_vec();
-
-                        // Composite cursor onto frame (before vertical flip)
-                        if let Some(ref mut cursor_cap) = cursor_capture {
-                            match cursor_cap.capture() {
-                                Ok(cursor_state) => {
-                                    if cursor_state.visible {
-                                        // Get capture region offset for cursor positioning
-                                        let (region_x, region_y) = crop_region
-                                            .map(|(x, y, _, _)| (x, y))
-                                            .unwrap_or((0, 0));
-
-                                        // Debug: log cursor info on first frame
-                                        if frame_count == 0 {
-                                            eprintln!("[CURSOR] Cursor visible at ({}, {}), size {}x{}, hotspot ({}, {}), region offset ({}, {})",
-                                                cursor_state.screen_x, cursor_state.screen_y,
-                                                cursor_state.width, cursor_state.height,
-                                                cursor_state.hotspot_x, cursor_state.hotspot_y,
-                                                region_x, region_y);
-                                            eprintln!("[CURSOR] Cursor bitmap size: {} bytes", cursor_state.bgra_data.len());
+                        match buffer_result {
+                            Ok(buffer) => {
+                                let mut raw_data = Vec::new();
+                                let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
+                                Some(pixel_data.to_vec())
+                            }
+                            Err(e) => {
+                                let err_str = format!("{:?}", e);
+                                if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") || err_str.contains("suspended") {
+                                    // GPU device lost - switch to WGC
+                                    println!("[CAPTURE] GPU device lost during buffer access, switching to WGC...");
+                                    match switch_to_wgc(monitor_index, settings.include_cursor) {
+                                        Ok(new_backend) => {
+                                            capture = new_backend;
+                                            continue; // Retry with new backend
                                         }
-
-                                        composite_cursor(
-                                            &mut frame_data,
-                                            width,
-                                            height,
-                                            &cursor_state,
-                                            region_x,
-                                            region_y,
-                                        );
-                                    } else if frame_count == 0 {
-                                        eprintln!("[CURSOR] Cursor not visible");
+                                        Err(e) => {
+                                            return Err(format!("DXGI failed and WGC fallback also failed: {}", e));
+                                        }
                                     }
+                                } else {
+                                    println!("[CAPTURE] Failed to get buffer: {:?}", e);
+                                    None
+                                }
+                            }
+                        }
+                    }
+                    Err(windows_capture::dxgi_duplication_api::Error::Timeout) => None,
+                    Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
+                        println!("[CAPTURE] DXGI access lost, switching to WGC...");
+                        match switch_to_wgc(monitor_index, settings.include_cursor) {
+                            Ok(new_backend) => {
+                                capture = new_backend;
+                                continue;
+                            }
+                            Err(e) => {
+                                return Err(format!("DXGI access lost and WGC fallback failed: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let err_str = format!("{:?}", e);
+                        if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") {
+                            println!("[CAPTURE] GPU device error, switching to WGC...");
+                            match switch_to_wgc(monitor_index, settings.include_cursor) {
+                                Ok(new_backend) => {
+                                    capture = new_backend;
+                                    continue;
                                 }
                                 Err(e) => {
-                                    if frame_count == 0 {
-                                        eprintln!("[CURSOR] Failed to capture cursor: {}", e);
-                                    }
+                                    return Err(format!("DXGI error and WGC fallback failed: {}", e));
                                 }
                             }
-                        } else if frame_count == 0 {
-                            eprintln!("[CURSOR] Cursor capture disabled (include_cursor=false)");
-                        }
-
-                        // Composite webcam overlay onto frame (after cursor, before flip)
-                        // Uses shared preview service frames (same source as preview window)
-                        if use_webcam {
-                            // Check if preview service has encountered a fatal error
-                            if webcam::preview_has_error() {
-                                if let Some(error_msg) = webcam::get_preview_error() {
-                                    // Only emit error once (first time we detect it)
-                                    static WEBCAM_ERROR_EMITTED: std::sync::atomic::AtomicBool =
-                                        std::sync::atomic::AtomicBool::new(false);
-                                    if !WEBCAM_ERROR_EMITTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                                        eprintln!("[WEBCAM] Fatal error detected: {}", error_msg);
-                                        emit_webcam_error(app, &error_msg, true);
-                                    }
-                                }
-                                // Skip webcam compositing when there's an error
-                            } else if let Some(webcam_frame) = webcam::get_preview_frame() {
-                                if frame_count == 0 {
-                                    eprintln!("[WEBCAM] Compositing webcam frame {}x{} onto recording {}x{}",
-                                        webcam_frame.width, webcam_frame.height, width, height);
-                                }
-                                composite_webcam(
-                                    &mut frame_data,
-                                    width,
-                                    height,
-                                    &webcam_frame,
-                                    &webcam_settings,
-                                );
-                            } else if frame_count == 0 {
-                                eprintln!("[WEBCAM] No webcam frame available yet (preview service may not be running)");
-                            }
-                        }
-
-                        // Flip vertically (DXGI returns top-down, encoder expects bottom-up)
-                        let row_size = (width as usize) * 4;
-                        let mut flipped_data = Vec::with_capacity(frame_data.len());
-                        for row in frame_data.chunks_exact(row_size).rev() {
-                            flipped_data.extend_from_slice(row);
-                        }
-
-                        // Get video timestamp
-                        let video_timestamp = (actual_elapsed.as_micros() * 10) as i64;
-
-                        // Send video frame to encoder
-                        if let Err(e) = encoder.send_frame_buffer(&flipped_data, video_timestamp) {
-                            println!("[CAPTURE] Failed to send frame: {:?}", e);
-                        }
-
-                        // Send audio to encoder (convert f32 samples to i16 PCM bytes)
-                        if let Some(ref mut manager) = audio_manager {
-                            while let Some(audio_frame) = manager.collector().try_get_audio() {
-                                // Convert f32 samples to i16 PCM bytes (little-endian)
-                                let pcm_bytes = f32_to_i16_pcm(&audio_frame.samples);
-                                
-                                // Send audio buffer to encoder
-                                // Note: timestamp is ignored by encoder, it uses monotonic audio clock
-                                if let Err(e) = encoder.send_audio_buffer(&pcm_bytes, audio_frame.timestamp_100ns) {
-                                    println!("[CAPTURE] Failed to send audio: {:?}", e);
-                                }
-                            }
-                        }
-
-                        frame_count += 1;
-                        progress.increment_frame();
-
-                        if frame_count == 1 {
-                            println!("[CAPTURE] First frame captured!");
-                        }
-
-                        // Emit progress periodically
-                        if frame_count % 30 == 0 {
-                            emit_state_change(app, &RecordingState::Recording {
-                                started_at: chrono::Local::now().to_rfc3339(),
-                                elapsed_secs: actual_elapsed.as_secs_f64(),
-                                frame_count,
-                            });
-                        }
-                    }
-                    Err(e) => {
-                        // Buffer error - check if it's a device removed error
-                        let err_str = format!("{:?}", e);
-                        if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") || err_str.contains("suspended") {
-                            // GPU device was removed/suspended - need to recreate DXGI
-                            println!("[CAPTURE] GPU device suspended, recreating DXGI...");
-                            std::thread::sleep(Duration::from_millis(200));
-                            // recreate() takes ownership, so we must handle both branches
-                            dxgi = match dxgi.recreate() {
-                                Ok(new_dxgi) => {
-                                    println!("[CAPTURE] DXGI recreated successfully");
-                                    new_dxgi
-                                }
-                                Err(recreate_err) => {
-                                    println!("[CAPTURE] Failed to recreate DXGI: {:?}", recreate_err);
-                                    return Err(format!("GPU device lost and failed to recover: {:?}", recreate_err));
-                                }
-                            };
                         } else {
-                            println!("[CAPTURE] Failed to get buffer: {:?}", e);
+                            println!("[CAPTURE] DXGI error: {:?}, retrying...", e);
+                            std::thread::sleep(Duration::from_millis(50));
+                            None
                         }
                     }
                 }
             }
-            Err(windows_capture::dxgi_duplication_api::Error::Timeout) => {
-                // No new frame, continue
-            }
-            Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
-                println!("[CAPTURE] DXGI access lost, recreating...");
-                std::thread::sleep(Duration::from_millis(200)); // Brief pause for GPU to stabilize
-                // recreate() takes ownership, so we must handle both branches
-                dxgi = match dxgi.recreate() {
-                    Ok(new_dxgi) => {
-                        println!("[CAPTURE] DXGI recreated after access lost");
-                        new_dxgi
-                    }
-                    Err(e) => {
-                        println!("[CAPTURE] Failed to recreate DXGI: {:?}", e);
-                        return Err(format!("DXGI access lost and failed to recover: {:?}", e));
-                    }
-                };
-            }
-            Err(e) => {
-                // Handle other errors - check for device removed
-                let err_str = format!("{:?}", e);
-                if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") {
-                    println!("[CAPTURE] GPU device error, recreating DXGI...");
-                    std::thread::sleep(Duration::from_millis(200));
-                    // recreate() takes ownership, so we must handle both branches
-                    dxgi = match dxgi.recreate() {
-                        Ok(new_dxgi) => {
-                            println!("[CAPTURE] DXGI recreated successfully");
-                            new_dxgi
-                        }
-                        Err(recreate_err) => {
-                            println!("[CAPTURE] Failed to recreate DXGI: {:?}", recreate_err);
-                            return Err(format!("GPU device error and failed to recover: {:?}", recreate_err));
-                        }
-                    };
-                } else {
-                    println!("[CAPTURE] DXGI error: {:?}, retrying...", e);
-                    std::thread::sleep(Duration::from_millis(50));
+            CaptureBackend::Wgc(wgc) => {
+                // WGC frame acquisition
+                match wgc.get_frame(100) {
+                    Some(frame) => Some(frame.data),
+                    None => None, // Timeout or no frame
                 }
             }
+        };
+
+        // Process the frame if we got one
+        let Some(frame_data_raw) = frame_result else {
+            continue; // No frame available, try again
+        };
+
+        last_frame_time = Instant::now();
+
+        // Copy to mutable buffer for cursor compositing
+        let mut frame_data = frame_data_raw;
+
+        // Composite cursor onto frame (before vertical flip)
+        // Note: WGC can include cursor natively, but we use our own for consistency
+        if let Some(ref mut cursor_cap) = cursor_capture {
+            match cursor_cap.capture() {
+                Ok(cursor_state) => {
+                    if cursor_state.visible {
+                        let (region_x, region_y) = crop_region
+                            .map(|(x, y, _, _)| (x, y))
+                            .unwrap_or((0, 0));
+
+                        if frame_count == 0 {
+                            eprintln!("[CURSOR] Cursor visible at ({}, {}), size {}x{}, hotspot ({}, {})",
+                                cursor_state.screen_x, cursor_state.screen_y,
+                                cursor_state.width, cursor_state.height,
+                                cursor_state.hotspot_x, cursor_state.hotspot_y);
+                        }
+
+                        composite_cursor(
+                            &mut frame_data,
+                            width,
+                            height,
+                            &cursor_state,
+                            region_x,
+                            region_y,
+                        );
+                    }
+                }
+                Err(e) => {
+                    if frame_count == 0 {
+                        eprintln!("[CURSOR] Failed to capture cursor: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Composite webcam overlay onto frame (after cursor, before flip)
+        if use_webcam {
+            if webcam::preview_has_error() {
+                if let Some(error_msg) = webcam::get_preview_error() {
+                    static WEBCAM_ERROR_EMITTED: std::sync::atomic::AtomicBool =
+                        std::sync::atomic::AtomicBool::new(false);
+                    if !WEBCAM_ERROR_EMITTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        eprintln!("[WEBCAM] Fatal error detected: {}", error_msg);
+                        emit_webcam_error(app, &error_msg, true);
+                    }
+                }
+            } else if let Some(webcam_frame) = webcam::get_preview_frame() {
+                if frame_count == 0 {
+                    eprintln!("[WEBCAM] Compositing webcam frame {}x{} onto recording {}x{}",
+                        webcam_frame.width, webcam_frame.height, width, height);
+                }
+                composite_webcam(
+                    &mut frame_data,
+                    width,
+                    height,
+                    &webcam_frame,
+                    &webcam_settings,
+                );
+            }
+        }
+
+        // Flip vertically (both DXGI and WGC return top-down, encoder expects bottom-up)
+        let row_size = (width as usize) * 4;
+        let mut flipped_data = Vec::with_capacity(frame_data.len());
+        for row in frame_data.chunks_exact(row_size).rev() {
+            flipped_data.extend_from_slice(row);
+        }
+
+        // Get video timestamp
+        let video_timestamp = (actual_elapsed.as_micros() * 10) as i64;
+
+        // Send video frame to encoder
+        if let Err(e) = encoder.send_frame_buffer(&flipped_data, video_timestamp) {
+            println!("[CAPTURE] Failed to send frame: {:?}", e);
+        }
+
+        // Send audio to encoder
+        if let Some(ref mut manager) = audio_manager {
+            while let Some(audio_frame) = manager.collector().try_get_audio() {
+                let pcm_bytes = f32_to_i16_pcm(&audio_frame.samples);
+                if let Err(e) = encoder.send_audio_buffer(&pcm_bytes, audio_frame.timestamp_100ns) {
+                    println!("[CAPTURE] Failed to send audio: {:?}", e);
+                }
+            }
+        }
+
+        frame_count += 1;
+        progress.increment_frame();
+
+        if frame_count == 1 {
+            println!("[CAPTURE] First frame captured using {} backend!", capture.name());
+        }
+
+        // Emit progress periodically
+        if frame_count % 30 == 0 {
+            emit_state_change(app, &RecordingState::Recording {
+                started_at: chrono::Local::now().to_rfc3339(),
+                elapsed_secs: actual_elapsed.as_secs_f64(),
+                frame_count,
+            });
         }
     }
 

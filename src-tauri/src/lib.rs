@@ -176,6 +176,7 @@ pub fn run() {
             commands::video_recording::set_gif_quality_preset,
             commands::video_recording::set_recording_include_cursor,
             commands::video_recording::set_recording_max_duration,
+            commands::video_recording::set_recording_microphone_device,
             // Webcam commands
             commands::video_recording::set_webcam_enabled,
             commands::video_recording::set_webcam_device,

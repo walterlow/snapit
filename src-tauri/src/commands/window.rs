@@ -230,7 +230,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 include_cursor,
                                 audio: crate::commands::video_recording::AudioSettings {
                                     capture_system_audio: system_audio_enabled,
-                                    microphone_device_index: None,
+                                    microphone_device_index: crate::commands::video_recording::get_microphone_device_index(),
                                 },
                                 quality,
                                 gif_quality_preset: crate::commands::video_recording::get_gif_quality_preset(),
@@ -507,7 +507,7 @@ fn show_recording_border_impl(
 
     // CRITICAL: Exclude window from screen capture so it doesn't appear in recordings
     // TEMPORARILY DISABLED FOR MARKETING SCREENSHOTS
-    // exclude_window_from_capture(&window)?;
+    exclude_window_from_capture(&window)?;
     
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {

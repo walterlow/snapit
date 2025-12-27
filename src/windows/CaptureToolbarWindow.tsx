@@ -37,6 +37,7 @@ interface ToolbarPosition {
 }
 
 const MARGIN = 8;
+const DROPDOWN_BUFFER = 200; // Extra space for dropdown menus
 
 /**
  * Calculate optimal toolbar position with multi-monitor support.
@@ -227,10 +228,9 @@ const CaptureToolbarWindow: React.FC = () => {
       const contentWidth = Math.ceil(rect.width);
       const contentHeight = Math.ceil(rect.height);
 
-      // Calculate window dimensions
-      const dropdownBuffer = 200; // Extra space for dropdown menus
+      // Calculate window dimensions (include buffer for dropdown menus)
       const windowWidth = contentWidth;
-      const windowHeight = contentHeight + dropdownBuffer;
+      const windowHeight = contentHeight + DROPDOWN_BUFFER;
 
       // Use multi-monitor positioning algorithm
       // This tries: below selection → above selection → alternate monitor → clamp
@@ -274,7 +274,8 @@ const CaptureToolbarWindow: React.FC = () => {
           if (newWidth !== lastWidth || newHeight !== lastHeight) {
             lastWidth = newWidth;
             lastHeight = newHeight;
-            invoke('resize_capture_toolbar', { width: newWidth, height: newHeight }).catch(() => {});
+            // Include dropdown buffer to prevent clipping dropdown menus
+            invoke('resize_capture_toolbar', { width: newWidth, height: newHeight + DROPDOWN_BUFFER }).catch(() => {});
           }
         }
       }
@@ -549,6 +550,7 @@ const CaptureToolbarWindow: React.FC = () => {
         // Pass all recording settings to Rust before starting
         await invoke('set_recording_countdown', { secs: countdownSecs });
         await invoke('set_recording_system_audio', { enabled: systemAudioEnabled });
+        await invoke('set_recording_microphone_device', { index: settings.video.microphoneDeviceIndex });
         await invoke('set_recording_fps', { fps });
         await invoke('set_recording_include_cursor', { include: includeCursor });
         await invoke('set_recording_max_duration', { secs: maxDurationSecs ?? 0 });

@@ -414,7 +414,7 @@ export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
   includeCursor: true,
   audio: {
     captureSystemAudio: true,
-    captureMicrophone: false,
+    microphoneDeviceIndex: null,
   },
   quality: 80,
   gifQualityPreset: 'balanced',

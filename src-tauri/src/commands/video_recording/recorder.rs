@@ -20,8 +20,8 @@ use super::audio_sync::AudioCaptureManager;
 use super::cursor::{composite_cursor, CursorCapture};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
-use super::webcam::{composite_webcam, WebcamCapture};
-use super::{emit_state_change, get_webcam_settings, is_webcam_enabled, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
+use super::webcam::{self, composite_webcam};
+use super::{emit_state_change, emit_webcam_error, get_webcam_settings, is_webcam_enabled, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
 // ============================================================================
 // Audio Helpers
@@ -395,7 +395,7 @@ fn run_video_capture(
     println!("[CAPTURE] Bitrate: {}, max_duration: {:?}", bitrate, max_duration);
 
     // Determine if we need audio
-    let capture_audio = settings.audio.capture_system_audio || settings.audio.capture_microphone;
+    let capture_audio = settings.audio.capture_system_audio || settings.audio.microphone_device_index.is_some();
 
     // Create video encoder with audio enabled if needed
     let video_settings = VideoSettingsBuilder::new(width, height)
@@ -441,10 +441,10 @@ fn run_video_capture(
             }
         }
 
-        // Start microphone capture (TODO: Phase 3)
-        if settings.audio.capture_microphone {
-            match manager.start_microphone(start_time) {
-                Ok(()) => println!("[CAPTURE] Microphone capture started"),
+        // Start microphone capture with selected device
+        if let Some(device_index) = settings.audio.microphone_device_index {
+            match manager.start_microphone(device_index, start_time) {
+                Ok(()) => println!("[CAPTURE] Microphone capture started on device {}", device_index),
                 Err(e) => {
                     println!("[CAPTURE] Warning: Failed to start microphone: {}", e);
                 }
@@ -463,27 +463,11 @@ fn run_video_capture(
         None
     };
 
-    // Webcam capture manager (for PiP overlay)
+    // Webcam overlay is captured on-screen (the preview window is part of the screen capture)
+    // No need for separate webcam compositing - the browser's getUserMedia preview is visible
     let webcam_settings = get_webcam_settings();
-    let webcam_capture = if is_webcam_enabled() {
-        match WebcamCapture::new(webcam_settings.device_index, settings.fps, webcam_settings.mirror) {
-            Ok(mut wc) => {
-                if let Err(e) = wc.start() {
-                    eprintln!("[WEBCAM] Warning: Failed to start webcam capture: {}", e);
-                    None
-                } else {
-                    eprintln!("[WEBCAM] Webcam capture started for device {}", webcam_settings.device_index);
-                    Some(wc)
-                }
-            }
-            Err(e) => {
-                eprintln!("[WEBCAM] Warning: Failed to create webcam capture: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let use_webcam = false; // Disabled - webcam is captured as part of screen
+    let _ = webcam_settings; // Suppress unused warning
 
     // Recording loop
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
@@ -638,8 +622,21 @@ fn run_video_capture(
                         }
 
                         // Composite webcam overlay onto frame (after cursor, before flip)
-                        if let Some(ref webcam_cap) = webcam_capture {
-                            if let Some(webcam_frame) = webcam_cap.get_latest_frame() {
+                        // Uses shared preview service frames (same source as preview window)
+                        if use_webcam {
+                            // Check if preview service has encountered a fatal error
+                            if webcam::preview_has_error() {
+                                if let Some(error_msg) = webcam::get_preview_error() {
+                                    // Only emit error once (first time we detect it)
+                                    static WEBCAM_ERROR_EMITTED: std::sync::atomic::AtomicBool =
+                                        std::sync::atomic::AtomicBool::new(false);
+                                    if !WEBCAM_ERROR_EMITTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                                        eprintln!("[WEBCAM] Fatal error detected: {}", error_msg);
+                                        emit_webcam_error(app, &error_msg, true);
+                                    }
+                                }
+                                // Skip webcam compositing when there's an error
+                            } else if let Some(webcam_frame) = webcam::get_preview_frame() {
                                 if frame_count == 0 {
                                     eprintln!("[WEBCAM] Compositing webcam frame {}x{} onto recording {}x{}",
                                         webcam_frame.width, webcam_frame.height, width, height);
@@ -652,7 +649,7 @@ fn run_video_capture(
                                     &webcam_settings,
                                 );
                             } else if frame_count == 0 {
-                                eprintln!("[WEBCAM] No webcam frame available yet");
+                                eprintln!("[WEBCAM] No webcam frame available yet (preview service may not be running)");
                             }
                         }
 
@@ -780,12 +777,8 @@ fn run_video_capture(
         println!("[CAPTURE] Audio capture stopped");
     }
 
-    // Stop webcam capture
-    if let Some(mut wc) = webcam_capture {
-        println!("[CAPTURE] Stopping webcam capture...");
-        wc.stop();
-        println!("[CAPTURE] Webcam capture stopped");
-    }
+    // Note: Webcam preview service continues running (shared with preview window)
+    // It will be stopped when the preview window closes
 
     // Check if recording was cancelled - if so, skip encoding and let the file be deleted
     if progress.was_cancelled() {
@@ -865,27 +858,11 @@ fn run_gif_capture(
         None
     };
 
-    // Webcam capture manager (for PiP overlay)
+    // Webcam overlay is captured on-screen (the preview window is part of the screen capture)
+    // No need for separate webcam compositing - the browser's getUserMedia preview is visible
     let webcam_settings = get_webcam_settings();
-    let webcam_capture = if is_webcam_enabled() {
-        match WebcamCapture::new(webcam_settings.device_index, settings.fps, webcam_settings.mirror) {
-            Ok(mut wc) => {
-                if let Err(e) = wc.start() {
-                    eprintln!("[WEBCAM] Warning: Failed to start webcam capture: {}", e);
-                    None
-                } else {
-                    eprintln!("[WEBCAM] Webcam capture started for GIF recording");
-                    Some(wc)
-                }
-            }
-            Err(e) => {
-                eprintln!("[WEBCAM] Warning: Failed to create webcam capture: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let use_webcam = false; // Disabled - webcam is captured as part of screen
+    let _ = webcam_settings; // Suppress unused warning
 
     // Recording loop
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
@@ -961,8 +938,21 @@ fn run_gif_capture(
                     }
 
                     // Composite webcam overlay onto frame
-                    if let Some(ref webcam_cap) = webcam_capture {
-                        if let Some(webcam_frame) = webcam_cap.get_latest_frame() {
+                    // Uses shared preview service frames (same source as preview window)
+                    if use_webcam {
+                        // Check if preview service has encountered a fatal error
+                        if webcam::preview_has_error() {
+                            if let Some(error_msg) = webcam::get_preview_error() {
+                                // Only emit error once (use a static to track)
+                                static GIF_WEBCAM_ERROR_EMITTED: std::sync::atomic::AtomicBool =
+                                    std::sync::atomic::AtomicBool::new(false);
+                                if !GIF_WEBCAM_ERROR_EMITTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                                    eprintln!("[WEBCAM] Fatal error detected in GIF recording: {}", error_msg);
+                                    emit_webcam_error(app, &error_msg, true);
+                                }
+                            }
+                            // Skip webcam compositing when there's an error
+                        } else if let Some(webcam_frame) = webcam::get_preview_frame() {
                             composite_webcam(
                                 &mut frame_data,
                                 width,
@@ -1010,12 +1000,8 @@ fn run_gif_capture(
         }
     }
 
-    // Stop webcam capture
-    if let Some(mut wc) = webcam_capture {
-        println!("[GIF] Stopping webcam capture...");
-        wc.stop();
-        println!("[GIF] Webcam capture stopped");
-    }
+    // Note: Webcam preview service continues running (shared with preview window)
+    // It will be stopped when the preview window closes
 
     // Check if cancelled
     if progress.was_cancelled() {

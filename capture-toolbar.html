@@ -37,19 +37,13 @@
       .toolbar-container > * {
         pointer-events: auto;
       }
-      /* Animated wrapper - explicit dimensions enable CSS transitions */
+      /* Wrapper - just holds content, no overflow hidden */
       .toolbar-animated-wrapper {
-        overflow: hidden;
         border-radius: 14px;
-        /* Content anchored at top of wrapper - grows downward */
         display: flex;
         flex-direction: column;
-        justify-content: flex-start;
-        /* Smooth size transitions - height grows downward since top is anchored */
-        transition: width 220ms cubic-bezier(0.4, 0, 0.2, 1),
-                    height 220ms cubic-bezier(0.4, 0, 0.2, 1);
       }
-      /* Content measurement wrapper - natural size */
+      /* Content wrapper - natural size */
       .toolbar-content-measure {
         width: max-content;
         height: max-content;

@@ -7,10 +7,23 @@ use super::WebcamFrame;
 use nokhwa::pixel_format::RgbAFormat;
 use nokhwa::utils::RequestedFormat;
 use nokhwa::Camera;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+
+/// Maximum consecutive frame capture errors before giving up.
+const MAX_CONSECUTIVE_ERRORS: u32 = 30;
+
+/// Delay between retry attempts when recovering from errors.
+const ERROR_RETRY_DELAY_MS: u64 = 100;
+
+/// Webcam error state.
+#[derive(Debug, Clone)]
+pub struct WebcamError {
+    pub message: String,
+    pub is_fatal: bool,
+}
 
 /// Webcam capture manager.
 ///
@@ -21,6 +34,12 @@ pub struct WebcamCapture {
     frame_buffer: Arc<Mutex<Option<WebcamFrame>>>,
     /// Signal to stop the capture thread.
     should_stop: Arc<AtomicBool>,
+    /// Whether the webcam has encountered a fatal error.
+    has_error: Arc<AtomicBool>,
+    /// Error message if capture failed.
+    error_message: Arc<Mutex<Option<String>>>,
+    /// Consecutive error count.
+    error_count: Arc<AtomicU32>,
     /// Capture thread handle.
     capture_thread: Option<JoinHandle<()>>,
     /// Device index being captured.
@@ -39,10 +58,16 @@ impl WebcamCapture {
     pub fn new(device_index: usize, _fps: u32, mirror: bool) -> Result<Self, String> {
         let frame_buffer = Arc::new(Mutex::new(None));
         let should_stop = Arc::new(AtomicBool::new(false));
+        let has_error = Arc::new(AtomicBool::new(false));
+        let error_message = Arc::new(Mutex::new(None));
+        let error_count = Arc::new(AtomicU32::new(0));
 
         let capture = Self {
             frame_buffer,
             should_stop,
+            has_error,
+            error_message,
+            error_count,
             capture_thread: None,
             device_index,
             mirror,
@@ -57,15 +82,33 @@ impl WebcamCapture {
             return Err("Webcam capture already started".to_string());
         }
 
+        // Reset error state
+        self.has_error.store(false, Ordering::SeqCst);
+        self.error_count.store(0, Ordering::SeqCst);
+        if let Ok(mut msg) = self.error_message.lock() {
+            *msg = None;
+        }
+
         let frame_buffer = Arc::clone(&self.frame_buffer);
         let should_stop = Arc::clone(&self.should_stop);
+        let has_error = Arc::clone(&self.has_error);
+        let error_message = Arc::clone(&self.error_message);
+        let error_count = Arc::clone(&self.error_count);
         let device_index = self.device_index;
         let mirror = self.mirror;
 
         let handle = thread::Builder::new()
             .name("webcam-capture".to_string())
             .spawn(move || {
-                if let Err(e) = run_capture_loop(frame_buffer, should_stop, device_index, mirror) {
+                if let Err(e) = run_capture_loop(
+                    frame_buffer,
+                    should_stop,
+                    has_error,
+                    error_message,
+                    error_count,
+                    device_index,
+                    mirror,
+                ) {
                     eprintln!("[WEBCAM] Capture thread error: {}", e);
                 }
             })
@@ -99,6 +142,29 @@ impl WebcamCapture {
     pub fn is_running(&self) -> bool {
         self.capture_thread.is_some() && !self.should_stop.load(Ordering::SeqCst)
     }
+
+    /// Check if the webcam has encountered a fatal error.
+    pub fn has_error(&self) -> bool {
+        self.has_error.load(Ordering::SeqCst)
+    }
+
+    /// Get the error message if capture failed.
+    pub fn get_error(&self) -> Option<WebcamError> {
+        if self.has_error.load(Ordering::SeqCst) {
+            let message = self.error_message.lock().ok()?.clone()?;
+            Some(WebcamError {
+                message,
+                is_fatal: true,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Get the current consecutive error count.
+    pub fn error_count(&self) -> u32 {
+        self.error_count.load(Ordering::SeqCst)
+    }
 }
 
 impl Drop for WebcamCapture {
@@ -111,6 +177,9 @@ impl Drop for WebcamCapture {
 fn run_capture_loop(
     frame_buffer: Arc<Mutex<Option<WebcamFrame>>>,
     should_stop: Arc<AtomicBool>,
+    has_error: Arc<AtomicBool>,
+    error_message: Arc<Mutex<Option<String>>>,
+    error_count: Arc<AtomicU32>,
     device_index: usize,
     mirror: bool,
 ) -> Result<(), String> {
@@ -123,10 +192,18 @@ fn run_capture_loop(
     let requested = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::None);
 
     let mut camera = Camera::new(index, requested)
-        .map_err(|e| format!("Failed to open webcam: {}", e))?;
+        .map_err(|e| {
+            let msg = format!("Failed to open webcam: {}", e);
+            set_fatal_error(&has_error, &error_message, &msg);
+            msg
+        })?;
 
     camera.open_stream()
-        .map_err(|e| format!("Failed to open webcam stream: {}", e))?;
+        .map_err(|e| {
+            let msg = format!("Failed to open webcam stream: {}", e);
+            set_fatal_error(&has_error, &error_message, &msg);
+            msg
+        })?;
 
     eprintln!(
         "[WEBCAM] Camera opened: {} ({}x{})",
@@ -139,9 +216,12 @@ fn run_capture_loop(
     let actual_height = camera.resolution().height();
 
     // Capture loop
-    while !should_stop.load(Ordering::SeqCst) {
+    while !should_stop.load(Ordering::SeqCst) && !has_error.load(Ordering::SeqCst) {
         match camera.frame() {
             Ok(frame) => {
+                // Reset error count on successful frame
+                error_count.store(0, Ordering::SeqCst);
+
                 // Decode frame to RGBA
                 let decoded = frame.decode_image::<RgbAFormat>();
 
@@ -172,9 +252,26 @@ fn run_capture_loop(
                 }
             }
             Err(e) => {
-                eprintln!("[WEBCAM] Frame capture error: {}", e);
-                // Brief sleep on error to avoid tight loop
-                thread::sleep(Duration::from_millis(10));
+                let current_errors = error_count.fetch_add(1, Ordering::SeqCst) + 1;
+
+                if current_errors >= MAX_CONSECUTIVE_ERRORS {
+                    let msg = format!(
+                        "Webcam capture failed after {} consecutive errors. Last error: {}",
+                        current_errors, e
+                    );
+                    eprintln!("[WEBCAM] FATAL: {}", msg);
+                    set_fatal_error(&has_error, &error_message, &msg);
+                    break;
+                } else if current_errors == 1 || current_errors % 10 == 0 {
+                    // Log first error and every 10th error to avoid spam
+                    eprintln!(
+                        "[WEBCAM] Frame capture error ({}/{}): {}",
+                        current_errors, MAX_CONSECUTIVE_ERRORS, e
+                    );
+                }
+
+                // Sleep before retry to avoid tight loop
+                thread::sleep(Duration::from_millis(ERROR_RETRY_DELAY_MS));
             }
         }
     }
@@ -184,6 +281,18 @@ fn run_capture_loop(
     eprintln!("[WEBCAM] Camera stream closed");
 
     Ok(())
+}
+
+/// Set a fatal error state.
+fn set_fatal_error(
+    has_error: &Arc<AtomicBool>,
+    error_message: &Arc<Mutex<Option<String>>>,
+    message: &str,
+) {
+    has_error.store(true, Ordering::SeqCst);
+    if let Ok(mut msg) = error_message.lock() {
+        *msg = Some(message.to_string());
+    }
 }
 
 /// Convert RGBA to BGRA (swap R and B channels).

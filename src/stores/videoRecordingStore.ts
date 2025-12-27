@@ -36,7 +36,7 @@ interface VideoRecordingStore {
   setQuality: (quality: number) => void;
   setCountdown: (seconds: number) => void;
   toggleSystemAudio: () => void;
-  toggleMicrophone: () => void;
+  setMicrophoneDevice: (deviceIndex: number | null) => void;
   toggleCursor: () => void;
 
   // Recording controls
@@ -63,7 +63,7 @@ const defaultSettings: RecordingSettings = {
   includeCursor: true,
   audio: {
     captureSystemAudio: true,
-    captureMicrophone: false,
+    microphoneDeviceIndex: null,
   },
   quality: 80,
   gifQualityPreset: 'balanced',
@@ -171,13 +171,13 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
     }));
   },
 
-  toggleMicrophone: () => {
+  setMicrophoneDevice: (deviceIndex: number | null) => {
     set((state) => ({
       settings: {
         ...state.settings,
         audio: {
           ...state.settings.audio,
-          captureMicrophone: !state.settings.audio.captureMicrophone,
+          microphoneDeviceIndex: deviceIndex,
         },
       },
     }));

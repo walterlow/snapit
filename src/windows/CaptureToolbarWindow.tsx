@@ -12,11 +12,17 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { availableMonitors, type Monitor } from '@tauri-apps/api/window';
+import { toast, Toaster } from 'sonner';
 import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
 import { useCaptureSettingsStore } from '../stores/captureSettingsStore';
 import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
 import { createErrorHandler } from '../utils/errorReporting';
 import type { RecordingState, RecordingFormat } from '../types';
+
+interface WebcamErrorEvent {
+  message: string;
+  is_fatal: boolean;
+}
 
 interface SelectionBounds {
   x: number;
@@ -165,7 +171,7 @@ const CaptureToolbarWindow: React.FC = () => {
   } = useCaptureSettingsStore();
 
   // Webcam settings
-  const { closePreview: closeWebcamPreview } = useWebcamSettingsStore();
+  const { settings: webcamSettings, closePreview: closeWebcamPreview } = useWebcamSettingsStore();
 
   // UI state
   const [selectionBounds, setSelectionBounds] = useState<SelectionBounds>(initialBounds);
@@ -183,8 +189,6 @@ const CaptureToolbarWindow: React.FC = () => {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Animated dimensions state - explicit pixel values for CSS transitions
-  const [animatedSize, setAnimatedSize] = useState<{ width: number; height: number } | null>(null);
 
   // Load settings on mount
   useEffect(() => {
@@ -223,9 +227,6 @@ const CaptureToolbarWindow: React.FC = () => {
       const contentWidth = Math.ceil(rect.width);
       const contentHeight = Math.ceil(rect.height);
 
-      // Set animated size for CSS transitions
-      setAnimatedSize({ width: contentWidth, height: contentHeight });
-
       // Calculate window dimensions
       const dropdownBuffer = 200; // Extra space for dropdown menus
       const windowWidth = contentWidth;
@@ -254,30 +255,34 @@ const CaptureToolbarWindow: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [initialBounds]);
 
-  // Measure content on mode/capture type changes for animation
+
+  // ResizeObserver - resize Tauri window when content changes
   useEffect(() => {
-    if (!contentRef.current || !windowShownRef.current) return;
+    if (!contentRef.current) return;
 
-    const measureAndAnimate = () => {
-      const rect = contentRef.current?.getBoundingClientRect();
-      if (rect && rect.width > 0 && rect.height > 0) {
-        const newWidth = Math.ceil(rect.width);
-        const newHeight = Math.ceil(rect.height);
+    let lastWidth = 0;
+    let lastHeight = 0;
 
-        // Only update if dimensions actually changed
-        setAnimatedSize(prev => {
-          if (prev && prev.width === newWidth && prev.height === newHeight) {
-            return prev;
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          const newWidth = Math.ceil(width);
+          const newHeight = Math.ceil(height);
+
+          // Only resize if dimensions actually changed
+          if (newWidth !== lastWidth || newHeight !== lastHeight) {
+            lastWidth = newWidth;
+            lastHeight = newHeight;
+            invoke('resize_capture_toolbar', { width: newWidth, height: newHeight }).catch(() => {});
           }
-          return { width: newWidth, height: newHeight };
-        });
+        }
       }
-    };
+    });
 
-    // Small delay to ensure DOM has updated
-    const timeoutId = setTimeout(measureAndAnimate, 30);
-    return () => clearTimeout(timeoutId);
-  }, [mode, captureType]);
+    resizeObserver.observe(contentRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   // Helper to move webcam to its current anchor position
   const moveWebcamToCurrentAnchor = useCallback(async (bounds: SelectionBounds) => {
@@ -486,6 +491,36 @@ const CaptureToolbarWindow: React.FC = () => {
     };
   }, []);
 
+  // Listen for webcam errors during recording
+  useEffect(() => {
+    let unlistenWebcamError: UnlistenFn | null = null;
+
+    const setupWebcamErrorListener = async () => {
+      unlistenWebcamError = await listen<WebcamErrorEvent>('webcam-error', (event) => {
+        const { message, is_fatal } = event.payload;
+        console.error('[WEBCAM ERROR]', message, 'Fatal:', is_fatal);
+
+        // Show toast notification
+        if (is_fatal) {
+          toast.error('Webcam disconnected', {
+            description: 'Webcam capture has stopped. Recording will continue without webcam.',
+            duration: 5000,
+          });
+        } else {
+          toast.warning('Webcam issue', {
+            description: message,
+            duration: 3000,
+          });
+        }
+      });
+    };
+
+    setupWebcamErrorListener();
+    return () => {
+      unlistenWebcamError?.();
+    };
+  }, []);
+
   // Timer for elapsed time during recording
   useEffect(() => {
     if (mode !== 'recording') return;
@@ -525,6 +560,9 @@ const CaptureToolbarWindow: React.FC = () => {
           await invoke('set_gif_quality_preset', { preset: settings.gif.qualityPreset });
         }
 
+        // Sync webcam enabled state to Rust before recording
+        await invoke('set_webcam_enabled', { enabled: webcamSettings.enabled });
+
         await invoke('capture_overlay_confirm', { action: 'recording' });
       }
     } catch (e) {
@@ -532,7 +570,7 @@ const CaptureToolbarWindow: React.FC = () => {
       recordingInitiatedRef.current = false;
       setMode('selection');
     }
-  }, [captureType, settings]);
+  }, [captureType, settings, webcamSettings.enabled]);
 
   const handleRedo = useCallback(async () => {
     try {
@@ -578,39 +616,47 @@ const CaptureToolbarWindow: React.FC = () => {
   }, []);
 
   return (
-    <div ref={toolbarRef} className="toolbar-container">
-      {/* Animated wrapper with explicit pixel dimensions for smooth CSS transitions */}
-      <div
-        className="toolbar-animated-wrapper"
-        style={animatedSize ? {
-          width: animatedSize.width,
-          height: animatedSize.height,
-        } : undefined}
-      >
-        {/* Content measurement ref - inner content determines natural size */}
-        <div ref={contentRef} className="toolbar-content-measure">
-          <CaptureToolbar
-            mode={mode}
-            captureType={captureType}
-            width={selectionBounds.width}
-            height={selectionBounds.height}
-            onCapture={handleCapture}
-            onCaptureTypeChange={setCaptureType}
-            onRedo={handleRedo}
-            onCancel={handleCancel}
-            format={format}
-            elapsedTime={elapsedTime}
-            progress={progress}
-            errorMessage={errorMessage}
-            onPause={handlePause}
-            onResume={handleResume}
-            onStop={handleStop}
-            countdownSeconds={countdownSeconds}
-            onDimensionChange={handleDimensionChange}
-          />
+    <>
+      <div ref={toolbarRef} className="toolbar-container">
+        {/* Wrapper - window resizes to fit content */}
+        <div className="toolbar-animated-wrapper">
+          {/* Content measurement ref - used to resize Tauri window */}
+          <div ref={contentRef} className="toolbar-content-measure">
+            <CaptureToolbar
+              mode={mode}
+              captureType={captureType}
+              width={selectionBounds.width}
+              height={selectionBounds.height}
+              onCapture={handleCapture}
+              onCaptureTypeChange={setCaptureType}
+              onRedo={handleRedo}
+              onCancel={handleCancel}
+              format={format}
+              elapsedTime={elapsedTime}
+              progress={progress}
+              errorMessage={errorMessage}
+              onPause={handlePause}
+              onResume={handleResume}
+              onStop={handleStop}
+              countdownSeconds={countdownSeconds}
+              onDimensionChange={handleDimensionChange}
+            />
+          </div>
         </div>
       </div>
-    </div>
+      {/* Toast notifications for webcam errors */}
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          style: {
+            background: 'rgba(0, 0, 0, 0.85)',
+            color: '#fff',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '8px',
+          },
+        }}
+      />
+    </>
   );
 };
 

@@ -200,6 +200,33 @@ pub fn list_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
     get_webcam_devices()
 }
 
+/// Get available audio input devices (microphones).
+#[command]
+pub fn list_audio_input_devices() -> Result<Vec<AudioInputDevice>, String> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    let host = cpal::default_host();
+    let default_name = host.default_input_device().and_then(|d| d.name().ok());
+
+    let devices = host
+        .input_devices()
+        .map_err(|e| format!("Failed to enumerate audio input devices: {}", e))?;
+
+    let mut result = Vec::new();
+    for (index, device) in devices.enumerate() {
+        if let Ok(name) = device.name() {
+            result.push(AudioInputDevice {
+                index,
+                name: name.clone(),
+                is_default: default_name.as_ref() == Some(&name),
+            });
+        }
+    }
+
+    eprintln!("[AUDIO] Found {} input devices", result.len());
+    Ok(result)
+}
+
 /// Close the webcam preview window.
 #[command]
 pub async fn close_webcam_preview(app: tauri::AppHandle) -> Result<(), String> {
@@ -349,6 +376,30 @@ pub async fn clamp_webcam_to_selection(
 }
 
 // ============================================================================
+// Webcam Preview Service (Single-source capture)
+// ============================================================================
+
+/// Start the webcam preview service (Rust-based capture that emits frames to frontend).
+/// This replaces the browser's getUserMedia approach to avoid hardware conflicts.
+#[command]
+pub async fn start_webcam_preview(app: tauri::AppHandle) -> Result<(), String> {
+    let settings = WEBCAM_SETTINGS.lock().unwrap().clone();
+    webcam::start_preview_service(app, settings.device_index, settings.mirror)
+}
+
+/// Stop the webcam preview service.
+#[command]
+pub fn stop_webcam_preview() {
+    webcam::stop_preview_service();
+}
+
+/// Check if the webcam preview service is running.
+#[command]
+pub fn is_webcam_preview_running() -> bool {
+    webcam::is_preview_running()
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -393,6 +444,20 @@ pub enum RecordingMode {
     AllMonitors,
 }
 
+/// Information about an available audio input device.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct AudioInputDevice {
+    /// Device index for selection (matches cpal enumeration order).
+    #[ts(type = "number")]
+    pub index: usize,
+    /// Human-readable device name.
+    pub name: String,
+    /// Whether this is the system default input device.
+    pub is_default: bool,
+}
+
 /// Audio capture settings.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -400,15 +465,16 @@ pub enum RecordingMode {
 pub struct AudioSettings {
     /// Capture system audio (what's playing on the computer).
     pub capture_system_audio: bool,
-    /// Capture microphone input.
-    pub capture_microphone: bool,
+    /// Selected microphone device index. None = no microphone.
+    #[ts(type = "number | null")]
+    pub microphone_device_index: Option<usize>,
 }
 
 impl Default for AudioSettings {
     fn default() -> Self {
         Self {
             capture_system_audio: true,
-            capture_microphone: false,
+            microphone_device_index: None,
         }
     }
 }
@@ -473,7 +539,7 @@ impl RecordingSettings {
             
             // GIF doesn't support audio
             self.audio.capture_system_audio = false;
-            self.audio.capture_microphone = false;
+            self.audio.microphone_device_index = None;
             
             // Limit GIF duration to 60 seconds max
             if let Some(duration) = self.max_duration_secs {
@@ -696,4 +762,22 @@ pub fn emit_state_change(app: &AppHandle, state: &RecordingState) {
         println!("[EMIT] recording-state-changed: {}", json);
     }
     let _ = app.emit("recording-state-changed", state);
+}
+
+/// Webcam error event payload.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebcamErrorEvent {
+    pub message: String,
+    pub is_fatal: bool,
+}
+
+/// Emit a webcam error event to the frontend.
+pub fn emit_webcam_error(app: &AppHandle, message: &str, is_fatal: bool) {
+    let event = WebcamErrorEvent {
+        message: message.to_string(),
+        is_fatal,
+    };
+    println!("[EMIT] webcam-error: {:?}", event);
+    let _ = app.emit("webcam-error", event);
 }

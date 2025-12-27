@@ -13,6 +13,7 @@ import { ChevronDown, Camera } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
 import { useWebcamSettingsStore } from '@/stores/webcamSettingsStore';
+import { useAudioInputStore } from '@/stores/audioInputStore';
 import type { CaptureType, VideoFormat } from '@/types';
 import type { WebcamSize, WebcamShape, WebcamPosition } from '@/types/generated';
 
@@ -183,6 +184,14 @@ export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
 export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
   const { settings, updateScreenshotSettings, updateVideoSettings, updateGifSettings } =
     useCaptureSettingsStore();
+  const { devices: audioDevices, loadDevices: loadAudioDevices } = useAudioInputStore();
+
+  // Load audio devices when in video mode
+  useEffect(() => {
+    if (mode === 'video' && audioDevices.length === 0) {
+      loadAudioDevices();
+    }
+  }, [mode, audioDevices.length, loadAudioDevices]);
 
   // Get current cursor setting based on mode
   const getCursorEnabled = () => {
@@ -234,6 +243,22 @@ export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
             <Switch
               checked={settings.video.captureSystemAudio}
               onCheckedChange={(c) => updateVideoSettings({ captureSystemAudio: c })}
+            />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Mic</span>
+            <GlassSelect
+              value={settings.video.microphoneDeviceIndex ?? 'none'}
+              options={[
+                { value: 'none', label: 'None' },
+                ...audioDevices.map((d) => ({
+                  value: d.index,
+                  label: d.name.length > 18 ? d.name.substring(0, 18) + '...' : d.name,
+                })),
+              ]}
+              onChange={(v) => updateVideoSettings({
+                microphoneDeviceIndex: v === 'none' ? null : parseInt(v)
+              })}
             />
           </div>
           <div className="glass-inline-group">

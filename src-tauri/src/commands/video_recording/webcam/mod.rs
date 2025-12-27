@@ -6,10 +6,15 @@
 mod capture;
 mod composite;
 mod device;
+mod preview;
 
-pub use capture::WebcamCapture;
+pub use capture::{WebcamCapture, WebcamError};
 pub use composite::composite_webcam;
 pub use device::{get_webcam_devices, WebcamDevice};
+pub use preview::{
+    get_preview_error, get_preview_frame, is_preview_running, preview_has_error,
+    set_preview_emission_enabled, start_preview_service, stop_preview_service,
+};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

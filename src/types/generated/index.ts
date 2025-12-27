@@ -1,6 +1,7 @@
 // Re-export all generated types from ts-rs
 // These types are auto-generated from Rust source - do not edit manually
 
+export type { AudioInputDevice } from './AudioInputDevice';
 export type { AudioSettings } from './AudioSettings';
 export type { GifQualityPreset } from './GifQualityPreset';
 export type { RecordingFormat } from './RecordingFormat';

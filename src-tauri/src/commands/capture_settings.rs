@@ -95,8 +95,9 @@ pub struct VideoSettings {
     pub include_cursor: bool,
     /// Capture system audio (what's playing on the computer).
     pub capture_system_audio: bool,
-    /// Capture microphone input.
-    pub capture_microphone: bool,
+    /// Selected microphone device index. None = no microphone.
+    #[ts(type = "number | null")]
+    pub microphone_device_index: Option<usize>,
     /// Capture webcam overlay. (Placeholder - not yet implemented)
     pub capture_webcam: bool,
     /// Countdown duration before recording starts (0-10 seconds).
@@ -113,7 +114,7 @@ impl Default for VideoSettings {
             max_duration_secs: None,
             include_cursor: true,
             capture_system_audio: true,
-            capture_microphone: false,
+            microphone_device_index: None,
             capture_webcam: false, // Placeholder - always false for now
             countdown_secs: 3,
         }

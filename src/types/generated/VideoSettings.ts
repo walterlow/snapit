@@ -30,9 +30,9 @@ includeCursor: boolean,
  */
 captureSystemAudio: boolean, 
 /**
- * Capture microphone input.
+ * Selected microphone device index. None = no microphone.
  */
-captureMicrophone: boolean, 
+microphoneDeviceIndex: number | null, 
 /**
  * Capture webcam overlay. (Placeholder - not yet implemented)
  */

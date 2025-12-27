@@ -249,7 +249,11 @@ impl AudioCaptureManager {
     }
 
     /// Start capturing microphone audio using cpal.
-    pub fn start_microphone(&mut self, start_time: Instant) -> Result<(), String> {
+    ///
+    /// # Arguments
+    /// * `device_index` - Index of the audio input device to use
+    /// * `start_time` - Recording start time for timestamp calculation
+    pub fn start_microphone(&mut self, device_index: usize, start_time: Instant) -> Result<(), String> {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
         let (tx, rx) = bounded::<AudioFrame>(AUDIO_CHANNEL_SIZE);
@@ -261,13 +265,15 @@ impl AudioCaptureManager {
         let handle = std::thread::Builder::new()
             .name("audio-microphone".to_string())
             .spawn(move || -> Result<(), String> {
-                // Get the default input device
+                // Get the device by index
                 let host = cpal::default_host();
                 let device = host
-                    .default_input_device()
-                    .ok_or_else(|| "No microphone device found".to_string())?;
+                    .input_devices()
+                    .map_err(|e| format!("Failed to enumerate audio devices: {}", e))?
+                    .nth(device_index)
+                    .ok_or_else(|| format!("Audio input device {} not found", device_index))?;
 
-                log::info!("Using microphone: {}", device.name().unwrap_or_default());
+                log::info!("Using microphone [{}]: {}", device_index, device.name().unwrap_or_default());
 
                 // Get supported config
                 let config = device

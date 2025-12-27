@@ -230,7 +230,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 include_cursor,
                                 audio: crate::commands::video_recording::AudioSettings {
                                     capture_system_audio: system_audio_enabled,
-                                    capture_microphone: false,
+                                    microphone_device_index: None,
                                 },
                                 quality,
                                 gif_quality_preset: crate::commands::video_recording::get_gif_quality_preset(),

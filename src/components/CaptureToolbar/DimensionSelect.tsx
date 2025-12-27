@@ -133,12 +133,10 @@ export const DimensionSelect: React.FC<DimensionSelectProps> = ({
                       value={preset.label}
                       className="glass-dimension-select-item"
                     >
-                      <BaseSelect.ItemText>
-                        {preset.label}
-                        <span className="glass-dimension-select-dims">
-                          {preset.width}×{preset.height}
-                        </span>
-                      </BaseSelect.ItemText>
+                      <span className="glass-dimension-select-label">{preset.label}</span>
+                      <span className="glass-dimension-select-dims">
+                        {preset.width}×{preset.height}
+                      </span>
                     </BaseSelect.Item>
                   ))}
                 </BaseSelect.List>

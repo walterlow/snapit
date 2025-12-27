@@ -159,6 +159,15 @@ body {
   font-family: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--polar-snow);
   color: var(--ink-black);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
   overflow: hidden;
   line-height: 1.5;
 }
@@ -1376,8 +1385,7 @@ body.overlay-window #root {
   flex-direction: row;
   align-items: stretch;
   flex-shrink: 0;
-  padding: 8px 0 8px 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 0 8px 8px;
 }
 
 /* Vertical drag handle - spans both rows */
@@ -1388,8 +1396,7 @@ body.overlay-window #root {
   width: 24px;
   align-self: stretch;
   color: rgba(255, 255, 255, 0.3);
-  cursor: grab !important;
-  -webkit-app-region: drag;
+  cursor: move;
   transition: color 180ms ease;
   flex-shrink: 0;
 }
@@ -1400,7 +1407,7 @@ body.overlay-window #root {
 }
 
 .glass-drag-handle-vertical:active {
-  cursor: grabbing !important;
+  cursor: move;
   color: rgba(255, 255, 255, 0.7);
 }
 
@@ -1531,7 +1538,7 @@ body.overlay-window #root {
 .glass-dimension-select-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
   padding: 8px 10px;
   border-radius: 6px;
   color: rgba(255, 255, 255, 0.8);
@@ -1539,6 +1546,10 @@ body.overlay-window #root {
   cursor: pointer;
   transition: all 0.1s ease;
   outline: none;
+}
+
+.glass-dimension-select-label {
+  flex-shrink: 0;
 }
 
 .glass-dimension-select-item[data-highlighted] {
@@ -1560,11 +1571,10 @@ body.overlay-window #root {
 }
 
 .glass-dimension-select-dims {
-  margin-left: auto;
-  padding-left: 12px;
   color: rgba(255, 255, 255, 0.4);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 /* Settings Select (compact version for inline settings) */

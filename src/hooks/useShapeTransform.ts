@@ -195,20 +195,21 @@ export const useShapeTransform = ({
         }
 
         // Reset child positions (they were offset during drag for negative dimensions)
-        const group = node as unknown as Konva.Group;
-        const border = group.findOne?.('.text-box-border');
-        const textContent = group.findOne?.('.text-content');
-        if (border) {
-          border.x(0);
-          border.y(0);
-          border.width(finalWidth);
-          border.height(finalHeight);
-        }
-        if (textContent) {
-          textContent.x(0);
-          textContent.y(0);
-          textContent.width(finalWidth);
-          textContent.height(finalHeight);
+        if (node instanceof Konva.Group) {
+          const border = node.findOne('.text-box-border');
+          const textContent = node.findOne('.text-content');
+          if (border) {
+            border.x(0);
+            border.y(0);
+            border.width(finalWidth);
+            border.height(finalHeight);
+          }
+          if (textContent) {
+            textContent.x(0);
+            textContent.y(0);
+            textContent.width(finalWidth);
+            textContent.height(finalHeight);
+          }
         }
 
         // Update node dimensions

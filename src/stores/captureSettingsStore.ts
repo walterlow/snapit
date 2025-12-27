@@ -8,6 +8,7 @@ import type {
   GifSettings,
 } from '../types/generated';
 import type { CaptureType } from '../types';
+import { createErrorHandler } from '../utils/errorReporting';
 
 const CAPTURE_SETTINGS_STORE_PATH = 'capture-settings.json';
 
@@ -151,7 +152,9 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
   setActiveMode: (mode) => {
     set({ activeMode: mode });
     // Auto-save when mode changes
-    get().saveSettings().catch(console.error);
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
   },
 
   updateScreenshotSettings: (updates) => {
@@ -165,7 +168,9 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       },
     }));
     // Auto-save on change
-    get().saveSettings().catch(console.error);
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
   },
 
   resetScreenshotSettings: () => {
@@ -175,7 +180,9 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
         screenshot: { ...DEFAULT_SCREENSHOT_SETTINGS },
       },
     }));
-    get().saveSettings().catch(console.error);
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
   },
 
   updateVideoSettings: (updates) => {
@@ -191,7 +198,9 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       },
     }));
     // Auto-save on change
-    get().saveSettings().catch(console.error);
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
   },
 
   resetVideoSettings: () => {
@@ -201,7 +210,9 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
         video: { ...DEFAULT_VIDEO_SETTINGS },
       },
     }));
-    get().saveSettings().catch(console.error);
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
   },
 
   updateGifSettings: (updates) => {
@@ -224,7 +235,9 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       },
     }));
     // Auto-save on change
-    get().saveSettings().catch(console.error);
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
   },
 
   resetGifSettings: () => {
@@ -234,7 +247,9 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
         gif: { ...DEFAULT_GIF_SETTINGS },
       },
     }));
-    get().saveSettings().catch(console.error);
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
   },
 
   resetAllSettings: () => {
@@ -242,7 +257,9 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       settings: { ...DEFAULT_CAPTURE_SETTINGS },
       activeMode: 'video',
     });
-    get().saveSettings().catch(console.error);
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
   },
 }));
 

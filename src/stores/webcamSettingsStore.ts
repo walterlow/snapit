@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { WebcamDevice, WebcamSettings, WebcamPosition, WebcamSize, WebcamShape } from '../types/generated';
+import { createErrorHandler } from '../utils/errorReporting';
 
 interface WebcamSettingsState {
   // State
@@ -116,7 +117,9 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       }));
       // Emit event so CaptureToolbarWindow can reposition the preview
       if (get().previewOpen && position.type !== 'custom') {
-        emit('webcam-anchor-changed', { anchor: position.type }).catch(() => {});
+        emit('webcam-anchor-changed', { anchor: position.type }).catch(
+          createErrorHandler({ operation: 'emit webcam-anchor-changed', silent: true })
+        );
       }
     } catch (error) {
       console.error('Failed to set webcam position:', error);
@@ -130,7 +133,15 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       set({ settings: newSettings });
       // Notify preview window of change
       if (get().previewOpen) {
-        emit('webcam-settings-changed', newSettings).catch(() => {});
+        emit('webcam-settings-changed', newSettings).catch(
+          createErrorHandler({ operation: 'emit webcam-settings-changed', silent: true })
+        );
+        // If using an anchor position, trigger recalculation for new size
+        if (newSettings.position.type !== 'custom') {
+          emit('webcam-anchor-changed', { anchor: newSettings.position.type }).catch(
+            createErrorHandler({ operation: 'emit webcam-anchor-changed', silent: true })
+          );
+        }
       }
     } catch (error) {
       console.error('Failed to set webcam size:', error);
@@ -144,7 +155,9 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       set({ settings: newSettings });
       // Notify preview window of change
       if (get().previewOpen) {
-        emit('webcam-settings-changed', newSettings).catch(() => {});
+        emit('webcam-settings-changed', newSettings).catch(
+          createErrorHandler({ operation: 'emit webcam-settings-changed', silent: true })
+        );
       }
     } catch (error) {
       console.error('Failed to set webcam shape:', error);
@@ -158,7 +171,9 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       set({ settings: newSettings });
       // Notify preview window of change
       if (get().previewOpen) {
-        emit('webcam-settings-changed', newSettings).catch(() => {});
+        emit('webcam-settings-changed', newSettings).catch(
+          createErrorHandler({ operation: 'emit webcam-settings-changed', silent: true })
+        );
       }
     } catch (error) {
       console.error('Failed to set webcam mirror:', error);
@@ -204,14 +219,18 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         win.once('tauri://created', async () => {
           set({ previewOpen: true });
           // Emit settings to the new window
-          emit('webcam-settings-changed', settings).catch(() => {});
+          emit('webcam-settings-changed', settings).catch(
+            createErrorHandler({ operation: 'emit webcam-settings-changed', silent: true })
+          );
           // Trigger anchor positioning after a delay
           setTimeout(async () => {
             try {
               await invoke('bring_webcam_preview_to_front');
               // Emit anchor change so CaptureToolbarWindow can position the webcam
               if (settings.position.type !== 'custom') {
-                emit('webcam-anchor-changed', { anchor: settings.position.type }).catch(() => {});
+                emit('webcam-anchor-changed', { anchor: settings.position.type }).catch(
+                  createErrorHandler({ operation: 'emit webcam-anchor-changed', silent: true })
+                );
               }
             } catch {
               // Ignore

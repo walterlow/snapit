@@ -52,7 +52,7 @@ const WebcamPreviewWindow: React.FC = () => {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -63,7 +63,7 @@ const WebcamPreviewWindow: React.FC = () => {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -266,7 +266,7 @@ const WebcamPreviewWindow: React.FC = () => {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, [stream]);
 

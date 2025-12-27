@@ -253,20 +253,25 @@ function App() {
 
   // Refresh library when video recording completes
   useEffect(() => {
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
     const unlisten = listen<{ status: string }>('recording-state-changed', (event) => {
       if (event.payload.status === 'completed') {
         console.log('[App] Recording completed, refreshing library...');
         // Delay to ensure file is fully written and flushed
-        setTimeout(() => {
+        const t1 = setTimeout(() => {
           loadCaptures();
           // Refresh again after thumbnails might be generated
-          setTimeout(() => loadCaptures(), 2000);
+          const t2 = setTimeout(() => loadCaptures(), 2000);
+          timeoutIds.push(t2);
         }, 500);
+        timeoutIds.push(t1);
       }
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      timeoutIds.forEach(clearTimeout);
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, [loadCaptures]);
 
@@ -375,7 +380,7 @@ function App() {
     });
     
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -424,7 +429,7 @@ function App() {
     );
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -451,7 +456,7 @@ function App() {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, [saveNewCapture, setCurrentImageData, setView, clearEditor]);
 
@@ -489,7 +494,7 @@ function App() {
     );
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, [saveNewCaptureFromFile, setCurrentImageData, setView, clearEditor]);
 

@@ -26,7 +26,7 @@ const RecordingBorderWindow: React.FC = () => {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
 

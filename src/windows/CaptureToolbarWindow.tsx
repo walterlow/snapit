@@ -290,7 +290,9 @@ const CaptureToolbarWindow: React.FC = () => {
             lastWidth = newWidth;
             lastHeight = newHeight;
             // Include dropdown buffer to prevent clipping dropdown menus
-            invoke('resize_capture_toolbar', { width: newWidth, height: newHeight + DROPDOWN_BUFFER }).catch(() => {});
+            invoke('resize_capture_toolbar', { width: newWidth, height: newHeight + DROPDOWN_BUFFER }).catch(
+              createErrorHandler({ operation: 'resize capture toolbar', silent: true })
+            );
           }
         }
       }

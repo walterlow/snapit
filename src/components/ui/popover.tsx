@@ -38,11 +38,11 @@ interface PopoverContentProps extends React.HTMLAttributes<HTMLDivElement> {
 const PopoverContent = React.forwardRef<HTMLDivElement, PopoverContentProps>(
   ({ className, align = "center", sideOffset = 4, side = "bottom", ...props }, ref) => (
     <BasePopover.Portal>
-      <BasePopover.Positioner side={side} sideOffset={sideOffset} align={align}>
+      <BasePopover.Positioner side={side} sideOffset={sideOffset} align={align} className="z-[200]">
         <BasePopover.Popup
           ref={ref}
           className={cn(
-            "z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none",
+            "z-[200] w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none",
             className
           )}
           {...props}

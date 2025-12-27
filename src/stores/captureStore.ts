@@ -52,6 +52,7 @@ interface CaptureState {
   updateAnnotations: (annotations: Annotation[]) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => Promise<void>;
+  bulkAddTags: (ids: string[], tagsToAdd: string[]) => Promise<void>;
   deleteCapture: (id: string) => Promise<void>;
   deleteCaptures: (ids: string[]) => Promise<void>;
   getStorageStats: () => Promise<StorageStats>;
@@ -308,14 +309,62 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   },
 
   updateTags: async (id: string, tags: string[]) => {
+    const captures = get().captures;
+    const captureIndex = captures.findIndex((c) => c.id === id);
+    if (captureIndex === -1) return;
+
+    const capture = captures[captureIndex];
+
+    // Optimistically update local state first
+    const updatedCaptures = [...captures];
+    updatedCaptures[captureIndex] = { ...capture, tags };
+    set({ captures: updatedCaptures });
+
     try {
       await invoke('update_project_metadata', {
         projectId: id,
         tags,
       });
-      await get().loadCaptures();
     } catch (error) {
-      set({ error: String(error) });
+      // Revert on error
+      set({ captures, error: String(error) });
+    }
+  },
+
+  bulkAddTags: async (ids: string[], tagsToAdd: string[]) => {
+    if (ids.length === 0 || tagsToAdd.length === 0) return;
+
+    const captures = get().captures;
+    const updatedCaptures = [...captures];
+
+    // Optimistically update all selected captures
+    for (const id of ids) {
+      const captureIndex = updatedCaptures.findIndex((c) => c.id === id);
+      if (captureIndex === -1) continue;
+
+      const capture = updatedCaptures[captureIndex];
+      // Merge tags, avoiding duplicates
+      const newTags = [...new Set([...capture.tags, ...tagsToAdd])];
+      updatedCaptures[captureIndex] = { ...capture, tags: newTags };
+    }
+
+    set({ captures: updatedCaptures });
+
+    // Update all captures in parallel
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          const capture = updatedCaptures.find((c) => c.id === id);
+          if (!capture) return;
+          await invoke('update_project_metadata', {
+            projectId: id,
+            tags: capture.tags,
+          });
+        })
+      );
+    } catch (error) {
+      // Revert on error
+      set({ captures, error: String(error) });
     }
   },
 
@@ -386,4 +435,16 @@ export const useFilteredCaptures = () => {
 
     return true;
   });
+};
+
+// Selector for all unique tags across all captures (for autocomplete)
+export const useAllTags = () => {
+  const captures = useCaptureStore((state) => state.captures);
+
+  const allTags = new Set<string>();
+  captures.forEach((capture) => {
+    capture.tags.forEach((tag) => allTags.add(tag));
+  });
+
+  return Array.from(allTags).sort((a, b) => a.localeCompare(b));
 };

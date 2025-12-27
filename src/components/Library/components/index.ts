@@ -5,4 +5,8 @@ export { CaptureCard } from './CaptureCard';
 export { CaptureRow } from './CaptureRow';
 export { GlassBlobToolbar } from './GlassBlobToolbar';
 export { DeleteDialog } from './DeleteDialog';
+export { TagChip } from './TagChip';
+export { TagInput } from './TagInput';
+export { TagPopover } from './TagPopover';
+export { TagFilterDropdown } from './TagFilterDropdown';
 export type { CaptureCardProps } from './types';

@@ -483,6 +483,10 @@ const CaptureToolbarWindow: React.FC = () => {
               invoke('restore_main_window').catch(
                 createErrorHandler({ operation: 'restore main window', silent: true })
               ),
+              // Close webcam preview when recording ends
+              closeWebcamPreview().catch(
+                createErrorHandler({ operation: 'close webcam preview', silent: true })
+              ),
             ]).finally(() => {
               currentWindow.close().catch(
                 createErrorHandler({ operation: 'close toolbar window', silent: true })
@@ -498,6 +502,10 @@ const CaptureToolbarWindow: React.FC = () => {
             );
             invoke('hide_countdown_window').catch(
               createErrorHandler({ operation: 'hide countdown window', silent: true })
+            );
+            // Close webcam preview on recording error
+            closeWebcamPreview().catch(
+              createErrorHandler({ operation: 'close webcam preview', silent: true })
             );
             setTimeout(() => {
               setMode('selection');

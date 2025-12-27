@@ -1,6 +1,6 @@
 import React, { memo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, Check, AlertTriangle, Loader2, Video, Film } from 'lucide-react';
+import { Star, Trash2, Check, AlertTriangle, Loader2, Video, Film, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
@@ -9,6 +9,8 @@ import {
 } from '@/components/ui/tooltip';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CaptureContextMenu } from './CaptureContextMenu';
+import { TagChip } from './TagChip';
+import { TagPopover } from './TagPopover';
 import { useInViewAnimation } from '../hooks';
 import type { CaptureCardProps } from './types';
 import { capturePropsAreEqual } from './types';
@@ -21,9 +23,11 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
     capture,
     selected,
     isLoading,
+    allTags,
     onSelect,
     onOpen,
     onToggleFavorite,
+    onUpdateTags,
     onDelete,
     onOpenInFolder,
     onCopyToClipboard,
@@ -31,6 +35,7 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
     formatDate,
   }) => {
     const [thumbLoaded, setThumbLoaded] = useState(false);
+    const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
     const { ref, isVisible } = useInViewAnimation();
     const isMissing = capture.is_missing;
     const isMedia = isVideoOrGif(capture.capture_type);
@@ -106,9 +111,18 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
                 {capture.has_annotations && !isMissing && (
                   <Badge className="pill-coral text-[10px] px-2 py-0.5">Edited</Badge>
                 )}
+                {/* Display up to 4 tags in list view */}
+                {capture.tags.slice(0, 4).map(tag => (
+                  <TagChip key={tag} tag={tag} size="sm" />
+                ))}
+                {capture.tags.length > 4 && (
+                  <span className="text-[10px] text-[var(--ink-muted)]">
+                    +{capture.tags.length - 4}
+                  </span>
+                )}
               </div>
               <div className="text-xs text-[var(--ink-subtle)] font-mono">
-                {isMedia && capture.dimensions.width === 0 
+                {isMedia && capture.dimensions.width === 0
                   ? capture.capture_type.toUpperCase()
                   : `${capture.dimensions.width} × ${capture.dimensions.height}`}
                 <span className="mx-2 text-[var(--polar-frost)]">·</span>
@@ -118,6 +132,33 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
 
             {/* Actions */}
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <TagPopover
+                currentTags={capture.tags}
+                allTags={allTags}
+                onTagsChange={onUpdateTags}
+                open={tagPopoverOpen}
+                onOpenChange={setTagPopoverOpen}
+                trigger={
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--polar-mist)] transition-colors"
+                      >
+                        <Tag
+                          className="w-4 h-4"
+                          style={{
+                            color: capture.tags.length > 0 ? 'var(--coral-400)' : 'var(--ink-subtle)',
+                          }}
+                        />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p className="text-xs">Manage tags</p>
+                    </TooltipContent>
+                  </Tooltip>
+                }
+              />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -168,6 +209,7 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
           onCopyToClipboard={onCopyToClipboard}
           onOpenInFolder={onOpenInFolder}
           onToggleFavorite={onToggleFavorite}
+          onManageTags={() => setTagPopoverOpen(true)}
           onDelete={onDelete}
           onPlayMedia={onPlayMedia}
         />

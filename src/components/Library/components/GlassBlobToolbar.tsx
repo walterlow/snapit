@@ -18,12 +18,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { TagFilterDropdown } from './TagFilterDropdown';
 
 interface GlassBlobToolbarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   filterFavorites: boolean;
   onFilterFavoritesChange: (value: boolean) => void;
+  filterTags: string[];
+  onFilterTagsChange: (tags: string[]) => void;
+  allTags: string[];
   viewMode: 'grid' | 'list';
   onViewModeChange: (mode: 'grid' | 'list') => void;
   selectedCount: number;
@@ -42,6 +46,9 @@ export const GlassBlobToolbar: React.FC<GlassBlobToolbarProps> = ({
   onSearchChange,
   filterFavorites,
   onFilterFavoritesChange,
+  filterTags,
+  onFilterTagsChange,
+  allTags,
   viewMode,
   onViewModeChange,
   selectedCount,
@@ -145,6 +152,12 @@ export const GlassBlobToolbar: React.FC<GlassBlobToolbarProps> = ({
             <p className="text-xs">Favorites</p>
           </TooltipContent>
         </Tooltip>
+
+        <TagFilterDropdown
+          allTags={allTags}
+          selectedTags={filterTags}
+          onSelectionChange={onFilterTagsChange}
+        />
 
         <div className="cloud-divider" />
 

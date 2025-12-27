@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, Trash2, Copy, ExternalLink, Play } from 'lucide-react';
+import { Star, Trash2, Copy, ExternalLink, Play, Tag } from 'lucide-react';
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -14,6 +14,7 @@ interface CaptureContextMenuProps {
   onCopyToClipboard: () => void;
   onOpenInFolder: () => void;
   onToggleFavorite: () => void;
+  onManageTags?: () => void;
   onDelete: () => void;
   onPlayMedia?: () => void;
 }
@@ -28,11 +29,12 @@ export const CaptureContextMenu: React.FC<CaptureContextMenuProps> = ({
   onCopyToClipboard,
   onOpenInFolder,
   onToggleFavorite,
+  onManageTags,
   onDelete,
   onPlayMedia,
 }) => {
   const isMedia = isMediaType(captureType);
-  
+
   return (
     <ContextMenuContent>
       {isMedia && onPlayMedia && (
@@ -64,6 +66,12 @@ export const CaptureContextMenu: React.FC<CaptureContextMenuProps> = ({
         <Star className="w-4 h-4 mr-2" fill={favorite ? 'currentColor' : 'none'} />
         {favorite ? 'Remove from Favorites' : 'Add to Favorites'}
       </ContextMenuItem>
+      {onManageTags && (
+        <ContextMenuItem onClick={onManageTags}>
+          <Tag className="w-4 h-4 mr-2" />
+          Manage Tags
+        </ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem
         onClick={onDelete}

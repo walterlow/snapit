@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, format, formatDistanceToNow } from 'date-fns';
 import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useCaptureStore, useFilteredCaptures } from '../../stores/captureStore';
+import { useCaptureStore, useFilteredCaptures, useAllTags } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
 import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection, RecordingFormat } from '../../types';
@@ -77,15 +77,20 @@ export const CaptureLibrary: React.FC = () => {
     deleteCapture,
     deleteCaptures,
     toggleFavorite,
+    updateTags,
+    bulkAddTags,
     searchQuery,
     setSearchQuery,
     filterFavorites,
     setFilterFavorites,
+    filterTags,
+    setFilterTags,
   } = useCaptureStore();
 
   const { settings, openSettingsModal } = useSettingsStore();
 
   const captures = useFilteredCaptures();
+  const allTags = useAllTags();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -342,9 +347,11 @@ export const CaptureLibrary: React.FC = () => {
                 capture={capture}
                 selected={selectedIds.has(capture.id)}
                 isLoading={loadingProjectId === capture.id}
+                allTags={allTags}
                 onSelect={handleSelect}
                 onOpen={handleOpen}
                 onToggleFavorite={() => toggleFavorite(capture.id)}
+                onUpdateTags={(tags) => updateTags(capture.id, tags)}
                 onDelete={() => handleRequestDeleteSingle(capture.id)}
                 onOpenInFolder={() => handleOpenInFolder(capture)}
                 onCopyToClipboard={() => handleCopyToClipboard(capture)}
@@ -370,9 +377,11 @@ export const CaptureLibrary: React.FC = () => {
                 capture={capture}
                 selected={selectedIds.has(capture.id)}
                 isLoading={loadingProjectId === capture.id}
+                allTags={allTags}
                 onSelect={handleSelect}
                 onOpen={handleOpen}
                 onToggleFavorite={() => toggleFavorite(capture.id)}
+                onUpdateTags={(tags) => updateTags(capture.id, tags)}
                 onDelete={() => handleRequestDeleteSingle(capture.id)}
                 onOpenInFolder={() => handleOpenInFolder(capture)}
                 onCopyToClipboard={() => handleCopyToClipboard(capture)}
@@ -441,6 +450,9 @@ export const CaptureLibrary: React.FC = () => {
           onSearchChange={setSearchQuery}
           filterFavorites={filterFavorites}
           onFilterFavoritesChange={setFilterFavorites}
+          filterTags={filterTags}
+          onFilterTagsChange={setFilterTags}
+          allTags={allTags}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           selectedCount={selectedIds.size}

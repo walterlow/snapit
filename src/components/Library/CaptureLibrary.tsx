@@ -7,6 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCaptureStore, useFilteredCaptures, useAllTags } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
+import { useCaptureSettingsStore } from '../../stores/captureSettingsStore';
 import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection, RecordingFormat } from '../../types';
 
 import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock } from './hooks';
@@ -78,7 +79,6 @@ export const CaptureLibrary: React.FC = () => {
     deleteCaptures,
     toggleFavorite,
     updateTags,
-    bulkAddTags,
     searchQuery,
     setSearchQuery,
     filterFavorites,
@@ -134,6 +134,9 @@ export const CaptureLibrary: React.FC = () => {
 
   const handleNewImage = async () => {
     try {
+      // Set active mode so toolbar shows correct mode
+      const { setActiveMode } = useCaptureSettingsStore.getState();
+      setActiveMode('screenshot');
       await invoke('show_overlay', { captureType: 'screenshot' });
     } catch (error) {
       console.error('Failed to start capture:', error);
@@ -149,7 +152,11 @@ export const CaptureLibrary: React.FC = () => {
       // The trigger_capture flow will use this format
       const { setFormat } = useVideoRecordingStore.getState();
       setFormat(format);
-      
+
+      // Set active mode in capture settings store so toolbar shows correct mode
+      const { setActiveMode } = useCaptureSettingsStore.getState();
+      setActiveMode(format === 'gif' ? 'gif' : 'video');
+
       // Use show_overlay which routes to trigger_capture
       // For video/gif, this shows the DirectComposition overlay with the unified toolbar
       // The toolbar handles: selection confirmation, recording start, pause/resume, stop

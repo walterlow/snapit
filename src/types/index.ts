@@ -399,6 +399,7 @@ export type {
   RecordingStatus,
   StartRecordingResult,
   StopRecordingResult,
+  VideoFormat,
 } from './generated';
 
 // Import for use in default settings

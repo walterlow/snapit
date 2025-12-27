@@ -12,7 +12,7 @@ import { Select as BaseSelect } from '@base-ui/react/select';
 import { ChevronDown } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
-import type { CaptureType } from '@/types';
+import type { CaptureType, VideoFormat } from '@/types';
 
 interface SettingsColProps {
   mode: CaptureType;
@@ -114,6 +114,18 @@ export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
       return (
         <>
           <div className="glass-inline-group">
+            <span className="glass-inline-label">Format</span>
+            <GlassSelect
+              value={settings.video.format}
+              options={[
+                { value: 'mp4', label: 'MP4' },
+                { value: 'webm', label: 'WebM' },
+                { value: 'mkv', label: 'MKV' },
+              ]}
+              onChange={(v) => updateVideoSettings({ format: v as VideoFormat })}
+            />
+          </div>
+          <div className="glass-inline-group">
             <span className="glass-inline-label">FPS</span>
             <GlassSelect
               value={settings.video.fps}
@@ -124,22 +136,6 @@ export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
                 { value: 60, label: '60' },
               ]}
               onChange={(v) => updateVideoSettings({ fps: parseInt(v) })}
-            />
-          </div>
-          <div className="glass-inline-group">
-            <span className="glass-inline-label">Quality</span>
-            <GlassSelect
-              value={settings.video.quality}
-              options={[
-                { value: 40, label: '40%' },
-                { value: 50, label: '50%' },
-                { value: 60, label: '60%' },
-                { value: 70, label: '70%' },
-                { value: 80, label: '80%' },
-                { value: 90, label: '90%' },
-                { value: 100, label: '100%' },
-              ]}
-              onChange={(v) => updateVideoSettings({ quality: parseInt(v) })}
             />
           </div>
         </>
@@ -241,6 +237,19 @@ export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
             />
           </div>
           <div className="glass-inline-group">
+            <span className="glass-inline-label">Quality</span>
+            <GlassSelect
+              value={settings.video.quality}
+              options={[
+                { value: 40, label: '40%' },
+                { value: 60, label: '60%' },
+                { value: 80, label: '80%' },
+                { value: 100, label: '100%' },
+              ]}
+              onChange={(v) => updateVideoSettings({ quality: parseInt(v) })}
+            />
+          </div>
+          <div className="glass-inline-group">
             <span className="glass-inline-label">Countdown</span>
             <GlassSelect
               value={settings.video.countdownSecs}
@@ -275,7 +284,7 @@ export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
             />
           </div>
           <div className="glass-inline-group">
-            <span className="glass-inline-label">Max</span>
+            <span className="glass-inline-label">Duration</span>
             <GlassSelect
               value={settings.gif.maxDurationSecs}
               options={[

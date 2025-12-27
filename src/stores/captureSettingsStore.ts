@@ -29,6 +29,7 @@ const DEFAULT_SCREENSHOT_SETTINGS: ScreenshotSettings = {
 };
 
 const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
+  format: 'mp4',
   quality: 80,
   fps: 30,
   maxDurationSecs: null,

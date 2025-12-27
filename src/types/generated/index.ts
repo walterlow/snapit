@@ -15,5 +15,6 @@ export type { StopRecordingResult } from './StopRecordingResult';
 export type { CaptureSettings } from './CaptureSettings';
 export type { ScreenshotFormat } from './ScreenshotFormat';
 export type { ScreenshotSettings } from './ScreenshotSettings';
+export type { VideoFormat } from './VideoFormat';
 export type { VideoSettings } from './VideoSettings';
 export type { GifSettings } from './GifSettings';

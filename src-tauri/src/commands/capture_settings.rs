@@ -56,11 +56,32 @@ impl Default for ScreenshotSettings {
 // Video Settings
 // ============================================================================
 
+/// Output format for video recordings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum VideoFormat {
+    /// H.264/AAC in MP4 container - most compatible
+    Mp4,
+    /// VP9/Opus in WebM container - good for web
+    Webm,
+    /// H.264 in Matroska container - flexible
+    Mkv,
+}
+
+impl Default for VideoFormat {
+    fn default() -> Self {
+        Self::Mp4
+    }
+}
+
 /// Settings for video (MP4) recordings.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct VideoSettings {
+    /// Output format (MP4, WebM, or MKV).
+    pub format: VideoFormat,
     /// Quality setting (1-100). Affects video bitrate.
     #[ts(type = "number")]
     pub quality: u32,
@@ -86,6 +107,7 @@ pub struct VideoSettings {
 impl Default for VideoSettings {
     fn default() -> Self {
         Self {
+            format: VideoFormat::default(),
             quality: 80,
             fps: 30,
             max_duration_secs: None,
@@ -174,6 +196,7 @@ mod tests {
         // This test triggers ts-rs to generate TypeScript types
         ScreenshotFormat::export_all().unwrap();
         ScreenshotSettings::export_all().unwrap();
+        VideoFormat::export_all().unwrap();
         VideoSettings::export_all().unwrap();
         GifSettings::export_all().unwrap();
         CaptureSettings::export_all().unwrap();

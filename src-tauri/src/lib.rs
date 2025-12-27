@@ -175,6 +175,18 @@ pub fn run() {
             commands::video_recording::set_gif_quality_preset,
             commands::video_recording::set_recording_include_cursor,
             commands::video_recording::set_recording_max_duration,
+            // Webcam commands
+            commands::video_recording::set_webcam_enabled,
+            commands::video_recording::set_webcam_device,
+            commands::video_recording::set_webcam_position,
+            commands::video_recording::set_webcam_size,
+            commands::video_recording::set_webcam_shape,
+            commands::video_recording::set_webcam_mirror,
+            commands::video_recording::list_webcam_devices,
+            commands::video_recording::close_webcam_preview,
+            commands::video_recording::bring_webcam_preview_to_front,
+            commands::video_recording::move_webcam_to_anchor,
+            commands::video_recording::clamp_webcam_to_selection,
             // Logging commands
             commands::logging::write_log,
             commands::logging::write_logs,

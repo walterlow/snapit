@@ -10,9 +10,15 @@
         padding: 0;
         box-sizing: border-box;
       }
-      html, body, #root {
+      html, body {
         width: 100%;
         height: 100%;
+        background: transparent !important;
+        overflow: hidden;
+      }
+      #root {
+        width: max-content;
+        height: max-content;
         background: transparent !important;
         overflow: visible;
       }

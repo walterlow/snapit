@@ -20,7 +20,8 @@ use super::audio_sync::AudioCaptureManager;
 use super::cursor::{composite_cursor, CursorCapture};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
-use super::{emit_state_change, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
+use super::webcam::{composite_webcam, WebcamCapture};
+use super::{emit_state_change, get_webcam_settings, is_webcam_enabled, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
 // ============================================================================
 // Audio Helpers
@@ -462,6 +463,28 @@ fn run_video_capture(
         None
     };
 
+    // Webcam capture manager (for PiP overlay)
+    let webcam_settings = get_webcam_settings();
+    let webcam_capture = if is_webcam_enabled() {
+        match WebcamCapture::new(webcam_settings.device_index, settings.fps, webcam_settings.mirror) {
+            Ok(mut wc) => {
+                if let Err(e) = wc.start() {
+                    eprintln!("[WEBCAM] Warning: Failed to start webcam capture: {}", e);
+                    None
+                } else {
+                    eprintln!("[WEBCAM] Webcam capture started for device {}", webcam_settings.device_index);
+                    Some(wc)
+                }
+            }
+            Err(e) => {
+                eprintln!("[WEBCAM] Warning: Failed to create webcam capture: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Recording loop
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
     let mut last_frame_time = Instant::now();
@@ -614,6 +637,25 @@ fn run_video_capture(
                             eprintln!("[CURSOR] Cursor capture disabled (include_cursor=false)");
                         }
 
+                        // Composite webcam overlay onto frame (after cursor, before flip)
+                        if let Some(ref webcam_cap) = webcam_capture {
+                            if let Some(webcam_frame) = webcam_cap.get_latest_frame() {
+                                if frame_count == 0 {
+                                    eprintln!("[WEBCAM] Compositing webcam frame {}x{} onto recording {}x{}",
+                                        webcam_frame.width, webcam_frame.height, width, height);
+                                }
+                                composite_webcam(
+                                    &mut frame_data,
+                                    width,
+                                    height,
+                                    &webcam_frame,
+                                    &webcam_settings,
+                                );
+                            } else if frame_count == 0 {
+                                eprintln!("[WEBCAM] No webcam frame available yet");
+                            }
+                        }
+
                         // Flip vertically (DXGI returns top-down, encoder expects bottom-up)
                         let row_size = (width as usize) * 4;
                         let mut flipped_data = Vec::with_capacity(frame_data.len());
@@ -738,6 +780,13 @@ fn run_video_capture(
         println!("[CAPTURE] Audio capture stopped");
     }
 
+    // Stop webcam capture
+    if let Some(mut wc) = webcam_capture {
+        println!("[CAPTURE] Stopping webcam capture...");
+        wc.stop();
+        println!("[CAPTURE] Webcam capture stopped");
+    }
+
     // Check if recording was cancelled - if so, skip encoding and let the file be deleted
     if progress.was_cancelled() {
         println!("[CAPTURE] Recording was cancelled, skipping encoder finish");
@@ -816,6 +865,28 @@ fn run_gif_capture(
         None
     };
 
+    // Webcam capture manager (for PiP overlay)
+    let webcam_settings = get_webcam_settings();
+    let webcam_capture = if is_webcam_enabled() {
+        match WebcamCapture::new(webcam_settings.device_index, settings.fps, webcam_settings.mirror) {
+            Ok(mut wc) => {
+                if let Err(e) = wc.start() {
+                    eprintln!("[WEBCAM] Warning: Failed to start webcam capture: {}", e);
+                    None
+                } else {
+                    eprintln!("[WEBCAM] Webcam capture started for GIF recording");
+                    Some(wc)
+                }
+            }
+            Err(e) => {
+                eprintln!("[WEBCAM] Warning: Failed to create webcam capture: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Recording loop
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
     let start_time = Instant::now();
@@ -889,6 +960,19 @@ fn run_gif_capture(
                         }
                     }
 
+                    // Composite webcam overlay onto frame
+                    if let Some(ref webcam_cap) = webcam_capture {
+                        if let Some(webcam_frame) = webcam_cap.get_latest_frame() {
+                            composite_webcam(
+                                &mut frame_data,
+                                width,
+                                height,
+                                &webcam_frame,
+                                &webcam_settings,
+                            );
+                        }
+                    }
+
                     // Convert BGRA to RGBA for GIF encoder
                     let rgba_data: Vec<u8> = frame_data
                         .chunks_exact(4)
@@ -924,6 +1008,13 @@ fn run_gif_capture(
                 println!("[GIF] DXGI error: {:?}", e);
             }
         }
+    }
+
+    // Stop webcam capture
+    if let Some(mut wc) = webcam_capture {
+        println!("[GIF] Stopping webcam capture...");
+        wc.stop();
+        println!("[GIF] Webcam capture stopped");
     }
 
     // Check if cancelled

@@ -201,6 +201,9 @@ fn handle_mouse_up(state_ptr: *mut OverlayState) -> LRESULT {
                 handle_monitor_selection(state);
             }
         }
+
+        // Bring webcam preview to front after any mouse interaction
+        bring_webcam_preview_to_front(state);
     }
     LRESULT(0)
 }
@@ -354,29 +357,29 @@ fn emit_adjustment_ready(state: &OverlayState, bounds: Rect) {
 fn emit_dimensions_update(state: &OverlayState) {
     let screen_bounds = state.monitor.local_rect_to_screen(state.adjustment.bounds);
 
-    if let Some(win) = state.app_handle.get_webview_window("capture-toolbar") {
-        let _ = win.emit("selection-updated", serde_json::json!({
-            "x": screen_bounds.left,
-            "y": screen_bounds.top,
-            "width": screen_bounds.width(),
-            "height": screen_bounds.height()
-        }));
-    }
+    // Emit globally so both capture-toolbar and webcam-preview receive it
+    let _ = state.app_handle.emit("selection-updated", serde_json::json!({
+        "x": screen_bounds.left,
+        "y": screen_bounds.top,
+        "width": screen_bounds.width(),
+        "height": screen_bounds.height()
+    }));
 }
 
 /// Emit final selection when adjustment drag ends
 fn emit_final_selection(state: &OverlayState) {
     let screen_bounds = state.monitor.local_rect_to_screen(state.adjustment.bounds);
 
-    if let Some(win) = state.app_handle.get_webview_window("capture-toolbar") {
-        let _ = win.emit("selection-updated", serde_json::json!({
-            "x": screen_bounds.left,
-            "y": screen_bounds.top,
-            "width": screen_bounds.width(),
-            "height": screen_bounds.height()
-        }));
+    // Emit globally so both capture-toolbar and webcam-preview receive it
+    let _ = state.app_handle.emit("selection-updated", serde_json::json!({
+        "x": screen_bounds.left,
+        "y": screen_bounds.top,
+        "width": screen_bounds.width(),
+        "height": screen_bounds.height()
+    }));
 
-        // Bring window to front
+    // Bring toolbar window to front
+    if let Some(win) = state.app_handle.get_webview_window("capture-toolbar") {
         if let Ok(hwnd) = win.hwnd() {
             unsafe {
                 let _ = SetWindowPos(
@@ -411,4 +414,26 @@ fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
             eprintln!("Failed to show capture toolbar: {}", e);
         }
     });
+}
+
+/// Bring the webcam preview window to front (above D2D overlay)
+fn bring_webcam_preview_to_front(state: &OverlayState) {
+    if let Some(win) = state.app_handle.get_webview_window("webcam-preview") {
+        if let Ok(hwnd) = win.hwnd() {
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::{BringWindowToTop, SetForegroundWindow};
+                let hwnd = HWND(hwnd.0);
+                let _ = SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+                let _ = BringWindowToTop(hwnd);
+            }
+        }
+    }
 }

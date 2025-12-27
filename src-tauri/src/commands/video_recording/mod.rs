@@ -15,9 +15,10 @@ pub mod ffmpeg_gif_encoder;
 pub mod gif_encoder;
 pub mod recorder;
 pub mod state;
+pub mod webcam;
 
 use serde::{Deserialize, Serialize};
-use tauri::{command, AppHandle, Emitter};
+use tauri::{command, AppHandle, Emitter, Manager};
 use ts_rs::TS;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
@@ -122,6 +123,229 @@ pub fn get_max_duration_secs() -> Option<u32> {
 #[command]
 pub fn set_recording_max_duration(secs: u32) {
     MAX_DURATION_SECS.store(secs, Ordering::SeqCst);
+}
+
+// ============================================================================
+// Webcam Settings (Global Atomics)
+// ============================================================================
+
+use std::sync::Mutex;
+use lazy_static::lazy_static;
+
+pub use webcam::{
+    WebcamCapture, WebcamDevice, WebcamFrame, WebcamPosition, WebcamSettings, WebcamShape,
+    WebcamSize, composite_webcam, compute_webcam_rect, get_webcam_devices,
+};
+
+lazy_static! {
+    /// Global webcam settings (protected by mutex since it's a struct).
+    static ref WEBCAM_SETTINGS: Mutex<WebcamSettings> = Mutex::new(WebcamSettings::default());
+}
+
+/// Get the current webcam settings.
+pub fn get_webcam_settings() -> WebcamSettings {
+    WEBCAM_SETTINGS.lock().unwrap().clone()
+}
+
+/// Check if webcam capture is enabled.
+pub fn is_webcam_enabled() -> bool {
+    WEBCAM_SETTINGS.lock().unwrap().enabled
+}
+
+/// Set webcam enabled state.
+#[command]
+pub fn set_webcam_enabled(enabled: bool) {
+    eprintln!("[SETTINGS] set_webcam_enabled({})", enabled);
+    WEBCAM_SETTINGS.lock().unwrap().enabled = enabled;
+}
+
+/// Set webcam device index.
+#[command]
+pub fn set_webcam_device(device_index: usize) {
+    eprintln!("[SETTINGS] set_webcam_device({})", device_index);
+    WEBCAM_SETTINGS.lock().unwrap().device_index = device_index;
+}
+
+/// Set webcam position.
+#[command]
+pub fn set_webcam_position(position: WebcamPosition) {
+    eprintln!("[SETTINGS] set_webcam_position({:?})", position);
+    WEBCAM_SETTINGS.lock().unwrap().position = position;
+}
+
+/// Set webcam size.
+#[command]
+pub fn set_webcam_size(size: WebcamSize) {
+    eprintln!("[SETTINGS] set_webcam_size({:?})", size);
+    WEBCAM_SETTINGS.lock().unwrap().size = size;
+}
+
+/// Set webcam shape.
+#[command]
+pub fn set_webcam_shape(shape: WebcamShape) {
+    eprintln!("[SETTINGS] set_webcam_shape({:?})", shape);
+    WEBCAM_SETTINGS.lock().unwrap().shape = shape;
+}
+
+/// Set webcam mirror mode.
+#[command]
+pub fn set_webcam_mirror(mirror: bool) {
+    eprintln!("[SETTINGS] set_webcam_mirror({})", mirror);
+    WEBCAM_SETTINGS.lock().unwrap().mirror = mirror;
+}
+
+/// Get available webcam devices.
+#[command]
+pub fn list_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
+    get_webcam_devices()
+}
+
+/// Close the webcam preview window.
+#[command]
+pub async fn close_webcam_preview(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("webcam-preview") {
+        window.destroy().map_err(|e| e.to_string())?;
+        eprintln!("[WEBCAM] Preview window closed");
+    }
+    Ok(())
+}
+
+/// Bring the webcam preview window to the front (above other topmost windows).
+#[command]
+pub async fn bring_webcam_preview_to_front(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, BringWindowToTop, SetForegroundWindow,
+            HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+        };
+
+        if let Some(window) = app.get_webview_window("webcam-preview") {
+            if let Ok(hwnd) = window.hwnd() {
+                unsafe {
+                    let hwnd = HWND(hwnd.0);
+                    // First, set it as topmost
+                    let _ = SetWindowPos(
+                        hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    );
+                    // Then bring to top of z-order
+                    let _ = BringWindowToTop(hwnd);
+                    // And set as foreground window
+                    let _ = SetForegroundWindow(hwnd);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Move the webcam preview window to an anchored position relative to selection bounds.
+///
+/// # Arguments
+/// * `app` - Tauri app handle
+/// * `anchor` - Anchor position (topLeft, topRight, bottomLeft, bottomRight)
+/// * `sel_x` - Selection X coordinate (screen coordinates)
+/// * `sel_y` - Selection Y coordinate (screen coordinates)
+/// * `sel_width` - Selection width
+/// * `sel_height` - Selection height
+#[command]
+pub async fn move_webcam_to_anchor(
+    app: tauri::AppHandle,
+    anchor: String,
+    sel_x: i32,
+    sel_y: i32,
+    sel_width: i32,
+    sel_height: i32,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("webcam-preview") {
+        // Get webcam size from settings
+        let webcam_size = {
+            let settings = WEBCAM_SETTINGS.lock().unwrap();
+            match settings.size {
+                WebcamSize::Small => 120,
+                WebcamSize::Medium => 160,
+                WebcamSize::Large => 200,
+            }
+        };
+
+        let padding = 16; // Padding from selection edge
+
+        // Calculate position based on anchor
+        let (x, y) = match anchor.as_str() {
+            "topLeft" => (sel_x + padding, sel_y + padding),
+            "topRight" => (sel_x + sel_width - webcam_size - padding, sel_y + padding),
+            "bottomLeft" => (sel_x + padding, sel_y + sel_height - webcam_size - padding),
+            "bottomRight" | _ => (sel_x + sel_width - webcam_size - padding, sel_y + sel_height - webcam_size - padding),
+        };
+
+        eprintln!("[WEBCAM] Moving to anchor {} at ({}, {})", anchor, x, y);
+
+        // Move the window
+        window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+            .map_err(|e| e.to_string())?;
+
+        // Bring to front after moving
+        bring_webcam_preview_to_front(app).await?;
+    }
+
+    Ok(())
+}
+
+/// Clamp the webcam preview position to stay within selection bounds after drag.
+#[command]
+pub async fn clamp_webcam_to_selection(
+    app: tauri::AppHandle,
+    sel_x: i32,
+    sel_y: i32,
+    sel_width: i32,
+    sel_height: i32,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("webcam-preview") {
+        // Get webcam size from settings
+        let webcam_size = {
+            let settings = WEBCAM_SETTINGS.lock().unwrap();
+            match settings.size {
+                WebcamSize::Small => 120,
+                WebcamSize::Medium => 160,
+                WebcamSize::Large => 200,
+            }
+        };
+
+        let padding = 16;
+
+        // Get current window position
+        let current_pos = window.outer_position().map_err(|e| e.to_string())?;
+        let mut x = current_pos.x;
+        let mut y = current_pos.y;
+
+        // Calculate bounds
+        let min_x = sel_x + padding;
+        let max_x = sel_x + sel_width - webcam_size - padding;
+        let min_y = sel_y + padding;
+        let max_y = sel_y + sel_height - webcam_size - padding;
+
+        // Clamp position
+        let clamped_x = x.max(min_x).min(max_x);
+        let clamped_y = y.max(min_y).min(max_y);
+
+        // Only move if position changed
+        if clamped_x != x || clamped_y != y {
+            eprintln!("[WEBCAM] Clamping from ({}, {}) to ({}, {})", x, y, clamped_x, clamped_y);
+            window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                x: clamped_x,
+                y: clamped_y
+            })).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 // ============================================================================

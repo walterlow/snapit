@@ -45,6 +45,9 @@ image = "0.25"
 cpal = "0.17"
 wasapi = "0.22"  # WASAPI loopback for system audio capture
 
+# Webcam capture
+nokhwa = { version = "0.10", features = ["input-msmf", "output-threaded"] }
+
 # Thread-safe channels for audio/video sync
 crossbeam-channel = "0.5"
 

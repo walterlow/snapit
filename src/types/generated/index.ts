@@ -18,3 +18,10 @@ export type { ScreenshotSettings } from './ScreenshotSettings';
 export type { VideoFormat } from './VideoFormat';
 export type { VideoSettings } from './VideoSettings';
 export type { GifSettings } from './GifSettings';
+
+// Webcam types
+export type { WebcamDevice } from './WebcamDevice';
+export type { WebcamPosition } from './WebcamPosition';
+export type { WebcamSettings } from './WebcamSettings';
+export type { WebcamShape } from './WebcamShape';
+export type { WebcamSize } from './WebcamSize';

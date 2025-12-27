@@ -9,18 +9,28 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
 import { useCaptureSettingsStore } from '../stores/captureSettingsStore';
+import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
 import { createErrorHandler } from '../utils/errorReporting';
 import type { RecordingState, RecordingFormat } from '../types';
 
+interface SelectionBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 const CaptureToolbarWindow: React.FC = () => {
-  // Parse initial dimensions from URL
-  const initialDimensions = useMemo(() => {
+  // Parse initial selection bounds from URL
+  const initialBounds = useMemo((): SelectionBounds => {
     const params = new URLSearchParams(window.location.search);
     return {
+      x: parseInt(params.get('x') || '0', 10),
+      y: parseInt(params.get('y') || '0', 10),
       width: parseInt(params.get('width') || '0', 10),
       height: parseInt(params.get('height') || '0', 10),
     };
@@ -35,8 +45,12 @@ const CaptureToolbarWindow: React.FC = () => {
     setActiveMode: setCaptureType,
   } = useCaptureSettingsStore();
 
+  // Webcam settings
+  const { closePreview: closeWebcamPreview } = useWebcamSettingsStore();
+
   // UI state
-  const [dimensions, setDimensions] = useState(initialDimensions);
+  const [selectionBounds, setSelectionBounds] = useState<SelectionBounds>(initialBounds);
+  const selectionBoundsRef = useRef<SelectionBounds>(initialBounds);
   const [mode, setMode] = useState<ToolbarMode>('selection');
   const [format, setFormat] = useState<RecordingFormat>('mp4');
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -55,6 +69,21 @@ const CaptureToolbarWindow: React.FC = () => {
       loadSettings();
     }
   }, [isInitialized, loadSettings]);
+
+  // Bring webcam preview to front after overlay is created
+  useEffect(() => {
+    const bringWebcamToFront = async () => {
+      try {
+        await invoke('bring_webcam_preview_to_front');
+      } catch {
+        // Ignore - webcam preview might not exist
+      }
+    };
+
+    // Delay to ensure overlay is created first
+    const timeoutId = setTimeout(bringWebcamToFront, 200);
+    return () => clearTimeout(timeoutId);
+  }, []);
 
   // Measure content and resize window to fit (with buffer for dropdowns)
   useEffect(() => {
@@ -82,19 +111,102 @@ const CaptureToolbarWindow: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [mode, captureType]); // Re-measure when mode or capture type changes
 
-  // Listen for selection updates (dimensions only - Rust handles repositioning)
+  // Helper to move webcam to its current anchor position
+  const moveWebcamToCurrentAnchor = useCallback(async (bounds: SelectionBounds) => {
+    const { settings, previewOpen } = useWebcamSettingsStore.getState();
+    if (!previewOpen || !settings.enabled) return;
+
+    // Only reposition for preset anchors, not custom positions
+    if (settings.position.type === 'custom') return;
+
+    try {
+      await invoke('move_webcam_to_anchor', {
+        anchor: settings.position.type,
+        selX: bounds.x,
+        selY: bounds.y,
+        selWidth: bounds.width,
+        selHeight: bounds.height,
+      });
+    } catch (e) {
+      console.error('Failed to move webcam to anchor:', e);
+    }
+  }, []);
+
+  // Listen for selection updates and reposition webcam
   useEffect(() => {
-    let unlisten: UnlistenFn | null = null;
-    
+    let unlistenSelection: UnlistenFn | null = null;
+    let unlistenAnchor: UnlistenFn | null = null;
+    let unlistenDragged: UnlistenFn | null = null;
+
     const setup = async () => {
-      unlisten = await listen<{ width: number; height: number }>('selection-updated', (event) => {
-        setDimensions({ width: event.payload.width, height: event.payload.height });
+      // Listen for selection bounds updates
+      unlistenSelection = await listen<SelectionBounds>('selection-updated', async (event) => {
+        const bounds = event.payload;
+        setSelectionBounds(bounds);
+        selectionBoundsRef.current = bounds;
+
+        // Reposition webcam to follow selection (only if using anchor preset)
+        await moveWebcamToCurrentAnchor(bounds);
+      });
+
+      // Listen for webcam anchor changes (also triggered on webcam preview init)
+      unlistenAnchor = await listen<{ anchor: string }>('webcam-anchor-changed', async (event) => {
+        const { anchor } = event.payload;
+        const bounds = selectionBoundsRef.current;
+        try {
+          // Move webcam to anchor position
+          await invoke('move_webcam_to_anchor', {
+            anchor,
+            selX: bounds.x,
+            selY: bounds.y,
+            selWidth: bounds.width,
+            selHeight: bounds.height,
+          });
+          // Also emit selection bounds so webcam preview knows the bounds for clamping
+          await emit('selection-updated', bounds);
+        } catch (e) {
+          console.error('Failed to move webcam to anchor:', e);
+        }
+      });
+
+      // Listen for webcam being dragged (switches to "None"/custom anchor)
+      unlistenDragged = await listen<{ type: 'custom'; x: number; y: number }>('webcam-position-dragged', () => {
+        // Update store to show "None" in dropdown
+        const store = useWebcamSettingsStore.getState();
+        store.settings.position = { type: 'custom', x: 0, y: 0 };
+        // Force re-render by updating via setState pattern
+        useWebcamSettingsStore.setState({
+          settings: { ...store.settings, position: { type: 'custom', x: 0, y: 0 } }
+        });
       });
     };
-    
+
     setup();
-    return () => { unlisten?.(); };
-  }, []);
+    return () => {
+      unlistenSelection?.();
+      unlistenAnchor?.();
+      unlistenDragged?.();
+    };
+  }, [moveWebcamToCurrentAnchor]);
+
+  // Position webcam on initial mount (after a delay for window creation)
+  useEffect(() => {
+    const initWebcamPosition = async () => {
+      // Wait a bit for webcam preview to be created
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await moveWebcamToCurrentAnchor(initialBounds);
+    };
+
+    initWebcamPosition();
+  }, [initialBounds, moveWebcamToCurrentAnchor]);
+
+  // Cleanup: close webcam preview when toolbar window unmounts
+  useEffect(() => {
+    return () => {
+      // Close webcam preview on unmount (covers all edge cases)
+      closeWebcamPreview();
+    };
+  }, [closeWebcamPreview]);
 
   // Listen for recording state changes
   useEffect(() => {
@@ -105,7 +217,10 @@ const CaptureToolbarWindow: React.FC = () => {
     const setupListeners = async () => {
       const currentWindow = getCurrentWebviewWindow();
       
-      unlistenClosed = await listen('capture-overlay-closed', () => {
+      unlistenClosed = await listen('capture-overlay-closed', async () => {
+        // Close webcam preview when overlay closes
+        await closeWebcamPreview();
+
         if (!recordingInitiatedRef.current) {
           currentWindow.close().catch(
             createErrorHandler({ operation: 'close toolbar on overlay closed', silent: true })
@@ -260,6 +375,9 @@ const CaptureToolbarWindow: React.FC = () => {
 
   const handleCancel = useCallback(async () => {
     try {
+      // Close webcam preview if open
+      await closeWebcamPreview();
+
       if (mode !== 'selection') {
         await invoke('cancel_recording');
       } else {
@@ -268,7 +386,7 @@ const CaptureToolbarWindow: React.FC = () => {
     } catch (e) {
       console.error('Failed to cancel:', e);
     }
-  }, [mode]);
+  }, [mode, closeWebcamPreview]);
 
   const handlePause = useCallback(async () => {
     try { await invoke('pause_recording'); } catch (e) { console.error('Failed to pause:', e); }
@@ -295,8 +413,8 @@ const CaptureToolbarWindow: React.FC = () => {
       <CaptureToolbar
         mode={mode}
         captureType={captureType}
-        width={dimensions.width}
-        height={dimensions.height}
+        width={selectionBounds.width}
+        height={selectionBounds.height}
         onCapture={handleCapture}
         onCaptureTypeChange={setCaptureType}
         onRedo={handleRedo}

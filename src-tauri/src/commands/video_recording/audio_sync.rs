@@ -248,12 +248,140 @@ impl AudioCaptureManager {
         Ok(())
     }
 
-    /// Start capturing microphone audio.
-    ///
-    /// TODO: Implement in Phase 3 with cpal
-    pub fn start_microphone(&mut self, _start_time: Instant) -> Result<(), String> {
-        // Will be implemented in Phase 3
-        log::warn!("Microphone capture not yet implemented");
+    /// Start capturing microphone audio using cpal.
+    pub fn start_microphone(&mut self, start_time: Instant) -> Result<(), String> {
+        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+        let (tx, rx) = bounded::<AudioFrame>(AUDIO_CHANNEL_SIZE);
+        self.collector.set_microphone(rx);
+
+        let should_stop = Arc::clone(&self.should_stop);
+        let is_paused = Arc::clone(&self.is_paused);
+
+        let handle = std::thread::Builder::new()
+            .name("audio-microphone".to_string())
+            .spawn(move || -> Result<(), String> {
+                // Get the default input device
+                let host = cpal::default_host();
+                let device = host
+                    .default_input_device()
+                    .ok_or_else(|| "No microphone device found".to_string())?;
+
+                log::info!("Using microphone: {}", device.name().unwrap_or_default());
+
+                // Get supported config
+                let config = device
+                    .default_input_config()
+                    .map_err(|e| format!("Failed to get input config: {}", e))?;
+
+                let sample_rate = config.sample_rate();
+                let channels = config.channels() as usize;
+
+                log::info!(
+                    "Microphone config: {:?} Hz, {} channels, {:?}",
+                    sample_rate,
+                    channels,
+                    config.sample_format()
+                );
+
+                // Build the stream based on sample format
+                let tx_clone = tx.clone();
+                let should_stop_clone = Arc::clone(&should_stop);
+                let is_paused_clone = Arc::clone(&is_paused);
+
+                let stream = match config.sample_format() {
+                    cpal::SampleFormat::F32 => {
+                        let stream = device
+                            .build_input_stream(
+                                &config.into(),
+                                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                                    if should_stop_clone.load(Ordering::SeqCst) {
+                                        return;
+                                    }
+                                    if is_paused_clone.load(Ordering::SeqCst) {
+                                        return;
+                                    }
+
+                                    // Calculate timestamp relative to start
+                                    let elapsed = start_time.elapsed();
+                                    let timestamp_100ns =
+                                        (elapsed.as_nanos() / 100) as i64;
+
+                                    let frame = AudioFrame {
+                                        samples: data.to_vec(),
+                                        timestamp_100ns,
+                                        frame_count: data.len() / channels,
+                                    };
+
+                                    let _ = tx_clone.try_send(frame);
+                                },
+                                |err| log::error!("Microphone stream error: {}", err),
+                                None,
+                            )
+                            .map_err(|e| format!("Failed to build input stream: {}", e))?;
+                        stream
+                    }
+                    cpal::SampleFormat::I16 => {
+                        let stream = device
+                            .build_input_stream(
+                                &config.into(),
+                                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                                    if should_stop_clone.load(Ordering::SeqCst) {
+                                        return;
+                                    }
+                                    if is_paused_clone.load(Ordering::SeqCst) {
+                                        return;
+                                    }
+
+                                    // Convert i16 to f32
+                                    let samples: Vec<f32> = data
+                                        .iter()
+                                        .map(|&s| s as f32 / i16::MAX as f32)
+                                        .collect();
+
+                                    let elapsed = start_time.elapsed();
+                                    let timestamp_100ns =
+                                        (elapsed.as_nanos() / 100) as i64;
+
+                                    let frame = AudioFrame {
+                                        samples,
+                                        timestamp_100ns,
+                                        frame_count: data.len() / channels,
+                                    };
+
+                                    let _ = tx_clone.try_send(frame);
+                                },
+                                |err| log::error!("Microphone stream error: {}", err),
+                                None,
+                            )
+                            .map_err(|e| format!("Failed to build input stream: {}", e))?;
+                        stream
+                    }
+                    format => {
+                        return Err(format!("Unsupported sample format: {:?}", format));
+                    }
+                };
+
+                // Start the stream
+                stream
+                    .play()
+                    .map_err(|e| format!("Failed to start microphone stream: {}", e))?;
+
+                log::info!("Microphone capture started");
+
+                // Keep the stream alive until stop signal
+                while !should_stop.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+
+                // Stream will be dropped here, stopping capture
+                log::info!("Microphone capture stopped");
+                Ok(())
+            })
+            .map_err(|e| format!("Failed to spawn microphone thread: {}", e))?;
+
+        self.mic_handle = Some(handle);
+        log::info!("Microphone audio capture started");
         Ok(())
     }
 

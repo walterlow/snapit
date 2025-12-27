@@ -19,7 +19,7 @@ import {
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { CaptureType, RecordingFormat } from '../../types';
 import { ModeSelector } from './ModeSelector';
-import { SettingsCol1, SettingsCol2 } from './InlineSettings';
+import { SettingsCol1, SettingsCol2, SettingsCol3 } from './InlineSettings';
 import { DimensionSelect } from './DimensionSelect';
 
 export type ToolbarMode = 'selection' | 'starting' | 'recording' | 'paused' | 'processing' | 'error';
@@ -347,6 +347,13 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         <div className="glass-toolbar-col">
           <SettingsCol2 mode={captureType} />
         </div>
+
+        {/* Column 3: Webcam (video/gif only) */}
+        {(captureType === 'video' || captureType === 'gif') && (
+          <div className="glass-toolbar-col">
+            <SettingsCol3 mode={captureType} />
+          </div>
+        )}
       </div>
 
       {/* Right panel - swaps based on mode */}

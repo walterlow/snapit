@@ -396,24 +396,15 @@ fn emit_final_selection(state: &OverlayState) {
     }
 }
 
-/// Show the capture toolbar window (positioned near selection, doesn't block D2D overlay)
+/// Emit event to create capture toolbar window from frontend
+/// Frontend has full control over sizing/positioning without hardcoded dimensions
 fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
-    use crate::commands::window::show_capture_toolbar;
-    
-    // Spawn async task to create the toolbar window
-    // Using show_capture_toolbar instead of show_capture_controls to avoid
-    // a fullscreen WebView that would block mouse events to the D2D overlay's gizmos.
-    let app = state.app_handle.clone();
-    let x = screen_bounds.left;
-    let y = screen_bounds.top;
-    let width = screen_bounds.width();
-    let height = screen_bounds.height();
-    
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = show_capture_toolbar(app, x, y, width, height).await {
-            eprintln!("Failed to show capture toolbar: {}", e);
-        }
-    });
+    let _ = state.app_handle.emit("create-capture-toolbar", serde_json::json!({
+        "x": screen_bounds.left,
+        "y": screen_bounds.top,
+        "width": screen_bounds.width(),
+        "height": screen_bounds.height()
+    }));
 }
 
 /// Bring the webcam preview window to front (above D2D overlay)

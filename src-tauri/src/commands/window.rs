@@ -537,13 +537,12 @@ pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-// Use the dedicated toolbar positioning module
-// See toolbar_position.rs for the positioning algorithm and rules
-use super::toolbar_position::{self, SelectionBounds, TOOLBAR_WIDTH, TOOLBAR_HEIGHT};
+// Toolbar positioning is now handled by frontend (CaptureToolbarWindow.tsx)
+// Frontend measures content and calculates position dynamically
 
-/// Show the capture toolbar window.
-/// Uses fixed window size with CSS-centered content for instant, flicker-free appearance.
-/// Rust calculates position and shows window immediately - no frontend round-trips.
+/// Create the capture toolbar window (hidden).
+/// Frontend will measure content, calculate position, and call set_capture_toolbar_bounds to show.
+/// This allows frontend to fully control sizing/positioning without hardcoded dimensions.
 #[command]
 pub async fn show_capture_toolbar(
     app: AppHandle,
@@ -552,17 +551,9 @@ pub async fn show_capture_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Calculate position using the dedicated toolbar positioning module
-    let selection = SelectionBounds { x, y, width, height };
-    let pos = toolbar_position::calculate_position(selection);
-    
     // Check if window already exists
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        // Reposition existing window using physical coordinates
-        let _ = set_physical_position(&window, pos.x, pos.y);
-        window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
-        
-        // Emit selection update for dimension display
+        // Emit selection update for dimension display - frontend will reposition
         let _ = window.emit("selection-updated", serde_json::json!({
             "x": x, "y": y, "width": width, "height": height
         }));
@@ -573,7 +564,8 @@ pub async fn show_capture_toolbar(
     let url = WebviewUrl::App(
         format!("capture-toolbar.html?x={}&y={}&width={}&height={}", x, y, width, height).into()
     );
-    
+
+    // Create window hidden - frontend will configure size/position and show it
     let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
         .title("Selection Toolbar")
         .transparent(true)
@@ -582,17 +574,16 @@ pub async fn show_capture_toolbar(
         .skip_taskbar(true)
         .resizable(false)
         .shadow(false)
-        .visible(false) // Start hidden, position first
+        .visible(false) // Hidden until frontend configures bounds
         .focused(false)
         .build()
         .map_err(|e| format!("Failed to create capture toolbar window: {}", e))?;
 
-    // Use physical coordinates for both position AND size to match screen coordinates
-    // from capture overlay. Mixing logical size with physical position causes offset on scaled displays.
-    set_physical_bounds(&window, pos.x, pos.y, TOOLBAR_WIDTH as u32, TOOLBAR_HEIGHT as u32)?;
-    
-    // Now show
-    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
+    // Set initial position near selection (frontend will adjust after measuring)
+    // Use generous initial size so content renders correctly for measurement
+    let initial_x = x + (width as i32 / 2) - 450; // Centered horizontally
+    let initial_y = y + height as i32 + 8; // Below selection
+    set_physical_bounds(&window, initial_x, initial_y, 900, 300)?;
 
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
@@ -603,7 +594,7 @@ pub async fn show_capture_toolbar(
 }
 
 /// Update the capture toolbar with new selection dimensions.
-/// Rust handles repositioning directly - no frontend round-trips.
+/// Emits event to frontend which handles repositioning.
 #[command]
 pub async fn update_capture_toolbar(
     app: AppHandle,
@@ -615,25 +606,20 @@ pub async fn update_capture_toolbar(
     let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
         return Ok(());
     };
-    
-    // Calculate and set new position using the dedicated toolbar positioning module
-    let selection = SelectionBounds { x, y, width, height };
-    let pos = toolbar_position::calculate_position(selection);
-    let _ = set_physical_position(&window, pos.x, pos.y);
-    
-    // Emit selection update for dimension display only
+
+    // Emit selection update - frontend will reposition
     let _ = window.emit("selection-updated", serde_json::json!({
         "x": x, "y": y, "width": width, "height": height
     }));
-    
+
     // Ensure toolbar stays on top
     let _ = window.set_always_on_top(true);
-    
+
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
-        
+
         if let Ok(hwnd) = window.hwnd() {
             unsafe {
                 let _ = SetWindowPos(
@@ -645,7 +631,7 @@ pub async fn update_capture_toolbar(
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -676,6 +662,36 @@ pub async fn resize_capture_toolbar(
 
     // Resize using physical coordinates for consistency with set_physical_bounds
     set_physical_bounds(&window, current_pos.x, current_pos.y, width, height)?;
+
+    Ok(())
+}
+
+/// Set capture toolbar bounds (position + size) and show the window.
+/// Called by frontend after measuring content and calculating position.
+/// This allows frontend to fully control toolbar layout without hardcoded dimensions.
+#[command]
+pub async fn set_capture_toolbar_bounds(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    // Set position and size using physical coordinates
+    set_physical_bounds(&window, x, y, width, height)?;
+
+    // Ensure window is visible and on top
+    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
+    window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
+
+    // Re-apply DWM transparency
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency: {}", e);
+    }
 
     Ok(())
 }

@@ -124,6 +124,7 @@ pub fn run() {
             commands::window::update_capture_toolbar,
             commands::window::hide_capture_toolbar,
             commands::window::resize_capture_toolbar,
+            commands::window::set_capture_toolbar_bounds,
             commands::window::restore_main_window,
             commands::window::show_countdown_window,
             commands::window::hide_countdown_window,

@@ -1,16 +1,17 @@
 /**
  * CaptureToolbarWindow - Unified toolbar for screen capture.
- * 
- * Simplified architecture:
- * - Rust creates fixed-size window at correct position, shows immediately
- * - Frontend just renders centered content, no sizing/positioning logic
- * - Selection updates only affect dimension display, Rust handles repositioning
+ *
+ * Architecture:
+ * - Frontend creates window via App.tsx listener
+ * - Frontend measures content, calculates position (with multi-monitor support)
+ * - Frontend calls Rust to set bounds and show window
  */
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { availableMonitors, type Monitor } from '@tauri-apps/api/window';
 import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
 import { useCaptureSettingsStore } from '../stores/captureSettingsStore';
 import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
@@ -22,6 +23,124 @@ interface SelectionBounds {
   y: number;
   width: number;
   height: number;
+}
+
+interface ToolbarPosition {
+  x: number;
+  y: number;
+}
+
+const MARGIN = 8;
+
+/**
+ * Calculate optimal toolbar position with multi-monitor support.
+ *
+ * Algorithm:
+ * 1. Find which monitor contains the selection center
+ * 2. Try positioning below selection (preferred)
+ * 3. If doesn't fit below, try above selection
+ * 4. If doesn't fit on current monitor, switch to alternate monitor (centered)
+ * 5. Clamp to monitor bounds as final fallback
+ */
+async function calculateToolbarPosition(
+  selection: SelectionBounds,
+  toolbarWidth: number,
+  toolbarHeight: number
+): Promise<ToolbarPosition> {
+  const monitors = await availableMonitors();
+
+  const selectionCenterX = selection.x + selection.width / 2;
+  const selectionCenterY = selection.y + selection.height / 2;
+
+  // Find monitor containing selection center
+  const currentMonitor = monitors.find(m => {
+    const pos = m.position;
+    const size = m.size;
+    return (
+      selectionCenterX >= pos.x &&
+      selectionCenterX < pos.x + size.width &&
+      selectionCenterY >= pos.y &&
+      selectionCenterY < pos.y + size.height
+    );
+  });
+
+  // Calculate centered X position
+  const centeredX = Math.floor(selectionCenterX - toolbarWidth / 2);
+
+  // Position below selection
+  const belowY = selection.y + selection.height + MARGIN;
+
+  // Position above selection
+  const aboveY = selection.y - toolbarHeight - MARGIN;
+
+  // Helper to check if toolbar fits at position within a monitor
+  const fitsInMonitor = (x: number, y: number, monitor: Monitor): boolean => {
+    const pos = monitor.position;
+    const size = monitor.size;
+    return (
+      x >= pos.x + MARGIN &&
+      x + toolbarWidth <= pos.x + size.width - MARGIN &&
+      y >= pos.y + MARGIN &&
+      y + toolbarHeight <= pos.y + size.height - MARGIN
+    );
+  };
+
+  // Helper to clamp position within monitor bounds
+  const clampToMonitor = (x: number, y: number, monitor: Monitor): ToolbarPosition => {
+    const pos = monitor.position;
+    const size = monitor.size;
+    return {
+      x: Math.max(pos.x + MARGIN, Math.min(x, pos.x + size.width - MARGIN - toolbarWidth)),
+      y: Math.max(pos.y + MARGIN, Math.min(y, pos.y + size.height - MARGIN - toolbarHeight)),
+    };
+  };
+
+  // Helper to get centered position on a monitor
+  const centerOnMonitor = (monitor: Monitor): ToolbarPosition => {
+    const pos = monitor.position;
+    const size = monitor.size;
+    return {
+      x: pos.x + Math.floor((size.width - toolbarWidth) / 2),
+      y: pos.y + Math.floor((size.height - toolbarHeight) / 2),
+    };
+  };
+
+  if (currentMonitor) {
+    // Try 1: Below selection
+    if (fitsInMonitor(centeredX, belowY, currentMonitor)) {
+      return { x: centeredX, y: belowY };
+    }
+
+    // Try 2: Above selection
+    if (fitsInMonitor(centeredX, aboveY, currentMonitor)) {
+      return { x: centeredX, y: aboveY };
+    }
+
+    // Try 3: Alternate monitor (primary ↔ secondary)
+    const isPrimary = currentMonitor.name === monitors.find(m => {
+      // Check if this is the primary monitor (position 0,0 is often primary)
+      return m.position.x === 0 && m.position.y === 0;
+    })?.name;
+
+    const alternateMonitor = isPrimary
+      ? monitors.find(m => m.name !== currentMonitor.name)
+      : monitors.find(m => m.position.x === 0 && m.position.y === 0) || monitors[0];
+
+    if (alternateMonitor && alternateMonitor.name !== currentMonitor.name) {
+      return centerOnMonitor(alternateMonitor);
+    }
+
+    // Try 4: Clamp to current monitor
+    return clampToMonitor(centeredX, belowY, currentMonitor);
+  }
+
+  // Fallback: Use first monitor or screen origin
+  if (monitors.length > 0) {
+    return clampToMonitor(centeredX, belowY, monitors[0]);
+  }
+
+  // Ultimate fallback
+  return { x: centeredX, y: belowY };
 }
 
 const CaptureToolbarWindow: React.FC = () => {
@@ -62,6 +181,10 @@ const CaptureToolbarWindow: React.FC = () => {
   const isRecordingActiveRef = useRef(false);
   const recordingInitiatedRef = useRef(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Animated dimensions state - explicit pixel values for CSS transitions
+  const [animatedSize, setAnimatedSize] = useState<{ width: number; height: number } | null>(null);
 
   // Load settings on mount
   useEffect(() => {
@@ -85,31 +208,76 @@ const CaptureToolbarWindow: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, []);
 
-  // Measure content and resize window to fit (with buffer for dropdowns)
+  // Track if window has been shown (to avoid re-showing on mode change)
+  const windowShownRef = useRef(false);
+
+  // Initial measurement and positioning on mount
+  // Measures content, calculates position (with multi-monitor support), sets bounds, and shows window
   useEffect(() => {
-    const DROPDOWN_BUFFER = 200; // Extra space for dropdown menus
+    if (!contentRef.current || windowShownRef.current) return;
 
-    const measureAndResize = async () => {
-      if (!toolbarRef.current) return;
+    const measureAndShow = async () => {
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
 
-      // Use getBoundingClientRect to get actual rendered size
-      const rect = toolbarRef.current.getBoundingClientRect();
-      const width = Math.ceil(rect.width);
-      const height = Math.ceil(rect.height) + DROPDOWN_BUFFER;
+      const contentWidth = Math.ceil(rect.width);
+      const contentHeight = Math.ceil(rect.height);
 
-      if (width > 0 && height > 0) {
-        try {
-          await invoke('resize_capture_toolbar', { width, height });
-        } catch (e) {
-          console.error('Failed to resize toolbar:', e);
-        }
+      // Set animated size for CSS transitions
+      setAnimatedSize({ width: contentWidth, height: contentHeight });
+
+      // Calculate window dimensions
+      const dropdownBuffer = 200; // Extra space for dropdown menus
+      const windowWidth = contentWidth;
+      const windowHeight = contentHeight + dropdownBuffer;
+
+      // Use multi-monitor positioning algorithm
+      // This tries: below selection → above selection → alternate monitor → clamp
+      const pos = await calculateToolbarPosition(initialBounds, windowWidth, windowHeight);
+
+      try {
+        // Set bounds and show window
+        await invoke('set_capture_toolbar_bounds', {
+          x: pos.x,
+          y: pos.y,
+          width: windowWidth,
+          height: windowHeight,
+        });
+        windowShownRef.current = true;
+      } catch (e) {
+        console.error('Failed to set toolbar bounds:', e);
       }
     };
 
-    // Measure after render settles
-    const timeoutId = setTimeout(measureAndResize, 50);
+    // Delay to ensure content has rendered
+    const timeoutId = setTimeout(measureAndShow, 50);
     return () => clearTimeout(timeoutId);
-  }, [mode, captureType]); // Re-measure when mode or capture type changes
+  }, [initialBounds]);
+
+  // Measure content on mode/capture type changes for animation
+  useEffect(() => {
+    if (!contentRef.current || !windowShownRef.current) return;
+
+    const measureAndAnimate = () => {
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        const newWidth = Math.ceil(rect.width);
+        const newHeight = Math.ceil(rect.height);
+
+        // Only update if dimensions actually changed
+        setAnimatedSize(prev => {
+          if (prev && prev.width === newWidth && prev.height === newHeight) {
+            return prev;
+          }
+          return { width: newWidth, height: newHeight };
+        });
+      }
+    };
+
+    // Small delay to ensure DOM has updated
+    const timeoutId = setTimeout(measureAndAnimate, 30);
+    return () => clearTimeout(timeoutId);
+  }, [mode, captureType]);
 
   // Helper to move webcam to its current anchor position
   const moveWebcamToCurrentAnchor = useCallback(async (bounds: SelectionBounds) => {
@@ -132,14 +300,15 @@ const CaptureToolbarWindow: React.FC = () => {
     }
   }, []);
 
-  // Listen for selection updates and reposition webcam
+  // Listen for selection updates (dimension display + webcam positioning)
   useEffect(() => {
     let unlistenSelection: UnlistenFn | null = null;
     let unlistenAnchor: UnlistenFn | null = null;
     let unlistenDragged: UnlistenFn | null = null;
 
     const setup = async () => {
-      // Listen for selection bounds updates
+      // Listen for selection bounds updates (for dimension display and webcam positioning)
+      // Note: Toolbar does NOT reposition on drag - only on init/reselection
       unlistenSelection = await listen<SelectionBounds>('selection-updated', async (event) => {
         const bounds = event.payload;
         setSelectionBounds(bounds);
@@ -410,25 +579,37 @@ const CaptureToolbarWindow: React.FC = () => {
 
   return (
     <div ref={toolbarRef} className="toolbar-container">
-      <CaptureToolbar
-        mode={mode}
-        captureType={captureType}
-        width={selectionBounds.width}
-        height={selectionBounds.height}
-        onCapture={handleCapture}
-        onCaptureTypeChange={setCaptureType}
-        onRedo={handleRedo}
-        onCancel={handleCancel}
-        format={format}
-        elapsedTime={elapsedTime}
-        progress={progress}
-        errorMessage={errorMessage}
-        onPause={handlePause}
-        onResume={handleResume}
-        onStop={handleStop}
-        countdownSeconds={countdownSeconds}
-        onDimensionChange={handleDimensionChange}
-      />
+      {/* Animated wrapper with explicit pixel dimensions for smooth CSS transitions */}
+      <div
+        className="toolbar-animated-wrapper"
+        style={animatedSize ? {
+          width: animatedSize.width,
+          height: animatedSize.height,
+        } : undefined}
+      >
+        {/* Content measurement ref - inner content determines natural size */}
+        <div ref={contentRef} className="toolbar-content-measure">
+          <CaptureToolbar
+            mode={mode}
+            captureType={captureType}
+            width={selectionBounds.width}
+            height={selectionBounds.height}
+            onCapture={handleCapture}
+            onCaptureTypeChange={setCaptureType}
+            onRedo={handleRedo}
+            onCancel={handleCancel}
+            format={format}
+            elapsedTime={elapsedTime}
+            progress={progress}
+            errorMessage={errorMessage}
+            onPause={handlePause}
+            onResume={handleResume}
+            onStop={handleStop}
+            countdownSeconds={countdownSeconds}
+            onDimensionChange={handleDimensionChange}
+          />
+        </div>
+      </div>
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, Activity } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { save } from '@tauri-apps/plugin-dialog';
 import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
@@ -378,8 +379,54 @@ function App() {
     };
   }, []);
 
-  // Note: Capture overlay toolbar is now created directly by Rust (show_capture_controls)
-  // when selection is finalized in wndproc.rs. No frontend listener needed.
+  // Listen for create-capture-toolbar event from Rust D2D overlay
+  // Creates toolbar window from frontend for full control over sizing/positioning
+  useEffect(() => {
+    const unlisten = listen<{ x: number; y: number; width: number; height: number }>(
+      'create-capture-toolbar',
+      async (event) => {
+        const { x, y, width, height } = event.payload;
+
+        // Close any existing toolbar window first
+        const existing = await WebviewWindow.getByLabel('capture-toolbar');
+        if (existing) {
+          try {
+            await existing.close();
+          } catch {
+            // Ignore
+          }
+          await new Promise((r) => setTimeout(r, 50));
+        }
+
+        // Create toolbar window - starts hidden, frontend will position and show
+        const url = `/capture-toolbar.html?x=${x}&y=${y}&width=${width}&height=${height}`;
+        const win = new WebviewWindow('capture-toolbar', {
+          url,
+          title: 'Selection Toolbar',
+          width: 900,
+          height: 300,
+          x: x + Math.floor(width / 2) - 450, // Centered below selection
+          y: y + height + 8,
+          resizable: false,
+          decorations: false,
+          alwaysOnTop: true,
+          transparent: true,
+          skipTaskbar: true,
+          shadow: false,
+          visible: false, // Hidden until toolbar measures and positions itself
+          focus: false,
+        });
+
+        win.once('tauri://error', (e) => {
+          console.error('Failed to create capture toolbar:', e);
+        });
+      }
+    );
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   // Note: Shortcut event listeners are now set up in hotkeyManager.ts
   // when registerShortcut is called with allowOverride=true

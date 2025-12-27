@@ -7,7 +7,6 @@ pub mod keyboard_hook;
 pub mod logging;
 pub mod settings;
 pub mod storage;
-pub mod toolbar_position;
 pub mod video_recording;
 pub mod window;
 

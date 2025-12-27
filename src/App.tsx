@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, Activity } from 'react';
+import { useEffect, useRef, useState, useCallback, lazy, Suspense, Activity } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -8,15 +8,20 @@ import { toast, Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { DeleteDialog } from './components/Library/components/DeleteDialog';
-import { EditorCanvas, type EditorCanvasRef } from './components/Editor/EditorCanvas';
-import { Toolbar } from './components/Editor/Toolbar';
-import { PropertiesPanel } from './components/Editor/PropertiesPanel';
+import { EditorErrorBoundary, LibraryErrorBoundary } from './components/ErrorBoundary';
+import type { EditorCanvasRef } from './components/Editor/EditorCanvas';
+
+// Lazy load editor components - only loaded when entering editor view
+const EditorCanvas = lazy(() => import('./components/Editor/EditorCanvas').then(m => ({ default: m.EditorCanvas })));
+const Toolbar = lazy(() => import('./components/Editor/Toolbar').then(m => ({ default: m.Toolbar })));
+const PropertiesPanel = lazy(() => import('./components/Editor/PropertiesPanel').then(m => ({ default: m.PropertiesPanel })));
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
 import { SettingsModal } from './components/Settings/SettingsModal';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore, undo, redo, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
+import { useVideoRecordingStore } from './stores/videoRecordingStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import { useUpdater } from './hooks/useUpdater';
 import { useTheme } from './hooks/useTheme';
@@ -32,6 +37,35 @@ const SettingsModalContainer: React.FC = () => {
     <SettingsModal open={settingsModalOpen} onClose={closeSettingsModal} />
   );
 };
+
+// Loading skeleton shown while editor components are being lazy-loaded
+const EditorLoadingSkeleton: React.FC = () => (
+  <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex min-h-0">
+      {/* Canvas skeleton */}
+      <div className="flex-1 overflow-hidden min-h-0 relative bg-[var(--polar-snow)] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-[var(--text-muted)]">
+          <div className="w-8 h-8 border-2 border-[var(--aurora-blue)] border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm">Loading editor...</span>
+        </div>
+      </div>
+      {/* Properties panel skeleton */}
+      <div className="w-[280px] glass-panel border-l border-[var(--polar-frost)] p-4">
+        <div className="space-y-4">
+          <div className="h-6 bg-[var(--polar-frost)] rounded animate-pulse" />
+          <div className="h-24 bg-[var(--polar-frost)] rounded animate-pulse" />
+          <div className="h-8 bg-[var(--polar-frost)] rounded animate-pulse" />
+        </div>
+      </div>
+    </div>
+    {/* Toolbar skeleton */}
+    <div className="h-16 glass-panel border-t border-[var(--polar-frost)] flex items-center justify-center gap-2 px-4">
+      {[...Array(8)].map((_, i) => (
+        <div key={i} className="w-10 h-10 bg-[var(--polar-frost)] rounded-lg animate-pulse" />
+      ))}
+    </div>
+  </div>
+);
 
 function App() {
   const {
@@ -383,10 +417,21 @@ function App() {
     const unlisten = listen('open-settings', () => {
       useSettingsStore.getState().openSettingsModal();
     });
-    
+
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
     };
+  }, []);
+
+  // Sync recording state with backend on window focus
+  // This handles edge cases where frontend/backend state may drift
+  useEffect(() => {
+    const handleFocus = () => {
+      useVideoRecordingStore.getState().refreshStatus();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
   // Listen for create-capture-toolbar event from Rust D2D overlay
@@ -802,59 +847,65 @@ function App() {
       <div className="flex-1 flex flex-col min-h-0">
         {/* Library */}
         <Activity mode={view === 'library' ? 'visible' : 'hidden'}>
-          <CaptureLibrary />
+          <LibraryErrorBoundary>
+            <CaptureLibrary />
+          </LibraryErrorBoundary>
         </Activity>
 
         {/* Editor */}
         <Activity mode={view === 'editor' ? 'visible' : 'hidden'}>
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Editor Area with optional Sidebar */}
-            <div className="flex-1 flex min-h-0">
-              {/* Canvas Area - flex-1 takes remaining space */}
-              <div className="flex-1 overflow-hidden min-h-0 relative">
-                {currentImageData && (
-                  <EditorCanvas
-                    ref={editorCanvasRef}
-                    imageData={currentImageData}
+          <EditorErrorBoundary projectId={currentProject?.id} onBack={handleBack}>
+            <Suspense fallback={<EditorLoadingSkeleton />}>
+              <div className="flex-1 flex flex-col min-h-0">
+                {/* Editor Area with optional Sidebar */}
+                <div className="flex-1 flex min-h-0">
+                  {/* Canvas Area - flex-1 takes remaining space */}
+                  <div className="flex-1 overflow-hidden min-h-0 relative">
+                    {currentImageData && (
+                      <EditorCanvas
+                        ref={editorCanvasRef}
+                        imageData={currentImageData}
+                        selectedTool={selectedTool}
+                        onToolChange={handleToolChange}
+                        strokeColor={strokeColor}
+                        fillColor={fillColor}
+                        strokeWidth={strokeWidth}
+                        shapes={shapes}
+                        onShapesChange={handleShapesChange}
+                        stageRef={stageRef}
+                      />
+                    )}
+                  </div>
+
+                  {/* Properties Sidebar - always visible */}
+                  <PropertiesPanel
                     selectedTool={selectedTool}
-                    onToolChange={handleToolChange}
                     strokeColor={strokeColor}
+                    onStrokeColorChange={setStrokeColor}
                     fillColor={fillColor}
+                    onFillColorChange={setFillColor}
                     strokeWidth={strokeWidth}
-                    shapes={shapes}
-                    onShapesChange={handleShapesChange}
-                    stageRef={stageRef}
+                    onStrokeWidthChange={setStrokeWidth}
                   />
-                )}
+                </div>
+
+                {/* Toolbar */}
+                <Toolbar
+                  selectedTool={selectedTool}
+                  onToolChange={handleToolChange}
+                  onCopy={handleCopy}
+                  onSave={handleSave}
+                  onSaveAs={handleSaveAs}
+                  onBack={handleBack}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                  onDelete={handleRequestDelete}
+                  isCopying={isCopying}
+                  isSaving={isSaving}
+                />
               </div>
-
-              {/* Properties Sidebar - always visible */}
-              <PropertiesPanel
-                selectedTool={selectedTool}
-                strokeColor={strokeColor}
-                onStrokeColorChange={setStrokeColor}
-                fillColor={fillColor}
-                onFillColorChange={setFillColor}
-                strokeWidth={strokeWidth}
-                onStrokeWidthChange={setStrokeWidth}
-              />
-            </div>
-
-            {/* Toolbar */}
-            <Toolbar
-              selectedTool={selectedTool}
-              onToolChange={handleToolChange}
-              onCopy={handleCopy}
-              onSave={handleSave}
-              onSaveAs={handleSaveAs}
-              onBack={handleBack}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              onDelete={handleRequestDelete}
-              isCopying={isCopying}
-              isSaving={isSaving}
-            />
-          </div>
+            </Suspense>
+          </EditorErrorBoundary>
         </Activity>
       </div>
 

@@ -14,10 +14,46 @@ export interface CanvasBounds {
 interface HistorySnapshot {
   shapes: CanvasShape[];
   canvasBounds: CanvasBounds | null;
+  estimatedBytes: number; // Memory estimate for this snapshot
 }
 
 // History configuration
-const HISTORY_LIMIT = 50;
+const HISTORY_LIMIT = 50; // Max number of entries
+const HISTORY_MEMORY_LIMIT = 50 * 1024 * 1024; // 50MB max memory for history
+
+/**
+ * Estimate the memory size of a snapshot in bytes.
+ * This is an approximation based on typical object overhead and string sizes.
+ */
+function estimateSnapshotSize(snapshot: Omit<HistorySnapshot, 'estimatedBytes'>): number {
+  let bytes = 0;
+
+  // Base object overhead
+  bytes += 64;
+
+  // Estimate shapes array
+  for (const shape of snapshot.shapes) {
+    // Base shape overhead
+    bytes += 200;
+
+    // Points array (pen strokes, lines, arrows)
+    if (shape.points) {
+      bytes += shape.points.length * 8; // 8 bytes per number
+    }
+
+    // Text content
+    if (shape.text) {
+      bytes += shape.text.length * 2; // 2 bytes per char (UTF-16)
+    }
+  }
+
+  // Canvas bounds (if present)
+  if (snapshot.canvasBounds) {
+    bytes += 64;
+  }
+
+  return bytes;
+}
 
 // History state managed within Zustand store
 interface HistoryState {
@@ -174,12 +210,17 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const { history, shapes, canvasBounds } = get();
     if (history.pendingSnapshot) return; // Already have a pending snapshot
 
+    const snapshot = {
+      shapes: structuredClone(shapes),
+      canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+    };
+
     set({
       history: {
         ...history,
         pendingSnapshot: {
-          shapes: structuredClone(shapes),
-          canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+          ...snapshot,
+          estimatedBytes: estimateSnapshotSize(snapshot),
         },
       },
     });
@@ -189,17 +230,36 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const { history, shapes, canvasBounds } = get();
     if (!history.pendingSnapshot) return;
 
-    const currentSnapshot: HistorySnapshot = { shapes, canvasBounds };
     const prev = history.pendingSnapshot;
 
-    // Only commit if state actually changed
-    const shapesChanged = JSON.stringify(prev.shapes) !== JSON.stringify(currentSnapshot.shapes);
-    const boundsChanged = JSON.stringify(prev.canvasBounds) !== JSON.stringify(currentSnapshot.canvasBounds);
+    // Quick change detection: compare array lengths first, then do shallow checks
+    const shapesChanged =
+      prev.shapes.length !== shapes.length ||
+      prev.shapes.some((s, i) => s.id !== shapes[i]?.id);
+    const boundsChanged =
+      (prev.canvasBounds === null) !== (canvasBounds === null) ||
+      (prev.canvasBounds &&
+        canvasBounds &&
+        (prev.canvasBounds.width !== canvasBounds.width ||
+          prev.canvasBounds.height !== canvasBounds.height ||
+          prev.canvasBounds.imageOffsetX !== canvasBounds.imageOffsetX ||
+          prev.canvasBounds.imageOffsetY !== canvasBounds.imageOffsetY));
 
     if (shapesChanged || boundsChanged) {
-      const newUndoStack = [...history.undoStack, prev];
-      if (newUndoStack.length > HISTORY_LIMIT) {
+      let newUndoStack = [...history.undoStack, prev];
+
+      // Enforce entry count limit
+      while (newUndoStack.length > HISTORY_LIMIT) {
         newUndoStack.shift();
+      }
+
+      // Enforce memory limit - remove oldest entries until under limit
+      let totalBytes = newUndoStack.reduce((sum, s) => sum + s.estimatedBytes, 0);
+      while (totalBytes > HISTORY_MEMORY_LIMIT && newUndoStack.length > 1) {
+        const removed = newUndoStack.shift();
+        if (removed) {
+          totalBytes -= removed.estimatedBytes;
+        }
       }
 
       set({
@@ -229,11 +289,15 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     if (history.undoStack.length === 0) return false;
 
     // Save current state to redo stack
+    const currentSnapshot = {
+      shapes: structuredClone(shapes),
+      canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+    };
     const newRedoStack = [
       ...history.redoStack,
       {
-        shapes: structuredClone(shapes),
-        canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+        ...currentSnapshot,
+        estimatedBytes: estimateSnapshotSize(currentSnapshot),
       },
     ];
 
@@ -261,11 +325,15 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     if (history.redoStack.length === 0) return false;
 
     // Save current state to undo stack
+    const currentSnapshot = {
+      shapes: structuredClone(shapes),
+      canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+    };
     const newUndoStack = [
       ...history.undoStack,
       {
-        shapes: structuredClone(shapes),
-        canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+        ...currentSnapshot,
+        estimatedBytes: estimateSnapshotSize(currentSnapshot),
       },
     ];
 

@@ -10,7 +10,7 @@ import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
 import { useCaptureSettingsStore } from '../../stores/captureSettingsStore';
 import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection, RecordingFormat } from '../../types';
 
-import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock } from './hooks';
+import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock, type VirtualLayoutInfo } from './hooks';
 import {
   DateHeader,
   EmptyState,
@@ -20,8 +20,18 @@ import {
   GlassBlobToolbar,
   DeleteDialog,
 } from './components';
+import { VirtualizedGrid } from './VirtualizedGrid';
 
 type ViewMode = 'grid' | 'list';
+
+// Layout constants for virtual grid (must match VirtualizedGrid.tsx)
+const HEADER_HEIGHT = 56;
+const GRID_GAP = 20;
+const MIN_CARD_WIDTH = 240;
+const CONTAINER_PADDING = 64;
+const CARD_FOOTER_HEIGHT = 85;
+const CARD_ASPECT_RATIO = 9 / 16;
+const ROW_SPACING = 24;
 
 interface DateGroup {
   label: string;
@@ -93,6 +103,56 @@ export const CaptureLibrary: React.FC = () => {
   const allTags = useAllTags();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // Use virtualization for large libraries (100+ captures)
+  const useVirtualization = captures.length > 100;
+
+  // Track container width for virtual layout calculations (debounced for performance)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !useVirtualization) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const updateWidth = () => setContainerWidth(container.clientWidth);
+    updateWidth();
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(updateWidth, 150);
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+  }, [useVirtualization]);
+
+  // Compute date groups
+  const dateGroups = useMemo(() => groupCapturesByDate(captures), [captures]);
+
+  // Compute virtual layout info for marquee selection
+  const virtualLayout = useMemo<VirtualLayoutInfo | undefined>(() => {
+    if (!useVirtualization || containerWidth === 0) return undefined;
+
+    const availableWidth = containerWidth - CONTAINER_PADDING;
+    const cardsPerRow = Math.max(1, Math.floor((availableWidth + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)));
+    const totalGaps = GRID_GAP * (cardsPerRow - 1);
+    const cardWidth = (availableWidth - totalGaps) / cardsPerRow;
+    const thumbnailHeight = cardWidth * CARD_ASPECT_RATIO;
+    const gridRowHeight = Math.ceil(thumbnailHeight + CARD_FOOTER_HEIGHT + ROW_SPACING);
+
+    return {
+      cardsPerRow,
+      gridRowHeight,
+      cardWidth,
+      headerHeight: HEADER_HEIGHT,
+      gridGap: GRID_GAP,
+      dateGroups,
+    };
+  }, [useVirtualization, containerWidth, dateGroups]);
 
   // Delete confirmation state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -115,6 +175,7 @@ export const CaptureLibrary: React.FC = () => {
     captures,
     containerRef: containerRef as React.RefObject<HTMLDivElement>,
     onOpenProject: loadProject,
+    virtualLayout,
   });
 
   // Drag & drop hook (uses Tauri's native drag-drop events)
@@ -339,9 +400,6 @@ export const CaptureLibrary: React.FC = () => {
     }
   };
 
-  // Memoize date grouping - expensive operation that only needs to recalculate when captures change
-  const dateGroups = useMemo(() => groupCapturesByDate(captures), [captures]);
-
   const renderCaptureGrid = () => (
     <div className="space-y-0">
       {dateGroups.map((group, groupIndex) => (
@@ -408,39 +466,63 @@ export const CaptureLibrary: React.FC = () => {
         {/* Drop Zone Overlay */}
         {isDragOver && <DropZoneOverlay />}
 
-        {/* Content - Scrollable area with marquee selection */}
-        <div
-          ref={containerRef}
-          className="flex-1 overflow-auto p-8 pb-32 relative select-none library-scroll"
-          onMouseDown={handleMarqueeMouseDown}
-          onMouseMove={handleMarqueeMouseMove}
-          onMouseUp={handleMarqueeMouseUp}
-        >
-          {/* Marquee Selection Rectangle */}
-          {isSelecting && (
-            <div
-              className="absolute pointer-events-none z-50 border-2 border-[var(--coral-400)] bg-[var(--coral-glow)] rounded-sm"
-              style={{
-                left: selectionRect.left,
-                top: selectionRect.top,
-                width: selectionRect.width,
-                height: selectionRect.height,
-              }}
-            />
-          )}
-
-          {loading ? (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Loader2 className="w-12 h-12 text-[var(--coral-400)] animate-spin" />
-            </div>
-          ) : captures.length === 0 ? (
+        {/* Content - use virtualization for large libraries, regular rendering for small ones */}
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 className="w-12 h-12 text-[var(--coral-400)] animate-spin" />
+          </div>
+        ) : captures.length === 0 ? (
+          <div className="flex-1 overflow-auto p-8 pb-32">
             <EmptyState onNewCapture={handleNewImage} />
-          ) : viewMode === 'grid' ? (
-            renderCaptureGrid()
-          ) : (
-            renderCaptureList()
-          )}
-        </div>
+          </div>
+        ) : useVirtualization ? (
+          /* Virtualized rendering for large libraries (100+ captures) */
+          <VirtualizedGrid
+            dateGroups={dateGroups}
+            viewMode={viewMode}
+            selectedIds={selectedIds}
+            loadingProjectId={loadingProjectId}
+            allTags={allTags}
+            onSelect={handleSelect}
+            onOpen={handleOpen}
+            onToggleFavorite={toggleFavorite}
+            onUpdateTags={updateTags}
+            onDelete={handleRequestDeleteSingle}
+            onOpenInFolder={handleOpenInFolder}
+            onCopyToClipboard={handleCopyToClipboard}
+            onPlayMedia={handlePlayMedia}
+            formatDate={formatDate}
+            containerRef={containerRef as React.RefObject<HTMLDivElement>}
+            onMouseDown={handleMarqueeMouseDown}
+            onMouseMove={handleMarqueeMouseMove}
+            onMouseUp={handleMarqueeMouseUp}
+            isSelecting={isSelecting}
+            selectionRect={selectionRect}
+          />
+        ) : (
+          /* Non-virtualized rendering with marquee selection for smaller libraries */
+          <div
+            ref={containerRef}
+            className="flex-1 overflow-auto p-8 pb-32 relative select-none library-scroll"
+            onMouseDown={handleMarqueeMouseDown}
+            onMouseMove={handleMarqueeMouseMove}
+            onMouseUp={handleMarqueeMouseUp}
+          >
+            {/* Marquee Selection Rectangle */}
+            {isSelecting && (
+              <div
+                className="absolute pointer-events-none z-50 border-2 border-[var(--coral-400)] bg-[var(--coral-glow)] rounded-sm"
+                style={{
+                  left: selectionRect.left,
+                  top: selectionRect.top,
+                  width: selectionRect.width,
+                  height: selectionRect.height,
+                }}
+              />
+            )}
+            {viewMode === 'grid' ? renderCaptureGrid() : renderCaptureList()}
+          </div>
+        )}
 
         {/* Delete Confirmation Dialog */}
         <DeleteDialog

@@ -2,10 +2,20 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { CaptureListItem } from '../../../types';
 
+export interface VirtualLayoutInfo {
+  cardsPerRow: number;
+  gridRowHeight: number;
+  cardWidth: number;
+  headerHeight: number;
+  gridGap: number;
+  dateGroups: { label: string; captures: CaptureListItem[] }[];
+}
+
 interface UseMarqueeSelectionProps {
   captures: CaptureListItem[];
   containerRef: React.RefObject<HTMLDivElement>;
   onOpenProject: (id: string) => void;
+  virtualLayout?: VirtualLayoutInfo; // Optional for virtualized grids
 }
 
 // Check if capture is a video or gif recording
@@ -28,6 +38,7 @@ export function useMarqueeSelection({
   captures,
   containerRef,
   onOpenProject,
+  virtualLayout,
 }: UseMarqueeSelectionProps): UseMarqueeSelectionReturn {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelecting, setIsSelectingState] = useState(false);
@@ -68,17 +79,78 @@ export function useMarqueeSelection({
     []
   );
 
+  // Calculate virtual bounds for a capture based on layout info
+  const getVirtualCaptureBounds = useCallback(
+    (captureId: string): { left: number; top: number; width: number; height: number } | null => {
+      if (!virtualLayout) return null;
+
+      const { cardsPerRow, gridRowHeight, cardWidth, headerHeight, gridGap, dateGroups } = virtualLayout;
+
+      let currentY = 0;
+
+      for (const group of dateGroups) {
+        // Skip header
+        currentY += headerHeight;
+
+        // Find capture in this group
+        const captureIndex = group.captures.findIndex(c => c.id === captureId);
+        if (captureIndex !== -1) {
+          const row = Math.floor(captureIndex / cardsPerRow);
+          const col = captureIndex % cardsPerRow;
+
+          const cardHeight = gridRowHeight - 24; // Row height minus spacing
+
+          return {
+            left: col * (cardWidth + gridGap),
+            top: currentY + row * gridRowHeight,
+            width: cardWidth,
+            height: cardHeight,
+          };
+        }
+
+        // Move past this group's rows
+        const rowCount = Math.ceil(group.captures.length / cardsPerRow);
+        currentY += rowCount * gridRowHeight;
+      }
+
+      return null;
+    },
+    [virtualLayout]
+  );
+
   // Find captures within selection rectangle
   const getSelectedCapturesInRect = useCallback(() => {
     if (!containerRef.current) return new Set<string>();
 
     const container = containerRef.current;
     const selectionRect = getSelectionRect();
+    const selected = new Set<string>();
+
+    // Use virtual layout calculation if available (for virtualized grids)
+    if (virtualLayout) {
+      // Selection rect is already in content coordinates
+      for (const capture of captures) {
+        const bounds = getVirtualCaptureBounds(capture.id);
+        if (bounds) {
+          // Check intersection with selection rect (both in content coordinates)
+          const intersects = !(
+            bounds.left + bounds.width < selectionRect.left ||
+            bounds.left > selectionRect.left + selectionRect.width ||
+            bounds.top + bounds.height < selectionRect.top ||
+            bounds.top > selectionRect.top + selectionRect.height
+          );
+          if (intersects) {
+            selected.add(capture.id);
+          }
+        }
+      }
+      return selected;
+    }
+
+    // Fallback to DOM-based detection for non-virtualized grids
     const containerRect = container.getBoundingClientRect();
 
     // Convert selection rect from content coordinates to viewport coordinates
-    // selectionRect is in content space (includes scroll offset from when points were captured)
-    // We need viewport space to compare with getBoundingClientRect()
     const viewportSelectionRect = {
       left: selectionRect.left + containerRect.left - container.scrollLeft,
       top: selectionRect.top + containerRect.top - container.scrollTop,
@@ -86,7 +158,6 @@ export function useMarqueeSelection({
       height: selectionRect.height,
     };
 
-    const selected = new Set<string>();
     const cards = container.querySelectorAll('[data-capture-id]');
 
     cards.forEach((card) => {
@@ -98,7 +169,7 @@ export function useMarqueeSelection({
     });
 
     return selected;
-  }, [containerRef, getSelectionRect, rectsIntersect]);
+  }, [containerRef, getSelectionRect, rectsIntersect, virtualLayout, captures, getVirtualCaptureBounds]);
 
   // Handle mouse down on container
   const handleMarqueeMouseDown = useCallback(

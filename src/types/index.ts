@@ -395,12 +395,19 @@ export type {
   RecordingFormat,
   RecordingMode,
   RecordingSettings,
-  RecordingState,
+  RecordingState as RustRecordingState,
   RecordingStatus,
   StartRecordingResult,
   StopRecordingResult,
   VideoFormat,
 } from './generated';
+
+// Import Rust type for extension
+import type { RecordingState as RustRecordingState } from './generated';
+
+// Extended RecordingState with frontend-only 'starting' status
+// Used when the UI has initiated a recording but the backend hasn't responded yet
+export type RecordingState = RustRecordingState | { status: 'starting' };
 
 // Import for use in default settings
 import type { RecordingSettings } from './generated';

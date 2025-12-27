@@ -73,6 +73,9 @@ const defaultSettings: RecordingSettings = {
 // Event listener cleanup function
 let unlistenFn: UnlistenFn | null = null;
 
+// Mutex lock to prevent concurrent start attempts
+let startRecordingLock = false;
+
 export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => ({
   // Initial state
   recordingState: { status: 'idle' },
@@ -196,11 +199,23 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
   startRecording: async (mode) => {
     const { settings, recordingState } = get();
 
-    // Don't start if already recording
+    // Guard 1: Don't start if already recording
     if (recordingState.status !== 'idle') {
       console.warn('Cannot start recording: already in progress');
       return false;
     }
+
+    // Guard 2: Prevent concurrent start attempts (race condition)
+    if (startRecordingLock) {
+      console.warn('Cannot start recording: start already in progress');
+      return false;
+    }
+
+    // Acquire the lock
+    startRecordingLock = true;
+
+    // Update UI to show starting state
+    set({ recordingState: { status: 'starting' } });
 
     const recordingSettings: RecordingSettings = {
       ...settings,
@@ -212,6 +227,11 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
         settings: recordingSettings,
       });
 
+      // If start failed, reset to idle
+      if (!result.success) {
+        set({ recordingState: { status: 'idle' } });
+      }
+
       return result.success;
     } catch (error) {
       console.error('Failed to start recording:', error);
@@ -222,6 +242,9 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
         },
       });
       return false;
+    } finally {
+      // Always release the lock
+      startRecordingLock = false;
     }
   },
 
@@ -329,7 +352,8 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
     const { recordingState } = get();
     return (
       recordingState.status === 'recording' ||
-      recordingState.status === 'countdown'
+      recordingState.status === 'countdown' ||
+      recordingState.status === 'starting'
     );
   },
 

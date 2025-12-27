@@ -6,4 +6,5 @@ export { PenShape } from './PenShape';
 export { TextShape } from './TextShape';
 export { StepShape } from './StepShape';
 export { ArrowShape } from './ArrowShape';
+export { LineShape } from './LineShape';
 export { BlurShape } from './BlurShape';

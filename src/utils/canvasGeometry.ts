@@ -40,8 +40,8 @@ export const getShapeBounds = (
     height = radiusY * 2;
   }
 
-  // Handle arrows (point-based)
-  if (shape.type === 'arrow' && shape.points && shape.points.length >= 4) {
+  // Handle arrows and lines (point-based)
+  if ((shape.type === 'arrow' || shape.type === 'line') && shape.points && shape.points.length >= 4) {
     const [px1, py1, px2, py2] = shape.points;
     x = Math.min(px1, px2);
     y = Math.min(py1, py2);
@@ -177,4 +177,102 @@ export const rectsIntersect = (
     a.y > b.y + b.height ||
     a.y + a.height < b.y
   );
+};
+
+/**
+ * Check if a point is inside a rectangle
+ */
+const pointInRect = (
+  px: number,
+  py: number,
+  rect: { x: number; y: number; width: number; height: number }
+): boolean => {
+  return px >= rect.x && px <= rect.x + rect.width &&
+         py >= rect.y && py <= rect.y + rect.height;
+};
+
+/**
+ * Check if two line segments intersect
+ * Uses cross product to determine if segments cross
+ */
+const segmentsIntersect = (
+  x1: number, y1: number, x2: number, y2: number,
+  x3: number, y3: number, x4: number, y4: number
+): boolean => {
+  const d1 = direction(x3, y3, x4, y4, x1, y1);
+  const d2 = direction(x3, y3, x4, y4, x2, y2);
+  const d3 = direction(x1, y1, x2, y2, x3, y3);
+  const d4 = direction(x1, y1, x2, y2, x4, y4);
+
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+      ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+    return true;
+  }
+
+  // Check for collinear cases
+  if (d1 === 0 && onSegment(x3, y3, x4, y4, x1, y1)) return true;
+  if (d2 === 0 && onSegment(x3, y3, x4, y4, x2, y2)) return true;
+  if (d3 === 0 && onSegment(x1, y1, x2, y2, x3, y3)) return true;
+  if (d4 === 0 && onSegment(x1, y1, x2, y2, x4, y4)) return true;
+
+  return false;
+};
+
+const direction = (x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): number => {
+  return (x3 - x1) * (y2 - y1) - (y3 - y1) * (x2 - x1);
+};
+
+const onSegment = (x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): boolean => {
+  return Math.min(x1, x2) <= x3 && x3 <= Math.max(x1, x2) &&
+         Math.min(y1, y2) <= y3 && y3 <= Math.max(y1, y2);
+};
+
+/**
+ * Check if a line segment intersects with a rectangle
+ * Used for marquee selection of lines/arrows
+ */
+export const lineIntersectsRect = (
+  x1: number, y1: number, x2: number, y2: number,
+  rect: { x: number; y: number; width: number; height: number }
+): boolean => {
+  // Check if either endpoint is inside the rectangle
+  if (pointInRect(x1, y1, rect) || pointInRect(x2, y2, rect)) {
+    return true;
+  }
+
+  // Check if line crosses any edge of the rectangle
+  const rx1 = rect.x;
+  const ry1 = rect.y;
+  const rx2 = rect.x + rect.width;
+  const ry2 = rect.y + rect.height;
+
+  // Top edge
+  if (segmentsIntersect(x1, y1, x2, y2, rx1, ry1, rx2, ry1)) return true;
+  // Bottom edge
+  if (segmentsIntersect(x1, y1, x2, y2, rx1, ry2, rx2, ry2)) return true;
+  // Left edge
+  if (segmentsIntersect(x1, y1, x2, y2, rx1, ry1, rx1, ry2)) return true;
+  // Right edge
+  if (segmentsIntersect(x1, y1, x2, y2, rx2, ry1, rx2, ry2)) return true;
+
+  return false;
+};
+
+/**
+ * Check if a shape intersects with a rectangle (for marquee selection)
+ * Handles special cases for lines/arrows that need line-rect intersection
+ */
+export const shapeIntersectsRect = (
+  shape: CanvasShape,
+  rect: { x: number; y: number; width: number; height: number }
+): boolean => {
+  // For lines and arrows, use line-rectangle intersection
+  if ((shape.type === 'line' || shape.type === 'arrow') && shape.points && shape.points.length >= 4) {
+    const [x1, y1, x2, y2] = shape.points;
+    return lineIntersectsRect(x1, y1, x2, y2, rect);
+  }
+
+  // For all other shapes, use bounding box intersection
+  const shapeBounds = getShapeBounds(shape);
+  return rectsIntersect(rect, shapeBounds);
 };

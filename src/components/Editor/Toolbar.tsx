@@ -1,6 +1,7 @@
 import {
   MousePointer2,
   MoveUpRight,
+  Minus,
   Square,
   Circle,
   Type,
@@ -59,6 +60,7 @@ const toolDefs: { id: Tool; Icon: typeof MousePointer2; label: string; shortcut:
   { id: 'select', Icon: MousePointer2, label: 'Select', shortcut: 'V' },
   { id: 'crop', Icon: Crop, label: 'Crop/Expand', shortcut: 'C' },
   { id: 'arrow', Icon: MoveUpRight, label: 'Arrow', shortcut: 'A' },
+  { id: 'line', Icon: Minus, label: 'Line', shortcut: 'L' },
   { id: 'rect', Icon: Square, label: 'Rectangle', shortcut: 'R' },
   { id: 'circle', Icon: Circle, label: 'Ellipse', shortcut: 'E' },
   { id: 'text', Icon: Type, label: 'Text', shortcut: 'T' },

@@ -75,6 +75,14 @@ export const useShapeDrawing = ({
             strokeWidth,
             fill: strokeColor,
           };
+        case 'line':
+          return {
+            id,
+            type: 'line',
+            points: [startPos.x, startPos.y, endPos.x, endPos.y],
+            stroke: strokeColor,
+            strokeWidth,
+          };
         case 'rect':
           return {
             id,
@@ -159,9 +167,9 @@ export const useShapeDrawing = ({
             textDecoration: '',
             align: 'left',
             wrap: 'word',
-            fill: fillColor,
-            stroke: strokeColor,
-            strokeWidth,
+            fill: strokeColor, // Text color uses stroke color (red by default)
+            stroke: undefined,
+            strokeWidth: 0,
           };
         }
         default:
@@ -280,7 +288,14 @@ export const useShapeDrawing = ({
 
       switch (liveShape.type) {
         case 'arrow': {
-          const line = node as Konva.Arrow;
+          const arrow = node as Konva.Arrow;
+          const newPoints = [drawStart.x, drawStart.y, pos.x, pos.y];
+          arrow.points(newPoints);
+          liveShapeRef.current = { ...liveShape, points: newPoints };
+          break;
+        }
+        case 'line': {
+          const line = node as Konva.Line;
           const newPoints = [drawStart.x, drawStart.y, pos.x, pos.y];
           line.points(newPoints);
           liveShapeRef.current = { ...liveShape, points: newPoints };

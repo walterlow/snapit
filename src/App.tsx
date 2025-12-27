@@ -181,6 +181,7 @@ function App() {
         'v': 'select',
         'c': 'crop',
         'a': 'arrow',
+        'l': 'line',
         'r': 'rect',
         'e': 'circle',
         't': 'text',

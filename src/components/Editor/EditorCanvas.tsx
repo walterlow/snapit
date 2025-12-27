@@ -284,25 +284,25 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   useEffect(() => {
     if (!transformerRef.current || !layerRef.current) return;
 
-    // Hide transformer while drawing or editing text
-    if (drawing.isDrawing || textEditing.editingTextId) {
+    // Hide transformer while drawing, editing text, or not in select mode
+    if (drawing.isDrawing || textEditing.editingTextId || selectedTool !== 'select') {
       transformerRef.current.nodes([]);
       transformerRef.current.getLayer()?.batchDraw();
       return;
     }
 
-    // Exclude arrows (they use custom endpoint handles)
+    // Exclude arrows and lines (they use custom endpoint handles)
     const nodes = selectedIds
       .filter((id) => {
         const shape = shapes.find((s) => s.id === id);
-        return shape && shape.type !== 'arrow';
+        return shape && shape.type !== 'arrow' && shape.type !== 'line';
       })
       .map((id) => layerRef.current!.findOne(`#${id}`))
       .filter((node): node is Konva.Node => node !== null && node !== undefined);
 
     transformerRef.current.nodes(nodes);
     transformerRef.current.getLayer()?.batchDraw();
-  }, [selectedIds, shapes, drawing.isDrawing, textEditing.editingTextId]);
+  }, [selectedIds, shapes, drawing.isDrawing, textEditing.editingTextId, selectedTool]);
 
   // Handle mouse events
   const handleMouseDown = React.useCallback(

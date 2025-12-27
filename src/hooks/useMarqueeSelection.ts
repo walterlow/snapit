@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { CanvasShape } from '../types';
-import { getShapeBounds, rectsIntersect } from '../utils/canvasGeometry';
+import { shapeIntersectsRect } from '../utils/canvasGeometry';
 
 interface UseMarqueeSelectionProps {
   shapes: CanvasShape[];
@@ -54,12 +54,9 @@ export const useMarqueeSelection = ({
       height: Math.abs(marqueeEnd.y - marqueeStart.y),
     };
 
-    // Find shapes that intersect with marquee
+    // Find shapes that intersect with marquee (uses line intersection for lines/arrows)
     const selectedShapeIds = shapes
-      .filter(shape => {
-        const shapeBounds = getShapeBounds(shape);
-        return rectsIntersect(marqueeBounds, shapeBounds);
-      })
+      .filter(shape => shapeIntersectsRect(shape, marqueeBounds))
       .map(shape => shape.id);
 
     if (selectedShapeIds.length > 0) {

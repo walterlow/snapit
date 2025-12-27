@@ -416,6 +416,7 @@ export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
     captureMicrophone: false,
   },
   quality: 80,
+  gifQualityPreset: 'balanced',
   countdownSecs: 3,
 };
 

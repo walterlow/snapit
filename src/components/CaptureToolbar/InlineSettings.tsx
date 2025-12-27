@@ -164,17 +164,13 @@ export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
           <div className="glass-inline-group">
             <span className="glass-inline-label">Quality</span>
             <GlassSelect
-              value={settings.gif.quality}
+              value={settings.gif.qualityPreset}
               options={[
-                { value: 40, label: '40%' },
-                { value: 50, label: '50%' },
-                { value: 60, label: '60%' },
-                { value: 70, label: '70%' },
-                { value: 80, label: '80%' },
-                { value: 90, label: '90%' },
-                { value: 100, label: '100%' },
+                { value: 'fast', label: 'Fast' },
+                { value: 'balanced', label: 'Balanced' },
+                { value: 'high', label: 'High' },
               ]}
-              onChange={(v) => updateGifSettings({ quality: parseInt(v) })}
+              onChange={(v) => updateGifSettings({ qualityPreset: v as 'fast' | 'balanced' | 'high' })}
             />
           </div>
         </>

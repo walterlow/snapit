@@ -40,7 +40,7 @@ const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
 };
 
 const DEFAULT_GIF_SETTINGS: GifSettings = {
-  quality: 80,
+  qualityPreset: 'balanced',
   fps: 15,
   maxDurationSecs: 30,
   includeCursor: true,

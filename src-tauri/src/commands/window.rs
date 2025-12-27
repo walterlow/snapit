@@ -212,23 +212,28 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 }
                             }
                             
-                            // Get system audio setting
+                            // Get recording settings from global state (set by frontend)
                             let system_audio_enabled = crate::commands::video_recording::get_system_audio_enabled();
-                            
+                            let fps = crate::commands::video_recording::get_fps();
+                            let quality = crate::commands::video_recording::get_quality();
+                            let include_cursor = crate::commands::video_recording::get_include_cursor();
+                            let max_duration_secs = crate::commands::video_recording::get_max_duration_secs();
+
                             // Start the recording with the selected region
                             let settings = crate::commands::video_recording::RecordingSettings {
                                 format,
                                 mode: crate::commands::video_recording::RecordingMode::Region {
                                     x, y, width, height
                                 },
-                                fps: 30,
-                                max_duration_secs: None,
-                                include_cursor: true,
+                                fps,
+                                max_duration_secs,
+                                include_cursor,
                                 audio: crate::commands::video_recording::AudioSettings {
                                     capture_system_audio: system_audio_enabled,
                                     capture_microphone: false,
                                 },
-                                quality: 80,
+                                quality,
+                                gif_quality_preset: crate::commands::video_recording::get_gif_quality_preset(),
                                 countdown_secs,
                             };
                             

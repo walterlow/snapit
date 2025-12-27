@@ -2,6 +2,7 @@
 // These types are auto-generated from Rust source - do not edit manually
 
 export type { AudioSettings } from './AudioSettings';
+export type { GifQualityPreset } from './GifQualityPreset';
 export type { RecordingFormat } from './RecordingFormat';
 export type { RecordingMode } from './RecordingMode';
 export type { RecordingSettings } from './RecordingSettings';

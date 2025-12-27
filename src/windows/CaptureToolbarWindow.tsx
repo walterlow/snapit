@@ -221,12 +221,26 @@ const CaptureToolbarWindow: React.FC = () => {
         setMode('starting');
 
         // Get settings based on capture type
-        const captureSettings = captureType === 'video' ? settings.video : settings.gif;
-        const countdownSecs = captureSettings.countdownSecs;
+        const countdownSecs = captureType === 'video' ? settings.video.countdownSecs : settings.gif.countdownSecs;
         const systemAudioEnabled = captureType === 'video' ? settings.video.captureSystemAudio : false;
+        const fps = captureType === 'video' ? settings.video.fps : settings.gif.fps;
+        const includeCursor = captureType === 'video' ? settings.video.includeCursor : settings.gif.includeCursor;
+        const maxDurationSecs = captureType === 'video' ? settings.video.maxDurationSecs : settings.gif.maxDurationSecs;
 
+        // Pass all recording settings to Rust before starting
         await invoke('set_recording_countdown', { secs: countdownSecs });
         await invoke('set_recording_system_audio', { enabled: systemAudioEnabled });
+        await invoke('set_recording_fps', { fps });
+        await invoke('set_recording_include_cursor', { include: includeCursor });
+        await invoke('set_recording_max_duration', { secs: maxDurationSecs ?? 0 });
+
+        // Video uses quality percentage, GIF uses quality preset
+        if (captureType === 'video') {
+          await invoke('set_recording_quality', { quality: settings.video.quality });
+        } else {
+          await invoke('set_gif_quality_preset', { preset: settings.gif.qualityPreset });
+        }
+
         await invoke('capture_overlay_confirm', { action: 'recording' });
       }
     } catch (e) {

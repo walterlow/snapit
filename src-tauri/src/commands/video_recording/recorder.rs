@@ -17,6 +17,7 @@ use windows_capture::{
 };
 
 use super::audio_sync::AudioCaptureManager;
+use super::cursor::{composite_cursor, CursorCapture};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
 use super::{emit_state_change, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
@@ -386,6 +387,7 @@ fn run_video_capture(
     };
 
     println!("[CAPTURE] Dimensions: {}x{}, crop: {:?}, fps: {}", width, height, crop_region, settings.fps);
+    eprintln!("[CAPTURE] include_cursor: {}, quality: {}", settings.include_cursor, settings.quality);
 
     let bitrate = settings.calculate_bitrate(width, height);
     let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
@@ -449,6 +451,13 @@ fn run_video_capture(
         }
 
         Some(manager)
+    } else {
+        None
+    };
+
+    // Cursor capture manager (for include_cursor option)
+    let mut cursor_capture = if settings.include_cursor {
+        Some(CursorCapture::new())
     } else {
         None
     };
@@ -560,10 +569,55 @@ fn run_video_capture(
                         let mut raw_data = Vec::new();
                         let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
 
-                        // Convert BGRA to BGRA (DXGI is already BGRA) and flip vertically
+                        // Copy to mutable buffer for cursor compositing
+                        let mut frame_data = pixel_data.to_vec();
+
+                        // Composite cursor onto frame (before vertical flip)
+                        if let Some(ref mut cursor_cap) = cursor_capture {
+                            match cursor_cap.capture() {
+                                Ok(cursor_state) => {
+                                    if cursor_state.visible {
+                                        // Get capture region offset for cursor positioning
+                                        let (region_x, region_y) = crop_region
+                                            .map(|(x, y, _, _)| (x, y))
+                                            .unwrap_or((0, 0));
+
+                                        // Debug: log cursor info on first frame
+                                        if frame_count == 0 {
+                                            eprintln!("[CURSOR] Cursor visible at ({}, {}), size {}x{}, hotspot ({}, {}), region offset ({}, {})",
+                                                cursor_state.screen_x, cursor_state.screen_y,
+                                                cursor_state.width, cursor_state.height,
+                                                cursor_state.hotspot_x, cursor_state.hotspot_y,
+                                                region_x, region_y);
+                                            eprintln!("[CURSOR] Cursor bitmap size: {} bytes", cursor_state.bgra_data.len());
+                                        }
+
+                                        composite_cursor(
+                                            &mut frame_data,
+                                            width,
+                                            height,
+                                            &cursor_state,
+                                            region_x,
+                                            region_y,
+                                        );
+                                    } else if frame_count == 0 {
+                                        eprintln!("[CURSOR] Cursor not visible");
+                                    }
+                                }
+                                Err(e) => {
+                                    if frame_count == 0 {
+                                        eprintln!("[CURSOR] Failed to capture cursor: {}", e);
+                                    }
+                                }
+                            }
+                        } else if frame_count == 0 {
+                            eprintln!("[CURSOR] Cursor capture disabled (include_cursor=false)");
+                        }
+
+                        // Flip vertically (DXGI returns top-down, encoder expects bottom-up)
                         let row_size = (width as usize) * 4;
-                        let mut flipped_data = Vec::with_capacity(pixel_data.len());
-                        for row in pixel_data.chunks_exact(row_size).rev() {
+                        let mut flipped_data = Vec::with_capacity(frame_data.len());
+                        for row in frame_data.chunks_exact(row_size).rev() {
                             flipped_data.extend_from_slice(row);
                         }
 
@@ -751,9 +805,16 @@ fn run_gif_capture(
         width,
         height,
         settings.fps,
-        settings.quality,
+        settings.gif_quality_preset,
         max_frames,
     )));
+
+    // Cursor capture manager (for include_cursor option)
+    let mut cursor_capture = if settings.include_cursor {
+        Some(CursorCapture::new())
+    } else {
+        None
+    };
 
     // Recording loop
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
@@ -804,8 +865,32 @@ fn run_gif_capture(
                     let mut raw_data = Vec::new();
                     let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
 
+                    // Copy to mutable buffer for cursor compositing
+                    let mut frame_data = pixel_data.to_vec();
+
+                    // Composite cursor onto frame (in BGRA format)
+                    if let Some(ref mut cursor_cap) = cursor_capture {
+                        if let Ok(cursor_state) = cursor_cap.capture() {
+                            if cursor_state.visible {
+                                // Get capture region offset for cursor positioning
+                                let (region_x, region_y) = crop_region
+                                    .map(|(x, y, _, _)| (x, y))
+                                    .unwrap_or((0, 0));
+
+                                composite_cursor(
+                                    &mut frame_data,
+                                    width,
+                                    height,
+                                    &cursor_state,
+                                    region_x,
+                                    region_y,
+                                );
+                            }
+                        }
+                    }
+
                     // Convert BGRA to RGBA for GIF encoder
-                    let rgba_data: Vec<u8> = pixel_data
+                    let rgba_data: Vec<u8> = frame_data
                         .chunks_exact(4)
                         .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
                         .collect();

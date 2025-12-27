@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::video_recording::GifQualityPreset;
+
 // ============================================================================
 // Screenshot Settings
 // ============================================================================
@@ -105,9 +107,8 @@ impl Default for VideoSettings {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct GifSettings {
-    /// Quality setting (1-100). Affects GIF encoding quality.
-    #[ts(type = "number")]
-    pub quality: u32,
+    /// Quality preset (fast/balanced/high).
+    pub quality_preset: GifQualityPreset,
     /// Frames per second (10-30, capped for GIF).
     #[ts(type = "number")]
     pub fps: u32,
@@ -124,7 +125,7 @@ pub struct GifSettings {
 impl Default for GifSettings {
     fn default() -> Self {
         Self {
-            quality: 80,
+            quality_preset: GifQualityPreset::default(),
             fps: 15,
             max_duration_secs: 30,
             include_cursor: true,

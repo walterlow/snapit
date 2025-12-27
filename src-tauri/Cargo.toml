@@ -41,9 +41,6 @@ windows-capture = "2.0.0-alpha.7"
 # Image processing
 image = "0.25"
 
-# GIF encoding (high-quality)
-gifski = "1.34"
-
 # Audio capture
 cpal = "0.17"
 wasapi = "0.22"  # WASAPI loopback for system audio capture
@@ -56,10 +53,6 @@ lazy_static = "1.5"
 
 # Directory paths
 dirs = "5"
-
-# Image reference types (for gifski)
-imgref = "1.10"
-rgb = "0.8"
 
 # Base64 encoding
 base64 = "0.22"

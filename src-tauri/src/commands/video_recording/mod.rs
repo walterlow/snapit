@@ -2,7 +2,7 @@
 //!
 //! This module provides screen recording capabilities with the following features:
 //! - MP4 video recording with H.264 encoding via Windows Media Foundation
-//! - High-quality GIF recording with gifski
+//! - High-quality GIF recording with FFmpeg
 //! - Region, window, monitor, and all-monitors capture modes
 //! - Optional system audio and microphone capture
 //! - Configurable FPS (10-60) and quality settings
@@ -10,6 +10,8 @@
 pub mod audio;
 pub mod audio_sync;
 pub mod audio_wasapi;
+pub mod cursor;
+pub mod ffmpeg_gif_encoder;
 pub mod gif_encoder;
 pub mod recorder;
 pub mod state;
@@ -18,15 +20,19 @@ use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Emitter};
 use ts_rs::TS;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
+pub use ffmpeg_gif_encoder::GifQualityPreset;
 pub use state::RECORDING_CONTROLLER;
 
-// Global countdown preference (0 = no countdown, 3 = 3 second countdown, etc.)
+// Global recording settings (set from frontend before starting recording)
 static COUNTDOWN_SECS: AtomicU32 = AtomicU32::new(3);
-
-// Global system audio preference (true = capture system audio, false = no system audio)
 static SYSTEM_AUDIO_ENABLED: AtomicBool = AtomicBool::new(true);
+static FPS: AtomicU32 = AtomicU32::new(30);
+static QUALITY: AtomicU32 = AtomicU32::new(80);
+static GIF_QUALITY_PRESET: AtomicU8 = AtomicU8::new(1); // 0=Fast, 1=Balanced, 2=High
+static INCLUDE_CURSOR: AtomicBool = AtomicBool::new(true);
+static MAX_DURATION_SECS: AtomicU32 = AtomicU32::new(0); // 0 = unlimited
 
 /// Get the current countdown setting
 pub fn get_countdown_secs() -> u32 {
@@ -48,6 +54,74 @@ pub fn get_system_audio_enabled() -> bool {
 #[command]
 pub fn set_recording_system_audio(enabled: bool) {
     SYSTEM_AUDIO_ENABLED.store(enabled, Ordering::SeqCst);
+}
+
+/// Get the current FPS setting
+pub fn get_fps() -> u32 {
+    FPS.load(Ordering::SeqCst)
+}
+
+/// Set the FPS (called from frontend before starting recording)
+#[command]
+pub fn set_recording_fps(fps: u32) {
+    // Clamp to valid range (10-60)
+    FPS.store(fps.clamp(10, 60), Ordering::SeqCst);
+}
+
+/// Get the current quality setting
+pub fn get_quality() -> u32 {
+    QUALITY.load(Ordering::SeqCst)
+}
+
+/// Set the quality (called from frontend before starting recording)
+#[command]
+pub fn set_recording_quality(quality: u32) {
+    // Clamp to valid range (1-100)
+    QUALITY.store(quality.clamp(1, 100), Ordering::SeqCst);
+}
+
+/// Get the current GIF quality preset
+pub fn get_gif_quality_preset() -> GifQualityPreset {
+    match GIF_QUALITY_PRESET.load(Ordering::SeqCst) {
+        0 => GifQualityPreset::Fast,
+        2 => GifQualityPreset::High,
+        _ => GifQualityPreset::Balanced,
+    }
+}
+
+/// Set the GIF quality preset (called from frontend before starting GIF recording)
+#[command]
+pub fn set_gif_quality_preset(preset: GifQualityPreset) {
+    let value = match preset {
+        GifQualityPreset::Fast => 0,
+        GifQualityPreset::Balanced => 1,
+        GifQualityPreset::High => 2,
+    };
+    GIF_QUALITY_PRESET.store(value, Ordering::SeqCst);
+}
+
+/// Get the current include_cursor setting
+pub fn get_include_cursor() -> bool {
+    INCLUDE_CURSOR.load(Ordering::SeqCst)
+}
+
+/// Set whether to include cursor (called from frontend before starting recording)
+#[command]
+pub fn set_recording_include_cursor(include: bool) {
+    eprintln!("[SETTINGS] set_recording_include_cursor({})", include);
+    INCLUDE_CURSOR.store(include, Ordering::SeqCst);
+}
+
+/// Get the current max duration setting (0 = unlimited)
+pub fn get_max_duration_secs() -> Option<u32> {
+    let val = MAX_DURATION_SECS.load(Ordering::SeqCst);
+    if val == 0 { None } else { Some(val) }
+}
+
+/// Set the max duration (called from frontend before starting recording)
+#[command]
+pub fn set_recording_max_duration(secs: u32) {
+    MAX_DURATION_SECS.store(secs, Ordering::SeqCst);
 }
 
 // ============================================================================
@@ -132,8 +206,10 @@ pub struct RecordingSettings {
     pub include_cursor: bool,
     /// Audio capture settings.
     pub audio: AudioSettings,
-    /// Quality setting (1-100). Affects video bitrate or GIF quality.
+    /// Quality setting (1-100). Affects video bitrate.
     pub quality: u32,
+    /// GIF encoding preset (Fast/Balanced/High).
+    pub gif_quality_preset: GifQualityPreset,
     /// Countdown duration before recording starts (0-10 seconds).
     pub countdown_secs: u32,
 }
@@ -148,6 +224,7 @@ impl Default for RecordingSettings {
             include_cursor: true,
             audio: AudioSettings::default(),
             quality: 80,
+            gif_quality_preset: GifQualityPreset::default(),
             countdown_secs: 3,
         }
     }

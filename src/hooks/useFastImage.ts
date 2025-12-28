@@ -135,21 +135,10 @@ export function useFastImage(
 
     return () => {
       isMounted = false;
-      // Clean up canvas by clearing its context and resetting dimensions
-      if (canvasRef.current) {
-        const ctx = canvasRef.current.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        }
-        canvasRef.current.width = 0;
-        canvasRef.current.height = 0;
-        canvasRef.current = null;
-      }
-      // Clean up image by clearing src to release memory
-      if (imageRef.current) {
-        imageRef.current.src = '';
-        imageRef.current = null;
-      }
+      // Just null the refs - don't mutate dimensions as Konva may still reference them
+      // Browser will garbage collect when there are no more references
+      canvasRef.current = null;
+      imageRef.current = null;
     };
   }, [source]);
 

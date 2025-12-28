@@ -37,15 +37,14 @@ impl TrayState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Set WebView2 GPU optimization flags (Windows only)
-    // These improve resize performance by enabling GPU rasterization
-    #[cfg(target_os = "windows")]
-    {
-        std::env::set_var(
-            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-            "--enable-gpu-rasterization --enable-zero-copy",
-        );
-    }
+    // WebView2 GPU flags disabled - was causing capture artifacts
+    // #[cfg(target_os = "windows")]
+    // {
+    //     std::env::set_var(
+    //         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+    //         "--enable-gpu-rasterization --enable-zero-copy",
+    //     );
+    // }
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -117,7 +116,6 @@ pub fn run() {
             // Window commands
             commands::window::show_overlay,
             commands::window::hide_overlay,
-            commands::window::open_editor,
             commands::window::open_editor_fast,
             commands::window::show_recording_border,
             commands::window::hide_recording_border,
@@ -228,6 +226,11 @@ pub fn run() {
                 let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
                     .expect("Failed to load window icon");
                 let _ = window.set_icon(icon);
+
+                // NOTE: DWM blur-behind transparency disabled - was causing capture artifacts
+                // The main window uses transparent: true in tauri.conf.json which handles
+                // transparency via WS_EX_LAYERED instead
+
                 let _ = window.show();
             }
 

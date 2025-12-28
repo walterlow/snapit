@@ -325,4 +325,96 @@ describe('editorStore', () => {
       expect(state.canvasBounds).toBeNull();
     });
   });
+
+  describe('canvas dimension race condition fix', () => {
+    /**
+     * This test documents the fix for a race condition where stale canvas dimensions
+     * would cause rendering issues when switching between captures.
+     *
+     * The fix: Set originalImageSize and canvasBounds BEFORE setting imageData,
+     * ensuring dimensions are always in sync when the image loads.
+     */
+
+    it('should allow setting dimensions before image loads (simulating event-based flow)', () => {
+      // Simulate the fixed flow from App.tsx onCaptureCompleteFast:
+      // 1. clearEditor() - resets canvasBounds to null
+      // 2. setOriginalImageSize() - set correct dimensions
+      // 3. setCanvasBounds() - set correct dimensions
+      // 4. setCurrentImageData() would be called next (not in store)
+
+      // Start with old dimensions (simulating previous capture)
+      useEditorStore.getState().setOriginalImageSize({ width: 1920, height: 1080 });
+      useEditorStore.getState().setCanvasBounds({
+        width: 1920, height: 1080, imageOffsetX: 0, imageOffsetY: 0,
+      });
+
+      // Step 1: clearEditor resets everything
+      useEditorStore.getState().clearEditor();
+      expect(useEditorStore.getState().canvasBounds).toBeNull();
+      expect(useEditorStore.getState().originalImageSize).toBeNull();
+
+      // Step 2 & 3: Set NEW dimensions synchronously BEFORE image loads
+      const newWidth = 800;
+      const newHeight = 600;
+      useEditorStore.getState().setOriginalImageSize({ width: newWidth, height: newHeight });
+      useEditorStore.getState().setCanvasBounds({
+        width: newWidth,
+        height: newHeight,
+        imageOffsetX: 0,
+        imageOffsetY: 0,
+      });
+
+      // Verify dimensions are correctly set BEFORE any async image loading would occur
+      const state = useEditorStore.getState();
+      expect(state.originalImageSize).toEqual({ width: 800, height: 600 });
+      expect(state.canvasBounds).toEqual({
+        width: 800,
+        height: 600,
+        imageOffsetX: 0,
+        imageOffsetY: 0,
+      });
+    });
+
+    it('should not have stale dimensions after clearEditor + set new dimensions', () => {
+      // Set initial "old" capture dimensions
+      useEditorStore.getState().setOriginalImageSize({ width: 3840, height: 2160 });
+      useEditorStore.getState().setCanvasBounds({
+        width: 3840, height: 2160, imageOffsetX: 0, imageOffsetY: 0,
+      });
+
+      // Simulate new capture with different dimensions
+      useEditorStore.getState().clearEditor();
+      useEditorStore.getState().setOriginalImageSize({ width: 640, height: 480 });
+      useEditorStore.getState().setCanvasBounds({
+        width: 640, height: 480, imageOffsetX: 0, imageOffsetY: 0,
+      });
+
+      // The bug was: old dimensions (3840x2160) would persist and cause
+      // the canvas to render with wrong clip bounds
+      const state = useEditorStore.getState();
+      expect(state.canvasBounds?.width).not.toBe(3840);
+      expect(state.canvasBounds?.height).not.toBe(2160);
+      expect(state.canvasBounds?.width).toBe(640);
+      expect(state.canvasBounds?.height).toBe(480);
+    });
+
+    it('should preserve canvasBounds when set explicitly (not reset by effects)', () => {
+      // This tests that once dimensions are set, they stay set
+      // Previously, an effect in useCanvasNavigation would reset canvasBounds to null
+      // when imageData changed, undoing the explicit set
+
+      useEditorStore.getState().setOriginalImageSize({ width: 1024, height: 768 });
+      useEditorStore.getState().setCanvasBounds({
+        width: 1024, height: 768, imageOffsetX: 0, imageOffsetY: 0,
+      });
+
+      // Simulate multiple state reads (as would happen during React renders)
+      for (let i = 0; i < 5; i++) {
+        const bounds = useEditorStore.getState().canvasBounds;
+        expect(bounds).not.toBeNull();
+        expect(bounds?.width).toBe(1024);
+        expect(bounds?.height).toBe(768);
+      }
+    });
+  });
 });

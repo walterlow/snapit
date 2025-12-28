@@ -16,8 +16,6 @@ import { useSettingsStore } from '../stores/settingsStore';
 interface AppEventCallbacks {
   /** Called when a recording completes - should refresh the library */
   onRecordingComplete: () => void;
-  /** Called when a standard capture completes (base64 path) */
-  onCaptureComplete: (imageData: string) => Promise<void>;
   /** Called when a fast capture completes (file path) */
   onCaptureCompleteFast: (data: {
     file_path: string;
@@ -33,8 +31,7 @@ interface AppEventCallbacks {
  * - recording-state-changed: Refresh library on recording complete
  * - open-settings: Open settings modal from tray
  * - create-capture-toolbar: Create selection toolbar window
- * - capture-complete: Handle standard screenshot capture
- * - capture-complete-fast: Handle fast path screenshot capture
+ * - capture-complete-fast: Handle screenshot capture (raw RGBA file path)
  */
 export function useAppEventListeners(callbacks: AppEventCallbacks) {
   useEffect(() => {
@@ -109,26 +106,15 @@ export function useAppEventListeners(callbacks: AppEventCallbacks) {
       )
     );
 
-    // Standard capture complete (base64)
-    unlisteners.push(
-      listen<string>('capture-complete', async (event) => {
-        try {
-          await callbacks.onCaptureComplete(event.payload);
-          toast.success('Screenshot captured');
-        } catch {
-          toast.error('Failed to save capture');
-        }
-      })
-    );
-
     // Fast capture complete (file path)
     unlisteners.push(
       listen<{ file_path: string; width: number; height: number }>(
         'capture-complete-fast',
         async (event) => {
+          // Show toast immediately - don't wait for save to complete
+          toast.success('Screenshot captured');
           try {
             await callbacks.onCaptureCompleteFast(event.payload);
-            toast.success('Screenshot captured');
           } catch {
             // Silently fail - the capture is already displayed
           }

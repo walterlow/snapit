@@ -634,12 +634,12 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             );
           })()}
 
-          {/* Cropped canvas content */}
-          {image && (() => {
-            const clipX = Math.round(visibleBounds?.x ?? 0);
-            const clipY = Math.round(visibleBounds?.y ?? 0);
-            const clipW = Math.round(visibleBounds?.width ?? navigation.canvasSize.width);
-            const clipH = Math.round(visibleBounds?.height ?? navigation.canvasSize.height);
+          {/* Cropped canvas content - only render when visibleBounds is ready */}
+          {image && visibleBounds && (() => {
+            const clipX = Math.round(visibleBounds.x);
+            const clipY = Math.round(visibleBounds.y);
+            const clipW = Math.round(visibleBounds.width);
+            const clipH = Math.round(visibleBounds.height);
             const radius = compositorSettings.enabled ? compositorSettings.borderRadius : 0;
 
             return (

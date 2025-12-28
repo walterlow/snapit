@@ -92,7 +92,7 @@ export const useCanvasNavigation = ({
   const [isInitialFit, setIsInitialFit] = useState(true);
   const [isReady, setIsReady] = useState(false);
 
-  // Reset initial fit when image changes
+  // Reset fit state when image changes (canvasBounds is now set explicitly by caller)
   useEffect(() => {
     setIsInitialFit(true);
     setIsReady(false);

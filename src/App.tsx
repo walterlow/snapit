@@ -174,20 +174,23 @@ function App() {
   const eventCallbacks = useMemo(
     () => ({
       onRecordingComplete: loadCaptures,
-      onCaptureComplete: async (imageData: string) => {
-        await saveNewCapture(imageData, 'region', {});
-        clearEditor();
-        clearHistory();
-      },
       onCaptureCompleteFast: async (data: { file_path: string; width: number; height: number }) => {
         clearEditor();
         clearHistory();
+        // Set dimensions BEFORE setting image data - prevents race condition with effects
+        setOriginalImageSize({ width: data.width, height: data.height });
+        setCanvasBounds({
+          width: data.width,
+          height: data.height,
+          imageOffsetX: 0,
+          imageOffsetY: 0,
+        });
         setCurrentImageData(data.file_path);
         setView('editor');
         await saveNewCaptureFromFile(data.file_path, data.width, data.height, 'region', {}, { silent: true });
       },
     }),
-    [loadCaptures, saveNewCapture, clearEditor, setCurrentImageData, setView, saveNewCaptureFromFile]
+    [loadCaptures, clearEditor, setCurrentImageData, setView, saveNewCaptureFromFile, setOriginalImageSize, setCanvasBounds]
   );
 
   // Consolidated Tauri event listeners (replaces 5 individual useEffect hooks)

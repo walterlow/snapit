@@ -61,16 +61,10 @@ pub async fn get_windows() -> Result<Vec<WindowInfo>, String> {
 }
 
 /// Capture a specific window by its ID.
-/// Uses WGC for transparency support, falls back to xcap.
+/// Uses xcap (PrintWindow) for clean edges without DWM artifacts.
 #[command]
 pub async fn capture_window(window_id: u32) -> Result<CaptureResult, String> {
-    match wgc::capture_window(window_id as isize) {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!("[CAPTURE] WGC window failed: {:?}, trying xcap", e);
-            fallback::capture_window(window_id).map_err(|e| e.to_string())
-        }
-    }
+    fallback::capture_window(window_id).map_err(|e| e.to_string())
 }
 
 /// Capture a specific region from the screen.
@@ -401,24 +395,9 @@ fn write_rgba_to_temp_file(rgba_data: &[u8], width: u32, height: u32) -> Result<
 
 /// Fast capture of a window - returns file path instead of base64.
 /// Skips PNG encoding for ~300-500ms savings on large captures.
-/// Uses WGC for transparency support, falls back to xcap.
+/// Uses xcap (PrintWindow) for clean edges without DWM artifacts.
 #[command]
 pub async fn capture_window_fast(window_id: u32) -> Result<FastCaptureResult, String> {
-    // Try WGC first for transparency
-    match wgc::capture_window_raw(window_id as isize) {
-        Ok((rgba_data, width, height)) => {
-            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            return Ok(FastCaptureResult {
-                file_path,
-                width,
-                height,
-                has_transparency: true,
-            });
-        }
-        Err(e) => println!("[CAPTURE] WGC window failed: {:?}, trying xcap", e),
-    }
-
-    // Fallback to xcap
     fallback::capture_window_raw(window_id)
         .map_err(|e| e.to_string())
         .and_then(|(rgba_data, width, height)| {

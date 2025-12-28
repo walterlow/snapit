@@ -108,23 +108,66 @@ pub fn get_windows() -> Result<Vec<WindowInfo>, CaptureError> {
 }
 
 /// Capture a specific window by ID.
+/// Uses screen region capture (BitBlt) instead of PrintWindow to avoid DWM artifacts.
 pub fn capture_window(window_id: u32) -> Result<CaptureResult, CaptureError> {
-    let windows = Window::all()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get windows: {}", e)))?;
+    let (rgba_data, width, height) = capture_window_raw(window_id)?;
 
-    let window = windows
-        .into_iter()
-        .find(|w| w.id().unwrap_or(0) == window_id)
-        .ok_or(CaptureError::WindowNotFound)?;
-
-    let image = window
-        .capture_image()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture window: {}", e)))?;
+    // Convert to image and encode
+    let image = image::RgbaImage::from_raw(width, height, rgba_data)
+        .ok_or_else(|| CaptureError::CaptureFailed("Failed to create image from raw data".into()))?;
 
     encode_image_to_result(image, false)
 }
 
 /// Capture a specific window and return raw RGBA data.
+/// Uses screen region capture (BitBlt) instead of PrintWindow to avoid DWM artifacts.
+#[cfg(target_os = "windows")]
+pub fn capture_window_raw(window_id: u32) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+    let hwnd = HWND(window_id as isize as *mut std::ffi::c_void);
+
+    // Get both regular and DWM bounds for comparison
+    let mut window_rect = RECT::default();
+    let mut dwm_rect = RECT::default();
+
+    unsafe {
+        let _ = GetWindowRect(hwnd, &mut window_rect);
+        let _ = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut dwm_rect as *mut _ as *mut _,
+            std::mem::size_of::<RECT>() as u32,
+        );
+    }
+
+    println!("[CAPTURE] Window rect: {:?}", window_rect);
+    println!("[CAPTURE] DWM rect: {:?}", dwm_rect);
+
+    // Use DWM bounds (excludes shadow)
+    let x = dwm_rect.left;
+    let y = dwm_rect.top;
+    let width = (dwm_rect.right - dwm_rect.left) as u32;
+    let height = (dwm_rect.bottom - dwm_rect.top) as u32;
+
+    println!("[CAPTURE] Capturing region: x={}, y={}, w={}, h={}", x, y, width, height);
+
+    if width == 0 || height == 0 {
+        return Err(CaptureError::CaptureFailed("Window has zero dimensions".into()));
+    }
+
+    // Use screen region capture instead of PrintWindow (avoids DWM artifacts)
+    capture_screen_region_raw(super::types::ScreenRegionSelection {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
 pub fn capture_window_raw(window_id: u32) -> Result<(Vec<u8>, u32, u32), CaptureError> {
     let windows = Window::all()
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get windows: {}", e)))?;
@@ -242,8 +285,13 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
         let (_idx, mon) = overlapping[0];
         let mon_x = mon.x().unwrap_or(0);
         let mon_y = mon.y().unwrap_or(0);
+        let mon_scale = mon.scale_factor().unwrap_or(1.0);
         let rel_x = (sel_x - mon_x).max(0) as u32;
         let rel_y = (sel_y - mon_y).max(0) as u32;
+
+        println!("[CAPTURE] Selection: x={}, y={}, w={}, h={}", sel_x, sel_y, selection.width, selection.height);
+        println!("[CAPTURE] Monitor: x={}, y={}, scale={}", mon_x, mon_y, mon_scale);
+        println!("[CAPTURE] Relative: x={}, y={}", rel_x, rel_y);
 
         let image = mon
             .capture_region(rel_x, rel_y, selection.width, selection.height)

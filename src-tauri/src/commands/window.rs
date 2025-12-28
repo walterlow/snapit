@@ -63,7 +63,7 @@ fn set_physical_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, width: u32
 /// This uses a tiny off-screen blur region trick (from PowerToys) to get
 /// DWM-composited transparency without WS_EX_LAYERED, avoiding hardware video blackout.
 #[cfg(target_os = "windows")]
-fn apply_dwm_transparency(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub fn apply_dwm_transparency(window: &tauri::WebviewWindow) -> Result<(), String> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::{DwmEnableBlurBehindWindow, DWM_BLURBEHIND, DWM_BB_ENABLE, DWM_BB_BLURREGION};
     use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, HRGN};
@@ -101,7 +101,7 @@ fn apply_dwm_transparency(window: &tauri::WebviewWindow) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn apply_dwm_transparency(_window: &tauri::WebviewWindow) -> Result<(), String> {
+pub fn apply_dwm_transparency(_window: &tauri::WebviewWindow) -> Result<(), String> {
     // DWM is Windows-only, use regular transparency on other platforms
     Ok(())
 }
@@ -147,12 +147,12 @@ fn apply_rounded_corners(_window: &tauri::WebviewWindow) -> Result<(), String> {
 pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<(), String> {
     // Convert to owned String early to avoid lifetime issues with thread spawn
     let ct = capture_type.unwrap_or("screenshot").to_string();
-    
-    // Hide main window first
+
+    // Track if main window was visible (but don't hide it - user may want to capture it)
     if let Some(main_window) = app.get_webview_window("main") {
         let was_visible = main_window.is_visible().unwrap_or(false);
         MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
-        let _ = main_window.hide();
+        // Don't hide main window - user may want to capture their own app
     }
     
     // Clone capture type as owned String for use in spawned thread
@@ -340,34 +340,7 @@ pub async fn restore_main_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[command]
-pub async fn open_editor(app: AppHandle, image_data: String) -> Result<(), String> {
-    // Close all overlays and restore main window (this is for screenshots)
-    hide_overlay(app.clone(), None).await?;
-
-    // Show main window with the captured image
-    if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.unminimize();
-
-        main_window
-            .show()
-            .map_err(|e| format!("Failed to show main window: {}", e))?;
-
-        let _ = main_window.request_user_attention(Some(tauri::UserAttentionType::Informational));
-
-        main_window
-            .set_focus()
-            .map_err(|e| format!("Failed to focus window: {}", e))?;
-
-        main_window
-            .emit("capture-complete", &image_data)
-            .map_err(|e| format!("Failed to emit event: {}", e))?;
-    }
-
-    Ok(())
-}
-
-/// Fast open_editor variant that accepts a file path to raw RGBA data.
+/// Open editor with a file path to raw RGBA data.
 /// This is used with fast capture commands to skip PNG encoding on the Rust side.
 /// The frontend will handle conversion to displayable format using browser APIs.
 #[command]

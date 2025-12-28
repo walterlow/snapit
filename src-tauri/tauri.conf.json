@@ -31,8 +31,8 @@
         "minHeight": 600,
         "center": true,
         "resizable": true,
-        "visible": false,
-        "decorations": false,
+        "visible": true,
+        "decorations": true,
         "transparent": true,
         "shadow": true,
         "dragDropEnabled": true

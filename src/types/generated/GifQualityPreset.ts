@@ -2,5 +2,13 @@
 
 /**
  * Quality preset for GIF encoding.
+ *
+ * All presets use:
+ * - `stats_mode=full`: Global palette optimized across all frames
+ * - `diff_mode=rectangle`: Only encodes changed rectangular regions
+ * - `+transdiff`: Transparency for unchanged pixels
+ *
+ * These are ideal for screen recording where colors are consistent
+ * and most of the frame stays static between captures.
  */
 export type GifQualityPreset = "fast" | "balanced" | "high";

@@ -1,8 +1,7 @@
 //! FFmpeg-based GIF encoding with direct piping.
 //!
-//! Uses per-frame palette generation for optimal color accuracy.
-//! Each frame gets its own 256-color palette instead of sharing
-//! a global palette across all frames.
+//! Optimized for screen recording with global palette and diff_mode.
+//! Uses rectangle diff to only encode changed regions (huge size savings).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -14,39 +13,46 @@ use ts_rs::TS;
 use super::gif_encoder::GifFrame;
 
 /// Quality preset for GIF encoding.
-/// All presets use per-frame palette for better color accuracy.
+///
+/// All presets use:
+/// - `stats_mode=full`: Global palette optimized across all frames
+/// - `diff_mode=rectangle`: Only encodes changed rectangular regions
+/// - `+transdiff`: Transparency for unchanged pixels
+///
+/// These are ideal for screen recording where colors are consistent
+/// and most of the frame stays static between captures.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub enum GifQualityPreset {
-    /// No dithering - fastest, may show banding.
+    /// Smallest file size: 128 colors, no dithering.
+    /// Best for: quick previews, slow connections, simple UI content.
     Fast,
-    /// Bayer dithering - good speed/quality balance.
+    /// Good balance: 256 colors, bayer dithering.
+    /// Best for: most screen recordings, default choice.
     #[default]
     Balanced,
-    /// Floyd-Steinberg dithering - best quality, slower.
+    /// Best quality: 256 colors, floyd-steinberg dithering.
+    /// Best for: detailed content, gradients, final deliverables.
     High,
 }
 
 impl GifQualityPreset {
     /// Get the FFmpeg filter string for this preset.
-    /// Optimized for screen recording with global palette and diff_mode.
     fn to_filter(&self) -> &'static str {
-        // Global palette (stats_mode=full): analyzes ALL frames for optimal 256 colors
-        // - Better for screen recording where colors are consistent across frames
-        // - Smaller file size (no per-frame palette overhead)
-        // diff_mode=rectangle: only updates changed rectangular regions
-        // - Huge file size savings for screen recording where most pixels don't change
+        // All presets use:
+        // - stats_mode=full: global palette from all frames
+        // - diff_mode=rectangle: only encode changed regions
         match self {
-            // Fast: global palette, no dithering, rectangle diff
+            // Fast: 128 colors, no dithering (smallest files)
             GifQualityPreset::Fast =>
-                "split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",
-            // Balanced: global palette, bayer dithering, rectangle diff
+                "split[a][b];[a]palettegen=max_colors=128:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",
+            // Balanced: 256 colors, bayer dithering (good quality/size)
             GifQualityPreset::Balanced =>
-                "split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
-            // High: global palette, floyd_steinberg, rectangle diff
+                "split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+            // High: 256 colors, floyd_steinberg (best quality)
             GifQualityPreset::High =>
-                "split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=floyd_steinberg:diff_mode=rectangle",
+                "split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=floyd_steinberg:diff_mode=rectangle",
         }
     }
 }

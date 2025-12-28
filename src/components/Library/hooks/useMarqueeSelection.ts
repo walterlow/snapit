@@ -13,6 +13,9 @@ export interface VirtualLayoutInfo {
   // Layout offsets to match VirtualizedGrid positioning
   contentOffsetY: number; // vertical offset from `top: virtualRow.start + 32` in VirtualizedGrid
   contentOffsetX: number; // horizontal padding (px-8 = 32px) on virtual items
+  // Grid centering info (for calculating horizontal offset when grid is narrower than container)
+  gridWidth: number;       // total width of the card grid
+  containerWidth: number;  // total container width
   dateGroups: { label: string; captures: CaptureListItem[] }[];
 }
 
@@ -92,8 +95,14 @@ export function useMarqueeSelection({
       const {
         viewMode, cardsPerRow, gridRowHeight, listRowHeight,
         cardWidth, headerHeight, gridGap,
-        contentOffsetX, contentOffsetY, dateGroups
+        contentOffsetX, contentOffsetY, gridWidth, containerWidth, dateGroups
       } = virtualLayout;
+
+      // Calculate horizontal offset from centering (grid is centered within container)
+      // Container has px-8 (32px) padding on each side, so available width is containerWidth - 64
+      const availableWidth = containerWidth - 64; // CONTAINER_PADDING from VirtualizedGrid
+      const centeringOffset = Math.max(0, (availableWidth - gridWidth) / 2);
+      const gridStartX = contentOffsetX + centeringOffset;
 
       // Start Y at the content offset (accounts for paddingTop + positioning in VirtualizedGrid)
       let currentY = contentOffsetY;
@@ -118,14 +127,14 @@ export function useMarqueeSelection({
               height: itemHeight,
             };
           } else {
-            // Grid view: multiple columns
+            // Grid view: multiple columns (cards are centered)
             const row = Math.floor(captureIndex / cardsPerRow);
             const col = captureIndex % cardsPerRow;
             const GRID_ROW_SPACING = 24; // ROW_SPACING constant from VirtualizedGrid
             const cardHeight = gridRowHeight - GRID_ROW_SPACING;
 
             return {
-              left: contentOffsetX + col * (cardWidth + gridGap),
+              left: gridStartX + col * (cardWidth + gridGap),
               top: currentY + row * gridRowHeight,
               width: cardWidth,
               height: cardHeight,

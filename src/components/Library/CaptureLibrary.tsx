@@ -21,7 +21,7 @@ import {
   GlassBlobToolbar,
   DeleteDialog,
 } from './components';
-import { VirtualizedGrid, getColumnsForWidth, calculateRowHeight } from './VirtualizedGrid';
+import { VirtualizedGrid, getColumnsForWidth, calculateRowHeight, getCardWidth, getGridWidth } from './VirtualizedGrid';
 
 type ViewMode = 'grid' | 'list';
 
@@ -137,24 +137,34 @@ export const CaptureLibrary: React.FC = () => {
     // Use the same breakpoint-based column calculation as VirtualizedGrid
     const cardsPerRow = viewMode === 'grid' ? getColumnsForWidth(containerWidth) : 1;
     const availableWidth = containerWidth - LAYOUT.CONTAINER_PADDING;
-    const totalGaps = LAYOUT.GRID_GAP * (cardsPerRow - 1);
-    const cardWidth = (availableWidth - totalGaps) / cardsPerRow;
+
+    // Use the same card width calculation as VirtualizedGrid (capped at MAX_CARD_WIDTH)
+    const cardWidth = viewMode === 'grid'
+      ? getCardWidth(containerWidth, cardsPerRow)
+      : availableWidth;
 
     // Use dynamic row height calculation matching VirtualizedGrid
     const gridRowHeight = viewMode === 'grid'
       ? calculateRowHeight(containerWidth, cardsPerRow)
       : LAYOUT.LIST_ROW_HEIGHT;
 
+    // Calculate grid width for centering calculations
+    const gridWidth = viewMode === 'grid'
+      ? getGridWidth(containerWidth, cardsPerRow)
+      : availableWidth;
+
     return {
       viewMode,
       cardsPerRow,
       gridRowHeight,
       listRowHeight: LAYOUT.LIST_ROW_HEIGHT,
-      cardWidth: viewMode === 'list' ? availableWidth : cardWidth,
+      cardWidth,
       headerHeight: LAYOUT.HEADER_HEIGHT,
       gridGap: LAYOUT.GRID_GAP,
       contentOffsetY: CONTENT_OFFSET_Y,
       contentOffsetX: CONTENT_OFFSET_X,
+      gridWidth,
+      containerWidth,
       dateGroups,
     };
   }, [useVirtualization, containerWidth, dateGroups, viewMode]);

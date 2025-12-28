@@ -76,6 +76,12 @@ export function calculateRowHeight(containerWidth: number, columns: number): num
   return cardHeight + CARD_GAP;
 }
 
+// Calculate total grid width (for centering headers and cards together)
+export function getGridWidth(containerWidth: number, columns: number): number {
+  const cardWidth = getCardWidth(containerWidth, columns);
+  return columns * cardWidth + (columns - 1) * CARD_GAP;
+}
+
 export function VirtualizedGrid({
   dateGroups,
   viewMode,
@@ -182,16 +188,24 @@ export function VirtualizedGrid({
 
   useThumbnailPrefetch(rows, visibleRange, 3);
 
+  // Calculate grid width for centering (same width for headers and cards)
+  const gridWidth = useMemo(
+    () => getGridWidth(containerWidth, cardsPerRow),
+    [containerWidth, cardsPerRow]
+  );
+
   // Render row content
   const renderRowContent = useCallback(
     (row: VirtualRow) => {
       if (row.type === 'header') {
         return (
-          <DateHeader
-            label={row.label}
-            count={row.count}
-            isFirst={row.isFirst}
-          />
+          <div className="mx-auto" style={{ width: gridWidth }}>
+            <DateHeader
+              label={row.label}
+              count={row.count}
+              isFirst={row.isFirst}
+            />
+          </div>
         );
       }
 
@@ -223,30 +237,32 @@ export function VirtualizedGrid({
       const cardWidth = getCardWidth(containerWidth, cardsPerRow);
 
       return (
-        <div
-          className="grid gap-5 justify-center"
-          style={{
-            gridTemplateColumns: `repeat(${cardsPerRow}, ${cardWidth}px)`,
-          }}
-        >
-          {row.captures.map((capture) => (
-            <CaptureCard
-              key={capture.id}
-              capture={capture}
-              selected={selectedIds.has(capture.id)}
-              isLoading={loadingProjectId === capture.id}
-              allTags={allTags}
-              onSelect={onSelect}
-              onOpen={onOpen}
-              onToggleFavorite={() => onToggleFavorite(capture.id)}
-              onUpdateTags={(tags) => onUpdateTags(capture.id, tags)}
-              onDelete={() => onDelete(capture.id)}
-              onOpenInFolder={() => onOpenInFolder(capture)}
-              onCopyToClipboard={() => onCopyToClipboard(capture)}
-              onPlayMedia={() => onPlayMedia(capture)}
-              formatDate={formatDate}
-            />
-          ))}
+        <div className="mx-auto" style={{ width: gridWidth }}>
+          <div
+            className="grid gap-5"
+            style={{
+              gridTemplateColumns: `repeat(${cardsPerRow}, ${cardWidth}px)`,
+            }}
+          >
+            {row.captures.map((capture) => (
+              <CaptureCard
+                key={capture.id}
+                capture={capture}
+                selected={selectedIds.has(capture.id)}
+                isLoading={loadingProjectId === capture.id}
+                allTags={allTags}
+                onSelect={onSelect}
+                onOpen={onOpen}
+                onToggleFavorite={() => onToggleFavorite(capture.id)}
+                onUpdateTags={(tags) => onUpdateTags(capture.id, tags)}
+                onDelete={() => onDelete(capture.id)}
+                onOpenInFolder={() => onOpenInFolder(capture)}
+                onCopyToClipboard={() => onCopyToClipboard(capture)}
+                onPlayMedia={() => onPlayMedia(capture)}
+                formatDate={formatDate}
+              />
+            ))}
+          </div>
         </div>
       );
     },
@@ -254,6 +270,7 @@ export function VirtualizedGrid({
       viewMode,
       cardsPerRow,
       containerWidth,
+      gridWidth,
       selectedIds,
       loadingProjectId,
       allTags,

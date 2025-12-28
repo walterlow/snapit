@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getColumnsForWidth, getCardWidth, calculateRowHeight } from './VirtualizedGrid';
+import { getColumnsForWidth, getCardWidth, calculateRowHeight, getGridWidth } from './VirtualizedGrid';
 
 describe('VirtualizedGrid', () => {
   describe('getColumnsForWidth', () => {
@@ -51,6 +51,29 @@ describe('VirtualizedGrid', () => {
       // Card width 320px -> thumbnail 180px + footer 80px + gap 20px = 280px
       expect(calculateRowHeight(2560, 5)).toBe(280);
       expect(calculateRowHeight(3000, 5)).toBe(280);
+    });
+  });
+
+  describe('getGridWidth', () => {
+    it('calculates total grid width from columns and card width', () => {
+      // At 1200px with 4 cols: cardWidth=269, gridWidth = 4*269 + 3*20 = 1076 + 60 = 1136
+      expect(getGridWidth(1200, 4)).toBe(1136);
+    });
+
+    it('uses capped card width when calculating grid width', () => {
+      // At 2560px with 5 cols: cardWidth=320 (capped), gridWidth = 5*320 + 4*20 = 1600 + 80 = 1680
+      expect(getGridWidth(2560, 5)).toBe(1680);
+      // Same result for larger container since card width is capped
+      expect(getGridWidth(3000, 5)).toBe(1680);
+    });
+
+    it('is narrower than container when cards are at max width', () => {
+      // At 2560px: available = 2560-64=2496, gridWidth=1680, so grid is centered
+      const containerWidth = 2560;
+      const cols = 5;
+      const gridWidth = getGridWidth(containerWidth, cols);
+      const availableWidth = containerWidth - 64; // CONTAINER_PADDING
+      expect(gridWidth).toBeLessThan(availableWidth);
     });
   });
 });

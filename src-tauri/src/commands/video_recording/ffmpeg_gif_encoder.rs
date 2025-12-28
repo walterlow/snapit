@@ -12,6 +12,16 @@ use ts_rs::TS;
 
 use super::gif_encoder::GifFrame;
 
+/// RAII guard for automatic temp file cleanup.
+/// Ensures the temp file is deleted even on panic.
+struct TempFileGuard(PathBuf);
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// Quality preset for GIF encoding.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -142,19 +152,15 @@ impl FfmpegGifEncoder {
     where
         F: Fn(f32) + Send + Sync,
     {
-        // Create temp file for palette
+        // Create temp file for palette with RAII guard for automatic cleanup
         let temp_dir = std::env::temp_dir();
         let palette_path = temp_dir.join(format!("snapit_palette_{}.png", std::process::id()));
+        let _guard = TempFileGuard(palette_path.clone());
 
         // Pass 1: Generate palette (0% - 40%)
-        let pass1_result = self.generate_palette(frames, &palette_path, |p| {
+        self.generate_palette(frames, &palette_path, |p| {
             progress_callback(p * 0.4);
-        });
-
-        if let Err(e) = pass1_result {
-            let _ = std::fs::remove_file(&palette_path);
-            return Err(e);
-        }
+        })?;
 
         // Pass 2: Generate GIF with palette (40% - 100%)
         let dither = match self.preset {
@@ -162,14 +168,10 @@ impl FfmpegGifEncoder {
             _ => "bayer:bayer_scale=5",
         };
 
-        let result = self.apply_palette(frames, &palette_path, output_path, dither, |p| {
+        self.apply_palette(frames, &palette_path, output_path, dither, |p| {
             progress_callback(0.4 + p * 0.6);
-        });
-
-        // Clean up palette temp file
-        let _ = std::fs::remove_file(&palette_path);
-
-        result
+        })
+        // TempFileGuard automatically cleans up palette_path on drop
     }
 
     /// Pass 1: Generate palette from frames.

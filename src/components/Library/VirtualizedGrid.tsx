@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { CaptureListItem } from '../../types';
 import { DateHeader, CaptureCard, CaptureRow } from './components';
 import { useThumbnailPrefetch } from './hooks';
+import { LAYOUT } from '../../constants';
 
 interface DateGroup {
   label: string;
@@ -37,11 +38,6 @@ interface VirtualizedGridProps {
   isSelecting?: boolean;
   selectionRect?: { left: number; top: number; width: number; height: number };
 }
-
-// Row heights
-const HEADER_HEIGHT = 56;
-const CARD_ROW_HEIGHT = 280;
-const LIST_ROW_HEIGHT = 88; // 56px thumbnail + 24px padding (12px*2) + 8px gap
 
 // Breakpoint-based columns (fewer transitions = smoother resize)
 // Matches CSS breakpoints for consistency
@@ -143,9 +139,9 @@ export function VirtualizedGrid({
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: (index) => {
       const row = rows[index];
-      if (!row) return CARD_ROW_HEIGHT;
-      if (row.type === 'header') return HEADER_HEIGHT;
-      return viewMode === 'list' ? LIST_ROW_HEIGHT : CARD_ROW_HEIGHT;
+      if (!row) return LAYOUT.CARD_ROW_HEIGHT;
+      if (row.type === 'header') return LAYOUT.HEADER_HEIGHT;
+      return viewMode === 'list' ? LAYOUT.LIST_ROW_HEIGHT : LAYOUT.CARD_ROW_HEIGHT;
     },
     overscan: 5,
   });

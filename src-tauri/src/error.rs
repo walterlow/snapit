@@ -134,4 +134,29 @@ mod tests {
         let err: SnapItError = "test error".into();
         assert!(matches!(err, SnapItError::Other(_)));
     }
+
+    #[test]
+    fn test_lock_poisoning_recovery() {
+        use std::sync::Mutex;
+
+        let mutex = Mutex::new(42);
+
+        // Poison the mutex by panicking while holding the lock
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = mutex.lock().unwrap();
+            panic!("intentional panic to poison mutex");
+        });
+
+        // Verify the mutex is poisoned
+        assert!(mutex.lock().is_err());
+
+        // Verify LockResultExt properly converts the error
+        let result = mutex.lock().map_lock_err("test_mutex");
+        assert!(matches!(result, Err(SnapItError::LockPoisoned { .. })));
+
+        // Verify the context is preserved
+        if let Err(SnapItError::LockPoisoned { context }) = result {
+            assert_eq!(context, "test_mutex");
+        }
+    }
 }

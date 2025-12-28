@@ -24,6 +24,8 @@ use ts_rs::TS;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
+use crate::error::{LockResultExt, SnapItError};
+
 pub use ffmpeg_gif_encoder::GifQualityPreset;
 pub use state::RECORDING_CONTROLLER;
 
@@ -160,63 +162,69 @@ lazy_static! {
 }
 
 /// Get the current webcam settings (internal use).
-pub fn get_webcam_settings() -> WebcamSettings {
-    WEBCAM_SETTINGS.lock().unwrap().clone()
+pub fn get_webcam_settings() -> Result<WebcamSettings, SnapItError> {
+    Ok(WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.clone())
 }
 
 /// Get the current webcam settings (Tauri command).
 #[command]
-pub fn get_webcam_settings_cmd() -> WebcamSettings {
-    let settings = WEBCAM_SETTINGS.lock().unwrap().clone();
+pub fn get_webcam_settings_cmd() -> Result<WebcamSettings, SnapItError> {
+    let settings = WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.clone();
     eprintln!("[WEBCAM] get_webcam_settings_cmd returning enabled={}", settings.enabled);
-    settings
+    Ok(settings)
 }
 
 /// Check if webcam capture is enabled.
-pub fn is_webcam_enabled() -> bool {
-    WEBCAM_SETTINGS.lock().unwrap().enabled
+pub fn is_webcam_enabled() -> Result<bool, SnapItError> {
+    Ok(WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.enabled)
 }
 
 /// Set webcam enabled state.
 #[command]
-pub fn set_webcam_enabled(enabled: bool) {
+pub fn set_webcam_enabled(enabled: bool) -> Result<(), SnapItError> {
     eprintln!("[SETTINGS] set_webcam_enabled({})", enabled);
-    WEBCAM_SETTINGS.lock().unwrap().enabled = enabled;
+    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.enabled = enabled;
+    Ok(())
 }
 
 /// Set webcam device index.
 #[command]
-pub fn set_webcam_device(device_index: usize) {
+pub fn set_webcam_device(device_index: usize) -> Result<(), SnapItError> {
     eprintln!("[SETTINGS] set_webcam_device({})", device_index);
-    WEBCAM_SETTINGS.lock().unwrap().device_index = device_index;
+    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.device_index = device_index;
+    Ok(())
 }
 
 /// Set webcam position.
 #[command]
-pub fn set_webcam_position(position: WebcamPosition) {
+pub fn set_webcam_position(position: WebcamPosition) -> Result<(), SnapItError> {
     eprintln!("[SETTINGS] set_webcam_position({:?})", position);
-    WEBCAM_SETTINGS.lock().unwrap().position = position;
+    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.position = position;
+    Ok(())
 }
 
 /// Set webcam size.
 #[command]
-pub fn set_webcam_size(size: WebcamSize) {
+pub fn set_webcam_size(size: WebcamSize) -> Result<(), SnapItError> {
     eprintln!("[SETTINGS] set_webcam_size({:?})", size);
-    WEBCAM_SETTINGS.lock().unwrap().size = size;
+    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.size = size;
+    Ok(())
 }
 
 /// Set webcam shape.
 #[command]
-pub fn set_webcam_shape(shape: WebcamShape) {
+pub fn set_webcam_shape(shape: WebcamShape) -> Result<(), SnapItError> {
     eprintln!("[SETTINGS] set_webcam_shape({:?})", shape);
-    WEBCAM_SETTINGS.lock().unwrap().shape = shape;
+    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.shape = shape;
+    Ok(())
 }
 
 /// Set webcam mirror mode.
 #[command]
-pub fn set_webcam_mirror(mirror: bool) {
+pub fn set_webcam_mirror(mirror: bool) -> Result<(), SnapItError> {
     eprintln!("[SETTINGS] set_webcam_mirror({})", mirror);
-    WEBCAM_SETTINGS.lock().unwrap().mirror = mirror;
+    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.mirror = mirror;
+    Ok(())
 }
 
 /// Get available webcam devices.
@@ -319,7 +327,8 @@ pub async fn move_webcam_to_anchor(
     if let Some(window) = app.get_webview_window("webcam-preview") {
         // Get webcam size from settings
         let webcam_size = {
-            let settings = WEBCAM_SETTINGS.lock().unwrap();
+            let settings = WEBCAM_SETTINGS.lock()
+                .map_err(|_| "Failed to lock webcam settings".to_string())?;
             match settings.size {
                 WebcamSize::Small => 120,
                 WebcamSize::Medium => 160,
@@ -362,7 +371,8 @@ pub async fn clamp_webcam_to_selection(
     if let Some(window) = app.get_webview_window("webcam-preview") {
         // Get webcam size from settings
         let webcam_size = {
-            let settings = WEBCAM_SETTINGS.lock().unwrap();
+            let settings = WEBCAM_SETTINGS.lock()
+                .map_err(|_| "Failed to lock webcam settings".to_string())?;
             match settings.size {
                 WebcamSize::Small => 120,
                 WebcamSize::Medium => 160,
@@ -408,7 +418,9 @@ pub async fn clamp_webcam_to_selection(
 /// This replaces the browser's getUserMedia approach to avoid hardware conflicts.
 #[command]
 pub async fn start_webcam_preview(app: tauri::AppHandle) -> Result<(), String> {
-    let settings = WEBCAM_SETTINGS.lock().unwrap().clone();
+    let settings = WEBCAM_SETTINGS.lock()
+        .map_err(|_| "Failed to lock webcam settings".to_string())?
+        .clone();
     webcam::start_preview_service(app, settings.device_index, settings.mirror)
 }
 

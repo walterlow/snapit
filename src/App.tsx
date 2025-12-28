@@ -25,6 +25,7 @@ import { useVideoRecordingStore } from './stores/videoRecordingStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import { useUpdater } from './hooks/useUpdater';
 import { useTheme } from './hooks/useTheme';
+import { useEditorKeyboardShortcuts } from './hooks/useEditorKeyboardShortcuts';
 import { exportToClipboard, exportToFile } from './utils/canvasExport';
 import { createErrorHandler } from './utils/errorReporting';
 import type { Tool, CanvasShape, Annotation, CropBoundsAnnotation, CompositorSettingsAnnotation } from './types';
@@ -116,9 +117,6 @@ function App() {
   // Keyboard shortcuts help modal
   const [showShortcuts, setShowShortcuts] = useState(false);
 
-  // Command palette
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-
   // Delete confirmation dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -172,118 +170,6 @@ function App() {
   const handleOpenSettings = useCallback(() => {
     useSettingsStore.getState().openSettingsModal();
   }, []);
-
-  // Command palette shortcut (Ctrl+K / Cmd+K) - works in all views
-  useEffect(() => {
-    const handleCommandPalette = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault();
-        setCommandPaletteOpen(open => !open);
-      }
-    };
-    window.addEventListener('keydown', handleCommandPalette);
-    return () => window.removeEventListener('keydown', handleCommandPalette);
-  }, []);
-
-  // Keyboard shortcuts for undo/redo, compositor, and tools
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle in editor view
-      if (view !== 'editor') return;
-
-      // Don't handle shortcuts when typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      // Undo/Redo
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-        e.preventDefault();
-        handleRedo();
-        return;
-      }
-
-      // Tool shortcuts (only when no modifier keys)
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-      const toolShortcuts: Record<string, Tool> = {
-        'v': 'select',
-        'c': 'crop',
-        'a': 'arrow',
-        'l': 'line',
-        'r': 'rect',
-        'e': 'circle',
-        't': 'text',
-        'h': 'highlight',
-        'b': 'blur',
-        's': 'steps',
-        'p': 'pen',
-      };
-
-      const tool = toolShortcuts[e.key.toLowerCase()];
-      if (tool) {
-        e.preventDefault();
-        handleToolChange(tool);
-        return;
-      }
-
-      // G: Toggle background tool and compositor
-      if (e.key.toLowerCase() === 'g') {
-        e.preventDefault();
-        // If already on background tool, toggle the effect off and switch to select
-        if (selectedTool === 'background') {
-          setCompositorSettings({ enabled: false });
-          handleToolChange('select');
-        } else {
-          // Switch to background tool and enable effect
-          handleToolChange('background');
-          setCompositorSettings({ enabled: true });
-        }
-        return;
-      }
-
-      // F: Fit to center (handled by EditorCanvas via custom event)
-      if (e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('fit-to-center'));
-        return;
-      }
-
-      // Escape: deselect shapes first, then switch to select tool
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        // Priority 1: Deselect shapes if any are selected
-        if (selectedIds.length > 0) {
-          setSelectedIds([]);
-          return;
-        }
-        // Priority 2: Switch to select tool if on different tool
-        if (selectedTool !== 'select') {
-          handleToolChange('select');
-          return;
-        }
-        return;
-      }
-
-      // Show keyboard shortcuts help
-      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
-        e.preventDefault();
-        setShowShortcuts(true);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings, selectedTool, handleToolChange, selectedIds, setSelectedIds]);
 
   // Load captures on mount
   useEffect(() => {
@@ -775,24 +661,22 @@ function App() {
     }
   }, [currentProject, setView, setCurrentProject, setCurrentImageData, clearEditor]);
 
-  // Keyboard shortcuts for save/copy (separate useEffect since these handlers are defined later)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (view !== 'editor') return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
-        e.preventDefault();
-        handleSave();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        e.preventDefault();
-        handleCopy();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, handleSave, handleCopy]);
+  // Keyboard shortcuts (consolidated hook)
+  const { commandPaletteOpen, setCommandPaletteOpen } = useEditorKeyboardShortcuts({
+    view,
+    selectedTool,
+    selectedIds,
+    compositorEnabled: compositorSettings.enabled,
+    onToolChange: handleToolChange,
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onSave: handleSave,
+    onCopy: handleCopy,
+    onToggleCompositor: handleToggleCompositor,
+    onShowShortcuts: useCallback(() => setShowShortcuts(true), []),
+    onDeselect: useCallback(() => setSelectedIds([]), [setSelectedIds]),
+    onFitToCenter: handleFitToCenter,
+  });
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--polar-snow)] overflow-hidden">

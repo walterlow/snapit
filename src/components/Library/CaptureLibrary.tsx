@@ -9,6 +9,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
 import { useCaptureSettingsStore } from '../../stores/captureSettingsStore';
 import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection, RecordingFormat } from '../../types';
+import { LAYOUT, TIMING } from '../../constants';
 
 import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock, type VirtualLayoutInfo } from './hooks';
 import {
@@ -24,13 +25,6 @@ import { VirtualizedGrid } from './VirtualizedGrid';
 
 type ViewMode = 'grid' | 'list';
 
-// Layout constants for virtual grid (must match VirtualizedGrid.tsx exactly!)
-const HEADER_HEIGHT = 56;
-const GRID_GAP = 20;
-const MIN_CARD_WIDTH = 240;
-const CONTAINER_PADDING = 64;
-const CARD_ROW_HEIGHT = 280; // Must match VirtualizedGrid constant
-const LIST_ROW_HEIGHT = 88;  // Must match VirtualizedGrid constant
 // VirtualizedGrid positioning offsets (from `top: virtualRow.start + 32` and `px-8`)
 const CONTENT_OFFSET_Y = 32; // vertical offset from inline positioning style
 const CONTENT_OFFSET_X = 32; // horizontal padding (px-8) on virtual items
@@ -123,7 +117,7 @@ export const CaptureLibrary: React.FC = () => {
 
     const resizeObserver = new ResizeObserver(() => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(updateWidth, 150);
+      debounceTimer = setTimeout(updateWidth, TIMING.RESIZE_DEBOUNCE_MS);
     });
     resizeObserver.observe(container);
 
@@ -140,19 +134,19 @@ export const CaptureLibrary: React.FC = () => {
   const virtualLayout = useMemo<VirtualLayoutInfo | undefined>(() => {
     if (!useVirtualization || containerWidth === 0) return undefined;
 
-    const availableWidth = containerWidth - CONTAINER_PADDING;
-    const cardsPerRow = Math.max(1, Math.floor((availableWidth + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)));
-    const totalGaps = GRID_GAP * (cardsPerRow - 1);
+    const availableWidth = containerWidth - LAYOUT.CONTAINER_PADDING;
+    const cardsPerRow = Math.max(1, Math.floor((availableWidth + LAYOUT.GRID_GAP) / (LAYOUT.MIN_CARD_WIDTH + LAYOUT.GRID_GAP)));
+    const totalGaps = LAYOUT.GRID_GAP * (cardsPerRow - 1);
     const cardWidth = (availableWidth - totalGaps) / cardsPerRow;
 
     return {
       viewMode,
       cardsPerRow,
-      gridRowHeight: CARD_ROW_HEIGHT, // Use constant to match VirtualizedGrid
-      listRowHeight: LIST_ROW_HEIGHT,
+      gridRowHeight: LAYOUT.CARD_ROW_HEIGHT,
+      listRowHeight: LAYOUT.LIST_ROW_HEIGHT,
       cardWidth: viewMode === 'list' ? availableWidth : cardWidth,
-      headerHeight: HEADER_HEIGHT,
-      gridGap: GRID_GAP,
+      headerHeight: LAYOUT.HEADER_HEIGHT,
+      gridGap: LAYOUT.GRID_GAP,
       contentOffsetY: CONTENT_OFFSET_Y,
       contentOffsetX: CONTENT_OFFSET_X,
       dateGroups,

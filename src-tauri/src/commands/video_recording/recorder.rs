@@ -638,9 +638,8 @@ fn run_video_capture(
 
     // Webcam overlay is captured on-screen (the preview window is part of the screen capture)
     // No need for separate webcam compositing - the browser's getUserMedia preview is visible
-    let webcam_settings = get_webcam_settings();
+    let webcam_settings = get_webcam_settings().ok();
     let use_webcam = false; // Disabled - webcam is captured as part of screen
-    let _ = webcam_settings; // Suppress unused warning
 
     // Recording loop
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
@@ -870,17 +869,19 @@ fn run_video_capture(
                     }
                 }
             } else if let Some(webcam_frame) = webcam::get_preview_frame() {
-                if frame_count == 0 {
-                    eprintln!("[WEBCAM] Compositing webcam frame {}x{} onto recording {}x{}",
-                        webcam_frame.width, webcam_frame.height, width, height);
+                if let Some(ref settings) = webcam_settings {
+                    if frame_count == 0 {
+                        eprintln!("[WEBCAM] Compositing webcam frame {}x{} onto recording {}x{}",
+                            webcam_frame.width, webcam_frame.height, width, height);
+                    }
+                    composite_webcam(
+                        &mut frame_data,
+                        width,
+                        height,
+                        &webcam_frame,
+                        settings,
+                    );
                 }
-                composite_webcam(
-                    &mut frame_data,
-                    width,
-                    height,
-                    &webcam_frame,
-                    &webcam_settings,
-                );
             }
         }
 
@@ -1021,9 +1022,8 @@ fn run_gif_capture(
 
     // Webcam overlay is captured on-screen (the preview window is part of the screen capture)
     // No need for separate webcam compositing - the browser's getUserMedia preview is visible
-    let webcam_settings = get_webcam_settings();
+    let webcam_settings = get_webcam_settings().ok();
     let use_webcam = false; // Disabled - webcam is captured as part of screen
-    let _ = webcam_settings; // Suppress unused warning
 
     // Recording loop
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
@@ -1114,13 +1114,15 @@ fn run_gif_capture(
                             }
                             // Skip webcam compositing when there's an error
                         } else if let Some(webcam_frame) = webcam::get_preview_frame() {
-                            composite_webcam(
-                                &mut frame_data,
-                                width,
-                                height,
-                                &webcam_frame,
-                                &webcam_settings,
-                            );
+                            if let Some(ref settings) = webcam_settings {
+                                composite_webcam(
+                                    &mut frame_data,
+                                    width,
+                                    height,
+                                    &webcam_frame,
+                                    settings,
+                                );
+                            }
                         }
                     }
 

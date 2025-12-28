@@ -139,17 +139,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
   // Use whichever image is loaded (Konva accepts both HTMLImageElement and HTMLCanvasElement)
   const image = (isRgbaFile ? fastImage : standardImage) as HTMLImageElement | undefined;
   const imageStatus = isRgbaFile ? fastImageStatus : standardImageStatus;
-  const isImageActuallyLoading = imageStatus === 'loading';
-
-  // Minimum loading duration for smooth UX (prevents flash of loading state)
-  const [minLoadingComplete, setMinLoadingComplete] = useState(false);
-  useEffect(() => {
-    setMinLoadingComplete(false);
-    const timer = setTimeout(() => setMinLoadingComplete(true), 300);
-    return () => clearTimeout(timer);
-  }, [imageData]);
-
-  const isImageLoading = isImageActuallyLoading || !minLoadingComplete;
+  const isImageLoading = imageStatus === 'loading';
 
   // Checkerboard pattern for transparency
   const [checkerPatternImage] = React.useState(() => createCheckerPattern());

@@ -39,39 +39,41 @@ interface VirtualizedGridProps {
   selectionRect?: { left: number; top: number; width: number; height: number };
 }
 
-// Breakpoint-based columns (fewer transitions = smoother resize)
-// Matches CSS breakpoints for consistency
-const BREAKPOINTS = [
-  { min: 1800, cols: 6 },
-  { min: 1400, cols: 5 },
-  { min: 1100, cols: 4 },
-  { min: 800, cols: 3 },
-  { min: 500, cols: 2 },
-  { min: 0, cols: 1 },
+// Layout constants
+const CARD_GAP = 20;
+const CONTAINER_PADDING = 64; // px-8 on container + px-8 on rows
+const FOOTER_HEIGHT = 80;
+const MAX_CARD_WIDTH = 320; // Cards won't grow beyond this
+
+// Column breakpoints: min 3, max 5 columns
+// Cards resize to fill available width, capped at MAX_CARD_WIDTH
+const COLUMN_BREAKPOINTS = [
+  { minWidth: 1600, cols: 5 },
+  { minWidth: 1200, cols: 4 },
+  { minWidth: 0, cols: 3 },
 ];
 
 export function getColumnsForWidth(width: number): number {
-  for (const bp of BREAKPOINTS) {
-    if (width >= bp.min) return bp.cols;
+  for (const bp of COLUMN_BREAKPOINTS) {
+    if (width >= bp.minWidth) return bp.cols;
   }
-  return 1;
+  return 3;
 }
 
-// Calculate actual row height based on card width (thumbnail is 16:9 aspect ratio)
+// Calculate card width to fit exactly N columns, capped at MAX_CARD_WIDTH
+export function getCardWidth(containerWidth: number, columns: number): number {
+  const availableWidth = containerWidth - CONTAINER_PADDING;
+  const totalGaps = CARD_GAP * (columns - 1);
+  const calculatedWidth = Math.floor((availableWidth - totalGaps) / columns);
+  return Math.min(calculatedWidth, MAX_CARD_WIDTH);
+}
+
+// Calculate row height based on card width (16:9 thumbnail + footer + gap)
 export function calculateRowHeight(containerWidth: number, columns: number): number {
-  const padding = 64; // px-8 on both container and rows = 32 + 32
-  const gap = 20; // gap-5
-  const availableWidth = containerWidth - padding;
-  const totalGaps = gap * (columns - 1);
-  const cardWidth = (availableWidth - totalGaps) / columns;
-
-  // Card height = thumbnail (16:9) + footer (~70px with padding and content)
-  const thumbnailHeight = (cardWidth * 9) / 16;
-  const footerHeight = 70;
-  const cardHeight = thumbnailHeight + footerHeight;
-
-  // Add row gap (matching gap-5 between rows)
-  return Math.ceil(cardHeight) + gap;
+  const cardWidth = getCardWidth(containerWidth, columns);
+  const thumbnailHeight = Math.round((cardWidth * 9) / 16);
+  const cardHeight = thumbnailHeight + FOOTER_HEIGHT;
+  return cardHeight + CARD_GAP;
 }
 
 export function VirtualizedGrid({
@@ -218,10 +220,14 @@ export function VirtualizedGrid({
         );
       }
 
+      const cardWidth = getCardWidth(containerWidth, cardsPerRow);
+
       return (
         <div
-          className="grid gap-5"
-          style={{ gridTemplateColumns: `repeat(${cardsPerRow}, minmax(0, 1fr))` }}
+          className="grid gap-5 justify-center"
+          style={{
+            gridTemplateColumns: `repeat(${cardsPerRow}, ${cardWidth}px)`,
+          }}
         >
           {row.captures.map((capture) => (
             <CaptureCard
@@ -247,6 +253,7 @@ export function VirtualizedGrid({
     [
       viewMode,
       cardsPerRow,
+      containerWidth,
       selectedIds,
       loadingProjectId,
       allTags,

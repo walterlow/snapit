@@ -1,5 +1,8 @@
 # SnapIt Development Notes
 
+We want the simplest change possible. We don 't care about migration. Code
+readability matters most, and we 're happy to make bigger changes to achieve it. No backward compatiblity unless asked for it.
+
 Uses shadcn/ui components with Radix UI primitives. Component docs: https://ui.shadcn.com/docs
 
 ## Tauri Capabilities

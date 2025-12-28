@@ -24,14 +24,16 @@ import { VirtualizedGrid } from './VirtualizedGrid';
 
 type ViewMode = 'grid' | 'list';
 
-// Layout constants for virtual grid (must match VirtualizedGrid.tsx)
+// Layout constants for virtual grid (must match VirtualizedGrid.tsx exactly!)
 const HEADER_HEIGHT = 56;
 const GRID_GAP = 20;
 const MIN_CARD_WIDTH = 240;
 const CONTAINER_PADDING = 64;
-const CARD_FOOTER_HEIGHT = 85;
-const CARD_ASPECT_RATIO = 9 / 16;
-const ROW_SPACING = 24;
+const CARD_ROW_HEIGHT = 280; // Must match VirtualizedGrid constant
+const LIST_ROW_HEIGHT = 88;  // Must match VirtualizedGrid constant
+// VirtualizedGrid positioning offsets (from `top: virtualRow.start + 32` and `px-8`)
+const CONTENT_OFFSET_Y = 32; // vertical offset from inline positioning style
+const CONTENT_OFFSET_X = 32; // horizontal padding (px-8) on virtual items
 
 interface DateGroup {
   label: string;
@@ -141,18 +143,20 @@ export const CaptureLibrary: React.FC = () => {
     const cardsPerRow = Math.max(1, Math.floor((availableWidth + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)));
     const totalGaps = GRID_GAP * (cardsPerRow - 1);
     const cardWidth = (availableWidth - totalGaps) / cardsPerRow;
-    const thumbnailHeight = cardWidth * CARD_ASPECT_RATIO;
-    const gridRowHeight = Math.ceil(thumbnailHeight + CARD_FOOTER_HEIGHT + ROW_SPACING);
 
     return {
+      viewMode,
       cardsPerRow,
-      gridRowHeight,
-      cardWidth,
+      gridRowHeight: CARD_ROW_HEIGHT, // Use constant to match VirtualizedGrid
+      listRowHeight: LIST_ROW_HEIGHT,
+      cardWidth: viewMode === 'list' ? availableWidth : cardWidth,
       headerHeight: HEADER_HEIGHT,
       gridGap: GRID_GAP,
+      contentOffsetY: CONTENT_OFFSET_Y,
+      contentOffsetX: CONTENT_OFFSET_X,
       dateGroups,
     };
-  }, [useVirtualization, containerWidth, dateGroups]);
+  }, [useVirtualization, containerWidth, dateGroups, viewMode]);
 
   // Delete confirmation state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

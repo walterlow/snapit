@@ -3,11 +3,16 @@ import { invoke } from '@tauri-apps/api/core';
 import type { CaptureListItem } from '../../../types';
 
 export interface VirtualLayoutInfo {
+  viewMode: 'grid' | 'list';
   cardsPerRow: number;
   gridRowHeight: number;
+  listRowHeight: number;
   cardWidth: number;
   headerHeight: number;
   gridGap: number;
+  // Layout offsets to match VirtualizedGrid positioning
+  contentOffsetY: number; // vertical offset from `top: virtualRow.start + 32` in VirtualizedGrid
+  contentOffsetX: number; // horizontal padding (px-8 = 32px) on virtual items
   dateGroups: { label: string; captures: CaptureListItem[] }[];
 }
 
@@ -84,33 +89,57 @@ export function useMarqueeSelection({
     (captureId: string): { left: number; top: number; width: number; height: number } | null => {
       if (!virtualLayout) return null;
 
-      const { cardsPerRow, gridRowHeight, cardWidth, headerHeight, gridGap, dateGroups } = virtualLayout;
+      const {
+        viewMode, cardsPerRow, gridRowHeight, listRowHeight,
+        cardWidth, headerHeight, gridGap,
+        contentOffsetX, contentOffsetY, dateGroups
+      } = virtualLayout;
 
-      let currentY = 0;
+      // Start Y at the content offset (accounts for paddingTop + positioning in VirtualizedGrid)
+      let currentY = contentOffsetY;
 
       for (const group of dateGroups) {
-        // Skip header
+        // Add header height
         currentY += headerHeight;
 
         // Find capture in this group
         const captureIndex = group.captures.findIndex(c => c.id === captureId);
         if (captureIndex !== -1) {
-          const row = Math.floor(captureIndex / cardsPerRow);
-          const col = captureIndex % cardsPerRow;
+          if (viewMode === 'list') {
+            // List view: single column, each row is one capture
+            const rowHeight = listRowHeight;
+            const LIST_ITEM_GAP = 8; // pb-2 class in VirtualizedGrid list rendering
+            const itemHeight = rowHeight - LIST_ITEM_GAP;
 
-          const cardHeight = gridRowHeight - 24; // Row height minus spacing
+            return {
+              left: contentOffsetX,
+              top: currentY + captureIndex * rowHeight,
+              width: cardWidth,
+              height: itemHeight,
+            };
+          } else {
+            // Grid view: multiple columns
+            const row = Math.floor(captureIndex / cardsPerRow);
+            const col = captureIndex % cardsPerRow;
+            const GRID_ROW_SPACING = 24; // ROW_SPACING constant from VirtualizedGrid
+            const cardHeight = gridRowHeight - GRID_ROW_SPACING;
 
-          return {
-            left: col * (cardWidth + gridGap),
-            top: currentY + row * gridRowHeight,
-            width: cardWidth,
-            height: cardHeight,
-          };
+            return {
+              left: contentOffsetX + col * (cardWidth + gridGap),
+              top: currentY + row * gridRowHeight,
+              width: cardWidth,
+              height: cardHeight,
+            };
+          }
         }
 
         // Move past this group's rows
-        const rowCount = Math.ceil(group.captures.length / cardsPerRow);
-        currentY += rowCount * gridRowHeight;
+        if (viewMode === 'list') {
+          currentY += group.captures.length * listRowHeight;
+        } else {
+          const rowCount = Math.ceil(group.captures.length / cardsPerRow);
+          currentY += rowCount * gridRowHeight;
+        }
       }
 
       return null;

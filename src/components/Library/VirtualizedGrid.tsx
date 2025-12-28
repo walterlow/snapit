@@ -40,7 +40,7 @@ interface VirtualizedGridProps {
 // Row heights
 const HEADER_HEIGHT = 56;
 const CARD_ROW_HEIGHT = 280;
-const LIST_ROW_HEIGHT = 64;
+const LIST_ROW_HEIGHT = 88; // 56px thumbnail + 24px padding (12px*2) + 8px gap
 
 // Breakpoint-based columns (fewer transitions = smoother resize)
 // Matches CSS breakpoints for consistency
@@ -163,24 +163,28 @@ export function VirtualizedGrid({
       }
 
       if (viewMode === 'list') {
-        return row.captures.map((capture) => (
-          <CaptureRow
-            key={capture.id}
-            capture={capture}
-            selected={selectedIds.has(capture.id)}
-            isLoading={loadingProjectId === capture.id}
-            allTags={allTags}
-            onSelect={onSelect}
-            onOpen={onOpen}
-            onToggleFavorite={() => onToggleFavorite(capture.id)}
-            onUpdateTags={(tags) => onUpdateTags(capture.id, tags)}
-            onDelete={() => onDelete(capture.id)}
-            onOpenInFolder={() => onOpenInFolder(capture)}
-            onCopyToClipboard={() => onCopyToClipboard(capture)}
-            onPlayMedia={() => onPlayMedia(capture)}
-            formatDate={formatDate}
-          />
-        ));
+        // List view: single row per virtual item with proper spacing
+        const capture = row.captures[0];
+        if (!capture) return null;
+        return (
+          <div className="pb-2">
+            <CaptureRow
+              capture={capture}
+              selected={selectedIds.has(capture.id)}
+              isLoading={loadingProjectId === capture.id}
+              allTags={allTags}
+              onSelect={onSelect}
+              onOpen={onOpen}
+              onToggleFavorite={() => onToggleFavorite(capture.id)}
+              onUpdateTags={(tags) => onUpdateTags(capture.id, tags)}
+              onDelete={() => onDelete(capture.id)}
+              onOpenInFolder={() => onOpenInFolder(capture)}
+              onCopyToClipboard={() => onCopyToClipboard(capture)}
+              onPlayMedia={() => onPlayMedia(capture)}
+              formatDate={formatDate}
+            />
+          </div>
+        );
       }
 
       return (

@@ -59,6 +59,7 @@ interface CaptureState {
   // Library state
   captures: CaptureListItem[];
   loading: boolean;
+  initialized: boolean; // True after first load attempt completes
   error: string | null;
 
   // Cache state
@@ -162,6 +163,7 @@ function createCaptureFromResponse(result: SaveCaptureResponse): CaptureListItem
 export const useCaptureStore = create<CaptureState>((set, get) => ({
   captures: [],
   loading: false,
+  initialized: false,
   error: null,
   isFromCache: false,
   isCacheStale: false,
@@ -188,6 +190,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
         set({
           captures: cached.captures,
           loading: false,
+          initialized: true,
           isFromCache: true,
           isCacheStale: isCacheStale(cached.timestamp),
           isRefreshing: true, // We'll refresh in background
@@ -210,6 +213,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
       set({
         captures: allCaptures,
         loading: false,
+        initialized: true,
         isFromCache: false,
         isCacheStale: false,
         isRefreshing: false,
@@ -223,6 +227,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
       set({
         error: String(error),
         loading: false,
+        initialized: true,
         isRefreshing: false,
         // If we were showing cache, keep it but mark as stale
         isCacheStale: isFromCache ? true : get().isCacheStale,

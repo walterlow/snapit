@@ -5176,6 +5176,7 @@ dependencies = [
  "dirs 5.0.1",
  "env_logger",
  "ffmpeg-sidecar",
+ "futures",
  "image",
  "lazy_static",
  "log",

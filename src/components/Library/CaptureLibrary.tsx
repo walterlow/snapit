@@ -84,6 +84,7 @@ function groupCapturesByDate(captures: CaptureListItem[]): DateGroup[] {
 export const CaptureLibrary: React.FC = () => {
   const {
     loading,
+    initialized,
     loadingProjectId,
     loadCaptures,
     loadProject,
@@ -471,7 +472,7 @@ export const CaptureLibrary: React.FC = () => {
         {isDragOver && <DropZoneOverlay />}
 
         {/* Content - use virtualization for large libraries, regular rendering for small ones */}
-        {loading ? (
+        {loading || !initialized ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="w-12 h-12 text-[var(--coral-400)] animate-spin" />
           </div>

@@ -75,6 +75,7 @@ env_logger = "0.11"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"
 
 # FFmpeg for video thumbnail generation (bundled binary)
 ffmpeg-sidecar = "2.4"

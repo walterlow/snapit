@@ -114,7 +114,8 @@ fn validate_window(hwnd: HWND, exclude: HWND) -> Option<DetectedWindow> {
 /// Get window bounds, preferring DWM extended frame bounds (excludes shadow).
 ///
 /// DWM's DWMWA_EXTENDED_FRAME_BOUNDS gives us the actual visible window area
-/// without the drop shadow, which is what users expect when selecting a window.
+/// without the drop shadow. We subtract the visible border thickness to get
+/// the content area.
 fn get_window_bounds(hwnd: HWND) -> Option<Rect> {
     unsafe {
         let mut rect = RECT::default();
@@ -131,6 +132,13 @@ fn get_window_bounds(hwnd: HWND) -> Option<Rect> {
         if dwm_result.is_err() && GetWindowRect(hwnd, &mut rect).is_err() {
             return None;
         }
+
+        // Subtract visible border to get content area
+        let border = crate::commands::win_utils::get_visible_border_thickness(hwnd);
+        rect.left += border;
+        rect.right -= border;
+        rect.bottom -= border;
+        // No top inset - title bar doesn't have the same border issue
 
         Some(Rect::new(rect.left, rect.top, rect.right, rect.bottom))
     }

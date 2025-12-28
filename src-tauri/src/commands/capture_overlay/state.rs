@@ -279,6 +279,8 @@ pub struct ResultState {
     pub action: OverlayAction,
     /// Final selection in screen coordinates
     pub selection: Option<Rect>,
+    /// Window ID (HWND) if a window was selected
+    pub window_id: Option<isize>,
 }
 
 impl ResultState {
@@ -287,6 +289,15 @@ impl ResultState {
         self.confirmed = true;
         self.action = action;
         self.selection = Some(bounds);
+        self.window_id = None;
+    }
+
+    /// Set the result to confirmed with window capture
+    pub fn confirm_window(&mut self, bounds: Rect, action: OverlayAction, window_id: isize) {
+        self.confirmed = true;
+        self.action = action;
+        self.selection = Some(bounds);
+        self.window_id = Some(window_id);
     }
 
     /// Set the result to cancelled
@@ -294,6 +305,7 @@ impl ResultState {
         self.confirmed = false;
         self.action = OverlayAction::Cancelled;
         self.selection = None;
+        self.window_id = None;
     }
 }
 

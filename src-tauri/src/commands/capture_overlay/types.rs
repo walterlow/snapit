@@ -3,8 +3,19 @@
 //! This module contains all types, enums, constants, and geometry primitives
 //! used throughout the capture overlay system.
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use windows::core::PCWSTR;
+
+/// Serialize Option<isize> as number for JSON (HWND is pointer-sized)
+fn serialize_hwnd_option<S>(value: &Option<isize>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match value {
+        Some(v) => serializer.serialize_i64(*v as i64),
+        None => serializer.serialize_none(),
+    }
+}
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     IDC_ARROW, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE,
@@ -204,6 +215,9 @@ pub struct OverlayResult {
     pub width: u32,
     pub height: u32,
     pub action: OverlayAction,
+    /// Window ID (HWND) if a window was selected (for window capture mode)
+    #[serde(serialize_with = "serialize_hwnd_option")]
+    pub window_id: Option<isize>,
 }
 
 impl OverlayResult {
@@ -215,6 +229,19 @@ impl OverlayResult {
             width: bounds.width(),
             height: bounds.height(),
             action,
+            window_id: None,
+        }
+    }
+
+    /// Create a new result for window capture
+    pub fn new_window(bounds: Rect, action: OverlayAction, window_id: isize) -> Self {
+        Self {
+            x: bounds.left,
+            y: bounds.top,
+            width: bounds.width(),
+            height: bounds.height(),
+            action,
+            window_id: Some(window_id),
         }
     }
 
@@ -226,6 +253,7 @@ impl OverlayResult {
             width: 0,
             height: 0,
             action: OverlayAction::Cancelled,
+            window_id: None,
         }
     }
 }

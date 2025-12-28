@@ -180,8 +180,8 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
             
             match crate::commands::capture_overlay::show_capture_overlay(app_clone.clone(), None, Some(ct_for_thread)).await {
                 Ok(Some(result)) => {
-                    let OverlayResult { x, y, width, height, action } = result;
-                    
+                    let OverlayResult { x, y, width, height, action, window_id } = result;
+
                     match action {
                         OverlayAction::StartRecording => {
                             // Start recording flow
@@ -255,15 +255,22 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             }
                         }
                         OverlayAction::CaptureScreenshot => {
-                            // Screenshot flow - close controls, capture region, open editor
+                            // Screenshot flow - close controls, capture, open editor
                             close_capture_windows(&app_clone);
-                            
-                            // Capture the region
-                            let selection = crate::commands::capture::ScreenRegionSelection {
-                                x, y, width, height,
+
+                            // Use window capture if a window was selected, otherwise region capture
+                            let capture_result = if let Some(hwnd) = window_id {
+                                println!("[CAPTURE] Using window capture for hwnd={}", hwnd);
+                                crate::commands::capture::capture_window_fast(hwnd).await
+                            } else {
+                                println!("[CAPTURE] Using region capture: x={}, y={}, w={}, h={}", x, y, width, height);
+                                let selection = crate::commands::capture::ScreenRegionSelection {
+                                    x, y, width, height,
+                                };
+                                crate::commands::capture::capture_screen_region_fast(selection).await
                             };
-                            
-                            match crate::commands::capture::capture_screen_region_fast(selection).await {
+
+                            match capture_result {
                                 Ok(result) => {
                                     // Open editor with the captured image
                                     if let Err(e) = crate::commands::window::open_editor_fast(

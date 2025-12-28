@@ -194,8 +194,9 @@ fn handle_mouse_up(state_ptr: *mut OverlayState) -> LRESULT {
                 // Region selection completed
                 handle_region_selection_complete(state);
             } else if let Some(ref win) = state.cursor.hovered_window {
-                // Window selection
-                handle_window_selection(state, win.bounds);
+                // Window selection - pass hwnd for window capture (isize for 64-bit safety)
+                let hwnd = win.hwnd.0 as isize;
+                handle_window_selection(state, win.bounds, hwnd);
             } else {
                 // Click on empty area - select the monitor under cursor
                 handle_monitor_selection(state);
@@ -232,13 +233,28 @@ fn handle_region_selection_complete(state: &mut OverlayState) {
 }
 
 /// Handle window selection.
-fn handle_window_selection(state: &mut OverlayState, window_bounds: Rect) {
+fn handle_window_selection(state: &mut OverlayState, window_bounds: Rect, window_id: isize) {
+    // Get window title for debugging
+    let title = unsafe {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextW, GetWindowTextLengthW};
+        let hwnd = HWND(window_id as *mut std::ffi::c_void);
+        let len = GetWindowTextLengthW(hwnd);
+        if len > 0 {
+            let mut buf = vec![0u16; (len + 1) as usize];
+            GetWindowTextW(hwnd, &mut buf);
+            String::from_utf16_lossy(&buf[..len as usize])
+        } else {
+            String::from("(no title)")
+        }
+    };
+    println!("[OVERLAY] Window selected: hwnd={}, title='{}', bounds={}x{}", window_id, title, window_bounds.width(), window_bounds.height());
     if state.capture_type == CaptureType::Screenshot {
-        // For screenshots, capture immediately
-        state.result.confirm(window_bounds, OverlayAction::CaptureScreenshot);
+        // For screenshots, capture immediately using window capture
+        state.result.confirm_window(window_bounds, OverlayAction::CaptureScreenshot, window_id);
         state.should_close = true;
     } else {
-        // For video/gif, enter adjustment mode
+        // For video/gif, enter adjustment mode (uses region, not window capture)
         let local_bounds = state.monitor.screen_rect_to_local(window_bounds);
         state.enter_adjustment_mode(local_bounds);
         emit_adjustment_ready(state, window_bounds);

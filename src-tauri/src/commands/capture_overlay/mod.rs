@@ -311,6 +311,7 @@ fn run_overlay(
                 width: sel.width(),
                 height: sel.height(),
                 action: state.result.action,
+                window_id: state.result.window_id,
             })
         } else {
             None

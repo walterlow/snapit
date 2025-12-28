@@ -38,7 +38,7 @@ ts-rs = "10"
 # Screen capture - xcap for screenshots (reliable, no padding issues)
 xcap = "0.8"
 
-# Screen capture - windows-capture for video recording only
+# Screen capture - windows-capture for video recording and window capture
 windows-capture = "2.0.0-alpha.7"
 
 # Image processing
@@ -106,6 +106,7 @@ windows = { version = "0.58", features = [
     "Win32_System_LibraryLoader",
     "Win32_UI_HiDpi",
     "Win32_System_Com",
+    "Win32_Storage_Xps",
 ] }
 
 

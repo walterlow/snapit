@@ -227,9 +227,13 @@ pub fn run() {
                     .expect("Failed to load window icon");
                 let _ = window.set_icon(icon);
 
-                // NOTE: DWM blur-behind transparency disabled - was causing capture artifacts
-                // The main window uses transparent: true in tauri.conf.json which handles
-                // transparency via WS_EX_LAYERED instead
+                // Apply DWM blur-behind for proper transparency on Windows
+                // This fixes capture artifacts when screenshotting the main window
+                // (WS_EX_LAYERED from tauri's transparent: true has issues with hardware capture)
+                #[cfg(target_os = "windows")]
+                if let Err(e) = commands::window::apply_dwm_transparency(&window) {
+                    eprintln!("Warning: Failed to apply DWM transparency to main window: {}", e);
+                }
 
                 let _ = window.show();
             }

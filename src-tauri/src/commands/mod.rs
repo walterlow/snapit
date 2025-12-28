@@ -8,6 +8,7 @@ pub mod logging;
 pub mod settings;
 pub mod storage;
 pub mod video_recording;
+pub mod win_utils;
 pub mod window;
 
 // Note: screenshot module has been replaced by capture module

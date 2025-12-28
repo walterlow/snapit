@@ -107,10 +107,10 @@ pub fn get_windows() -> Result<Vec<WindowInfo>, CaptureError> {
     Ok(infos)
 }
 
-/// Capture a specific window by ID.
+/// Capture a specific window by HWND.
 /// Uses screen region capture (BitBlt) instead of PrintWindow to avoid DWM artifacts.
-pub fn capture_window(window_id: u32) -> Result<CaptureResult, CaptureError> {
-    let (rgba_data, width, height) = capture_window_raw(window_id)?;
+pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
+    let (rgba_data, width, height) = capture_window_raw(hwnd)?;
 
     // Convert to image and encode
     let image = image::RgbaImage::from_raw(width, height, rgba_data)
@@ -119,15 +119,79 @@ pub fn capture_window(window_id: u32) -> Result<CaptureResult, CaptureError> {
     encode_image_to_result(image, false)
 }
 
-/// Capture a specific window and return raw RGBA data.
-/// Uses screen region capture (BitBlt) instead of PrintWindow to avoid DWM artifacts.
+/// Capture a window by capturing the screen region at its DWM bounds.
+/// Uses DWMWA_EXTENDED_FRAME_BOUNDS to get the visible window area without shadow.
 #[cfg(target_os = "windows")]
-pub fn capture_window_raw(window_id: u32) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+pub fn capture_window_xcap(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
     use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
-    let hwnd = HWND(window_id as isize as *mut std::ffi::c_void);
+    let hwnd = HWND(hwnd_value as *mut std::ffi::c_void);
+    let mut dwm_rect = RECT::default();
+    let mut window_rect = RECT::default();
+
+    unsafe {
+        let _ = GetWindowRect(hwnd, &mut window_rect);
+        let dwm_result = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut dwm_rect as *mut _ as *mut _,
+            std::mem::size_of::<RECT>() as u32,
+        );
+
+        // Fall back to window rect if DWM fails
+        if dwm_result.is_err() {
+            dwm_rect = window_rect;
+        }
+    }
+
+    // Get visible border thickness and subtract from DWM bounds
+    let border = crate::commands::win_utils::get_visible_border_thickness(hwnd);
+    let x = dwm_rect.left + border;
+    let y = dwm_rect.top; // No top border - title bar is clean
+    let width = ((dwm_rect.right - dwm_rect.left) - 2 * border).max(1) as u32;
+    let height = ((dwm_rect.bottom - dwm_rect.top) - border).max(1) as u32;
+
+    println!("[CAPTURE] Window capture: hwnd={} (0x{:X}), border={}, capture={}x{} at ({},{})",
+        hwnd_value, hwnd_value, border, width, height, x, y);
+
+    // Use screen region capture at the adjusted bounds
+    capture_screen_region_raw(super::types::ScreenRegionSelection {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn capture_window_xcap(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+    // On non-Windows, just try to find by ID directly
+    let windows = Window::all()
+        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to enumerate windows: {}", e)))?;
+
+    let target_id = hwnd_value as u32;
+    let window = windows
+        .into_iter()
+        .find(|w| w.id().unwrap_or(0) == target_id)
+        .ok_or(CaptureError::WindowNotFound)?;
+
+    let image = window.capture_image()
+        .map_err(|e| CaptureError::CaptureFailed(format!("xcap capture failed: {}", e)))?;
+
+    Ok((image.into_raw(), image.width(), image.height()))
+}
+
+/// Capture a specific window and return raw RGBA data.
+/// Uses screen region capture (BitBlt) instead of PrintWindow to avoid DWM artifacts.
+#[cfg(target_os = "windows")]
+pub fn capture_window_raw(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+    let hwnd = HWND(hwnd_value as *mut std::ffi::c_void);
 
     // Get both regular and DWM bounds for comparison
     let mut window_rect = RECT::default();
@@ -168,7 +232,8 @@ pub fn capture_window_raw(window_id: u32) -> Result<(Vec<u8>, u32, u32), Capture
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn capture_window_raw(window_id: u32) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+pub fn capture_window_raw(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+    let window_id = hwnd_value as u32;
     let windows = Window::all()
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get windows: {}", e)))?;
 
@@ -214,34 +279,6 @@ pub fn capture_region(selection: RegionSelection) -> Result<CaptureResult, Captu
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture region: {}", e)))?;
 
     encode_image_to_result(image, false)
-}
-
-/// Capture a region and return raw RGBA data.
-pub fn capture_region_raw(selection: RegionSelection) -> Result<(Vec<u8>, u32, u32), CaptureError> {
-    let monitors = Monitor::all()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get monitors: {}", e)))?;
-
-    // Find the monitor for this region
-    let monitor = monitors
-        .get(selection.monitor_id as usize)
-        .ok_or(CaptureError::MonitorNotFound)?;
-
-    // Calculate region relative to monitor
-    let mon_x = monitor.x().unwrap_or(0);
-    let mon_y = monitor.y().unwrap_or(0);
-    let rel_x = (selection.x - mon_x).max(0) as u32;
-    let rel_y = (selection.y - mon_y).max(0) as u32;
-
-    // Capture the region directly using xcap
-    let image = monitor
-        .capture_region(rel_x, rel_y, selection.width, selection.height)
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture region: {}", e)))?;
-
-    let width = image.width();
-    let height = image.height();
-    let rgba_data = image.into_raw();
-
-    Ok((rgba_data, width, height))
 }
 
 /// Capture a region using absolute screen coordinates (can span multiple monitors).

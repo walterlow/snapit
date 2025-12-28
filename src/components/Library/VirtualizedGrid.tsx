@@ -68,12 +68,12 @@ export function getCardWidth(containerWidth: number, columns: number): number {
   return Math.min(calculatedWidth, MAX_CARD_WIDTH);
 }
 
-// Calculate row height based on card width (16:9 thumbnail + footer + gap)
+// Calculate row height based on card width (16:9 thumbnail + footer)
+// Gap is included in row height for predictable sizing during resize
 export function calculateRowHeight(containerWidth: number, columns: number): number {
   const cardWidth = getCardWidth(containerWidth, columns);
   const thumbnailHeight = Math.round((cardWidth * 9) / 16);
-  const cardHeight = thumbnailHeight + FOOTER_HEIGHT;
-  return cardHeight + CARD_GAP;
+  return thumbnailHeight + FOOTER_HEIGHT + CARD_GAP;
 }
 
 // Calculate total grid width (for centering headers and cards together)
@@ -167,6 +167,7 @@ export function VirtualizedGrid({
   );
 
   // Virtualizer with dynamic row heights based on card size
+  // Gap is included in gridRowHeight for predictable resize behavior
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollContainerRef.current,
@@ -178,6 +179,12 @@ export function VirtualizedGrid({
     },
     overscan: 5,
   });
+
+  // Force virtualizer to recalculate when row height changes during resize
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    virtualizer.measure();
+  }, [gridRowHeight]);
 
   // Prefetch thumbnails for rows about to enter the viewport
   const virtualItems = virtualizer.getVirtualItems();
@@ -237,16 +244,10 @@ export function VirtualizedGrid({
       const cardWidth = getCardWidth(containerWidth, cardsPerRow);
 
       return (
-        <div className="mx-auto" style={{ width: gridWidth }}>
-          <div
-            className="grid gap-5"
-            style={{
-              gridTemplateColumns: `repeat(${cardsPerRow}, ${cardWidth}px)`,
-            }}
-          >
-            {row.captures.map((capture) => (
+        <div className="flex gap-5 mx-auto" style={{ width: gridWidth }}>
+          {row.captures.map((capture) => (
+            <div key={capture.id} style={{ width: cardWidth, flexShrink: 0 }}>
               <CaptureCard
-                key={capture.id}
                 capture={capture}
                 selected={selectedIds.has(capture.id)}
                 isLoading={loadingProjectId === capture.id}
@@ -261,8 +262,8 @@ export function VirtualizedGrid({
                 onPlayMedia={() => onPlayMedia(capture)}
                 formatDate={formatDate}
               />
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       );
     },

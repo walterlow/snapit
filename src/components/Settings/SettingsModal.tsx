@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
-import { Tabs } from '@base-ui/react/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ShortcutsTab } from './ShortcutsTab';
 import { GeneralTab } from './GeneralTab';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -54,39 +54,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
         </div>
 
         {/* Content */}
-        <Tabs.Root
+        <Tabs
           defaultValue="general"
           onValueChange={(value) => setActiveTab(value as 'shortcuts' | 'general')}
           className="flex-1 min-h-0 flex flex-col"
         >
           {/* Tabs */}
           <div className="shrink-0 px-4 pt-3 pb-0 bg-card">
-            <Tabs.List className="relative flex w-full p-1 rounded-lg bg-(--polar-frost)/60">
-              <Tabs.Tab
+            <TabsList className="relative flex w-full p-1 rounded-lg bg-(--polar-frost)/60">
+              <TabsTrigger
                 value="general"
-                className="relative flex-1 py-2 text-sm font-medium text-center rounded-md transition-all duration-200 ease-out text-(--ink-muted) hover:text-(--ink-dark) hover:bg-card data-active:bg-(--coral-400)! data-active:text-white! data-active:shadow-sm"
+                className="relative flex-1 py-2 text-sm font-medium text-center rounded-md transition-all duration-200 ease-out text-(--ink-muted) hover:text-(--ink-dark) hover:bg-card data-[state=active]:bg-(--coral-400)! data-[state=active]:text-white! data-[state=active]:shadow-sm"
               >
                 General
-              </Tabs.Tab>
-              <Tabs.Tab
+              </TabsTrigger>
+              <TabsTrigger
                 value="shortcuts"
-                className="relative flex-1 py-2 text-sm font-medium text-center rounded-md transition-all duration-200 ease-out text-(--ink-muted) hover:text-(--ink-dark) hover:bg-card data-active:bg-(--coral-400)! data-active:text-white! data-active:shadow-sm"
+                className="relative flex-1 py-2 text-sm font-medium text-center rounded-md transition-all duration-200 ease-out text-(--ink-muted) hover:text-(--ink-dark) hover:bg-card data-[state=active]:bg-(--coral-400)! data-[state=active]:text-white! data-[state=active]:shadow-sm"
               >
                 Shortcuts
-              </Tabs.Tab>
-            </Tabs.List>
+              </TabsTrigger>
+            </TabsList>
           </div>
 
           {/* Scrollable Content */}
           <div className="flex-1 min-h-0 overflow-y-auto p-5">
-            <Tabs.Panel value="general">
+            <TabsContent value="general" className="mt-0 data-[state=inactive]:hidden" forceMount>
               <GeneralTab />
-            </Tabs.Panel>
-            <Tabs.Panel value="shortcuts">
+            </TabsContent>
+            <TabsContent value="shortcuts" className="mt-0 data-[state=inactive]:hidden" forceMount>
               <ShortcutsTab />
-            </Tabs.Panel>
+            </TabsContent>
           </div>
-        </Tabs.Root>
+        </Tabs>
       </div>
     </div>
   );

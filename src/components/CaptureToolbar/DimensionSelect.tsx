@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Select as BaseSelect } from '@base-ui/react/select';
+import * as SelectPrimitive from '@radix-ui/react-select';
 import { ChevronDown } from 'lucide-react';
 
 // Common dimension presets
@@ -68,8 +68,7 @@ export const DimensionSelect: React.FC<DimensionSelectProps> = ({
   }, [applyChange, width, height]);
 
   // Handle preset selection
-  const handlePresetChange = (value: string | null) => {
-    if (!value) return;
+  const handlePresetChange = (value: string) => {
     const preset = DIMENSION_PRESETS.find((p) => p.label === value);
     if (preset) {
       onDimensionChange?.(preset.width, preset.height);
@@ -112,38 +111,42 @@ export const DimensionSelect: React.FC<DimensionSelectProps> = ({
         />
 
         {/* Preset dropdown */}
-        <BaseSelect.Root
+        <SelectPrimitive.Root
           value={currentPreset}
           onValueChange={handlePresetChange}
           disabled={disabled}
         >
-          <BaseSelect.Trigger className="glass-dimension-preset-trigger">
-            <BaseSelect.Icon className="glass-dimension-preset-icon">
+          <SelectPrimitive.Trigger className="glass-dimension-preset-trigger">
+            <SelectPrimitive.Icon className="glass-dimension-preset-icon">
               <ChevronDown size={12} />
-            </BaseSelect.Icon>
-          </BaseSelect.Trigger>
+            </SelectPrimitive.Icon>
+          </SelectPrimitive.Trigger>
 
-          <BaseSelect.Portal>
-            <BaseSelect.Positioner sideOffset={6} className="z-[9999]">
-              <BaseSelect.Popup className="glass-dimension-select-popup">
-                <BaseSelect.List>
-                  {DIMENSION_PRESETS.map((preset) => (
-                    <BaseSelect.Item
-                      key={preset.label}
-                      value={preset.label}
-                      className="glass-dimension-select-item"
-                    >
+          <SelectPrimitive.Portal>
+            <SelectPrimitive.Content
+              position="popper"
+              sideOffset={6}
+              className="z-[9999] glass-dimension-select-popup"
+            >
+              <SelectPrimitive.Viewport>
+                {DIMENSION_PRESETS.map((preset) => (
+                  <SelectPrimitive.Item
+                    key={preset.label}
+                    value={preset.label}
+                    className="glass-dimension-select-item"
+                  >
+                    <SelectPrimitive.ItemText>
                       <span className="glass-dimension-select-label">{preset.label}</span>
                       <span className="glass-dimension-select-dims">
                         {preset.width}×{preset.height}
                       </span>
-                    </BaseSelect.Item>
-                  ))}
-                </BaseSelect.List>
-              </BaseSelect.Popup>
-            </BaseSelect.Positioner>
-          </BaseSelect.Portal>
-        </BaseSelect.Root>
+                    </SelectPrimitive.ItemText>
+                  </SelectPrimitive.Item>
+                ))}
+              </SelectPrimitive.Viewport>
+            </SelectPrimitive.Content>
+          </SelectPrimitive.Portal>
+        </SelectPrimitive.Root>
       </div>
     </div>
   );

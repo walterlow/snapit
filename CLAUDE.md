@@ -1,6 +1,6 @@
 # SnapIt Development Notes
 
-use base-ui. docs can be found here https://base-ui.com/llms.txt 
+Uses shadcn/ui components with Radix UI primitives. Component docs: https://ui.shadcn.com/docs
 
 ## Tauri Capabilities
 

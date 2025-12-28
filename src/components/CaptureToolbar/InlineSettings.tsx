@@ -4,11 +4,11 @@
  * Column 1: FPS + Quality (technical settings)
  * Column 2: Cursor + Audio + Countdown + Max (capture behavior)
  *
- * Uses base-ui Select with glass styling for dropdowns.
+ * Uses Radix Select with glass styling for dropdowns.
  */
 
 import React, { useCallback, useEffect } from 'react';
-import { Select as BaseSelect } from '@base-ui/react/select';
+import * as SelectPrimitive from '@radix-ui/react-select';
 import { ChevronDown, Camera } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
@@ -30,45 +30,46 @@ interface GlassSelectProps {
 }
 
 const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, disabled }) => {
-  const handleValueChange = useCallback((val: string | null) => {
-    if (val !== null) {
-      onChange(val);
-    }
+  const handleValueChange = useCallback((val: string) => {
+    onChange(val);
   }, [onChange]);
 
   const currentLabel = options.find(o => String(o.value) === String(value))?.label || String(value);
 
   return (
-    <BaseSelect.Root
+    <SelectPrimitive.Root
       value={String(value)}
       onValueChange={handleValueChange}
       disabled={disabled}
     >
-      <BaseSelect.Trigger className="glass-settings-select-trigger">
-        <BaseSelect.Value>{currentLabel}</BaseSelect.Value>
-        <BaseSelect.Icon className="glass-settings-select-icon">
+      <SelectPrimitive.Trigger className="glass-settings-select-trigger">
+        <SelectPrimitive.Value>{currentLabel}</SelectPrimitive.Value>
+        <SelectPrimitive.Icon className="glass-settings-select-icon">
           <ChevronDown size={10} />
-        </BaseSelect.Icon>
-      </BaseSelect.Trigger>
+        </SelectPrimitive.Icon>
+      </SelectPrimitive.Trigger>
 
-      <BaseSelect.Portal>
-        <BaseSelect.Positioner sideOffset={6} align="start" alignItemWithTrigger={false} className="z-[9999]">
-          <BaseSelect.Popup className="glass-settings-select-popup">
-            <BaseSelect.List>
-              {options.map((opt) => (
-                <BaseSelect.Item
-                  key={opt.value}
-                  value={String(opt.value)}
-                  className="glass-settings-select-item"
-                >
-                  <BaseSelect.ItemText>{opt.label}</BaseSelect.ItemText>
-                </BaseSelect.Item>
-              ))}
-            </BaseSelect.List>
-          </BaseSelect.Popup>
-        </BaseSelect.Positioner>
-      </BaseSelect.Portal>
-    </BaseSelect.Root>
+      <SelectPrimitive.Portal>
+        <SelectPrimitive.Content
+          position="popper"
+          sideOffset={6}
+          align="start"
+          className="z-[9999] glass-settings-select-popup"
+        >
+          <SelectPrimitive.Viewport>
+            {options.map((opt) => (
+              <SelectPrimitive.Item
+                key={opt.value}
+                value={String(opt.value)}
+                className="glass-settings-select-item"
+              >
+                <SelectPrimitive.ItemText>{opt.label}</SelectPrimitive.ItemText>
+              </SelectPrimitive.Item>
+            ))}
+          </SelectPrimitive.Viewport>
+        </SelectPrimitive.Content>
+      </SelectPrimitive.Portal>
+    </SelectPrimitive.Root>
   );
 };
 

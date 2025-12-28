@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Slider as BaseSlider } from '@base-ui/react/slider';
+import * as SliderPrimitive from '@radix-ui/react-slider';
 import { cn } from '@/lib/utils';
 
 interface SliderProps {
@@ -51,35 +51,33 @@ const Slider = React.forwardRef<HTMLDivElement, SliderProps>(
     }, [onValueChange]);
 
     return (
-      <BaseSlider.Root
+      <SliderPrimitive.Root
         ref={ref}
-        value={localValue}
-        onValueChange={(val) => {
+        value={[localValue]}
+        onValueChange={(values) => {
           isDragging.current = true;
-          setLocalValue(val); // Immediate local update for thumb position
-          scheduleValueChange(val); // RAF-throttled callback
+          setLocalValue(values[0]); // Immediate local update for thumb position
+          scheduleValueChange(values[0]); // RAF-throttled callback
         }}
-        onValueCommitted={(val) => {
+        onValueCommit={(values) => {
           isDragging.current = false;
           // Cancel any pending RAF and call commit directly
           if (rafRef.current !== null) {
             cancelAnimationFrame(rafRef.current);
             rafRef.current = null;
           }
-          onValueCommit?.([val]);
+          onValueCommit?.(values);
         }}
         min={min}
         max={max}
         step={step}
         className={cn('relative flex w-full touch-none select-none items-center h-5', className)}
       >
-        <BaseSlider.Control className="relative flex items-center w-full h-full">
-          <BaseSlider.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-[var(--polar-mist)]">
-            <BaseSlider.Indicator className="absolute h-full bg-[var(--coral-400)]" />
-          </BaseSlider.Track>
-          <BaseSlider.Thumb className="block h-4 w-4 rounded-full border-2 border-[var(--coral-400)] bg-white shadow-md ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--coral-glow)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 cursor-pointer hover:scale-110" />
-        </BaseSlider.Control>
-      </BaseSlider.Root>
+        <SliderPrimitive.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-[var(--polar-mist)]">
+          <SliderPrimitive.Range className="absolute h-full bg-[var(--coral-400)]" />
+        </SliderPrimitive.Track>
+        <SliderPrimitive.Thumb className="block h-4 w-4 rounded-full border-2 border-[var(--coral-400)] bg-white shadow-md ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--coral-glow)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 cursor-pointer hover:scale-110" />
+      </SliderPrimitive.Root>
     );
   }
 );

@@ -104,8 +104,13 @@ windows = { version = "0.58", features = [
     "Win32_System_Com",
 ] }
 
+
+[profile.dev]
+incremental = true # Compile your binary in smaller steps.
+
 [profile.release]
 lto = true
 opt-level = "s"
 codegen-units = 1
+panic = "abort" # Higher performance by disabling panic handlers.
 strip = true

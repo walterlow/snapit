@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react
 import Konva from 'konva';
 import type { CompositorSettings, Tool } from '../types';
 
-const MIN_ZOOM = 0.5;  // 50%
+const MIN_ZOOM = 0.3;  // 30%
 const MAX_ZOOM = 2;    // 200%
 const ZOOM_STEP = 0.05; // 5% per wheel tick
 const VIEW_PADDING = 48;

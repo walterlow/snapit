@@ -43,7 +43,7 @@ const ContextMenuSubTrigger = React.forwardRef<
   <BaseContextMenu.SubmenuTrigger
     ref={ref}
     className={cn(
-      "flex cursor-default select-none items-center rounded-lg px-2 py-1.5 text-sm outline-none focus:bg-[var(--polar-frost)] focus:text-[var(--ink-black)] data-[open]:bg-[var(--polar-frost)] data-[open]:text-[var(--ink-black)]",
+      "flex cursor-default select-none items-center rounded-lg px-2 py-1.5 text-sm",
       inset && "pl-8",
       className
     )}
@@ -100,7 +100,7 @@ const ContextMenuItem = React.forwardRef<
   <BaseContextMenu.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-lg px-2 py-1.5 text-sm outline-none focus:bg-[var(--polar-frost)] focus:text-[var(--ink-black)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center rounded-lg px-2 py-1.5 text-sm outline-none ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:bg-[var(--glass-highlight)] focus:text-[var(--ink-black)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       inset && "pl-8",
       className
     )}
@@ -116,7 +116,7 @@ const ContextMenuCheckboxItem = React.forwardRef<
   <BaseContextMenu.CheckboxItem
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-lg py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-[var(--polar-frost)] focus:text-[var(--ink-black)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center rounded-lg py-1.5 pl-8 pr-2 text-sm outline-none ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:bg-[var(--glass-highlight)] focus:text-[var(--ink-black)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}
@@ -138,7 +138,7 @@ const ContextMenuRadioItem = React.forwardRef<
   <BaseContextMenu.RadioItem
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-lg py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-[var(--polar-frost)] focus:text-[var(--ink-black)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center rounded-lg py-1.5 pl-8 pr-2 text-sm outline-none ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:bg-[var(--glass-highlight)] focus:text-[var(--ink-black)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}

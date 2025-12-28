@@ -447,7 +447,6 @@ body.resizing,
 body.resizing * {
   transition: none !important;
   animation-duration: 0s !important;
-  pointer-events: none !important;
 }
 
 /* ========================================
@@ -455,7 +454,6 @@ body.resizing * {
    ======================================== */
 
 .library-scroll {
-  contain: strict;
   overflow-anchor: none;
   overflow-x: hidden;
 }
@@ -1103,6 +1101,17 @@ body.resizing * {
   body {
     @apply bg-background text-foreground;
   }
+  /* Remove default focus rings from menu items globally */
+  [role="menu"] *:focus,
+  [role="menu"] *:focus-visible,
+  [role="menu"] [data-focus-visible],
+  [role="menu"] [data-focused] {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+  }
 }
 
 /* ========================================
@@ -1505,10 +1514,9 @@ body.overlay-window #root {
 }
 
 /* ========================================
-   CONTEXT MENU & DROPDOWN - Glassmorphism
+   CONTEXT MENU & DROPDOWN - Glassmorphism (Base UI)
    ======================================== */
 
-[data-radix-menu-content],
 [role="menu"] {
   background: var(--glass-bg-solid);
   backdrop-filter: blur(var(--glass-blur));
@@ -1520,7 +1528,6 @@ body.overlay-window #root {
   overflow: hidden;
 }
 
-[data-radix-menu-content]::before,
 [role="menu"]::before {
   content: '';
   position: absolute;
@@ -1530,9 +1537,8 @@ body.overlay-window #root {
   pointer-events: none;
 }
 
-/* Menu items */
-[role="menuitem"],
-[data-radix-menu-item] {
+/* Menu items - remove all focus rings */
+[role="menuitem"] {
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
@@ -1540,18 +1546,28 @@ body.overlay-window #root {
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-smooth);
   position: relative;
+  outline: none !important;
+  box-shadow: none !important;
+  --tw-ring-shadow: none !important;
+  --tw-ring-offset-shadow: none !important;
+}
+
+[role="menuitem"]:focus,
+[role="menuitem"]:focus-visible,
+[role="menuitem"]:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+  --tw-ring-shadow: none !important;
+  --tw-ring-offset-shadow: none !important;
 }
 
 [role="menuitem"]:hover,
-[role="menuitem"][data-highlighted],
-[data-radix-menu-item]:hover,
-[data-radix-menu-item][data-highlighted] {
+[role="menuitem"][data-highlighted] {
   background: var(--glass-highlight);
   color: var(--ink-black);
 }
 
-[role="menuitem"][data-disabled],
-[data-radix-menu-item][data-disabled] {
+[role="menuitem"][data-disabled] {
   color: var(--ink-faint);
   pointer-events: none;
 }
@@ -1564,10 +1580,10 @@ body.overlay-window #root {
 }
 
 /* ========================================
-   POPOVER - Glassmorphism
+   POPOVER - Glassmorphism (Base UI)
    ======================================== */
 
-[data-radix-popper-content-wrapper] [data-side] {
+[role="dialog"]:not([role="alertdialog"]) {
   background: var(--glass-bg-solid);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
@@ -1577,11 +1593,10 @@ body.overlay-window #root {
 }
 
 /* ========================================
-   SELECT & COMBOBOX - Glassmorphism
+   SELECT & COMBOBOX - Glassmorphism (Base UI)
    ======================================== */
 
-[data-radix-select-content],
-[data-radix-select-viewport] {
+[role="listbox"] {
   background: var(--glass-bg-solid);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
@@ -1590,22 +1605,24 @@ body.overlay-window #root {
   box-shadow: var(--shadow-lg);
 }
 
-[data-radix-select-item] {
+[role="option"] {
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 13px;
   color: var(--ink-dark);
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-smooth);
+  outline: none !important;
 }
 
-[data-radix-select-item]:hover,
-[data-radix-select-item][data-highlighted] {
+[role="option"]:hover,
+[role="option"][data-highlighted] {
   background: var(--glass-highlight);
   color: var(--ink-black);
 }
 
-[data-radix-select-item][data-state="checked"] {
+[role="option"][aria-selected="true"],
+[role="option"][data-selected] {
   background: var(--coral-subtle);
   color: var(--coral-400);
 }

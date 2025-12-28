@@ -18,9 +18,10 @@ export function useResizeTransitionLock() {
       }
       
       // Remove class after resize ends (debounced)
+      // Match VirtualizedGrid debounce timing (200ms) for consistency
       resizeTimer = window.setTimeout(() => {
         document.body.classList.remove('resizing');
-      }, 100);
+      }, 250);
     };
 
     window.addEventListener('resize', handleResize);

@@ -5,6 +5,7 @@
 
 use super::{CachedCursor, CursorCaptureManager, CursorState};
 use std::mem;
+use std::sync::Arc;
 use windows::Win32::{
     Foundation::POINT,
     Graphics::Gdi::{
@@ -62,7 +63,7 @@ impl CursorCaptureManager {
                 hotspot_y: cached.hotspot_y,
                 width: cached.width,
                 height: cached.height,
-                bgra_data: cached.bgra_data.clone(),
+                bgra_data: Arc::clone(&cached.bgra_data), // Zero-cost clone via Arc
             });
         }
 
@@ -78,7 +79,7 @@ impl CursorCaptureManager {
             hotspot_y: cached.hotspot_y,
             width: cached.width,
             height: cached.height,
-            bgra_data: cached.bgra_data.clone(),
+            bgra_data: Arc::clone(&cached.bgra_data), // Zero-cost clone via Arc
         };
 
         // Cache for future frames
@@ -270,7 +271,7 @@ impl CursorCaptureManager {
             height,
             hotspot_x,
             hotspot_y,
-            bgra_data,
+            bgra_data: Arc::new(bgra_data),
         })
     }
 }

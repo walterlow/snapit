@@ -25,9 +25,25 @@ pub enum SnapItError {
     #[error("FFmpeg not found. Please ensure FFmpeg is installed or bundled.")]
     FfmpegNotFound,
 
-    /// Video/GIF recording failed
+    /// Video/GIF recording failed (generic)
     #[error("Recording error: {0}")]
     RecordingError(String),
+
+    /// DXGI Desktop Duplication API failed
+    #[error("DXGI capture error: {0}")]
+    DxgiError(String),
+
+    /// Windows Graphics Capture failed
+    #[error("WGC capture error: {0}")]
+    WgcError(String),
+
+    /// Audio capture (WASAPI/cpal) failed
+    #[error("Audio capture error: {0}")]
+    AudioCaptureError(String),
+
+    /// Video/GIF encoder failed
+    #[error("Encoder error: {0}")]
+    EncoderError(String),
 
     /// Monitor not found by index
     #[error("Monitor not found at index {index}")]
@@ -133,6 +149,21 @@ mod tests {
     fn test_from_string() {
         let err: SnapItError = "test error".into();
         assert!(matches!(err, SnapItError::Other(_)));
+    }
+
+    #[test]
+    fn test_video_recording_errors() {
+        let dxgi = SnapItError::DxgiError("desktop duplication failed".to_string());
+        assert!(dxgi.to_string().contains("DXGI"));
+
+        let wgc = SnapItError::WgcError("capture item creation failed".to_string());
+        assert!(wgc.to_string().contains("WGC"));
+
+        let audio = SnapItError::AudioCaptureError("no input device".to_string());
+        assert!(audio.to_string().contains("Audio"));
+
+        let encoder = SnapItError::EncoderError("frame encoding failed".to_string());
+        assert!(encoder.to_string().contains("Encoder"));
     }
 
     #[test]

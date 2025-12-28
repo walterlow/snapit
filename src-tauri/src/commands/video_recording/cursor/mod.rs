@@ -11,8 +11,13 @@ pub use capture::CursorCapture;
 pub use composite::composite_cursor;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Captured cursor state for a single frame.
+///
+/// Uses Arc<Vec<u8>> for bgra_data to avoid expensive clones.
+/// Cursor bitmaps are typically 4KB+ and cloning on every frame
+/// would add significant allocation overhead.
 #[derive(Clone)]
 pub struct CursorState {
     /// Cursor is visible and should be drawn.
@@ -29,8 +34,8 @@ pub struct CursorState {
     pub width: u32,
     /// Cursor bitmap height.
     pub height: u32,
-    /// BGRA pixel data (ready for blending).
-    pub bgra_data: Vec<u8>,
+    /// BGRA pixel data (ready for blending). Uses Arc to avoid per-frame clones.
+    pub bgra_data: Arc<Vec<u8>>,
 }
 
 impl Default for CursorState {
@@ -43,19 +48,22 @@ impl Default for CursorState {
             hotspot_y: 0,
             width: 0,
             height: 0,
-            bgra_data: Vec::new(),
+            bgra_data: Arc::new(Vec::new()),
         }
     }
 }
 
 /// Cached cursor bitmap data.
+///
+/// Uses Arc<Vec<u8>> for bgra_data to allow zero-cost sharing
+/// with CursorState without cloning the bitmap data.
 #[derive(Clone)]
 pub(crate) struct CachedCursor {
     pub width: u32,
     pub height: u32,
     pub hotspot_x: i32,
     pub hotspot_y: i32,
-    pub bgra_data: Vec<u8>,
+    pub bgra_data: Arc<Vec<u8>>,
 }
 
 /// Cursor capture manager with bitmap caching.

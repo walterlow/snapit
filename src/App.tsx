@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState, useCallback, lazy, Suspense, Activity } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, lazy, Suspense, Activity } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { save } from '@tauri-apps/plugin-dialog';
 import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
@@ -26,6 +24,7 @@ import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager'
 import { useUpdater } from './hooks/useUpdater';
 import { useTheme } from './hooks/useTheme';
 import { useEditorKeyboardShortcuts } from './hooks/useEditorKeyboardShortcuts';
+import { useAppEventListeners } from './hooks/useAppEventListeners';
 import { exportToClipboard, exportToFile } from './utils/canvasExport';
 import { createErrorHandler } from './utils/errorReporting';
 import type { Tool, CanvasShape, Annotation, CropBoundsAnnotation, CompositorSettingsAnnotation } from './types';
@@ -171,33 +170,32 @@ function App() {
     useSettingsStore.getState().openSettingsModal();
   }, []);
 
+  // Consolidated event listener callbacks
+  const eventCallbacks = useMemo(
+    () => ({
+      onRecordingComplete: loadCaptures,
+      onCaptureComplete: async (imageData: string) => {
+        await saveNewCapture(imageData, 'region', {});
+        clearEditor();
+        clearHistory();
+      },
+      onCaptureCompleteFast: async (data: { file_path: string; width: number; height: number }) => {
+        clearEditor();
+        clearHistory();
+        setCurrentImageData(data.file_path);
+        setView('editor');
+        await saveNewCaptureFromFile(data.file_path, data.width, data.height, 'region', {}, { silent: true });
+      },
+    }),
+    [loadCaptures, saveNewCapture, clearEditor, setCurrentImageData, setView, saveNewCaptureFromFile]
+  );
+
+  // Consolidated Tauri event listeners (replaces 5 individual useEffect hooks)
+  useAppEventListeners(eventCallbacks);
+
   // Load captures on mount
   useEffect(() => {
     loadCaptures();
-  }, [loadCaptures]);
-
-  // Refresh library when video recording completes
-  useEffect(() => {
-    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
-
-    const unlisten = listen<{ status: string }>('recording-state-changed', (event) => {
-      if (event.payload.status === 'completed') {
-        console.log('[App] Recording completed, refreshing library...');
-        // Delay to ensure file is fully written and flushed
-        const t1 = setTimeout(() => {
-          loadCaptures();
-          // Refresh again after thumbnails might be generated
-          const t2 = setTimeout(() => loadCaptures(), 2000);
-          timeoutIds.push(t2);
-        }, 500);
-        timeoutIds.push(t1);
-      }
-    });
-
-    return () => {
-      timeoutIds.forEach(clearTimeout);
-      unlisten.then((fn) => fn()).catch(() => {});
-    };
   }, [loadCaptures]);
 
   // Run startup cleanup (orphan temp files, missing thumbnails)
@@ -298,17 +296,6 @@ function App() {
     }
   }, [triggerNewCapture, triggerFullscreenCapture, triggerAllMonitorsCapture]);
 
-  // Listen for open-settings event from tray menu
-  useEffect(() => {
-    const unlisten = listen('open-settings', () => {
-      useSettingsStore.getState().openSettingsModal();
-    });
-
-    return () => {
-      unlisten.then((fn) => fn()).catch(() => {});
-    };
-  }, []);
-
   // Sync recording state with backend on window focus
   // This handles edge cases where frontend/backend state may drift
   useEffect(() => {
@@ -320,119 +307,8 @@ function App() {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
-  // Listen for create-capture-toolbar event from Rust D2D overlay
-  // Creates toolbar window from frontend for full control over sizing/positioning
-  useEffect(() => {
-    const unlisten = listen<{ x: number; y: number; width: number; height: number }>(
-      'create-capture-toolbar',
-      async (event) => {
-        const { x, y, width, height } = event.payload;
-
-        // Close any existing toolbar window first
-        const existing = await WebviewWindow.getByLabel('capture-toolbar');
-        if (existing) {
-          try {
-            await existing.close();
-          } catch {
-            // Ignore
-          }
-          await new Promise((r) => setTimeout(r, 50));
-        }
-
-        // Create toolbar window - starts hidden, frontend will position and show
-        const url = `/capture-toolbar.html?x=${x}&y=${y}&width=${width}&height=${height}`;
-        const win = new WebviewWindow('capture-toolbar', {
-          url,
-          title: 'Selection Toolbar',
-          width: 900,
-          height: 300,
-          x: x + Math.floor(width / 2) - 450, // Centered below selection
-          y: y + height + 8,
-          resizable: false,
-          decorations: false,
-          alwaysOnTop: true,
-          transparent: true,
-          skipTaskbar: true,
-          shadow: false,
-          visible: false, // Hidden until toolbar measures and positions itself
-          focus: false,
-        });
-
-        win.once('tauri://error', (e) => {
-          console.error('Failed to create capture toolbar:', e);
-        });
-      }
-    );
-
-    return () => {
-      unlisten.then((fn) => fn()).catch(() => {});
-    };
-  }, []);
-
-  // Note: Shortcut event listeners are now set up in hotkeyManager.ts
-  // when registerShortcut is called with allowOverride=true
-
-  // Listen for capture-complete event from Rust (standard path with base64)
-  useEffect(() => {
-    const unlisten = listen<string>('capture-complete', async (event) => {
-      const imageData = event.payload;
-
-      // Save the capture to storage
-      try {
-        await saveNewCapture(imageData, 'region', {});
-        clearEditor();
-        clearHistory(); // Clear undo history for new capture
-        toast.success('Screenshot captured');
-      } catch {
-        toast.error('Failed to save capture');
-        // Still show the editor even if save fails
-        setCurrentImageData(imageData);
-        setView('editor');
-      }
-    });
-
-    return () => {
-      unlisten.then((fn) => fn()).catch(() => {});
-    };
-  }, [saveNewCapture, setCurrentImageData, setView, clearEditor]);
-
-  // Listen for capture-complete-fast event (fast path with file path)
-  useEffect(() => {
-    const unlisten = listen<{ file_path: string; width: number; height: number }>(
-      'capture-complete-fast',
-      async (event) => {
-        const { file_path } = event.payload;
-
-        // For fast capture, we show the editor immediately with the file path
-        // The useFastImage hook will handle loading and conversion
-        clearEditor();
-        clearHistory();
-
-        // Set the file path as image data - EditorCanvas handles both base64 and file paths
-        setCurrentImageData(file_path);
-        setView('editor');
-        toast.success('Screenshot captured');
-
-        // Save directly from RGBA file - no base64 conversion needed!
-        try {
-          await saveNewCaptureFromFile(
-            file_path,
-            event.payload.width,
-            event.payload.height,
-            'region',
-            {},
-            { silent: true }
-          );
-        } catch {
-          // Silently fail - the capture is already displayed
-        }
-      }
-    );
-
-    return () => {
-      unlisten.then((fn) => fn()).catch(() => {});
-    };
-  }, [saveNewCaptureFromFile, setCurrentImageData, setView, clearEditor]);
+  // Note: Event listeners for recording-state-changed, open-settings, create-capture-toolbar,
+  // capture-complete, and capture-complete-fast are now consolidated in useAppEventListeners
 
   // Load annotations when project changes
   useEffect(() => {

@@ -8,6 +8,54 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+// ============================================================================
+// Frame Buffer Pool - Reuses buffers to avoid per-frame allocations
+// ============================================================================
+
+/// Pre-allocated buffer pool for frame capture to avoid allocations in the hot loop.
+///
+/// The capture loop needs several buffers per frame:
+/// - `frame_buffer`: Working copy for cursor/webcam compositing
+/// - `flip_buffer`: Vertically flipped output for encoder
+///
+/// Note: DXGI's `as_nopadding_buffer` requires a fresh Vec each call, so we can't
+/// pool that allocation. But we still save allocations on frame_buffer and flip_buffer.
+struct FrameBufferPool {
+    /// Buffer for compositing operations (cursor, webcam)
+    frame_buffer: Vec<u8>,
+    /// Buffer for vertical flip before encoding
+    flip_buffer: Vec<u8>,
+    /// Expected frame size in bytes (width * height * 4)
+    frame_size: usize,
+}
+
+impl FrameBufferPool {
+    /// Create a new buffer pool pre-sized for the given dimensions.
+    fn new(width: u32, height: u32) -> Self {
+        let frame_size = (width as usize) * (height as usize) * 4;
+        Self {
+            frame_buffer: vec![0u8; frame_size],
+            flip_buffer: vec![0u8; frame_size],
+            frame_size,
+        }
+    }
+
+    /// Flip frame_buffer vertically into flip_buffer and return reference.
+    fn flip_vertical(&mut self, width: u32, height: u32) -> &[u8] {
+        let row_size = (width as usize) * 4;
+        let total_size = row_size * (height as usize);
+
+        // Flip from frame_buffer to flip_buffer
+        for (i, row) in self.frame_buffer[..total_size].chunks_exact(row_size).enumerate() {
+            let dest_row = height as usize - 1 - i;
+            let dest_start = dest_row * row_size;
+            self.flip_buffer[dest_start..dest_start + row_size].copy_from_slice(row);
+        }
+
+        &self.flip_buffer[..total_size]
+    }
+}
+
 use crossbeam_channel::{Receiver, TryRecvError};
 use tauri::AppHandle;
 use windows_capture::{
@@ -641,6 +689,9 @@ fn run_video_capture(
     let webcam_settings = get_webcam_settings().ok();
     let use_webcam = false; // Disabled - webcam is captured as part of screen
 
+    // Pre-allocate frame buffers to avoid per-frame allocations
+    let mut buffer_pool = FrameBufferPool::new(width, height);
+
     // Recording loop
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
     let mut last_frame_time = Instant::now();
@@ -704,9 +755,39 @@ fn run_video_capture(
             }
         }
 
-        // Skip frame capture while paused
+        // Skip frame capture while paused - use blocking receive instead of polling
         if paused {
-            std::thread::sleep(Duration::from_millis(10));
+            // Block waiting for commands instead of busy-wait polling
+            // This uses near-zero CPU while paused and responds instantly to commands
+            match command_rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(RecorderCommand::Resume) => {
+                    eprintln!("[CAPTURE] Received Resume command while paused");
+                    if let Some(ps) = pause_start.take() {
+                        pause_time += ps.elapsed();
+                    }
+                    paused = false;
+                    progress.set_paused(false);
+                    is_paused.store(false, Ordering::SeqCst);
+                }
+                Ok(RecorderCommand::Stop) => {
+                    eprintln!("[CAPTURE] Received Stop command while paused");
+                    should_stop.store(true, Ordering::SeqCst);
+                    break;
+                }
+                Ok(RecorderCommand::Cancel) => {
+                    eprintln!("[CAPTURE] Received Cancel command while paused");
+                    should_stop.store(true, Ordering::SeqCst);
+                    progress.mark_cancelled();
+                    break;
+                }
+                Ok(RecorderCommand::Pause) => {} // Already paused, ignore
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {} // Normal timeout, continue loop
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    eprintln!("[CAPTURE] Channel disconnected while paused");
+                    should_stop.store(true, Ordering::SeqCst);
+                    break;
+                }
+            }
             continue;
         }
 
@@ -720,14 +801,19 @@ fn run_video_capture(
             }
         }
 
-        // Frame rate limiting
-        if last_frame_time.elapsed() < frame_duration {
-            std::thread::sleep(Duration::from_millis(1));
+        // Frame rate limiting - sleep for remaining time instead of busy-waiting
+        let elapsed_since_frame = last_frame_time.elapsed();
+        if elapsed_since_frame < frame_duration {
+            let remaining = frame_duration - elapsed_since_frame;
+            // Sleep for most of the remaining time, leaving a small margin for timing accuracy
+            if remaining > Duration::from_micros(500) {
+                std::thread::sleep(remaining - Duration::from_micros(500));
+            }
             continue;
         }
 
-        // Acquire next frame from capture backend (DXGI or WGC)
-        let frame_result: Option<Vec<u8>> = match &mut capture {
+        // Acquire next frame from capture backend (DXGI or WGC) into buffer pool
+        let frame_acquired = match &mut capture {
             CaptureBackend::Dxgi(dxgi) => {
                 match dxgi.acquire_next_frame(100) {
                     Ok(mut frame) => {
@@ -744,9 +830,13 @@ fn run_video_capture(
 
                         match buffer_result {
                             Ok(buffer) => {
+                                // Use a temporary Vec for DXGI extraction (as_nopadding_buffer has specific requirements)
+                                // Then copy to the pooled frame_buffer for compositing
                                 let mut raw_data = Vec::new();
                                 let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
-                                Some(pixel_data.to_vec())
+                                let len = pixel_data.len().min(buffer_pool.frame_size);
+                                buffer_pool.frame_buffer[..len].copy_from_slice(&pixel_data[..len]);
+                                true
                             }
                             Err(e) => {
                                 let err_str = format!("{:?}", e);
@@ -764,12 +854,12 @@ fn run_video_capture(
                                     }
                                 } else {
                                     println!("[CAPTURE] Failed to get buffer: {:?}", e);
-                                    None
+                                    false
                                 }
                             }
                         }
                     }
-                    Err(windows_capture::dxgi_duplication_api::Error::Timeout) => None,
+                    Err(windows_capture::dxgi_duplication_api::Error::Timeout) => false,
                     Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
                         println!("[CAPTURE] DXGI access lost, switching to WGC...");
                         match switch_to_wgc(monitor_index, settings.include_cursor) {
@@ -798,29 +888,33 @@ fn run_video_capture(
                         } else {
                             println!("[CAPTURE] DXGI error: {:?}, retrying...", e);
                             std::thread::sleep(Duration::from_millis(50));
-                            None
+                            false
                         }
                     }
                 }
             }
             CaptureBackend::Wgc(wgc) => {
-                // WGC frame acquisition
+                // WGC frame acquisition - copy into pooled buffer
                 match wgc.get_frame(100) {
-                    Some(frame) => Some(frame.data),
-                    None => None, // Timeout or no frame
+                    Some(frame) => {
+                        let len = frame.data.len().min(buffer_pool.frame_size);
+                        buffer_pool.frame_buffer[..len].copy_from_slice(&frame.data[..len]);
+                        true
+                    }
+                    None => false, // Timeout or no frame
                 }
             }
         };
 
-        // Process the frame if we got one
-        let Some(frame_data_raw) = frame_result else {
-            continue; // No frame available, try again
-        };
+        // Skip if no frame was acquired
+        if !frame_acquired {
+            continue;
+        }
 
         last_frame_time = Instant::now();
 
-        // Copy to mutable buffer for cursor compositing
-        let mut frame_data = frame_data_raw;
+        // Get mutable reference to frame buffer for compositing
+        let frame_data = &mut buffer_pool.frame_buffer;
 
         // Composite cursor onto frame (before vertical flip)
         // Note: WGC can include cursor natively, but we use our own for consistency
@@ -840,7 +934,7 @@ fn run_video_capture(
                         }
 
                         composite_cursor(
-                            &mut frame_data,
+                            frame_data,
                             width,
                             height,
                             &cursor_state,
@@ -875,7 +969,7 @@ fn run_video_capture(
                             webcam_frame.width, webcam_frame.height, width, height);
                     }
                     composite_webcam(
-                        &mut frame_data,
+                        frame_data,
                         width,
                         height,
                         &webcam_frame,
@@ -885,18 +979,14 @@ fn run_video_capture(
             }
         }
 
-        // Flip vertically (both DXGI and WGC return top-down, encoder expects bottom-up)
-        let row_size = (width as usize) * 4;
-        let mut flipped_data = Vec::with_capacity(frame_data.len());
-        for row in frame_data.chunks_exact(row_size).rev() {
-            flipped_data.extend_from_slice(row);
-        }
+        // Flip vertically using pooled buffer (both DXGI and WGC return top-down, encoder expects bottom-up)
+        let flipped_data = buffer_pool.flip_vertical(width, height);
 
         // Get video timestamp
         let video_timestamp = (actual_elapsed.as_micros() * 10) as i64;
 
         // Send video frame to encoder
-        if let Err(e) = encoder.send_frame_buffer(&flipped_data, video_timestamp) {
+        if let Err(e) = encoder.send_frame_buffer(flipped_data, video_timestamp) {
             println!("[CAPTURE] Failed to send frame: {:?}", e);
         }
 
@@ -1051,9 +1141,14 @@ fn run_gif_capture(
             }
         }
 
-        // Frame rate limiting
-        if last_frame_time.elapsed() < frame_duration {
-            std::thread::sleep(Duration::from_millis(1));
+        // Frame rate limiting - sleep for remaining time instead of busy-waiting
+        let elapsed_since_frame = last_frame_time.elapsed();
+        if elapsed_since_frame < frame_duration {
+            let remaining = frame_duration - elapsed_since_frame;
+            // Sleep for most of the remaining time, leaving a small margin for timing accuracy
+            if remaining > Duration::from_micros(500) {
+                std::thread::sleep(remaining - Duration::from_micros(500));
+            }
             continue;
         }
 

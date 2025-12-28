@@ -30,24 +30,23 @@ pub enum GifQualityPreset {
 
 impl GifQualityPreset {
     /// Get the FFmpeg filter string for this preset.
-    /// Uses per-frame palette generation for better color accuracy.
+    /// Optimized for screen recording with global palette and diff_mode.
     fn to_filter(&self) -> &'static str {
-        // Per-frame palette: each frame gets its own optimized 256-color palette
-        // split[a][b] = duplicate input to two streams
-        // [a]palettegen = generate palette from first stream
-        // stats_mode=single = generate new palette for EACH frame
-        // [b][p]paletteuse = combine second stream with palette
-        // new=1 = use new palette for each frame
+        // Global palette (stats_mode=full): analyzes ALL frames for optimal 256 colors
+        // - Better for screen recording where colors are consistent across frames
+        // - Smaller file size (no per-frame palette overhead)
+        // diff_mode=rectangle: only updates changed rectangular regions
+        // - Huge file size savings for screen recording where most pixels don't change
         match self {
-            // Fast: per-frame palette, no dithering (fastest)
+            // Fast: global palette, no dithering, rectangle diff
             GifQualityPreset::Fast =>
-                "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1:dither=none",
-            // Balanced: per-frame palette, bayer dithering (fast + good quality)
+                "split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",
+            // Balanced: global palette, bayer dithering, rectangle diff
             GifQualityPreset::Balanced =>
-                "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1:dither=bayer:bayer_scale=5",
-            // High: per-frame palette, floyd_steinberg (best quality)
+                "split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+            // High: global palette, floyd_steinberg, rectangle diff
             GifQualityPreset::High =>
-                "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1:dither=floyd_steinberg",
+                "split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=floyd_steinberg:diff_mode=rectangle",
         }
     }
 }
@@ -108,6 +107,7 @@ impl FfmpegGifEncoder {
 
         // Direct pipe: rawvideo -> palettegen -> paletteuse -> GIF
         // Using BGRA input to avoid color conversion overhead in capture loop
+        // gifflags +transdiff: use transparency for unchanged pixels (major size reduction)
         let mut child = Command::new(&self.ffmpeg_path)
             .args([
                 "-y",
@@ -117,6 +117,7 @@ impl FfmpegGifEncoder {
                 "-r", &format!("{}", self.fps),
                 "-i", "pipe:0",
                 "-filter_complex", filter,
+                "-gifflags", "+transdiff",
                 "-loop", "0",
             ])
             .arg(output_path)

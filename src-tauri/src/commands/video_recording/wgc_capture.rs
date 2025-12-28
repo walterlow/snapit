@@ -166,8 +166,8 @@ impl WgcVideoCapture {
 
         eprintln!("[WGC] Starting capture for monitor {} ({}x{})", monitor_index, width, height);
 
-        // Create channel for frames (buffer a few frames)
-        let (tx, rx) = mpsc::sync_channel::<FrameMessage>(3);
+        // Create channel for frames (buffer 1 second at 60 FPS)
+        let (tx, rx) = mpsc::sync_channel::<FrameMessage>(60);
         let should_stop = Arc::new(AtomicBool::new(false));
         let should_stop_clone = Arc::clone(&should_stop);
 

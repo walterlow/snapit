@@ -1,7 +1,8 @@
-//! FFmpeg-based GIF encoding for fast, high-quality output.
+//! FFmpeg-based GIF encoding with direct piping.
 //!
-//! Uses FFmpeg's palettegen and paletteuse filters for optimal GIF quality
-//! while being significantly faster than pure Rust alternatives.
+//! Uses per-frame palette generation for optimal color accuracy.
+//! Each frame gets its own 256-color palette instead of sharing
+//! a global palette across all frames.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -12,31 +13,46 @@ use ts_rs::TS;
 
 use super::gif_encoder::GifFrame;
 
-/// RAII guard for automatic temp file cleanup.
-/// Ensures the temp file is deleted even on panic.
-struct TempFileGuard(PathBuf);
-
-impl Drop for TempFileGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
 /// Quality preset for GIF encoding.
+/// All presets use per-frame palette for better color accuracy.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub enum GifQualityPreset {
-    /// Single-pass, no dithering - fastest encoding.
+    /// No dithering - fastest, may show banding.
     Fast,
-    /// Two-pass with optimized palette - good quality/speed balance.
+    /// Bayer dithering - good speed/quality balance.
     #[default]
     Balanced,
-    /// Two-pass with sierra2_4a dithering - best quality.
+    /// Floyd-Steinberg dithering - best quality, slower.
     High,
 }
 
-/// FFmpeg-based GIF encoder.
+impl GifQualityPreset {
+    /// Get the FFmpeg filter string for this preset.
+    /// Uses per-frame palette generation for better color accuracy.
+    fn to_filter(&self) -> &'static str {
+        // Per-frame palette: each frame gets its own optimized 256-color palette
+        // split[a][b] = duplicate input to two streams
+        // [a]palettegen = generate palette from first stream
+        // stats_mode=single = generate new palette for EACH frame
+        // [b][p]paletteuse = combine second stream with palette
+        // new=1 = use new palette for each frame
+        match self {
+            // Fast: per-frame palette, no dithering (fastest)
+            GifQualityPreset::Fast =>
+                "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1:dither=none",
+            // Balanced: per-frame palette, bayer dithering (fast + good quality)
+            GifQualityPreset::Balanced =>
+                "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1:dither=bayer:bayer_scale=5",
+            // High: per-frame palette, floyd_steinberg (best quality)
+            GifQualityPreset::High =>
+                "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1:dither=floyd_steinberg",
+        }
+    }
+}
+
+/// FFmpeg-based GIF encoder with direct piping.
 pub struct FfmpegGifEncoder {
     ffmpeg_path: PathBuf,
     width: u32,
@@ -79,34 +95,28 @@ impl FfmpegGifEncoder {
             return Err("No frames to encode".to_string());
         }
 
-        match self.preset {
-            GifQualityPreset::Fast => self.encode_single_pass(frames, output_path, progress_callback),
-            GifQualityPreset::Balanced | GifQualityPreset::High => {
-                self.encode_two_pass(frames, output_path, progress_callback)
-            }
-        }
-    }
+        // Build filter chain based on preset
+        let filter = self.preset.to_filter();
 
-    /// Single-pass encoding for fast mode.
-    fn encode_single_pass<F>(
-        &self,
-        frames: &[GifFrame],
-        output_path: &Path,
-        progress_callback: F,
-    ) -> Result<u64, String>
-    where
-        F: Fn(f32) + Send + Sync,
-    {
-        // Single-pass command with split filter for inline palette generation
+        eprintln!("[FFMPEG] ========================================");
+        eprintln!("[FFMPEG] Input: {} frames of {}x{} RGBA", frames.len(), self.width, self.height);
+        eprintln!("[FFMPEG] Input FPS: {:.2}", self.fps);
+        eprintln!("[FFMPEG] Expected GIF duration: {:.2}s", frames.len() as f64 / self.fps);
+        eprintln!("[FFMPEG] Filter: {}", filter);
+        eprintln!("[FFMPEG] Output: {}", output_path.display());
+        eprintln!("[FFMPEG] ========================================");
+
+        // Direct pipe: rawvideo -> palettegen -> paletteuse -> GIF
+        // Using BGRA input to avoid color conversion overhead in capture loop
         let mut child = Command::new(&self.ffmpeg_path)
             .args([
                 "-y",
                 "-f", "rawvideo",
-                "-pix_fmt", "rgba",
+                "-pix_fmt", "bgra",
                 "-s", &format!("{}x{}", self.width, self.height),
                 "-r", &format!("{}", self.fps),
                 "-i", "pipe:0",
-                "-vf", "split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=none",
+                "-filter_complex", filter,
                 "-loop", "0",
             ])
             .arg(output_path)
@@ -119,150 +129,26 @@ impl FfmpegGifEncoder {
         let mut stdin = child.stdin.take()
             .ok_or_else(|| "Failed to open FFmpeg stdin".to_string())?;
 
-        // Pipe frames to FFmpeg
-        self.pipe_frames(&mut stdin, frames, &progress_callback)?;
+        // Pipe frames directly to FFmpeg
+        let total = frames.len();
+        for (i, frame) in frames.iter().enumerate() {
+            if let Err(e) = stdin.write_all(&frame.rgba_data) {
+                // Write failed - FFmpeg probably crashed, get stderr
+                drop(stdin);
+                let output = child.wait_with_output().ok();
+                let stderr = output
+                    .map(|o| String::from_utf8_lossy(&o.stderr).to_string())
+                    .unwrap_or_default();
+                return Err(format!("Failed to write frame {}: {}. FFmpeg error: {}", i, e, stderr));
+            }
+
+            progress_callback((i + 1) as f32 / total as f32 * 0.9);
+        }
 
         // Close stdin to signal end of input
         drop(stdin);
 
-        // Wait for FFmpeg to complete
-        let output = child.wait_with_output()
-            .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("FFmpeg encoding failed: {}", stderr));
-        }
-
-        progress_callback(1.0);
-
-        // Get file size
-        std::fs::metadata(output_path)
-            .map(|m| m.len())
-            .map_err(|e| format!("Failed to get output file size: {}", e))
-    }
-
-    /// Two-pass encoding for balanced/high quality.
-    fn encode_two_pass<F>(
-        &self,
-        frames: &[GifFrame],
-        output_path: &Path,
-        progress_callback: F,
-    ) -> Result<u64, String>
-    where
-        F: Fn(f32) + Send + Sync,
-    {
-        // Create temp file for palette with RAII guard for automatic cleanup
-        let temp_dir = std::env::temp_dir();
-        let palette_path = temp_dir.join(format!("snapit_palette_{}.png", std::process::id()));
-        let _guard = TempFileGuard(palette_path.clone());
-
-        // Pass 1: Generate palette (0% - 40%)
-        self.generate_palette(frames, &palette_path, |p| {
-            progress_callback(p * 0.4);
-        })?;
-
-        // Pass 2: Generate GIF with palette (40% - 100%)
-        let dither = match self.preset {
-            GifQualityPreset::High => "sierra2_4a",
-            _ => "bayer:bayer_scale=5",
-        };
-
-        self.apply_palette(frames, &palette_path, output_path, dither, |p| {
-            progress_callback(0.4 + p * 0.6);
-        })
-        // TempFileGuard automatically cleans up palette_path on drop
-    }
-
-    /// Pass 1: Generate palette from frames.
-    fn generate_palette<F>(
-        &self,
-        frames: &[GifFrame],
-        palette_path: &Path,
-        progress_callback: F,
-    ) -> Result<(), String>
-    where
-        F: Fn(f32) + Send + Sync,
-    {
-        let mut child = Command::new(&self.ffmpeg_path)
-            .args([
-                "-y",
-                "-f", "rawvideo",
-                "-pix_fmt", "rgba",
-                "-s", &format!("{}x{}", self.width, self.height),
-                "-r", &format!("{}", self.fps),
-                "-i", "pipe:0",
-                "-vf", "palettegen=stats_mode=full:max_colors=256",
-                "-update", "1",
-            ])
-            .arg(palette_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to start FFmpeg for palette: {}", e))?;
-
-        let mut stdin = child.stdin.take()
-            .ok_or_else(|| "Failed to open FFmpeg stdin".to_string())?;
-
-        self.pipe_frames(&mut stdin, frames, &progress_callback)?;
-
-        drop(stdin);
-
-        let output = child.wait_with_output()
-            .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Palette generation failed: {}", stderr));
-        }
-
-        Ok(())
-    }
-
-    /// Pass 2: Apply palette to generate final GIF.
-    fn apply_palette<F>(
-        &self,
-        frames: &[GifFrame],
-        palette_path: &Path,
-        output_path: &Path,
-        dither: &str,
-        progress_callback: F,
-    ) -> Result<u64, String>
-    where
-        F: Fn(f32) + Send + Sync,
-    {
-        let filter = format!("[0:v][1:v]paletteuse=dither={}:diff_mode=rectangle", dither);
-
-        let mut child = Command::new(&self.ffmpeg_path)
-            .args([
-                "-y",
-                "-f", "rawvideo",
-                "-pix_fmt", "rgba",
-                "-s", &format!("{}x{}", self.width, self.height),
-                "-r", &format!("{}", self.fps),
-                "-i", "pipe:0",
-                "-i",
-            ])
-            .arg(palette_path)
-            .args([
-                "-lavfi", &filter,
-                "-loop", "0",
-            ])
-            .arg(output_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to start FFmpeg for GIF: {}", e))?;
-
-        let mut stdin = child.stdin.take()
-            .ok_or_else(|| "Failed to open FFmpeg stdin".to_string())?;
-
-        self.pipe_frames(&mut stdin, frames, &progress_callback)?;
-
-        drop(stdin);
-
+        // Wait for FFmpeg to finish
         let output = child.wait_with_output()
             .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
 
@@ -273,32 +159,14 @@ impl FfmpegGifEncoder {
 
         progress_callback(1.0);
 
-        std::fs::metadata(output_path)
+        // Get file size
+        let file_size = std::fs::metadata(output_path)
             .map(|m| m.len())
-            .map_err(|e| format!("Failed to get output file size: {}", e))
-    }
+            .map_err(|e| format!("Failed to get output file size: {}", e))?;
 
-    /// Pipe frames to FFmpeg stdin with progress reporting.
-    fn pipe_frames<F>(
-        &self,
-        stdin: &mut std::process::ChildStdin,
-        frames: &[GifFrame],
-        progress_callback: &F,
-    ) -> Result<(), String>
-    where
-        F: Fn(f32) + Send + Sync,
-    {
-        let total = frames.len();
+        eprintln!("[FFMPEG] Encoding complete! Output size: {} bytes ({:.2} MB)",
+            file_size, file_size as f64 / 1024.0 / 1024.0);
 
-        for (i, frame) in frames.iter().enumerate() {
-            stdin
-                .write_all(&frame.rgba_data)
-                .map_err(|e| format!("Failed to write frame {}: {}", i, e))?;
-
-            progress_callback((i + 1) as f32 / total as f32);
-        }
-
-        Ok(())
+        Ok(file_size)
     }
 }
-

@@ -14,7 +14,7 @@ use super::ffmpeg_gif_encoder::{FfmpegGifEncoder, GifQualityPreset};
 /// A single captured frame for GIF encoding.
 #[derive(Clone)]
 pub struct GifFrame {
-    /// RGBA pixel data.
+    /// Pixel data (BGRA from WGC, RGBA from xcap).
     pub rgba_data: Vec<u8>,
     /// Frame width.
     pub width: u32,
@@ -103,11 +103,37 @@ impl GifRecorder {
         // Get dimensions from first frame (they should all be the same)
         let first_frame = &self.frames[0];
 
-        // Create FFmpeg encoder
+        // Calculate actual FPS from timestamps
+        // Since xcap capture is slow, we use actual elapsed time for timestamps
+        // and calculate the real FPS from (frame_count - 1) / duration
+        let first_ts = self.frames.first().map(|f| f.timestamp).unwrap_or(0.0);
+        let last_ts = self.frames.last().map(|f| f.timestamp).unwrap_or(0.0);
+        let duration = last_ts - first_ts;
+
+        // Calculate actual FPS: (frames - 1) intervals over duration
+        // e.g., 20 frames over 10s = 19 intervals / 10s = 1.9 FPS
+        let actual_fps = if duration > 0.0 && self.frames.len() > 1 {
+            (self.frames.len() - 1) as f64 / duration
+        } else {
+            self.fps as f64
+        };
+
+        eprintln!("[GIF ENCODER] ========================================");
+        eprintln!("[GIF ENCODER] Frame count: {}", self.frames.len());
+        eprintln!("[GIF ENCODER] First timestamp: {:.3}s", first_ts);
+        eprintln!("[GIF ENCODER] Last timestamp: {:.3}s", last_ts);
+        eprintln!("[GIF ENCODER] Duration: {:.3}s", duration);
+        eprintln!("[GIF ENCODER] Target FPS: {}", self.fps);
+        eprintln!("[GIF ENCODER] Actual FPS: {:.2}", actual_fps);
+        eprintln!("[GIF ENCODER] Frame dimensions: {}x{}", first_frame.width, first_frame.height);
+        eprintln!("[GIF ENCODER] Quality preset: {:?}", self.preset);
+        eprintln!("[GIF ENCODER] ========================================");
+
+        // Create FFmpeg encoder with ACTUAL FPS from timestamps
         let encoder = FfmpegGifEncoder::new(
             first_frame.width,
             first_frame.height,
-            self.fps as f64,
+            actual_fps,
             self.preset,
         )?;
 

@@ -1048,7 +1048,8 @@ fn run_video_capture(
     Ok(())
 }
 
-/// Run GIF capture using DXGI Duplication API.
+/// Run GIF capture using WGC (Windows Graphics Capture).
+/// Fast async capture at 30+ FPS for smooth GIFs.
 fn run_gif_capture(
     app: &AppHandle,
     settings: &RecordingSettings,
@@ -1056,7 +1057,9 @@ fn run_gif_capture(
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
 ) -> Result<(), String> {
-    println!("[GIF] run_gif_capture starting");
+    use super::wgc_capture::WgcVideoCapture;
+
+    println!("[GIF] run_gif_capture starting with WGC");
 
     // Get crop region if in region mode
     let crop_region = match &settings.mode {
@@ -1064,32 +1067,26 @@ fn run_gif_capture(
         _ => None,
     };
 
-    // Get monitor to capture
-    let monitor = match &settings.mode {
-        RecordingMode::Monitor { monitor_index } => {
-            let monitors = Monitor::enumerate()
-                .map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
-            monitors
-                .get(*monitor_index)
-                .ok_or("Monitor not found")?
-                .clone()
-        }
-        _ => Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?,
+    // Get monitor index
+    let monitor_index = match &settings.mode {
+        RecordingMode::Monitor { monitor_index } => *monitor_index,
+        _ => 0, // Primary monitor
     };
 
-    // Create DXGI duplication session
-    let mut dxgi = DxgiDuplicationApi::new(monitor)
-        .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
-
-    // Small delay to let DXGI stabilize (helps with GPU power-saving states)
-    std::thread::sleep(Duration::from_millis(50));
+    // Start WGC capture
+    let wgc = WgcVideoCapture::new(monitor_index, settings.include_cursor)
+        .map_err(|e| format!("Failed to start WGC capture: {}", e))?;
 
     // Get capture dimensions
+    let (capture_width, capture_height) = (wgc.width(), wgc.height());
     let (width, height) = if let Some((_, _, w, h)) = crop_region {
         (w, h)
     } else {
-        (dxgi.width(), dxgi.height())
+        (capture_width, capture_height)
     };
+
+    eprintln!("[GIF] WGC capture started: {}x{} (output: {}x{})",
+        capture_width, capture_height, width, height);
 
     let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
     let max_frames = settings.fps as usize * settings.max_duration_secs.unwrap_or(30) as usize;
@@ -1103,22 +1100,13 @@ fn run_gif_capture(
         max_frames,
     )));
 
-    // Cursor capture manager (for include_cursor option)
-    let mut cursor_capture = if settings.include_cursor {
-        Some(CursorCapture::new())
-    } else {
-        None
-    };
-
-    // Webcam overlay is captured on-screen (the preview window is part of the screen capture)
-    // No need for separate webcam compositing - the browser's getUserMedia preview is visible
-    let webcam_settings = get_webcam_settings().ok();
-    let use_webcam = false; // Disabled - webcam is captured as part of screen
-
-    // Recording loop
+    // Recording loop - consume frames from WGC as they arrive
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
+    let frame_timeout_ms = (frame_duration.as_millis() as u64).max(50);
     let start_time = Instant::now();
-    let mut last_frame_time = Instant::now();
+    let mut last_frame_time = start_time;
+
+    eprintln!("[GIF] Starting WGC capture at {} FPS (frame_timeout={}ms)", settings.fps, frame_timeout_ms);
 
     loop {
         // Check for commands
@@ -1141,125 +1129,68 @@ fn run_gif_capture(
             }
         }
 
-        // Frame rate limiting - sleep for remaining time instead of busy-waiting
-        let elapsed_since_frame = last_frame_time.elapsed();
-        if elapsed_since_frame < frame_duration {
-            let remaining = frame_duration - elapsed_since_frame;
-            // Sleep for most of the remaining time, leaving a small margin for timing accuracy
-            if remaining > Duration::from_micros(500) {
-                std::thread::sleep(remaining - Duration::from_micros(500));
-            }
-            continue;
+        // Wait until it's time for the next frame
+        let now = Instant::now();
+        let time_since_last = now.duration_since(last_frame_time);
+        if time_since_last < frame_duration {
+            let sleep_time = frame_duration - time_since_last;
+            std::thread::sleep(sleep_time);
         }
 
-        // Acquire next frame
-        match dxgi.acquire_next_frame(100) {
-            Ok(mut frame) => {
-                last_frame_time = Instant::now();
+        // Drain channel to get the most recent frame (skip stale frames)
+        let mut frame = match wgc.get_frame(frame_timeout_ms) {
+            Some(f) => f,
+            None => continue,
+        };
 
-                let buffer_result = if let Some((x, y, w, h)) = crop_region {
-                    let start_x = x.max(0) as u32;
-                    let start_y = y.max(0) as u32;
-                    frame.buffer_crop(start_x, start_y, start_x + w, start_y + h)
-                } else {
-                    frame.buffer()
-                };
+        // Keep draining to get the freshest frame
+        while let Some(newer_frame) = wgc.try_get_frame() {
+            frame = newer_frame;
+        }
 
-                if let Ok(buffer) = buffer_result {
-                    let mut raw_data = Vec::new();
-                    let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
+        last_frame_time = Instant::now();
 
-                    // Copy to mutable buffer for cursor compositing
-                    let mut frame_data = pixel_data.to_vec();
+        // WGC returns BGRA - keep it as BGRA, FFmpeg will handle it
+        let bgra_data = frame.data;
 
-                    // Composite cursor onto frame (in BGRA format)
-                    if let Some(ref mut cursor_cap) = cursor_capture {
-                        if let Ok(cursor_state) = cursor_cap.capture() {
-                            if cursor_state.visible {
-                                // Get capture region offset for cursor positioning
-                                let (region_x, region_y) = crop_region
-                                    .map(|(x, y, _, _)| (x, y))
-                                    .unwrap_or((0, 0));
+        // Crop if needed
+        let final_data = if let Some((x, y, w, h)) = crop_region {
+            let x = x.max(0) as u32;
+            let y = y.max(0) as u32;
+            let mut cropped = Vec::with_capacity((w * h * 4) as usize);
 
-                                composite_cursor(
-                                    &mut frame_data,
-                                    width,
-                                    height,
-                                    &cursor_state,
-                                    region_x,
-                                    region_y,
-                                );
-                            }
-                        }
-                    }
-
-                    // Composite webcam overlay onto frame
-                    // Uses shared preview service frames (same source as preview window)
-                    if use_webcam {
-                        // Check if preview service has encountered a fatal error
-                        if webcam::preview_has_error() {
-                            if let Some(error_msg) = webcam::get_preview_error() {
-                                // Only emit error once (use a static to track)
-                                static GIF_WEBCAM_ERROR_EMITTED: std::sync::atomic::AtomicBool =
-                                    std::sync::atomic::AtomicBool::new(false);
-                                if !GIF_WEBCAM_ERROR_EMITTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                                    eprintln!("[WEBCAM] Fatal error detected in GIF recording: {}", error_msg);
-                                    emit_webcam_error(app, &error_msg, true);
-                                }
-                            }
-                            // Skip webcam compositing when there's an error
-                        } else if let Some(webcam_frame) = webcam::get_preview_frame() {
-                            if let Some(ref settings) = webcam_settings {
-                                composite_webcam(
-                                    &mut frame_data,
-                                    width,
-                                    height,
-                                    &webcam_frame,
-                                    settings,
-                                );
-                            }
-                        }
-                    }
-
-                    // Convert BGRA to RGBA for GIF encoder
-                    let rgba_data: Vec<u8> = frame_data
-                        .chunks_exact(4)
-                        .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
-                        .collect();
-
-                    let timestamp = elapsed.as_secs_f64();
-                    if let Ok(mut rec) = recorder.lock() {
-                        rec.add_frame(rgba_data, width, height, timestamp);
-                    }
-
-                    progress.increment_frame();
-
-                    let frame_count = progress.get_frame_count();
-                    // Emit progress every 30 frames (~1/sec at 30fps) to reduce event overhead
-                    if frame_count % 30 == 0 {
-                        emit_state_change(app, &RecordingState::Recording {
-                            started_at: chrono::Local::now().to_rfc3339(),
-                            elapsed_secs: elapsed.as_secs_f64(),
-                            frame_count,
-                        });
-                    }
+            for row in y..(y + h).min(frame.height) {
+                let start = ((row * frame.width + x) * 4) as usize;
+                let end = ((row * frame.width + x + w.min(frame.width - x)) * 4) as usize;
+                if start < bgra_data.len() && end <= bgra_data.len() {
+                    cropped.extend_from_slice(&bgra_data[start..end]);
                 }
             }
-            Err(windows_capture::dxgi_duplication_api::Error::Timeout) => {}
-            Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
-                match dxgi.recreate() {
-                    Ok(new_dxgi) => dxgi = new_dxgi,
-                    Err(e) => return Err(format!("DXGI access lost: {:?}", e)),
-                }
-            }
-            Err(e) => {
-                println!("[GIF] DXGI error: {:?}", e);
-            }
+            cropped
+        } else {
+            bgra_data
+        };
+
+        // Add frame with actual elapsed timestamp
+        let timestamp = elapsed.as_secs_f64();
+        if let Ok(mut rec) = recorder.lock() {
+            rec.add_frame(final_data, width, height, timestamp);
+        }
+
+        progress.increment_frame();
+
+        let frame_count = progress.get_frame_count();
+        if frame_count % 30 == 0 {
+            emit_state_change(app, &RecordingState::Recording {
+                started_at: chrono::Local::now().to_rfc3339(),
+                elapsed_secs: elapsed.as_secs_f64(),
+                frame_count,
+            });
         }
     }
 
-    // Note: Webcam preview service continues running (shared with preview window)
-    // It will be stopped when the preview window closes
+    // Stop WGC capture
+    wgc.stop();
 
     // Check if cancelled
     if progress.was_cancelled() {
@@ -1269,8 +1200,13 @@ fn run_gif_capture(
     // Encode GIF
     emit_state_change(app, &RecordingState::Processing { progress: 0.0 });
 
+    let total_duration = start_time.elapsed();
     let recorder_guard = recorder.lock().map_err(|_| "Failed to lock recorder")?;
     let frame_count = recorder_guard.frame_count();
+    let expected_frames = (total_duration.as_secs_f64() * settings.fps as f64) as usize;
+
+    eprintln!("[GIF] Capture complete: {} frames in {:.2}s (expected ~{} at {} FPS)",
+        frame_count, total_duration.as_secs_f64(), expected_frames, settings.fps);
 
     if frame_count == 0 {
         return Err("No frames captured".to_string());

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { useMemo } from 'react';
 import type {
   CaptureListItem,
   CaptureProject,
@@ -512,39 +513,61 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   setCurrentProject: (project: CaptureProject | null) => set({ currentProject: project }),
 }));
 
-// Selector for filtered captures
+// Selector for filtered captures - memoized for performance
 export const useFilteredCaptures = () => {
-  const { captures, searchQuery, filterFavorites, filterTags } = useCaptureStore();
+  // Use individual selectors to minimize re-renders
+  const captures = useCaptureStore((state) => state.captures);
+  const searchQuery = useCaptureStore((state) => state.searchQuery);
+  const filterFavorites = useCaptureStore((state) => state.filterFavorites);
+  const filterTags = useCaptureStore((state) => state.filterTags);
 
-  return captures.filter((capture) => {
-    if (filterFavorites && !capture.favorite) return false;
-
-    if (filterTags.length > 0) {
-      const hasMatchingTag = filterTags.some((tag) => capture.tags.includes(tag));
-      if (!hasMatchingTag) return false;
+  return useMemo(() => {
+    // Early exit if no filters active - return original array reference
+    if (!filterFavorites && filterTags.length === 0 && !searchQuery) {
+      return captures;
     }
 
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      const matchesType = capture.capture_type.toLowerCase().includes(query);
-      const matchesTags = capture.tags.some((tag) =>
-        tag.toLowerCase().includes(query)
-      );
-      if (!matchesType && !matchesTags) return false;
-    }
+    // Pre-compute filter tag set for O(1) lookups instead of O(n) array.includes
+    const filterTagSet = filterTags.length > 0 ? new Set(filterTags) : null;
+    const queryLower = searchQuery ? searchQuery.toLowerCase() : null;
 
-    return true;
-  });
+    return captures.filter((capture) => {
+      // Check favorites filter first (fastest check)
+      if (filterFavorites && !capture.favorite) return false;
+
+      // Check tags with Set lookup (O(1) per tag instead of O(n))
+      if (filterTagSet) {
+        const hasMatchingTag = capture.tags.some((tag) => filterTagSet.has(tag));
+        if (!hasMatchingTag) return false;
+      }
+
+      // Check search query last (most expensive)
+      if (queryLower) {
+        const matchesType = capture.capture_type.toLowerCase().includes(queryLower);
+        if (matchesType) return true;
+
+        const matchesTags = capture.tags.some((tag) =>
+          tag.toLowerCase().includes(queryLower)
+        );
+        if (!matchesTags) return false;
+      }
+
+      return true;
+    });
+  }, [captures, searchQuery, filterFavorites, filterTags]);
 };
 
-// Selector for all unique tags across all captures (for autocomplete)
+// Selector for all unique tags across all captures (for autocomplete) - memoized
 export const useAllTags = () => {
   const captures = useCaptureStore((state) => state.captures);
 
-  const allTags = new Set<string>();
-  captures.forEach((capture) => {
-    capture.tags.forEach((tag) => allTags.add(tag));
-  });
-
-  return Array.from(allTags).sort((a, b) => a.localeCompare(b));
+  return useMemo(() => {
+    const allTags = new Set<string>();
+    for (const capture of captures) {
+      for (const tag of capture.tags) {
+        allTags.add(tag);
+      }
+    }
+    return Array.from(allTags).sort((a, b) => a.localeCompare(b));
+  }, [captures]);
 };

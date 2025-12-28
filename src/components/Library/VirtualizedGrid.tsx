@@ -2,6 +2,7 @@ import { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { CaptureListItem } from '../../types';
 import { DateHeader, CaptureCard, CaptureRow } from './components';
+import { useThumbnailPrefetch } from './hooks';
 
 interface DateGroup {
   label: string;
@@ -149,6 +150,15 @@ export function VirtualizedGrid({
     overscan: 5,
   });
 
+  // Prefetch thumbnails for rows about to enter the viewport
+  const virtualItems = virtualizer.getVirtualItems();
+  const visibleRange = useMemo(() => ({
+    startIndex: virtualItems[0]?.index ?? 0,
+    endIndex: virtualItems[virtualItems.length - 1]?.index ?? 0,
+  }), [virtualItems]);
+
+  useThumbnailPrefetch(rows, visibleRange, 3);
+
   // Render row content
   const renderRowContent = useCallback(
     (row: VirtualRow) => {
@@ -230,8 +240,6 @@ export function VirtualizedGrid({
       formatDate,
     ]
   );
-
-  const virtualItems = virtualizer.getVirtualItems();
 
   return (
     <div

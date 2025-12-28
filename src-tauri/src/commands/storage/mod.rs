@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{DateTime, Utc};
 use image::{DynamicImage, GenericImageView};
@@ -9,6 +12,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{command, AppHandle, Manager};
 use tokio::fs as async_fs;
+use ts_rs::TS;
 
 /// Get the user's configured save directory from settings, falling back to Pictures/SnapIt
 fn get_captures_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -260,15 +264,9 @@ fn generate_gif_thumbnail(
     Ok(())
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CaptureSource {
-    pub monitor: Option<u32>,
-    pub window_id: Option<u32>,
-    pub window_title: Option<String>,
-    pub region: Option<Region>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Region coordinates for capture selection.
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct Region {
     pub x: i32,
     pub y: i32,
@@ -276,12 +274,27 @@ pub struct Region {
     pub height: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Source information for a capture.
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct CaptureSource {
+    pub monitor: Option<u32>,
+    pub window_id: Option<u32>,
+    pub window_title: Option<String>,
+    pub region: Option<Region>,
+}
+
+/// Image dimensions.
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct Dimensions {
     pub width: u32,
     pub height: u32,
 }
 
+/// Annotation on a capture.
+/// Note: This type uses serde(flatten) which ts-rs can't handle automatically,
+/// so we define the TypeScript type manually in src/types/index.ts.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Annotation {
     pub id: String,
@@ -291,6 +304,9 @@ pub struct Annotation {
     pub properties: serde_json::Value,
 }
 
+/// Full capture project data.
+/// Note: Contains Annotation type with serde(flatten) which ts-rs can't handle.
+/// The TypeScript type is manually defined in src/types/index.ts.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CaptureProject {
     pub id: String,
@@ -305,10 +321,14 @@ pub struct CaptureProject {
     pub favorite: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Lightweight capture item for list display.
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct CaptureListItem {
     pub id: String,
+    #[ts(type = "string")]
     pub created_at: DateTime<Utc>,
+    #[ts(type = "string")]
     pub updated_at: DateTime<Utc>,
     pub capture_type: String,
     pub dimensions: Dimensions,
@@ -321,13 +341,18 @@ pub struct CaptureListItem {
     pub is_missing: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Request to save a new capture.
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct SaveCaptureRequest {
     pub image_data: String,
     pub capture_type: String,
     pub source: CaptureSource,
 }
 
+/// Response after saving a capture.
+/// Note: Contains CaptureProject which has Annotation with serde(flatten).
+/// The TypeScript type is manually defined in src/types/index.ts.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SaveCaptureResponse {
     pub id: String,
@@ -336,10 +361,14 @@ pub struct SaveCaptureResponse {
     pub image_path: String,
 }
 
-#[derive(Debug, Serialize)]
+/// Storage statistics.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 pub struct StorageStats {
+    #[ts(type = "number")]
     pub total_size_bytes: u64,
     pub total_size_mb: f64,
+    #[ts(type = "number")]
     pub capture_count: u32,
     pub storage_path: String,
 }

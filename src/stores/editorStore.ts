@@ -21,6 +21,66 @@ interface HistorySnapshot {
 const HISTORY_LIMIT = 50; // Max number of entries
 const HISTORY_MEMORY_LIMIT = 50 * 1024 * 1024; // 50MB max memory for history
 
+// Cache for shape hashes to detect changes efficiently
+const shapeHashCache = new WeakMap<CanvasShape, string>();
+
+/**
+ * Compute a lightweight hash for a shape to detect changes.
+ * Uses JSON.stringify for reliable comparison but caches results.
+ */
+function getShapeHash(shape: CanvasShape): string {
+  let hash = shapeHashCache.get(shape);
+  if (!hash) {
+    // Create hash from mutable properties only
+    hash = JSON.stringify({
+      x: shape.x,
+      y: shape.y,
+      width: shape.width,
+      height: shape.height,
+      rotation: shape.rotation,
+      points: shape.points,
+      text: shape.text,
+      fill: shape.fill,
+      stroke: shape.stroke,
+      strokeWidth: shape.strokeWidth,
+    });
+    shapeHashCache.set(shape, hash);
+  }
+  return hash;
+}
+
+/**
+ * Create a snapshot of shapes with structural sharing.
+ * Only clones shapes that have actually changed, reuses references otherwise.
+ * This significantly reduces memory usage when only a few shapes change.
+ */
+function createShapesSnapshot(
+  currentShapes: CanvasShape[],
+  previousSnapshot: CanvasShape[] | null
+): CanvasShape[] {
+  if (!previousSnapshot) {
+    // First snapshot - need to clone everything
+    return currentShapes.map(shape => ({ ...shape }));
+  }
+
+  // Build a map of previous shapes by ID for O(1) lookup
+  const prevShapeMap = new Map<string, CanvasShape>();
+  for (const shape of previousSnapshot) {
+    prevShapeMap.set(shape.id, shape);
+  }
+
+  // Create new array, reusing unchanged shape references
+  return currentShapes.map(shape => {
+    const prevShape = prevShapeMap.get(shape.id);
+    if (prevShape && getShapeHash(shape) === getShapeHash(prevShape)) {
+      // Shape unchanged - reuse the previous reference
+      return prevShape;
+    }
+    // Shape is new or changed - create shallow clone
+    return { ...shape };
+  });
+}
+
 /**
  * Estimate the memory size of a snapshot in bytes.
  * This is an approximation based on typical object overhead and string sizes.
@@ -210,9 +270,15 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const { history, shapes, canvasBounds } = get();
     if (history.pendingSnapshot) return; // Already have a pending snapshot
 
+    // Use structural sharing to reduce memory usage
+    // Get the most recent snapshot's shapes for reference comparison
+    const lastSnapshotShapes = history.undoStack.length > 0
+      ? history.undoStack[history.undoStack.length - 1].shapes
+      : null;
+
     const snapshot = {
-      shapes: structuredClone(shapes),
-      canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+      shapes: createShapesSnapshot(shapes, lastSnapshotShapes),
+      canvasBounds: canvasBounds ? { ...canvasBounds } : null,
     };
 
     set({
@@ -288,10 +354,11 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const { history, shapes, canvasBounds } = get();
     if (history.undoStack.length === 0) return false;
 
-    // Save current state to redo stack
+    // Save current state to redo stack with structural sharing
+    const lastSnapshot = history.undoStack[history.undoStack.length - 1];
     const currentSnapshot = {
-      shapes: structuredClone(shapes),
-      canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+      shapes: createShapesSnapshot(shapes, lastSnapshot?.shapes ?? null),
+      canvasBounds: canvasBounds ? { ...canvasBounds } : null,
     };
     const newRedoStack = [
       ...history.redoStack,
@@ -324,10 +391,13 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const { history, shapes, canvasBounds } = get();
     if (history.redoStack.length === 0) return false;
 
-    // Save current state to undo stack
+    // Save current state to undo stack with structural sharing
+    const lastSnapshot = history.undoStack.length > 0
+      ? history.undoStack[history.undoStack.length - 1]
+      : null;
     const currentSnapshot = {
-      shapes: structuredClone(shapes),
-      canvasBounds: canvasBounds ? structuredClone(canvasBounds) : null,
+      shapes: createShapesSnapshot(shapes, lastSnapshot?.shapes ?? null),
+      canvasBounds: canvasBounds ? { ...canvasBounds } : null,
     };
     const newUndoStack = [
       ...history.undoStack,

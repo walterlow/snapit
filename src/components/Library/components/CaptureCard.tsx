@@ -1,11 +1,10 @@
-import React, { memo, useState } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import React, { memo, useState, useMemo } from 'react';
 import { Star, Trash2, Check, Loader2, AlertTriangle, Video, Film, Tag } from 'lucide-react';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CaptureContextMenu } from './CaptureContextMenu';
 import { TagChip } from './TagChip';
 import { TagPopover } from './TagPopover';
-import { useInViewAnimation } from '../hooks';
+import { useInViewAnimation, getCachedThumbnailUrl } from '../hooks';
 import type { CaptureCardProps } from './types';
 import { capturePropsAreEqual } from './types';
 
@@ -37,7 +36,12 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     const isMissing = capture.is_missing;
     const isMedia = isVideoOrGif(capture.capture_type);
     const hasThumbnail = capture.thumbnail_path && capture.thumbnail_path.length > 0;
-    const thumbnailSrc = isPlaceholder || isMissing || !hasThumbnail ? '' : convertFileSrc(capture.thumbnail_path);
+
+    // Use cached URL to avoid repeated convertFileSrc calls
+    const thumbnailSrc = useMemo(() => {
+      if (isPlaceholder || isMissing || !hasThumbnail) return '';
+      return getCachedThumbnailUrl(capture.thumbnail_path);
+    }, [capture.thumbnail_path, isPlaceholder, isMissing, hasThumbnail]);
 
     return (
       <ContextMenu>

@@ -10,6 +10,7 @@ use tauri::{
 use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
+pub mod error;
 
 /// Holds references to tray menu items for dynamic updates
 #[cfg(desktop)]

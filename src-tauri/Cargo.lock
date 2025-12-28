@@ -5196,6 +5196,7 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "thiserror 1.0.69",
  "tokio",
  "ts-rs",
  "wasapi",

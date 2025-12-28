@@ -20,6 +20,14 @@ export type { VideoFormat } from './VideoFormat';
 export type { VideoSettings } from './VideoSettings';
 export type { GifSettings } from './GifSettings';
 
+// Storage types
+export type { CaptureListItem } from './CaptureListItem';
+export type { CaptureSource } from './CaptureSource';
+export type { Dimensions } from './Dimensions';
+export type { Region } from './Region';
+export type { SaveCaptureRequest } from './SaveCaptureRequest';
+export type { StorageStats } from './StorageStats';
+
 // Webcam types
 export type { WebcamDevice } from './WebcamDevice';
 export type { WebcamPosition } from './WebcamPosition';

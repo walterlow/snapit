@@ -1,4 +1,4 @@
-import React, { memo, useState, useMemo } from 'react';
+import React, { memo, useState, useMemo, useEffect, useRef } from 'react';
 import { Star, Trash2, Check, Loader2, AlertTriangle, Video, Film, Tag } from 'lucide-react';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CaptureContextMenu } from './CaptureContextMenu';
@@ -28,6 +28,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     formatDate,
   }) => {
     const [thumbLoaded, setThumbLoaded] = useState(false);
+    const [thumbError, setThumbError] = useState(false);
     const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
     const { ref, isVisible } = useInViewAnimation();
 
@@ -42,6 +43,34 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
       if (isPlaceholder || isMissing || !hasThumbnail) return '';
       return getCachedThumbnailUrl(capture.thumbnail_path);
     }, [capture.thumbnail_path, isPlaceholder, isMissing, hasThumbnail]);
+
+    // Key to force img remount when needed (fixes Activity visibility issue)
+    const [imgKey, setImgKey] = useState(0);
+    const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Reset load state when thumbnail path changes
+    useEffect(() => {
+      setThumbLoaded(false);
+      setThumbError(false);
+      setImgKey(k => k + 1); // Force new img element
+    }, [capture.thumbnail_path]);
+
+    // Detect stale img that never loaded (Activity visibility issue)
+    useEffect(() => {
+      if (thumbnailSrc && !thumbLoaded && !thumbError) {
+        // If image hasn't loaded after 500ms, force a remount
+        loadTimeoutRef.current = setTimeout(() => {
+          if (!thumbLoaded && !thumbError) {
+            setImgKey(k => k + 1);
+          }
+        }, 500);
+      }
+      return () => {
+        if (loadTimeoutRef.current) {
+          clearTimeout(loadTimeoutRef.current);
+        }
+      };
+    }, [thumbnailSrc, thumbLoaded, thumbError, imgKey]);
 
     return (
       <ContextMenu>
@@ -82,6 +111,12 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                     {capture.capture_type}
                   </span>
                 </div>
+              ) : thumbError ? (
+                // Thumbnail failed to load - show error state
+                <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--polar-mist)] gap-2">
+                  <AlertTriangle className="w-6 h-6 text-amber-400" />
+                  <span className="text-[10px] text-[var(--ink-subtle)]">Thumbnail unavailable</span>
+                </div>
               ) : (
                 <>
                   {/* Skeleton placeholder until image loads */}
@@ -89,10 +124,11 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                     <div className="absolute inset-0 bg-[var(--polar-mist)] animate-pulse" />
                   )}
                   <img
+                    key={imgKey}
                     src={thumbnailSrc}
                     alt="Capture"
-                    loading="lazy"
                     onLoad={() => setThumbLoaded(true)}
+                    onError={() => setThumbError(true)}
                     className={`transition-opacity duration-200 ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
                   />
                 </>

@@ -1,4 +1,4 @@
-import React, { memo, useState, useMemo } from 'react';
+import React, { memo, useState, useMemo, useEffect, useRef } from 'react';
 import { Star, Trash2, Check, AlertTriangle, Loader2, Video, Film, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -34,17 +34,46 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
     formatDate,
   }) => {
     const [thumbLoaded, setThumbLoaded] = useState(false);
+    const [thumbError, setThumbError] = useState(false);
     const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
     const { ref, isVisible } = useInViewAnimation();
+    const isPlaceholder = capture.id.startsWith('temp_');
     const isMissing = capture.is_missing;
     const isMedia = isVideoOrGif(capture.capture_type);
     const hasThumbnail = capture.thumbnail_path && capture.thumbnail_path.length > 0;
 
     // Use cached URL to avoid repeated convertFileSrc calls
     const thumbnailSrc = useMemo(() => {
-      if (isMissing || !hasThumbnail) return '';
+      if (isPlaceholder || isMissing || !hasThumbnail) return '';
       return getCachedThumbnailUrl(capture.thumbnail_path);
-    }, [capture.thumbnail_path, isMissing, hasThumbnail]);
+    }, [capture.thumbnail_path, isPlaceholder, isMissing, hasThumbnail]);
+
+    // Key to force img remount when needed (fixes Activity visibility issue)
+    const [imgKey, setImgKey] = useState(0);
+    const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Reset load state when thumbnail path changes
+    useEffect(() => {
+      setThumbLoaded(false);
+      setThumbError(false);
+      setImgKey(k => k + 1);
+    }, [capture.thumbnail_path]);
+
+    // Detect stale img that never loaded (Activity visibility issue)
+    useEffect(() => {
+      if (thumbnailSrc && !thumbLoaded && !thumbError) {
+        loadTimeoutRef.current = setTimeout(() => {
+          if (!thumbLoaded && !thumbError) {
+            setImgKey(k => k + 1);
+          }
+        }, 500);
+      }
+      return () => {
+        if (loadTimeoutRef.current) {
+          clearTimeout(loadTimeoutRef.current);
+        }
+      };
+    }, [thumbnailSrc, thumbLoaded, thumbError, imgKey]);
 
     return (
       <ContextMenu>
@@ -81,16 +110,25 @@ export const CaptureRow: React.FC<CaptureCardProps> = memo(
                     <Video className="w-6 h-6 text-blue-400" />
                   )}
                 </div>
+              ) : isPlaceholder ? (
+                <div className="w-full h-full flex items-center justify-center bg-[var(--polar-mist)]">
+                  <Loader2 className="w-5 h-5 text-[var(--ink-subtle)] animate-spin" />
+                </div>
+              ) : thumbError ? (
+                <div className="w-full h-full flex items-center justify-center bg-[var(--polar-mist)]">
+                  <AlertTriangle className="w-5 h-5 text-amber-400" />
+                </div>
               ) : (
                 <>
                   {!thumbLoaded && (
                     <div className="absolute inset-0 bg-[var(--polar-mist)] animate-pulse rounded" />
                   )}
                   <img
+                    key={imgKey}
                     src={thumbnailSrc}
                     alt="Capture"
-                    loading="lazy"
                     onLoad={() => setThumbLoaded(true)}
+                    onError={() => setThumbError(true)}
                     className={`transition-opacity duration-200 ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
                   />
                 </>

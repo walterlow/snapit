@@ -287,16 +287,22 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
             .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture region: {}", e)))?;
 
         let cap_data = captured.as_raw();
-        let cap_width = captured.width() as usize;
+        let actual_cap_w = captured.width() as usize;
+        let actual_cap_h = captured.height() as usize;
 
         // Copy to output buffer
+        // Use actual captured dimensions to avoid stride mismatch (rainbow artifacts)
         let dst_x = (inter_left - sel_x) as usize;
         let dst_y = (inter_top - sel_y) as usize;
 
-        for row in 0..cap_h as usize {
-            let src_offset = row * cap_width * 4;
+        // Use the smaller of expected vs actual dimensions to avoid out-of-bounds
+        let copy_w = (cap_w as usize).min(actual_cap_w).min(out_w.saturating_sub(dst_x));
+        let copy_h = (cap_h as usize).min(actual_cap_h).min(out_h.saturating_sub(dst_y));
+
+        for row in 0..copy_h {
+            let src_offset = row * actual_cap_w * 4;  // Use actual stride
             let dst_offset = ((dst_y + row) * out_w + dst_x) * 4;
-            let row_bytes = cap_w as usize * 4;
+            let row_bytes = copy_w * 4;
 
             if src_offset + row_bytes <= cap_data.len() && dst_offset + row_bytes <= output.len() {
                 output[dst_offset..dst_offset + row_bytes]

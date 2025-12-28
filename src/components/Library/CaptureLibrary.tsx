@@ -21,7 +21,7 @@ import {
   GlassBlobToolbar,
   DeleteDialog,
 } from './components';
-import { VirtualizedGrid } from './VirtualizedGrid';
+import { VirtualizedGrid, getColumnsForWidth, calculateRowHeight } from './VirtualizedGrid';
 
 type ViewMode = 'grid' | 'list';
 
@@ -134,15 +134,21 @@ export const CaptureLibrary: React.FC = () => {
   const virtualLayout = useMemo<VirtualLayoutInfo | undefined>(() => {
     if (!useVirtualization || containerWidth === 0) return undefined;
 
+    // Use the same breakpoint-based column calculation as VirtualizedGrid
+    const cardsPerRow = viewMode === 'grid' ? getColumnsForWidth(containerWidth) : 1;
     const availableWidth = containerWidth - LAYOUT.CONTAINER_PADDING;
-    const cardsPerRow = Math.max(1, Math.floor((availableWidth + LAYOUT.GRID_GAP) / (LAYOUT.MIN_CARD_WIDTH + LAYOUT.GRID_GAP)));
     const totalGaps = LAYOUT.GRID_GAP * (cardsPerRow - 1);
     const cardWidth = (availableWidth - totalGaps) / cardsPerRow;
+
+    // Use dynamic row height calculation matching VirtualizedGrid
+    const gridRowHeight = viewMode === 'grid'
+      ? calculateRowHeight(containerWidth, cardsPerRow)
+      : LAYOUT.LIST_ROW_HEIGHT;
 
     return {
       viewMode,
       cardsPerRow,
-      gridRowHeight: LAYOUT.CARD_ROW_HEIGHT,
+      gridRowHeight,
       listRowHeight: LAYOUT.LIST_ROW_HEIGHT,
       cardWidth: viewMode === 'list' ? availableWidth : cardWidth,
       headerHeight: LAYOUT.HEADER_HEIGHT,

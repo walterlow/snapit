@@ -50,11 +50,28 @@ const BREAKPOINTS = [
   { min: 0, cols: 1 },
 ];
 
-function getColumnsForWidth(width: number): number {
+export function getColumnsForWidth(width: number): number {
   for (const bp of BREAKPOINTS) {
     if (width >= bp.min) return bp.cols;
   }
   return 1;
+}
+
+// Calculate actual row height based on card width (thumbnail is 16:9 aspect ratio)
+export function calculateRowHeight(containerWidth: number, columns: number): number {
+  const padding = 64; // px-8 on both container and rows = 32 + 32
+  const gap = 20; // gap-5
+  const availableWidth = containerWidth - padding;
+  const totalGaps = gap * (columns - 1);
+  const cardWidth = (availableWidth - totalGaps) / columns;
+
+  // Card height = thumbnail (16:9) + footer (~70px with padding and content)
+  const thumbnailHeight = (cardWidth * 9) / 16;
+  const footerHeight = 70;
+  const cardHeight = thumbnailHeight + footerHeight;
+
+  // Add row gap (matching gap-5 between rows)
+  return Math.ceil(cardHeight) + gap;
 }
 
 export function VirtualizedGrid({
@@ -81,6 +98,7 @@ export function VirtualizedGrid({
 }: VirtualizedGridProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [cardsPerRow, setCardsPerRow] = useState(4);
+  const [containerWidth, setContainerWidth] = useState(1200);
 
   // Sync external ref
   useEffect(() => {
@@ -95,15 +113,16 @@ export function VirtualizedGrid({
     const container = scrollContainerRef.current;
     if (!container || viewMode === 'list') return;
 
-    const updateColumns = () => {
+    const updateLayout = () => {
       const width = container.clientWidth;
       const cols = getColumnsForWidth(width);
       setCardsPerRow(prev => prev !== cols ? cols : prev);
+      setContainerWidth(width);
     };
 
-    updateColumns();
+    updateLayout();
 
-    const observer = new ResizeObserver(updateColumns);
+    const observer = new ResizeObserver(updateLayout);
     observer.observe(container);
 
     return () => observer.disconnect();
@@ -133,15 +152,21 @@ export function VirtualizedGrid({
     return result;
   }, [dateGroups, cardsPerRow, viewMode]);
 
-  // Virtualizer
+  // Calculate dynamic row height based on actual card dimensions
+  const gridRowHeight = useMemo(
+    () => calculateRowHeight(containerWidth, cardsPerRow),
+    [containerWidth, cardsPerRow]
+  );
+
+  // Virtualizer with dynamic row heights based on card size
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: (index) => {
       const row = rows[index];
-      if (!row) return LAYOUT.CARD_ROW_HEIGHT;
+      if (!row) return gridRowHeight;
       if (row.type === 'header') return LAYOUT.HEADER_HEIGHT;
-      return viewMode === 'list' ? LAYOUT.LIST_ROW_HEIGHT : LAYOUT.CARD_ROW_HEIGHT;
+      return viewMode === 'list' ? LAYOUT.LIST_ROW_HEIGHT : gridRowHeight;
     },
     overscan: 5,
   });

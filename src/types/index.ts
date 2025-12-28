@@ -17,10 +17,50 @@ export interface CaptureSource {
   region?: Region;
 }
 
-export interface Annotation {
+// Base annotation interface for generic shapes
+export interface ShapeAnnotation {
   id: string;
   type: string;
   [key: string]: unknown;
+}
+
+// Special annotation for crop bounds (stored to persist crop state)
+export interface CropBoundsAnnotation {
+  id: '__crop_bounds__';
+  type: '__crop_bounds__';
+  width: number;
+  height: number;
+  imageOffsetX: number;
+  imageOffsetY: number;
+}
+
+// Special annotation for compositor settings (stored to persist background effects)
+export interface CompositorSettingsAnnotation {
+  id: '__compositor_settings__';
+  type: '__compositor_settings__';
+  enabled: boolean;
+  backgroundType: BackgroundType;
+  backgroundColor: string;
+  gradientAngle: number;
+  gradientStops: GradientStop[];
+  backgroundImage: string | null;
+  padding: number;
+  borderRadius: number;
+  shadowEnabled: boolean;
+  shadowIntensity: number;
+  aspectRatio: CompositorSettings['aspectRatio'];
+}
+
+// Union type for all annotation types
+export type Annotation = ShapeAnnotation | CropBoundsAnnotation | CompositorSettingsAnnotation;
+
+// Type guards for annotation types
+export function isCropBoundsAnnotation(ann: Annotation): ann is CropBoundsAnnotation {
+  return ann.type === '__crop_bounds__';
+}
+
+export function isCompositorSettingsAnnotation(ann: Annotation): ann is CompositorSettingsAnnotation {
+  return ann.type === '__compositor_settings__';
 }
 
 export interface CaptureProject {
@@ -91,7 +131,7 @@ export interface StorageStats {
   storage_path: string;
 }
 
-export type Tool = 'select' | 'arrow' | 'rect' | 'circle' | 'text' | 'blur' | 'highlight' | 'steps' | 'crop' | 'pen' | 'background';
+export type Tool = 'select' | 'arrow' | 'line' | 'rect' | 'circle' | 'text' | 'blur' | 'highlight' | 'steps' | 'crop' | 'pen' | 'background';
 
 export interface CanvasShape {
   id: string;
@@ -336,6 +376,56 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
 export const DEFAULT_SETTINGS: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS,
   general: DEFAULT_GENERAL_SETTINGS,
+};
+
+// ============================================
+// Capture Type (used in RegionSelector)
+// ============================================
+
+/** Type of capture action to perform after region selection */
+export type CaptureType = 'screenshot' | 'video' | 'gif';
+
+// ============================================
+// Video Recording Types (generated from Rust via ts-rs)
+// ============================================
+
+// Re-export generated types - single source of truth from Rust
+export type {
+  AudioSettings,
+  RecordingFormat,
+  RecordingMode,
+  RecordingSettings,
+  RecordingState as RustRecordingState,
+  RecordingStatus,
+  StartRecordingResult,
+  StopRecordingResult,
+  VideoFormat,
+} from './generated';
+
+// Import Rust type for extension
+import type { RecordingState as RustRecordingState } from './generated';
+
+// Extended RecordingState with frontend-only 'starting' status
+// Used when the UI has initiated a recording but the backend hasn't responded yet
+export type RecordingState = RustRecordingState | { status: 'starting' };
+
+// Import for use in default settings
+import type { RecordingSettings } from './generated';
+
+/** Default recording settings */
+export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
+  format: 'mp4',
+  mode: { type: 'monitor', monitorIndex: 0 },
+  fps: 30,
+  maxDurationSecs: null,
+  includeCursor: true,
+  audio: {
+    captureSystemAudio: true,
+    microphoneDeviceIndex: null,
+  },
+  quality: 80,
+  gifQualityPreset: 'balanced',
+  countdownSecs: 3,
 };
 
 // ============================================

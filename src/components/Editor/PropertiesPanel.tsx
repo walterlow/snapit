@@ -53,6 +53,7 @@ const TOOL_INFO: Record<Tool, { icon: React.ElementType; label: string }> = {
   select: { icon: MousePointer2, label: 'Select' },
   crop: { icon: Crop, label: 'Crop' },
   arrow: { icon: MoveUpRight, label: 'Arrow' },
+  line: { icon: Minus, label: 'Line' },
   rect: { icon: Square, label: 'Rectangle' },
   circle: { icon: Circle, label: 'Ellipse' },
   text: { icon: Type, label: 'Text' },
@@ -415,7 +416,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     if (hasSelection) {
       recordAction(() => {
         selectedShapes.forEach(shape => {
-          if (shape.type === 'arrow' || shape.type === 'rect' || shape.type === 'circle' || shape.type === 'pen' || shape.type === 'text') {
+          if (shape.type === 'arrow' || shape.type === 'line' || shape.type === 'rect' || shape.type === 'circle' || shape.type === 'pen' || shape.type === 'text') {
             updateShape(shape.id, { stroke: color });
           } else if (shape.type === 'step') {
             updateShape(shape.id, { fill: color });
@@ -470,7 +471,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     if (hasSelection) {
       recordAction(() => {
         selectedShapes.forEach(shape => {
-          if (shape.type === 'arrow' || shape.type === 'rect' || shape.type === 'circle' || shape.type === 'pen') {
+          if (shape.type === 'arrow' || shape.type === 'line' || shape.type === 'rect' || shape.type === 'circle' || shape.type === 'pen') {
             updateShape(shape.id, { strokeWidth: width });
           }
         });
@@ -514,6 +515,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const shapeTypeToTool = (shapeType: string): Tool => {
     const mapping: Record<string, Tool> = {
       arrow: 'arrow',
+      line: 'line',
       rect: 'rect',
       circle: 'circle',
       text: 'text',
@@ -533,7 +535,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   // Render tool-specific properties
   const renderToolProperties = () => {
     // Tools that use stroke color
-    const strokeTools: Tool[] = ['arrow', 'rect', 'circle', 'pen'];
+    const strokeTools: Tool[] = ['arrow', 'line', 'rect', 'circle', 'pen'];
     // Tools that use highlight color
     const highlightTools: Tool[] = ['highlight'];
 
@@ -1080,9 +1082,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const HeaderIcon = toolInfo.icon;
 
   return (
-    <div className="w-72 bg-[var(--card)] border-l border-[var(--polar-frost)] flex flex-col flex-shrink-0 h-full shadow-lg">
+    <div className="compositor-sidebar w-72 flex flex-col flex-shrink-0 h-full">
       {/* Header */}
-      <div className="flex items-center px-4 py-3 border-b border-[var(--polar-frost)] flex-shrink-0 bg-[var(--polar-ice)]">
+      <div className="properties-panel-header">
         <div className="flex items-center gap-2">
           <HeaderIcon className="w-4 h-4 text-[var(--coral-400)]" />
           <span className="text-sm font-medium text-[var(--ink-black)]">{toolInfo.label}</span>
@@ -1090,7 +1092,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       </div>
 
       {/* Content */}
-      <div className="p-4 overflow-y-auto flex-1">
+      <div className="p-4 overflow-y-auto flex-1 relative z-10">
         {renderToolProperties()}
       </div>
     </div>

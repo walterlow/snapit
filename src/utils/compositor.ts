@@ -159,152 +159,153 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
+ * Clean up a temporary canvas to release memory
+ */
+function cleanupCanvas(canvas: HTMLCanvasElement | null): void {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+/**
+ * Clean up an image element to release memory
+ */
+function cleanupImage(img: HTMLImageElement | null): void {
+  if (!img) return;
+  img.onload = null;
+  img.onerror = null;
+  img.src = '';
+}
+
+/**
  * Composite an image with compositor settings applied
  * Uses shared dimension calculations to match preview exactly
+ * 
+ * Note: This function properly cleans up intermediate canvases and images
+ * to prevent memory leaks during frequent exports.
  */
 export async function compositeImage(
   options: CompositeOptions
 ): Promise<HTMLCanvasElement> {
   const { settings, sourceCanvas, canvasBounds } = options;
 
-  // Apply canvas bounds (crop/expand) if provided
-  let workingCanvas = sourceCanvas;
-
-  if (canvasBounds) {
-    const croppedCanvas = document.createElement('canvas');
-    croppedCanvas.width = canvasBounds.width;
-    croppedCanvas.height = canvasBounds.height;
-    const croppedCtx = croppedCanvas.getContext('2d');
-
-    if (croppedCtx) {
-      croppedCtx.clearRect(0, 0, canvasBounds.width, canvasBounds.height);
-      croppedCtx.drawImage(
-        sourceCanvas,
-        canvasBounds.imageOffsetX,
-        canvasBounds.imageOffsetY
-      );
-      workingCanvas = croppedCanvas;
-    }
-  }
-
-  // If compositor disabled, return canvas as-is
-  if (!settings.enabled) {
-    return workingCanvas;
-  }
-
-  const sourceWidth = workingCanvas.width;
-  const sourceHeight = workingCanvas.height;
-
-  // Use shared dimension calculation (matches preview exactly)
-  const dimensions = calculateCompositorDimensions(
-    sourceWidth,
-    sourceHeight,
-    settings
-  );
-
-  // Create output canvas
-  const outputCanvas = document.createElement('canvas');
-  outputCanvas.width = dimensions.outputWidth;
-  outputCanvas.height = dimensions.outputHeight;
-  const ctx = outputCanvas.getContext('2d');
-
-  if (!ctx) {
-    throw new Error('Failed to get canvas context');
-  }
-
-  // Load background image if needed
+  // Track intermediate resources for cleanup
+  let croppedCanvas: HTMLCanvasElement | null = null;
+  let tempCanvas: HTMLCanvasElement | null = null;
   let backgroundImage: HTMLImageElement | null = null;
-  if (settings.backgroundType === 'image' && settings.backgroundImage) {
-    backgroundImage = await loadImage(settings.backgroundImage);
-  }
 
-  // Draw full background
-  drawBackground(
-    ctx,
-    settings,
-    dimensions.outputWidth,
-    dimensions.outputHeight,
-    backgroundImage
-  );
+  try {
+    // Apply canvas bounds (crop/expand) if provided
+    let workingCanvas = sourceCanvas;
 
-  // Draw shadow if enabled
-  if (settings.shadowEnabled) {
-    drawShadow(
-      ctx,
-      dimensions.contentX,
-      dimensions.contentY,
+    if (canvasBounds) {
+      croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = canvasBounds.width;
+      croppedCanvas.height = canvasBounds.height;
+      const croppedCtx = croppedCanvas.getContext('2d');
+
+      if (croppedCtx) {
+        croppedCtx.clearRect(0, 0, canvasBounds.width, canvasBounds.height);
+        croppedCtx.drawImage(
+          sourceCanvas,
+          canvasBounds.imageOffsetX,
+          canvasBounds.imageOffsetY
+        );
+        workingCanvas = croppedCanvas;
+      }
+    }
+
+    // If compositor disabled, return canvas as-is
+    if (!settings.enabled) {
+      // Don't cleanup croppedCanvas if we're returning it
+      if (workingCanvas === croppedCanvas) {
+        croppedCanvas = null; // Prevent cleanup
+      }
+      return workingCanvas;
+    }
+
+    const sourceWidth = workingCanvas.width;
+    const sourceHeight = workingCanvas.height;
+
+    // Use shared dimension calculation (matches preview exactly)
+    const dimensions = calculateCompositorDimensions(
       sourceWidth,
       sourceHeight,
-      settings.borderRadius,
-      settings.shadowIntensity
+      settings
     );
-  }
 
-  // Create temp canvas for content with rounded corners
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = sourceWidth;
-  tempCanvas.height = sourceHeight;
-  const tempCtx = tempCanvas.getContext('2d');
+    // Create output canvas
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = dimensions.outputWidth;
+    outputCanvas.height = dimensions.outputHeight;
+    const ctx = outputCanvas.getContext('2d');
 
-  if (tempCtx) {
-    // Apply rounded clip first
-    if (settings.borderRadius > 0) {
-      drawRoundedRect(tempCtx, 0, 0, sourceWidth, sourceHeight, settings.borderRadius);
-      tempCtx.clip();
+    if (!ctx) {
+      throw new Error('Failed to get canvas context');
     }
 
-    // Fill with background (for transparent areas)
-    drawBackground(tempCtx, settings, sourceWidth, sourceHeight, backgroundImage);
-
-    // Draw source content
-    tempCtx.drawImage(workingCanvas, 0, 0);
-
-    // Draw to output at correct position
-    ctx.drawImage(tempCanvas, dimensions.contentX, dimensions.contentY);
-  } else {
-    ctx.drawImage(workingCanvas, dimensions.contentX, dimensions.contentY);
-  }
-
-  return outputCanvas;
-}
-
-/**
- * Generate CSS for compositor preview background
- * @deprecated Use CompositorBackground component for Konva-based preview instead
- */
-export function getCompositorPreviewStyle(
-  settings: CompositorSettings
-): React.CSSProperties {
-  if (!settings.enabled) {
-    return {};
-  }
-
-  let background: string;
-
-  switch (settings.backgroundType) {
-    case 'solid':
-      background = settings.backgroundColor;
-      break;
-    case 'gradient': {
-      const gradientStops = settings.gradientStops
-        .map((s) => `${s.color} ${s.position}%`)
-        .join(', ');
-      background = `linear-gradient(${settings.gradientAngle}deg, ${gradientStops})`;
-      break;
+    // Load background image if needed
+    if (settings.backgroundType === 'image' && settings.backgroundImage) {
+      backgroundImage = await loadImage(settings.backgroundImage);
     }
-    case 'image':
-      background = settings.backgroundImage
-        ? `url(${settings.backgroundImage})`
-        : '#1a1a2e';
-      break;
-    default:
-      background = '#1a1a2e';
-  }
 
-  return {
-    background,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-    padding: `${settings.padding}%`,
-  };
+    // Draw full background
+    drawBackground(
+      ctx,
+      settings,
+      dimensions.outputWidth,
+      dimensions.outputHeight,
+      backgroundImage
+    );
+
+    // Draw shadow if enabled
+    if (settings.shadowEnabled) {
+      drawShadow(
+        ctx,
+        dimensions.contentX,
+        dimensions.contentY,
+        sourceWidth,
+        sourceHeight,
+        settings.borderRadius,
+        settings.shadowIntensity
+      );
+    }
+
+    // Create temp canvas for content with rounded corners
+    tempCanvas = document.createElement('canvas');
+    tempCanvas.width = sourceWidth;
+    tempCanvas.height = sourceHeight;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    if (tempCtx) {
+      // Apply rounded clip first
+      if (settings.borderRadius > 0) {
+        drawRoundedRect(tempCtx, 0, 0, sourceWidth, sourceHeight, settings.borderRadius);
+        tempCtx.clip();
+      }
+
+      // Fill with background (for transparent areas)
+      drawBackground(tempCtx, settings, sourceWidth, sourceHeight, backgroundImage);
+
+      // Draw source content
+      tempCtx.drawImage(workingCanvas, 0, 0);
+
+      // Draw to output at correct position
+      ctx.drawImage(tempCanvas, dimensions.contentX, dimensions.contentY);
+    } else {
+      ctx.drawImage(workingCanvas, dimensions.contentX, dimensions.contentY);
+    }
+
+    return outputCanvas;
+  } finally {
+    // Clean up intermediate resources to prevent memory leaks
+    cleanupCanvas(croppedCanvas);
+    cleanupCanvas(tempCanvas);
+    cleanupImage(backgroundImage);
+  }
 }
+

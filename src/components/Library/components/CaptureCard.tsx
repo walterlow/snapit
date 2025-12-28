@@ -1,32 +1,43 @@
 import React, { memo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, Check, Loader2, AlertTriangle } from 'lucide-react';
+import { Star, Trash2, Check, Loader2, AlertTriangle, Video, Film, Tag } from 'lucide-react';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CaptureContextMenu } from './CaptureContextMenu';
+import { TagChip } from './TagChip';
+import { TagPopover } from './TagPopover';
 import { useInViewAnimation } from '../hooks';
 import type { CaptureCardProps } from './types';
 import { capturePropsAreEqual } from './types';
+
+// Check if capture is a video or gif recording
+const isVideoOrGif = (captureType: string) => captureType === 'video' || captureType === 'gif';
 
 export const CaptureCard: React.FC<CaptureCardProps> = memo(
   ({
     capture,
     selected,
     isLoading,
+    allTags,
     onSelect,
     onOpen,
     onToggleFavorite,
+    onUpdateTags,
     onDelete,
     onOpenInFolder,
     onCopyToClipboard,
+    onPlayMedia,
     formatDate,
   }) => {
     const [thumbLoaded, setThumbLoaded] = useState(false);
+    const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
     const { ref, isVisible } = useInViewAnimation();
 
     // Check if this is a placeholder (optimistic update, saving in progress)
-    const isPlaceholder = capture.id.startsWith('temp_') || !capture.thumbnail_path;
+    const isPlaceholder = capture.id.startsWith('temp_');
     const isMissing = capture.is_missing;
-    const thumbnailSrc = isPlaceholder || isMissing ? '' : convertFileSrc(capture.thumbnail_path);
+    const isMedia = isVideoOrGif(capture.capture_type);
+    const hasThumbnail = capture.thumbnail_path && capture.thumbnail_path.length > 0;
+    const thumbnailSrc = isPlaceholder || isMissing || !hasThumbnail ? '' : convertFileSrc(capture.thumbnail_path);
 
     return (
       <ContextMenu>
@@ -55,6 +66,18 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                   <AlertTriangle className="w-8 h-8 text-amber-500" />
                   <span className="text-xs text-[var(--ink-subtle)]">File missing</span>
                 </div>
+              ) : isMedia && !hasThumbnail ? (
+                // Video/GIF without thumbnail - show icon placeholder
+                <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[var(--polar-mist)] to-[var(--polar-frost)] gap-2">
+                  {capture.capture_type === 'gif' ? (
+                    <Film className="w-12 h-12 text-purple-400" />
+                  ) : (
+                    <Video className="w-12 h-12 text-blue-400" />
+                  )}
+                  <span className="text-xs font-medium text-[var(--ink-subtle)] uppercase">
+                    {capture.capture_type}
+                  </span>
+                </div>
               ) : (
                 <>
                   {/* Skeleton placeholder until image loads */}
@@ -69,6 +92,13 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                     className={`transition-opacity duration-200 ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
                   />
                 </>
+              )}
+              
+              {/* Media type badge for videos/gifs */}
+              {isMedia && !isMissing && (
+                <div className="absolute bottom-3 left-3 px-2 py-1 rounded-md bg-black/70 text-white text-[10px] font-medium uppercase">
+                  {capture.capture_type}
+                </div>
               )}
 
               {/* Selection Checkbox */}
@@ -110,12 +140,47 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
                 <span className="text-[11px] text-[var(--ink-subtle)]">
                   {isPlaceholder ? 'Saving...' : formatDate(capture.created_at)}
                 </span>
-                <span className="pill font-mono text-[10px]">
-                  {isPlaceholder ? '-- × --' : `${capture.dimensions.width} × ${capture.dimensions.height}`}
-                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="pill font-mono text-[10px]">
+                    {isPlaceholder
+                      ? '-- × --'
+                      : isMedia && capture.dimensions.width === 0
+                        ? capture.capture_type.toUpperCase()
+                        : `${capture.dimensions.width} × ${capture.dimensions.height}`}
+                  </span>
+                  {/* Display up to 2 tags */}
+                  {!isPlaceholder && capture.tags.slice(0, 2).map(tag => (
+                    <TagChip key={tag} tag={tag} size="sm" />
+                  ))}
+                  {!isPlaceholder && capture.tags.length > 2 && (
+                    <span className="text-[10px] text-[var(--ink-muted)]">
+                      +{capture.tags.length - 2}
+                    </span>
+                  )}
+                </div>
               </div>
               {!isPlaceholder && (
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <TagPopover
+                    currentTags={capture.tags}
+                    allTags={allTags}
+                    onTagsChange={onUpdateTags}
+                    open={tagPopoverOpen}
+                    onOpenChange={setTagPopoverOpen}
+                    trigger={
+                      <button
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--polar-mist)] transition-colors"
+                      >
+                        <Tag
+                          className="w-4 h-4 transition-colors"
+                          style={{
+                            color: capture.tags.length > 0 ? 'var(--coral-400)' : 'var(--ink-subtle)',
+                          }}
+                        />
+                      </button>
+                    }
+                  />
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -148,10 +213,13 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
         <CaptureContextMenu
           favorite={capture.favorite}
           isMissing={isMissing}
+          captureType={capture.capture_type}
           onCopyToClipboard={onCopyToClipboard}
           onOpenInFolder={onOpenInFolder}
           onToggleFavorite={onToggleFavorite}
+          onManageTags={() => setTagPopoverOpen(true)}
           onDelete={onDelete}
+          onPlayMedia={onPlayMedia}
         />
       </ContextMenu>
     );

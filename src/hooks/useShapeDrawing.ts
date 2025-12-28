@@ -30,6 +30,9 @@ interface UseShapeDrawingReturn {
   handleDrawingMouseDown: (e: Konva.KonvaEventObject<MouseEvent>) => boolean; // returns true if handled
   handleDrawingMouseMove: (pos: { x: number; y: number }) => void;
   handleDrawingMouseUp: () => void;
+  /** Force-finalize any in-progress drawing and return the current shapes.
+   *  Call before saving to ensure no shapes are lost. */
+  finalizeAndGetShapes: () => CanvasShape[];
 }
 
 /**
@@ -74,6 +77,14 @@ export const useShapeDrawing = ({
             stroke: strokeColor,
             strokeWidth,
             fill: strokeColor,
+          };
+        case 'line':
+          return {
+            id,
+            type: 'line',
+            points: [startPos.x, startPos.y, endPos.x, endPos.y],
+            stroke: strokeColor,
+            strokeWidth,
           };
         case 'rect':
           return {
@@ -159,9 +170,9 @@ export const useShapeDrawing = ({
             textDecoration: '',
             align: 'left',
             wrap: 'word',
-            fill: fillColor,
-            stroke: strokeColor,
-            strokeWidth,
+            fill: strokeColor, // Text color uses stroke color (red by default)
+            stroke: undefined,
+            strokeWidth: 0,
           };
         }
         default:
@@ -275,20 +286,38 @@ export const useShapeDrawing = ({
       const liveShape = liveShapeRef.current;
       if (!liveShape) return;
 
+      // Blur uses React state updates instead of Konva direct manipulation
+      // Handle it separately before the node lookup
+      if (liveShape.type === 'blur') {
+        const width = pos.x - drawStart.x;
+        const height = pos.y - drawStart.y;
+        const updatedShape = { ...liveShape, width, height };
+        liveShapeRef.current = updatedShape;
+        // Update React state to trigger re-render with live blur
+        onShapesChange([...shapesBeforeDrawRef.current, updatedShape]);
+        return;
+      }
+
       const node = stage.findOne(`#${liveShape.id}`);
       if (!node) return;
 
       switch (liveShape.type) {
         case 'arrow': {
-          const line = node as Konva.Arrow;
+          const arrow = node as Konva.Arrow;
+          const newPoints = [drawStart.x, drawStart.y, pos.x, pos.y];
+          arrow.points(newPoints);
+          liveShapeRef.current = { ...liveShape, points: newPoints };
+          break;
+        }
+        case 'line': {
+          const line = node as Konva.Line;
           const newPoints = [drawStart.x, drawStart.y, pos.x, pos.y];
           line.points(newPoints);
           liveShapeRef.current = { ...liveShape, points: newPoints };
           break;
         }
         case 'rect':
-        case 'highlight':
-        case 'blur': {
+        case 'highlight': {
           const rect = node as Konva.Rect;
           const width = pos.x - drawStart.x;
           const height = pos.y - drawStart.y;
@@ -374,10 +403,36 @@ export const useShapeDrawing = ({
     setShapeSpawned(false);
   }, [isDrawing, shapeSpawned, selectedTool, onToolChange, onShapesChange, onTextShapeCreated]);
 
+  // Force-finalize any in-progress drawing and return the current shapes
+  // This ensures no shapes are lost when exiting edit mode
+  const finalizeAndGetShapes = useCallback((): CanvasShape[] => {
+    // If there's a shape being drawn, include it in the result
+    if (isDrawing && shapeSpawned && liveShapeRef.current) {
+      const finalShape = liveShapeRef.current;
+      const finalShapes = [...shapesBeforeDrawRef.current, finalShape];
+
+      // Also sync to React state
+      onShapesChange(finalShapes);
+      commitSnapshot();
+
+      // Clean up
+      liveShapeRef.current = null;
+      shapesBeforeDrawRef.current = [];
+      setIsDrawing(false);
+      setShapeSpawned(false);
+
+      return finalShapes;
+    }
+
+    // No in-progress drawing, return current shapes
+    return shapes;
+  }, [isDrawing, shapeSpawned, shapes, onShapesChange]);
+
   return {
     isDrawing,
     handleDrawingMouseDown,
     handleDrawingMouseMove,
     handleDrawingMouseUp,
+    finalizeAndGetShapes,
   };
 };

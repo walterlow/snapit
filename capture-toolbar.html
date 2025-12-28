@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Selection Toolbar</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html, body {
+        width: 100%;
+        height: 100%;
+        background: transparent !important;
+        overflow: hidden;
+      }
+      #root {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        background: transparent !important;
+        overflow: visible;
+      }
+      .toolbar-container {
+        /* Absolute position at top-center, anchor point is top edge */
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        display: inline-flex;
+        /* Click-through for transparent areas */
+        pointer-events: none;
+      }
+      /* Toolbar itself receives pointer events */
+      .toolbar-container > * {
+        pointer-events: auto;
+      }
+      /* Wrapper - just holds content, no overflow hidden */
+      .toolbar-animated-wrapper {
+        border-radius: 14px;
+        display: flex;
+        flex-direction: column;
+      }
+      /* Content wrapper - natural size */
+      .toolbar-content-measure {
+        width: max-content;
+        height: max-content;
+      }
+      /* CSS drag region support */
+      [data-tauri-drag-region] {
+        -webkit-app-region: drag;
+        app-region: drag;
+      }
+      button {
+        -webkit-app-region: no-drag;
+        app-region: no-drag;
+      }
+    </style>
+  </head>
+  <body class="overlay-window">
+    <div id="root"></div>
+    <script type="module" src="/src/windows/capture-toolbar-main.tsx"></script>
+  </body>
+</html>

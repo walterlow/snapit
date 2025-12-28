@@ -8,6 +8,7 @@ import { PenShape } from './PenShape';
 import { TextShape } from './TextShape';
 import { StepShape } from './StepShape';
 import { ArrowShape } from './ArrowShape';
+import { LineShape } from './LineShape';
 import { BlurShape } from './BlurShape';
 
 interface ShapeRendererProps {
@@ -128,6 +129,15 @@ const MemoizedShape = React.memo<{
     case 'arrow':
       return (
         <ArrowShape
+          {...commonProps}
+          zoom={zoom}
+          onDragEnd={handleArrowDragEnd}
+          onEndpointDragEnd={handleArrowEndpointDragEnd}
+        />
+      );
+    case 'line':
+      return (
+        <LineShape
           {...commonProps}
           zoom={zoom}
           onDragEnd={handleArrowDragEnd}

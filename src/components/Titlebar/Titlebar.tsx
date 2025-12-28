@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Window } from '@tauri-apps/api/window';
-import { Minus, Square, X, Maximize2, Aperture, Settings, Sun, Moon } from 'lucide-react';
-import { useSettingsStore } from '@/stores/settingsStore';
+import { Minus, Square, X, Maximize2, Aperture, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 
 interface TitlebarProps {
@@ -16,7 +15,6 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   const [isMaximized, setIsMaximized] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const appWindow = Window.getCurrent();
-  const { openSettingsModal } = useSettingsStore();
   const { resolvedTheme, toggleTheme } = useTheme();
 
   useEffect(() => {
@@ -25,16 +23,20 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
     // Listen for window state changes - debounced to avoid excessive IPC during resize
     let debounceTimer: number | null = null;
-    const unlistenResize = appWindow.onResized(() => {
+    let unlistenFn: (() => void) | null = null;
+    
+    appWindow.onResized(() => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = window.setTimeout(() => {
         appWindow.isMaximized().then(setIsMaximized);
       }, 150);
+    }).then((fn) => {
+      unlistenFn = fn;
     });
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      unlistenResize.then((fn) => fn());
+      if (unlistenFn) unlistenFn();
     };
   }, [appWindow]);
 
@@ -83,14 +85,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
             <Moon className="w-3.5 h-3.5" />
           )}
         </button>
-        <button
-          onClick={() => openSettingsModal()}
-          className="titlebar-button"
-          aria-label="Settings"
-          title="Settings"
-        >
-          <Settings className="w-3.5 h-3.5" />
-        </button>
+        
         <button
           onClick={handleMinimize}
           className="titlebar-button titlebar-button-minimize"

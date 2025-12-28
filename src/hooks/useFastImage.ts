@@ -73,8 +73,9 @@ export function useFastImage(
     height: 0,
   });
 
-  // Track canvas for cleanup
+  // Track resources for cleanup
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     if (!source) {
@@ -111,6 +112,9 @@ export function useFastImage(
             img.onerror = reject;
           });
 
+          // Store for cleanup
+          imageRef.current = img;
+
           if (isMounted) {
             setState({
               image: img,
@@ -131,8 +135,21 @@ export function useFastImage(
 
     return () => {
       isMounted = false;
-      // Canvas doesn't need explicit cleanup like blob URLs
-      canvasRef.current = null;
+      // Clean up canvas by clearing its context and resetting dimensions
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        }
+        canvasRef.current.width = 0;
+        canvasRef.current.height = 0;
+        canvasRef.current = null;
+      }
+      // Clean up image by clearing src to release memory
+      if (imageRef.current) {
+        imageRef.current.src = '';
+        imageRef.current = null;
+      }
     };
   }, [source]);
 

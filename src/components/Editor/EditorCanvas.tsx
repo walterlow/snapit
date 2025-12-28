@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect, useState } from 'react';
+import React, { useRef, useMemo, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import { Stage, Layer, Image, Rect, Group, Transformer } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
@@ -37,11 +37,15 @@ const CHECKER_SIZE = 10;
 const CHECKER_LIGHT = '#f5f5f5';
 const CHECKER_DARK = '#e8e8e8';
 
-const createCheckerPattern = (): HTMLImageElement => {
+const createCheckerPattern = (): HTMLImageElement | null => {
   const canvas = document.createElement('canvas');
   canvas.width = CHECKER_SIZE * 2;
   canvas.height = CHECKER_SIZE * 2;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    console.error('Failed to get 2D canvas context for checker pattern');
+    return null;
+  }
   ctx.fillStyle = CHECKER_LIGHT;
   ctx.fillRect(0, 0, CHECKER_SIZE * 2, CHECKER_SIZE * 2);
   ctx.fillStyle = CHECKER_DARK;
@@ -64,7 +68,14 @@ interface EditorCanvasProps {
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
-export const EditorCanvas: React.FC<EditorCanvasProps> = ({
+/** Ref handle exposed by EditorCanvas for imperative operations */
+export interface EditorCanvasRef {
+  /** Force-finalize any in-progress drawing and return the current shapes.
+   *  Call this before saving to ensure no shapes are lost to race conditions. */
+  finalizeAndGetShapes: () => CanvasShape[];
+}
+
+export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
   imageData,
   selectedTool,
   onToolChange,
@@ -74,7 +85,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   shapes,
   onShapesChange,
   stageRef,
-}) => {
+}, ref) => {
   // Refs
   const layerRef = useRef<Konva.Layer>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -221,6 +232,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     },
   });
 
+  // Expose imperative methods via ref
+  useImperativeHandle(ref, () => ({
+    finalizeAndGetShapes: drawing.finalizeAndGetShapes,
+  }), [drawing.finalizeAndGetShapes]);
+
   // Marquee selection hook
   const marquee = useMarqueeSelection({
     shapes,
@@ -259,29 +275,46 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     });
   }, [selectedIds, shapes]);
 
+  // Disable image smoothing for crisp 1:1 pixel rendering at 100% zoom
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+
+    const handleBeforeDraw = () => {
+      const ctx = layer.getCanvas().getContext()._context;
+      // Disable smoothing when at or near 100% zoom for pixel-perfect rendering
+      ctx.imageSmoothingEnabled = navigation.zoom < 0.95 || navigation.zoom > 1.05;
+    };
+
+    layer.on('beforeDraw', handleBeforeDraw);
+    return () => {
+      layer.off('beforeDraw', handleBeforeDraw);
+    };
+  }, [navigation.zoom]);
+
   // Attach transformer to selected shapes
   useEffect(() => {
     if (!transformerRef.current || !layerRef.current) return;
 
-    // Hide transformer while drawing or editing text
-    if (drawing.isDrawing || textEditing.editingTextId) {
+    // Hide transformer while drawing, editing text, or not in select mode
+    if (drawing.isDrawing || textEditing.editingTextId || selectedTool !== 'select') {
       transformerRef.current.nodes([]);
       transformerRef.current.getLayer()?.batchDraw();
       return;
     }
 
-    // Exclude arrows (they use custom endpoint handles)
+    // Exclude arrows and lines (they use custom endpoint handles)
     const nodes = selectedIds
       .filter((id) => {
         const shape = shapes.find((s) => s.id === id);
-        return shape && shape.type !== 'arrow';
+        return shape && shape.type !== 'arrow' && shape.type !== 'line';
       })
       .map((id) => layerRef.current!.findOne(`#${id}`))
       .filter((node): node is Konva.Node => node !== null && node !== undefined);
 
     transformerRef.current.nodes(nodes);
     transformerRef.current.getLayer()?.batchDraw();
-  }, [selectedIds, shapes, drawing.isDrawing, textEditing.editingTextId]);
+  }, [selectedIds, shapes, drawing.isDrawing, textEditing.editingTextId, selectedTool]);
 
   // Handle mouse events
   const handleMouseDown = React.useCallback(
@@ -637,8 +670,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   }
                 }}
               >
-                {/* Checkerboard pattern for transparency */}
-                {checkerPatternImage && !compositorSettings.enabled && (
+                {/* Checkerboard pattern - only when canvas extends beyond image (shows transparent areas) */}
+                {checkerPatternImage && !compositorSettings.enabled && canvasBounds && originalImageSize && (
+                  canvasBounds.imageOffsetX !== 0 || 
+                  canvasBounds.imageOffsetY !== 0 ||
+                  canvasBounds.width > originalImageSize.width ||
+                  canvasBounds.height > originalImageSize.height
+                ) && (
                   <Rect
                     name="checkerboard"
                     x={clipX}
@@ -752,6 +790,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
           <Transformer
             ref={transformerRef}
+            name="transformer"
             keepRatio={isShiftHeld || hasProportionalShape}
             enabledAnchors={hasProportionalShape
               ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
@@ -861,4 +900,4 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       />
     </div>
   );
-};
+});

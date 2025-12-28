@@ -1,202 +1,323 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
-use xcap::Monitor;
+
+// Recording border window label (legacy, kept for compatibility)
+const RECORDING_BORDER_LABEL: &str = "recording-border";
+
+// Capture toolbar window label
+const CAPTURE_TOOLBAR_LABEL: &str = "capture-toolbar";
 
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
-// Track if capture is currently in progress (overlays are showing)
-static CAPTURE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
-
-// Track if overlays have been pre-created
-static OVERLAYS_CREATED: AtomicBool = AtomicBool::new(false);
-
-// Store overlay window labels for reuse
-static OVERLAY_LABELS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-/// Pre-create overlay windows at startup (hidden) for instant show later
-pub fn precreate_overlays(app: &AppHandle) -> Result<(), String> {
-    if OVERLAYS_CREATED.load(Ordering::SeqCst) {
-        return Ok(());
+/// Close all capture-related windows
+fn close_capture_windows(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        let _ = window.close();
     }
-
-    let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
-    let mut labels = OVERLAY_LABELS.lock().unwrap();
-    labels.clear();
-
-    for (idx, monitor) in monitors.iter().enumerate() {
-        let label = format!("overlay_{}", idx);
-
-        let x = monitor.x().unwrap_or(0) as f64;
-        let y = monitor.y().unwrap_or(0) as f64;
-        let width = monitor.width().unwrap_or(1920) as f64;
-        let height = monitor.height().unwrap_or(1080) as f64;
-        let scale = monitor.scale_factor().unwrap_or(1.0);
-
-        let url = WebviewUrl::App(
-            format!(
-                "overlay.html?monitor={}&x={}&y={}&width={}&height={}&scale={}",
-                idx, x as i32, y as i32, width as u32, height as u32, scale
-            )
-            .into(),
-        );
-
-        let window = WebviewWindowBuilder::new(app, &label, url)
-            .title("")
-            .inner_size(width, height)
-            .position(x, y)
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .visible(false) // Start hidden!
-            .build()
-            .map_err(|e| format!("Failed to create overlay: {}", e))?;
-
-        // Move off-screen initially
-        let _ = window.set_position(tauri::Position::Physical(
-            tauri::PhysicalPosition { x: -10000, y: -10000 }
-        ));
-
-        labels.push(label);
+    if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
+        let _ = window.close();
     }
-
-    OVERLAYS_CREATED.store(true, Ordering::SeqCst);
-    Ok(())
 }
 
-/// Trigger the capture overlay - just show pre-created windows (fast!)
-pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
-    let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
-    let current_monitor_count = monitors.len();
-
-    // Check if we need to recreate overlays (monitor count changed or not created yet)
-    let labels = OVERLAY_LABELS.lock().unwrap();
-    let existing_overlay_count = labels.len();
-    drop(labels); // Release lock before potential recreation
-
-    if !OVERLAYS_CREATED.load(Ordering::SeqCst) || existing_overlay_count != current_monitor_count {
-        // Close any existing overlays first
-        let labels = OVERLAY_LABELS.lock().unwrap();
-        for label in labels.iter() {
-            if let Some(window) = app.get_webview_window(label) {
-                let _ = window.close();
-            }
-        }
-        drop(labels);
-
-        // Reset the flag and recreate
-        OVERLAYS_CREATED.store(false, Ordering::SeqCst);
-        precreate_overlays(app)?;
-    }
-
-    let labels = OVERLAY_LABELS.lock().unwrap();
-
-    // Only track main window visibility if we're starting a NEW capture session
-    // This prevents overwriting the saved state if trigger_capture is called multiple times
-    if !CAPTURE_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        // This is a new capture session - save the current main window visibility
+/// Restore main window if it was visible before capture started
+fn restore_main_if_visible(app: &AppHandle) {
+    if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
         if let Some(main_window) = app.get_webview_window("main") {
-            let was_visible = main_window.is_visible().unwrap_or(false);
-            MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
-            let _ = main_window.hide();
+            let _ = main_window.show();
         }
     }
-
-    // Show and position pre-created overlays (fast - no window creation!)
-    for (idx, label) in labels.iter().enumerate() {
-        if let Some(window) = app.get_webview_window(label) {
-            if let Some(monitor) = monitors.get(idx) {
-                let x = monitor.x().unwrap_or(0) as f64;
-                let y = monitor.y().unwrap_or(0) as f64;
-
-                // Reset overlay state BEFORE showing to avoid flash of old content
-                let _ = window.emit("reset-overlay", ());
-
-                let _ = window.set_position(tauri::Position::Physical(
-                    tauri::PhysicalPosition { x: x as i32, y: y as i32 }
-                ));
-                let _ = window.show();
-                let _ = window.set_focus();
-            } else {
-                // No matching monitor - ensure overlay is hidden
-                let _ = window.hide();
-            }
-        }
-    }
-
-    Ok(())
 }
 
-/// Flush DWM compositor to ensure window position changes are rendered
+// ============================================================================
+// Physical Coordinate Helpers
+// ============================================================================
+// Windows APIs return physical (pixel) coordinates. Tauri's builder methods
+// use logical coordinates which don't match on scaled displays.
+// These helpers ensure windows are positioned/sized using physical coordinates.
+
+/// Position a window using physical (pixel) coordinates.
+/// Use this when you have screen coordinates from Windows APIs.
+fn set_physical_position(window: &tauri::WebviewWindow, x: i32, y: i32) -> Result<(), String> {
+    window.set_position(tauri::Position::Physical(
+        tauri::PhysicalPosition { x, y }
+    )).map_err(|e| format!("Failed to set position: {}", e))
+}
+
+/// Resize a window using physical (pixel) dimensions.
+/// Use this when you have dimensions from Windows APIs.
+fn set_physical_size(window: &tauri::WebviewWindow, width: u32, height: u32) -> Result<(), String> {
+    window.set_size(tauri::Size::Physical(
+        tauri::PhysicalSize { width, height }
+    )).map_err(|e| format!("Failed to set size: {}", e))
+}
+
+/// Position and resize a window using physical (pixel) coordinates.
+/// Convenience wrapper for set_physical_position + set_physical_size.
+fn set_physical_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, width: u32, height: u32) -> Result<(), String> {
+    set_physical_position(window, x, y)?;
+    set_physical_size(window, width, height)
+}
+
+/// Apply DWM blur-behind transparency to a window.
+/// This uses a tiny off-screen blur region trick (from PowerToys) to get
+/// DWM-composited transparency without WS_EX_LAYERED, avoiding hardware video blackout.
 #[cfg(target_os = "windows")]
-fn flush_compositor() {
-    use windows::Win32::Graphics::Dwm::DwmFlush;
+fn apply_dwm_transparency(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmEnableBlurBehindWindow, DWM_BLURBEHIND, DWM_BB_ENABLE, DWM_BB_BLURREGION};
+    use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, HRGN};
+    use windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics;
+    use windows::Win32::UI::WindowsAndMessaging::SM_CXVIRTUALSCREEN;
+    
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
+    
     unsafe {
-        // DwmFlush waits for the next vertical blank and ensures all pending
-        // composition operations are completed before returning
-        let _ = DwmFlush();
+        // Create a tiny region way off-screen (PowerToys trick)
+        // This enables DWM blur/transparency without actually blurring anything visible
+        let pos = -GetSystemMetrics(SM_CXVIRTUALSCREEN) - 8;
+        let hrgn: HRGN = CreateRectRgn(pos, 0, pos + 1, 1);
+        
+        if hrgn.is_invalid() {
+            return Err("Failed to create region".to_string());
+        }
+        
+        let blur_behind = DWM_BLURBEHIND {
+            dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
+            fEnable: true.into(),
+            hRgnBlur: hrgn,
+            fTransitionOnMaximized: false.into(),
+        };
+        
+        let result = DwmEnableBlurBehindWindow(HWND(hwnd.0), &blur_behind);
+        
+        // Clean up the region
+        let _ = DeleteObject(hrgn);
+        
+        result.map_err(|e| format!("Failed to enable blur behind: {:?}", e))?;
     }
+    
+    Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn flush_compositor() {
-    // No-op on non-Windows platforms
+fn apply_dwm_transparency(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    // DWM is Windows-only, use regular transparency on other platforms
+    Ok(())
 }
 
-/// Move all overlays off-screen (instant, synchronous) - call before capture
-#[command]
-pub async fn move_overlays_offscreen(app: AppHandle) -> Result<(), String> {
-    let labels = OVERLAY_LABELS.lock().unwrap();
-
-    for label in labels.iter() {
-        if let Some(window) = app.get_webview_window(label) {
-            // Move way off screen - this is instant and synchronous
-            let _ = window.set_position(tauri::Position::Physical(
-                tauri::PhysicalPosition { x: -10000, y: -10000 }
-            ));
-        }
+/// Apply Windows 11 native rounded corners to a window.
+/// This makes the OS clip the window to a rounded rectangle, eliminating
+/// the rectangular background issue with WebView2 transparent windows.
+#[cfg(target_os = "windows")]
+#[allow(dead_code)]
+fn apply_rounded_corners(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE};
+    
+    // DWMWCP_ROUND = 2 (standard rounded corners)
+    // DWMWCP_ROUNDSMALL = 3 (smaller rounded corners)
+    const DWMWCP_ROUND: i32 = 2;
+    
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
+    
+    unsafe {
+        let preference = DWMWCP_ROUND;
+        DwmSetWindowAttribute(
+            HWND(hwnd.0),
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &preference as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
+        ).map_err(|e| format!("Failed to set rounded corners: {:?}", e))?;
     }
+    
+    Ok(())
+}
 
-    // Flush DWM compositor to ensure the position change is rendered
-    flush_compositor();
+#[cfg(not(target_os = "windows"))]
+fn apply_rounded_corners(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
 
-    // Minimal delay for GPU to process
-    std::thread::sleep(std::time::Duration::from_millis(8));
+/// Trigger the capture overlay - uses DirectComposition overlay for all capture types.
+/// capture_type: "screenshot", "video", or "gif"
+/// 
+/// Uses DirectComposition overlay to avoid blackout issues with hardware-accelerated
+/// video content. This works for all capture types (screenshot, video, gif).
+pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<(), String> {
+    // Convert to owned String early to avoid lifetime issues with thread spawn
+    let ct = capture_type.unwrap_or("screenshot").to_string();
+    
+    // Hide main window first
+    if let Some(main_window) = app.get_webview_window("main") {
+        let was_visible = main_window.is_visible().unwrap_or(false);
+        MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
+        let _ = main_window.hide();
+    }
+    
+    // Clone capture type as owned String for use in spawned thread
+    let is_gif = ct == "gif";
+    let ct_for_thread = ct.clone();
+    
+    // Launch DirectComposition overlay in background
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[window] Failed to create async runtime: {}", e);
+                // Restore main window before returning since we hid it earlier
+                if let Some(main_window) = app_clone.get_webview_window("main") {
+                    if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                        let _ = main_window.show();
+                    }
+                }
+                return;
+            }
+        };
+        rt.block_on(async {
+            use crate::commands::capture_overlay::{OverlayAction, OverlayResult};
+            
+            match crate::commands::capture_overlay::show_capture_overlay(app_clone.clone(), None, Some(ct_for_thread)).await {
+                Ok(Some(result)) => {
+                    let OverlayResult { x, y, width, height, action } = result;
+                    
+                    match action {
+                        OverlayAction::StartRecording => {
+                            // Start recording flow
+                            // The toolbar was created by show_toolbar in wndproc.rs
+                            // We need to show the recording border separately
+                            if let Err(e) = show_recording_border(app_clone.clone(), x, y, width, height).await {
+                                eprintln!("Failed to show recording border: {}", e);
+                            }
+                            
+                            // Determine format based on capture type
+                            let format = if is_gif {
+                                crate::commands::video_recording::RecordingFormat::Gif
+                            } else {
+                                crate::commands::video_recording::RecordingFormat::Mp4
+                            };
+                            
+                            // Emit format to the controls window
+                            let format_str = if is_gif { "gif" } else { "mp4" };
+                            let _ = app_clone.emit("recording-format", format_str);
+                            
+                            // Get countdown setting
+                            let countdown_secs = crate::commands::video_recording::get_countdown_secs();
+                            
+                            // Show countdown overlay window if countdown is enabled
+                            if countdown_secs > 0 {
+                                if let Err(e) = show_countdown_window(app_clone.clone(), x, y, width, height).await {
+                                    eprintln!("Failed to show countdown window: {}", e);
+                                }
+                            }
+                            
+                            // Get recording settings from global state (set by frontend)
+                            let system_audio_enabled = crate::commands::video_recording::get_system_audio_enabled();
+                            let fps = crate::commands::video_recording::get_fps();
+                            let quality = crate::commands::video_recording::get_quality();
+                            let include_cursor = crate::commands::video_recording::get_include_cursor();
+                            let max_duration_secs = crate::commands::video_recording::get_max_duration_secs();
 
+                            // Start the recording with the selected region
+                            let settings = crate::commands::video_recording::RecordingSettings {
+                                format,
+                                mode: crate::commands::video_recording::RecordingMode::Region {
+                                    x, y, width, height
+                                },
+                                fps,
+                                max_duration_secs,
+                                include_cursor,
+                                audio: crate::commands::video_recording::AudioSettings {
+                                    capture_system_audio: system_audio_enabled,
+                                    microphone_device_index: crate::commands::video_recording::get_microphone_device_index(),
+                                },
+                                quality,
+                                gif_quality_preset: crate::commands::video_recording::get_gif_quality_preset(),
+                                countdown_secs,
+                            };
+                            
+                            if let Err(e) = crate::commands::video_recording::recorder::start_recording(
+                                app_clone.clone(), settings.clone(), 
+                                crate::commands::video_recording::generate_output_path(&settings)
+                                    .unwrap_or_else(|_| std::env::temp_dir().join("recording.mp4"))
+                            ).await {
+                                eprintln!("Failed to start recording: {}", e);
+                                // Close toolbar window and restore main window on error
+                                if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+                                    let _ = toolbar.close();
+                                }
+                                if let Some(main_window) = app_clone.get_webview_window("main") {
+                                    if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
+                                        let _ = main_window.show();
+                                    }
+                                }
+                            }
+                        }
+                        OverlayAction::CaptureScreenshot => {
+                            // Screenshot flow - close controls, capture region, open editor
+                            close_capture_windows(&app_clone);
+                            
+                            // Capture the region
+                            let selection = crate::commands::capture::ScreenRegionSelection {
+                                x, y, width, height,
+                            };
+                            
+                            match crate::commands::capture::capture_screen_region_fast(selection).await {
+                                Ok(result) => {
+                                    // Open editor with the captured image
+                                    if let Err(e) = crate::commands::window::open_editor_fast(
+                                        app_clone.clone(),
+                                        result.file_path,
+                                        result.width,
+                                        result.height,
+                                    ).await {
+                                        eprintln!("Failed to open editor: {}", e);
+                                        restore_main_if_visible(&app_clone);
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to capture screenshot: {}", e);
+                                    restore_main_if_visible(&app_clone);
+                                }
+                            }
+                        }
+                        OverlayAction::Cancelled => {
+                            // User cancelled - close windows and restore main
+                            close_capture_windows(&app_clone);
+                            restore_main_if_visible(&app_clone);
+                        }
+                    }
+                }
+                Ok(None) => {
+                    // Cancelled (no selection made) - restore main window
+                    close_capture_windows(&app_clone);
+                    restore_main_if_visible(&app_clone);
+                }
+                Err(e) => {
+                    eprintln!("Capture overlay error: {}", e);
+                    close_capture_windows(&app_clone);
+                    restore_main_if_visible(&app_clone);
+                }
+            }
+        });
+    });
+    
     Ok(())
 }
 
 #[command]
-pub async fn show_overlay(app: AppHandle) -> Result<(), String> {
-    trigger_capture(&app)
+pub async fn show_overlay(app: AppHandle, capture_type: Option<String>) -> Result<(), String> {
+    trigger_capture(&app, capture_type.as_deref())
 }
 
 #[command]
-pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
-    let labels = OVERLAY_LABELS.lock().unwrap();
-
-    // Hide overlays instead of closing (fast - can reuse!)
-    for label in labels.iter() {
-        if let Some(window) = app.get_webview_window(label) {
-            // Reset state before hiding to ensure clean state for next capture
-            let _ = window.emit("reset-overlay", ());
-            // Move off-screen and hide
-            let _ = window.set_position(tauri::Position::Physical(
-                tauri::PhysicalPosition { x: -10000, y: -10000 }
-            ));
-            let _ = window.hide();
-        }
-    }
-
-    // Mark capture as no longer in progress
-    CAPTURE_IN_PROGRESS.store(false, Ordering::SeqCst);
-
+pub async fn hide_overlay(app: AppHandle, restore_main_window: Option<bool>) -> Result<(), String> {
     // Restore main window if it was visible before capture started
-    if MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
+    // Default to true for backward compatibility (screenshots)
+    // Pass false when starting video recording to keep main window hidden
+    let should_restore = restore_main_window.unwrap_or(true);
+    if should_restore && MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
         if let Some(main_window) = app.get_webview_window("main") {
             let _ = main_window.show();
             let _ = main_window.set_focus();
@@ -206,10 +327,23 @@ pub async fn hide_overlay(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Restore the main window (call this when video recording completes)
+#[command]
+pub async fn restore_main_window(app: AppHandle) -> Result<(), String> {
+    // Check if main was visible before capture started
+    if MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.show();
+            let _ = main_window.set_focus();
+        }
+    }
+    Ok(())
+}
+
 #[command]
 pub async fn open_editor(app: AppHandle, image_data: String) -> Result<(), String> {
-    // Close all overlays
-    hide_overlay(app.clone()).await?;
+    // Close all overlays and restore main window (this is for screenshots)
+    hide_overlay(app.clone(), None).await?;
 
     // Show main window with the captured image
     if let Some(main_window) = app.get_webview_window("main") {
@@ -243,8 +377,8 @@ pub async fn open_editor_fast(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Close all overlays
-    hide_overlay(app.clone()).await?;
+    // Close all overlays and restore main window (this is for screenshots)
+    hide_overlay(app.clone(), None).await?;
 
     // Show main window with the capture file path
     if let Some(main_window) = app.get_webview_window("main") {
@@ -272,5 +406,359 @@ pub async fn open_editor_fast(
             .map_err(|e| format!("Failed to emit event: {}", e))?;
     }
 
+    Ok(())
+}
+
+/// Exclude a window from screen capture using Windows API.
+/// This prevents the window from appearing in screenshots and screen recordings.
+#[cfg(target_os = "windows")]
+fn exclude_window_from_capture(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
+    
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
+    
+    unsafe {
+        SetWindowDisplayAffinity(HWND(hwnd.0), WDA_EXCLUDEFROMCAPTURE)
+            .map_err(|e| format!("Failed to set display affinity: {:?}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn exclude_window_from_capture(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    // Not supported on non-Windows platforms
+    Ok(())
+}
+
+/// Show the recording border window (synchronous version for internal use).
+pub fn show_recording_border_sync(
+    app: &AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    show_recording_border_impl(app.clone(), x, y, width, height)
+}
+
+/// Show the recording border window around the recording region.
+/// This is a transparent click-through window that shows a border to indicate
+/// what area is being recorded. The window is excluded from screen capture
+/// so it won't appear in recordings.
+/// 
+/// Parameters:
+/// - x, y: Top-left corner of the recording region (screen coordinates)
+/// - width, height: Dimensions of the recording region
+#[command]
+pub async fn show_recording_border(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    show_recording_border_impl(app, x, y, width, height)
+}
+
+fn show_recording_border_impl(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    // No padding - position window exactly at the recording region
+    // The border will be drawn at the exact edge of the recording area
+    let window_x = x;
+    let window_y = y;
+    let window_width = width;
+    let window_height = height;
+
+    // Check if window already exists
+    if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
+        // Window exists - reposition and resize it using physical coordinates
+        let _ = set_physical_bounds(&window, window_x, window_y, window_width, window_height);
+        window.show().map_err(|e| format!("Failed to show recording border: {}", e))?;
+        window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
+        return Ok(());
+    }
+
+    // Create the window
+    let url = WebviewUrl::App("recording-border.html".into());
+    
+    let window = WebviewWindowBuilder::new(&app, RECORDING_BORDER_LABEL, url)
+        .title("")
+        .inner_size(window_width as f64, window_height as f64)
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false) // Start hidden, position first
+        .focused(false) // Don't steal focus from user's work
+        .build()
+        .map_err(|e| format!("Failed to create recording border window: {}", e))?;
+
+    // Set position/size using physical coordinates to match recording coordinates
+    set_physical_bounds(&window, window_x, window_y, window_width, window_height)?;
+
+    // CRITICAL: Exclude window from screen capture so it doesn't appear in recordings
+    // TEMPORARILY DISABLED FOR MARKETING SCREENSHOTS
+    exclude_window_from_capture(&window)?;
+    
+    // Apply DWM blur-behind for true transparency on Windows
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency to border: {}", e);
+    }
+
+    // Make it click-through so users can interact with the content below
+    window.set_ignore_cursor_events(true)
+        .map_err(|e| format!("Failed to set ignore cursor events: {}", e))?;
+
+    // Now show the window
+    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+
+    // Ensure always on top
+    window.set_always_on_top(true)
+        .map_err(|e| format!("Failed to set always on top: {}", e))?;
+
+    Ok(())
+}
+
+/// Hide the recording border window.
+#[command]
+pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
+        window.close().map_err(|e| format!("Failed to close recording border: {}", e))?;
+    }
+    Ok(())
+}
+
+// Toolbar positioning is now handled by frontend (CaptureToolbarWindow.tsx)
+// Frontend measures content and calculates position dynamically
+
+/// Create the capture toolbar window (hidden).
+/// Frontend will measure content, calculate position, and call set_capture_toolbar_bounds to show.
+/// This allows frontend to fully control sizing/positioning without hardcoded dimensions.
+#[command]
+pub async fn show_capture_toolbar(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    // Check if window already exists
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        // Emit selection update for dimension display - frontend will reposition
+        let _ = window.emit("selection-updated", serde_json::json!({
+            "x": x, "y": y, "width": width, "height": height
+        }));
+        return Ok(());
+    }
+
+    // URL with selection dimensions for the dimension badge
+    let url = WebviewUrl::App(
+        format!("capture-toolbar.html?x={}&y={}&width={}&height={}", x, y, width, height).into()
+    );
+
+    // Create window hidden - frontend will configure size/position and show it
+    let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
+        .title("Selection Toolbar")
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false) // Hidden until frontend configures bounds
+        .focused(false)
+        .build()
+        .map_err(|e| format!("Failed to create capture toolbar window: {}", e))?;
+
+    // Set initial position near selection (frontend will adjust after measuring)
+    // Use generous initial size so content renders correctly for measurement
+    let initial_x = x + (width as i32 / 2) - 450; // Centered horizontally
+    let initial_y = y + height as i32 + 8; // Below selection
+    set_physical_bounds(&window, initial_x, initial_y, 900, 300)?;
+
+    // Apply DWM blur-behind for true transparency on Windows
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency to toolbar: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Update the capture toolbar with new selection dimensions.
+/// Emits event to frontend which handles repositioning.
+#[command]
+pub async fn update_capture_toolbar(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    // Emit selection update - frontend will reposition
+    let _ = window.emit("selection-updated", serde_json::json!({
+        "x": x, "y": y, "width": width, "height": height
+    }));
+
+    // Ensure toolbar stays on top
+    let _ = window.set_always_on_top(true);
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
+
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let _ = SetWindowPos(
+                    HWND(hwnd.0),
+                    HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Hide the capture toolbar window.
+#[command]
+pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        window.close().map_err(|e| format!("Failed to close capture toolbar: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Resize the capture toolbar window based on actual content size.
+/// Called by frontend after measuring rendered content via getBoundingClientRect().
+#[command]
+pub async fn resize_capture_toolbar(
+    app: AppHandle,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    // Get current position to maintain it
+    let current_pos = window.outer_position()
+        .map_err(|e| format!("Failed to get position: {}", e))?;
+
+    // Resize using physical coordinates for consistency with set_physical_bounds
+    set_physical_bounds(&window, current_pos.x, current_pos.y, width, height)?;
+
+    Ok(())
+}
+
+/// Set capture toolbar bounds (position + size) and show the window.
+/// Called by frontend after measuring content and calculating position.
+/// This allows frontend to fully control toolbar layout without hardcoded dimensions.
+#[command]
+pub async fn set_capture_toolbar_bounds(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    // Set position and size using physical coordinates
+    set_physical_bounds(&window, x, y, width, height)?;
+
+    // Ensure window is visible and on top
+    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
+    window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
+
+    // Re-apply DWM transparency
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency: {}", e);
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Countdown Window
+// ============================================================================
+
+const COUNTDOWN_WINDOW_LABEL: &str = "countdown";
+
+/// Show the countdown overlay window during recording countdown.
+/// The window is fullscreen, transparent, click-through, and displays a large countdown number.
+#[command]
+pub async fn show_countdown_window(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    // Close existing window if any
+    if let Some(window) = app.get_webview_window(COUNTDOWN_WINDOW_LABEL) {
+        let _ = window.close();
+    }
+
+    let url = WebviewUrl::App("countdown.html".into());
+    
+    let window = WebviewWindowBuilder::new(&app, COUNTDOWN_WINDOW_LABEL, url)
+        .title("Countdown")
+        .inner_size(width as f64, height as f64)
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false) // Start hidden, position first
+        .build()
+        .map_err(|e| format!("Failed to create countdown window: {}", e))?;
+
+    // Use physical coordinates to match the recording region exactly
+    set_physical_bounds(&window, x, y, width, height)?;
+
+    // Make click-through
+    window.set_ignore_cursor_events(true)
+        .map_err(|e| format!("Failed to set cursor events: {}", e))?;
+    
+    // Apply DWM blur-behind for true transparency on Windows
+    if let Err(e) = apply_dwm_transparency(&window) {
+        eprintln!("Warning: Failed to apply DWM transparency to countdown: {}", e);
+    }
+    
+    // Now show the window
+    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+
+    // Exclude from capture
+    // TEMPORARILY DISABLED FOR MARKETING SCREENSHOTS
+    // let _ = exclude_window_from_capture(&window);
+
+    Ok(())
+}
+
+/// Hide the countdown window.
+#[command]
+pub async fn hide_countdown_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(COUNTDOWN_WINDOW_LABEL) {
+        window.close().map_err(|e| format!("Failed to close countdown window: {}", e))?;
+    }
     Ok(())
 }

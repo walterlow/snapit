@@ -11,6 +11,12 @@ import {
   DEFAULT_SHORTCUTS,
   DEFAULT_GENERAL_SETTINGS,
 } from '../types';
+import {
+  SETTINGS_VERSION,
+  migrateSettings,
+  mergeWithDefaults,
+  needsMigration,
+} from '../utils/settingsMigrations';
 
 const SETTINGS_STORE_PATH = 'settings.json';
 
@@ -67,34 +73,36 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ isLoading: true });
     try {
       const store = await getStore();
-      
-      // Load shortcuts
+
+      // Load raw settings from storage
       const savedShortcuts = await store.get<Record<string, Partial<ShortcutConfig>>>('shortcuts');
-      const savedGeneral = await store.get<GeneralSettings>('general');
+      const savedGeneral = await store.get<Partial<GeneralSettings>>('general');
+      const savedVersion = await store.get<number>('_version');
 
-      // Merge with defaults (in case new settings were added)
-      const shortcuts: Record<string, ShortcutConfig> = { ...DEFAULT_SHORTCUTS };
-      if (savedShortcuts) {
-        for (const [id, config] of Object.entries(savedShortcuts)) {
-          if (shortcuts[id] && config) {
-            shortcuts[id] = {
-              ...shortcuts[id],
-              currentShortcut: config.currentShortcut ?? shortcuts[id].currentShortcut,
-              useHook: config.useHook ?? shortcuts[id].useHook,
-              // Reset status to pending on load - will be updated after registration
-              status: 'pending',
-            };
-          }
-        }
-      }
-
-      const general: GeneralSettings = {
-        ...DEFAULT_GENERAL_SETTINGS,
-        ...savedGeneral,
+      // Build raw settings object for migration
+      const rawSettings = {
+        _version: savedVersion ?? 0,
+        shortcuts: savedShortcuts ?? undefined,
+        general: savedGeneral ?? undefined,
       };
 
+      // Apply migrations if needed
+      const migratedSettings = migrateSettings(rawSettings);
+
+      // Merge with defaults to ensure all fields exist
+      const settings = mergeWithDefaults(migratedSettings);
+
+      // Save migrated settings if version changed
+      if (needsMigration(rawSettings)) {
+        console.log('Settings migrated, saving new version');
+        await store.set('_version', SETTINGS_VERSION);
+        await store.set('shortcuts', migratedSettings.shortcuts);
+        await store.set('general', migratedSettings.general);
+        await store.save();
+      }
+
       set({
-        settings: { shortcuts, general },
+        settings,
         isLoading: false,
         isInitialized: true,
       });
@@ -112,7 +120,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const { settings } = get();
     try {
       const store = await getStore();
-      
+
       // Only save the user-configurable parts (not status)
       const shortcutsToSave: Record<string, Partial<ShortcutConfig>> = {};
       for (const [id, config] of Object.entries(settings.shortcuts)) {
@@ -121,7 +129,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           useHook: config.useHook,
         };
       }
-      
+
+      // Save version, shortcuts, and general settings
+      await store.set('_version', SETTINGS_VERSION);
       await store.set('shortcuts', shortcutsToSave);
       await store.set('general', settings.general);
       await store.save();

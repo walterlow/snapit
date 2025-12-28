@@ -77,15 +77,24 @@ pub fn run() {
 
     builder
         .on_window_event(|window, event| {
-            // Minimize to tray instead of closing the main window (if enabled)
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    if commands::settings::is_close_to_tray() {
-                        api.prevent_close();
-                        let _ = window.hide();
-                    }
-                    // If close_to_tray is false, let the window close normally
+            match event {
+                // Fix Windows resize lag by adding small delay
+                // See: https://github.com/tauri-apps/tauri/issues/6322#issuecomment-2495685888
+                #[cfg(target_os = "windows")]
+                WindowEvent::Resized(_) => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                 }
+                // Minimize to tray instead of closing the main window (if enabled)
+                WindowEvent::CloseRequested { api, .. } => {
+                    if window.label() == "main" {
+                        if commands::settings::is_close_to_tray() {
+                            api.prevent_close();
+                            let _ = window.hide();
+                        }
+                        // If close_to_tray is false, let the window close normally
+                    }
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -109,7 +118,16 @@ pub fn run() {
             commands::window::hide_overlay,
             commands::window::open_editor,
             commands::window::open_editor_fast,
-            commands::window::move_overlays_offscreen,
+            commands::window::show_recording_border,
+            commands::window::hide_recording_border,
+            commands::window::show_capture_toolbar,
+            commands::window::update_capture_toolbar,
+            commands::window::hide_capture_toolbar,
+            commands::window::resize_capture_toolbar,
+            commands::window::set_capture_toolbar_bounds,
+            commands::window::restore_main_window,
+            commands::window::show_countdown_window,
+            commands::window::hide_countdown_window,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands
@@ -127,11 +145,13 @@ pub fn run() {
             commands::storage::get_library_folder,
             commands::storage::startup_cleanup,
             commands::storage::import_image_from_path,
+            commands::storage::ensure_ffmpeg,
             // Settings commands
             commands::settings::set_autostart,
             commands::settings::is_autostart_enabled,
             commands::settings::open_path_in_explorer,
             commands::settings::reveal_file_in_explorer,
+            commands::settings::open_file_with_default_app,
             commands::settings::get_default_save_dir,
             commands::settings::update_tray_shortcut,
             commands::settings::set_close_to_tray,
@@ -142,8 +162,57 @@ pub fn run() {
             commands::keyboard_hook::unregister_shortcut_hook,
             commands::keyboard_hook::unregister_all_hooks,
             commands::keyboard_hook::reinstall_hook,
+            // Video recording commands
+            commands::video_recording::start_recording,
+            commands::video_recording::stop_recording,
+            commands::video_recording::cancel_recording,
+            commands::video_recording::pause_recording,
+            commands::video_recording::resume_recording,
+            commands::video_recording::get_recording_status,
+            commands::video_recording::set_recording_countdown,
+            commands::video_recording::set_recording_system_audio,
+            commands::video_recording::set_recording_fps,
+            commands::video_recording::set_recording_quality,
+            commands::video_recording::set_gif_quality_preset,
+            commands::video_recording::set_recording_include_cursor,
+            commands::video_recording::set_recording_max_duration,
+            commands::video_recording::set_recording_microphone_device,
+            // Webcam commands
+            commands::video_recording::get_webcam_settings_cmd,
+            commands::video_recording::set_webcam_enabled,
+            commands::video_recording::set_webcam_device,
+            commands::video_recording::set_webcam_position,
+            commands::video_recording::set_webcam_size,
+            commands::video_recording::set_webcam_shape,
+            commands::video_recording::set_webcam_mirror,
+            commands::video_recording::list_webcam_devices,
+            commands::video_recording::list_audio_input_devices,
+            commands::video_recording::close_webcam_preview,
+            commands::video_recording::bring_webcam_preview_to_front,
+            commands::video_recording::move_webcam_to_anchor,
+            commands::video_recording::clamp_webcam_to_selection,
+            commands::video_recording::start_webcam_preview,
+            commands::video_recording::stop_webcam_preview,
+            commands::video_recording::is_webcam_preview_running,
+            // Logging commands
+            commands::logging::write_log,
+            commands::logging::write_logs,
+            commands::logging::get_log_dir,
+            commands::logging::open_log_dir,
+            commands::logging::get_recent_logs,
+            // Capture overlay for video/gif region selection (uses DirectComposition to avoid video blackout)
+            commands::capture_overlay::show_capture_overlay,
+            commands::capture_overlay::commands::capture_overlay_confirm,
+            commands::capture_overlay::commands::capture_overlay_cancel,
+            commands::capture_overlay::commands::capture_overlay_reselect,
+            commands::capture_overlay::commands::capture_overlay_set_dimensions,
         ])
         .setup(|app| {
+            // Initialize logging system first
+            if let Err(e) = commands::logging::init_logging(app.handle()) {
+                eprintln!("Failed to initialize logging: {}", e);
+            }
+
             #[cfg(desktop)]
             {
                 let tray_state = setup_system_tray(app)?;
@@ -161,12 +230,13 @@ pub fn run() {
                 let _ = window.show();
             }
 
-            // Pre-create overlay windows in background for instant capture later
-            let app_handle = app.handle().clone();
-            std::thread::spawn(move || {
-                // Small delay to let main window fully initialize first
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = commands::window::precreate_overlays(&app_handle);
+            // Ensure ffmpeg is available for video thumbnails (downloads if needed)
+            // This runs in background and doesn't block app startup
+            std::thread::spawn(|| {
+                if commands::storage::find_ffmpeg().is_none() {
+                    // Try to download ffmpeg if not found
+                    let _ = ffmpeg_sidecar::download::auto_download();
+                }
             });
 
             Ok(())
@@ -206,7 +276,7 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "capture" => {
-                let _ = commands::window::trigger_capture(app);
+                let _ = commands::window::trigger_capture(app, None);
             }
             "capture_full" => {
                 // Fast fullscreen capture - no overlay, no PNG encoding

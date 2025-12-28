@@ -11,6 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+ffmpeg-sidecar = "2.4"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico", "protocol-asset"] }
@@ -28,14 +29,33 @@ tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# Screen capture - primary (Windows Graphics Capture API with transparency support)
-windows-capture = "1.4"
+# TypeScript type generation (single source of truth for Rust <-> TS types)
+ts-rs = "10"
 
-# Screen capture - fallback
-xcap = "0.7"
+# Screen capture - xcap for screenshots (reliable, no padding issues)
+xcap = "0.8"
+
+# Screen capture - windows-capture for video recording only
+windows-capture = "2.0.0-alpha.7"
 
 # Image processing
 image = "0.25"
+
+# Audio capture
+cpal = "0.17"
+wasapi = "0.22"  # WASAPI loopback for system audio capture
+
+# Webcam capture
+nokhwa = { version = "0.10", features = ["input-msmf", "output-threaded"] }
+
+# Thread-safe channels for audio/video sync
+crossbeam-channel = "0.5"
+
+# Lazy static for global state
+lazy_static = "1.5"
+
+# Directory paths
+dirs = "5"
 
 # Base64 encoding
 base64 = "0.22"
@@ -53,20 +73,35 @@ env_logger = "0.11"
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
+# FFmpeg for video thumbnail generation (bundled binary)
+ffmpeg-sidecar = "2.4"
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
 
 [target.'cfg(windows)'.dependencies]
+# Note: We access WebView2 via raw COM pointers to avoid version conflicts
 windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Foundation_Numerics",
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_System_LibraryLoader",
+    "Win32_UI_HiDpi",
+    "Win32_System_Com",
 ] }
 
 [profile.release]

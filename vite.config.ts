@@ -20,7 +20,10 @@ export default defineConfig(async () => ({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
-        overlay: resolve(__dirname, "overlay.html"),
+        "recording-border": resolve(__dirname, "recording-border.html"),
+        "capture-toolbar": resolve(__dirname, "capture-toolbar.html"),
+        countdown: resolve(__dirname, "countdown.html"),
+        "webcam-preview": resolve(__dirname, "webcam-preview.html"),
       },
     },
   },

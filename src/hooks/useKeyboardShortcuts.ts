@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { nanoid } from 'nanoid';
 import type { CanvasShape } from '../types';
 import { recordAction } from '../stores/editorStore';
 
@@ -17,7 +18,7 @@ interface UseKeyboardShortcutsReturn {
  * Hook for keyboard shortcuts in the editor canvas
  * - Delete/Backspace: Delete selected shapes
  * - Ctrl+A: Select all shapes
- * - Escape: Deselect all
+ * - Ctrl+D: Duplicate selected shapes
  * - Shift: Track for proportional resize constraint
  */
 export const useKeyboardShortcuts = ({
@@ -45,10 +46,39 @@ export const useKeyboardShortcuts = ({
     setSelectedIds(shapes.map(s => s.id));
   }, [shapes, setSelectedIds]);
 
-  // Deselect all handler
-  const handleDeselect = useCallback(() => {
-    setSelectedIds([]);
-  }, [setSelectedIds]);
+  // Duplicate selected shapes handler
+  const handleDuplicate = useCallback(() => {
+    if (selectedIds.length === 0) return;
+
+    recordAction(() => {
+      const duplicatedShapes: CanvasShape[] = [];
+      const newSelectedIds: string[] = [];
+      const OFFSET = 20; // Offset duplicates by 20px for visibility
+
+      selectedIds.forEach(id => {
+        const original = shapes.find(s => s.id === id);
+        if (original) {
+          const newId = nanoid();
+          const duplicate: CanvasShape = {
+            ...original,
+            id: newId,
+            // Offset position for visibility
+            x: (original.x ?? 0) + OFFSET,
+            y: (original.y ?? 0) + OFFSET,
+            // For pen tool, offset all points
+            points: original.points?.map((val) =>
+              val + OFFSET // All points need offset (x and y alternate)
+            ),
+          };
+          duplicatedShapes.push(duplicate);
+          newSelectedIds.push(newId);
+        }
+      });
+
+      onShapesChange([...shapes, ...duplicatedShapes]);
+      setSelectedIds(newSelectedIds);
+    });
+  }, [selectedIds, shapes, onShapesChange, setSelectedIds]);
 
   // Keyboard shortcuts for shape manipulation
   useEffect(() => {
@@ -72,17 +102,17 @@ export const useKeyboardShortcuts = ({
         return;
       }
 
-      // Escape: Deselect all
-      if (e.key === 'Escape') {
+      // Ctrl+D: Duplicate selected shapes
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedIds.length > 0) {
         e.preventDefault();
-        handleDeselect();
+        handleDuplicate();
         return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, shapes, handleDelete, handleSelectAll, handleDeselect]);
+  }, [selectedIds, shapes, handleDelete, handleSelectAll, handleDuplicate]);
 
   // Track Shift key for proportional resize constraint
   useEffect(() => {

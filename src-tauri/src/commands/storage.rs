@@ -8,6 +8,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{command, AppHandle, Manager};
+use tokio::fs as async_fs;
 
 /// Get the user's configured save directory from settings, falling back to Pictures/SnapIt
 fn get_captures_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -49,7 +50,215 @@ fn get_captures_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(snapit_path)
 }
 
-const THUMBNAIL_SIZE: u32 = 200;
+const THUMBNAIL_SIZE: u32 = 400;
+
+/// Find ffmpeg binary - checks bundled location, sidecar cache, then system PATH.
+pub fn find_ffmpeg() -> Option<PathBuf> {
+    let binary_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    
+    // Check bundled location (next to executable)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let bundled = exe_dir.join(binary_name);
+            if bundled.exists() {
+                return Some(bundled);
+            }
+            // Also check resources subdirectory (Tauri puts resources there on some platforms)
+            let resources = exe_dir.join("resources").join(binary_name);
+            if resources.exists() {
+                return Some(resources);
+            }
+        }
+    }
+    
+    // Check ffmpeg-sidecar cache
+    if let Ok(sidecar_dir) = ffmpeg_sidecar::paths::sidecar_dir() {
+        let cached = sidecar_dir.join(binary_name);
+        if cached.exists() {
+            return Some(cached);
+        }
+    }
+    
+    // Check system PATH (for development or if ffmpeg is installed globally)
+    if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
+        .arg(binary_name)
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            let first_line = path_str.lines().next().unwrap_or("").trim();
+            if !first_line.is_empty() {
+                let path = PathBuf::from(first_line);
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+/// Generate thumbnail from video file using bundled ffmpeg.
+/// Returns the thumbnail path if successful.
+fn generate_video_thumbnail(
+    video_path: &PathBuf,
+    thumbnail_path: &PathBuf,
+) -> Result<(), String> {
+    use std::process::Command;
+    
+    let ffmpeg_path = find_ffmpeg()
+        .ok_or_else(|| "ffmpeg not found".to_string())?;
+    
+    // Use ffmpeg to extract a frame at 1 second (or 0 if video is shorter)
+    let result = Command::new(&ffmpeg_path)
+        .args([
+            "-y",
+            "-ss", "1",
+            "-i", &video_path.to_string_lossy().to_string(),
+            "-vframes", "1",
+            "-vf", &format!("scale={}:-1", THUMBNAIL_SIZE),
+            &thumbnail_path.to_string_lossy().to_string(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+    
+    if result.status.success() {
+        return Ok(());
+    }
+    
+    // Try at 0 seconds if 1 second failed (video might be < 1 second)
+    let retry_result = Command::new(&ffmpeg_path)
+        .args([
+            "-y",
+            "-ss", "0",
+            "-i", &video_path.to_string_lossy().to_string(),
+            "-vframes", "1",
+            "-vf", &format!("scale={}:-1", THUMBNAIL_SIZE),
+            &thumbnail_path.to_string_lossy().to_string(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+    
+    if retry_result.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&retry_result.stderr);
+        Err(format!("ffmpeg failed: {}", stderr))
+    }
+}
+
+/// Find ffprobe binary - checks bundled location, sidecar cache, then system PATH.
+pub fn find_ffprobe() -> Option<PathBuf> {
+    let binary_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    
+    // Check bundled location (next to executable)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let bundled = exe_dir.join(binary_name);
+            if bundled.exists() {
+                return Some(bundled);
+            }
+            // Also check resources subdirectory
+            let resources = exe_dir.join("resources").join(binary_name);
+            if resources.exists() {
+                return Some(resources);
+            }
+        }
+    }
+    
+    // Check ffmpeg-sidecar cache
+    if let Ok(sidecar_dir) = ffmpeg_sidecar::paths::sidecar_dir() {
+        let cached = sidecar_dir.join(binary_name);
+        if cached.exists() {
+            return Some(cached);
+        }
+    }
+    
+    // Check system PATH
+    if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
+        .arg(binary_name)
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            let first_line = path_str.lines().next().unwrap_or("").trim();
+            if !first_line.is_empty() {
+                let path = PathBuf::from(first_line);
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+/// Get video dimensions using bundled ffprobe.
+/// Returns (width, height) if successful.
+#[allow(dead_code)]
+fn get_video_dimensions(video_path: &PathBuf) -> Option<(u32, u32)> {
+    use std::process::Command;
+    
+    let ffprobe_path = find_ffprobe()?;
+    
+    let output = Command::new(ffprobe_path)
+        .args([
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0:s=x",
+            &video_path.to_string_lossy().to_string(),
+        ])
+        .output()
+        .ok()?;
+    
+    if !output.status.success() {
+        return None;
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let parts: Vec<&str> = output_str.trim().split('x').collect();
+    
+    if parts.len() == 2 {
+        let width = parts[0].parse::<u32>().ok()?;
+        let height = parts[1].parse::<u32>().ok()?;
+        Some((width, height))
+    } else {
+        None
+    }
+}
+
+/// Generate thumbnail from GIF using pure Rust (image crate).
+/// Extracts the first frame and resizes it.
+fn generate_gif_thumbnail(
+    gif_path: &PathBuf,
+    thumbnail_path: &PathBuf,
+) -> Result<(), String> {
+    // Open the GIF and get the first frame
+    let file = fs::File::open(gif_path)
+        .map_err(|e| format!("Failed to open GIF: {}", e))?;
+    
+    let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(file))
+        .map_err(|e| format!("Failed to decode GIF: {}", e))?;
+    
+    use image::AnimationDecoder;
+    let frames = decoder.into_frames();
+    let first_frame = frames
+        .into_iter()
+        .next()
+        .ok_or_else(|| "GIF has no frames".to_string())?
+        .map_err(|e| format!("Failed to get frame: {}", e))?;
+    
+    let image = DynamicImage::ImageRgba8(first_frame.into_buffer());
+    let thumbnail = image.thumbnail(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
+    
+    thumbnail.save(thumbnail_path)
+        .map_err(|e| format!("Failed to save thumbnail: {}", e))?;
+    
+    Ok(())
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CaptureSource {
@@ -165,7 +374,7 @@ fn ensure_directories(app: &AppHandle) -> Result<PathBuf, String> {
 fn generate_id() -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
         .as_millis();
     let random: u32 = rand::thread_rng().gen();
     format!("{:x}{:06x}", timestamp, random & 0xFFFFFF)
@@ -431,24 +640,22 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
     let base_dir = get_app_data_dir(&app)?;
     let projects_dir = base_dir.join("projects");
     let thumbnails_dir = base_dir.join("thumbnails");
-
-    if !projects_dir.exists() {
-        return Ok(Vec::new());
-    }
+    let captures_dir = get_captures_dir(&app)?;
 
     let mut captures: Vec<CaptureListItem> = Vec::new();
 
-    let entries =
-        fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects dir: {}", e))?;
+    // 1. Load screenshot projects (async I/O)
+    if async_fs::try_exists(&projects_dir).await.unwrap_or(false) {
+        let mut entries = async_fs::read_dir(&projects_dir)
+            .await
+            .map_err(|e| format!("Failed to read projects dir: {}", e))?;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let path = entry.path();
+        while let Some(entry) = entries.next_entry().await.map_err(|e| format!("Failed to read entry: {}", e))? {
+            let path = entry.path();
 
-        if path.is_dir() {
-            let project_file = path.join("project.json");
-            if project_file.exists() {
-                if let Ok(content) = fs::read_to_string(&project_file) {
+            if path.is_dir() {
+                let project_file = path.join("project.json");
+                if let Ok(content) = async_fs::read_to_string(&project_file).await {
                     if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
                         let thumbnail_path = thumbnails_dir
                             .join(format!("{}_thumb.png", &project.id))
@@ -465,8 +672,8 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
                         };
                         let image_path = image_path_buf.to_string_lossy().to_string();
 
-                        // Check if the original image file exists
-                        let is_missing = !image_path_buf.exists();
+                        // Check if the original image file exists (async)
+                        let is_missing = !async_fs::try_exists(&image_path_buf).await.unwrap_or(false);
 
                         captures.push(CaptureListItem {
                             id: project.id,
@@ -481,6 +688,106 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
                             favorite: project.favorite,
                             is_missing,
                         });
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Scan for video/GIF recordings in the captures directory (async I/O)
+    if async_fs::try_exists(&captures_dir).await.unwrap_or(false) {
+        if let Ok(mut entries) = async_fs::read_dir(&captures_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let path = entry.path();
+
+                // Check file type async
+                let is_file = async_fs::metadata(&path).await.map(|m| m.is_file()).unwrap_or(false);
+                if !is_file {
+                    continue;
+                }
+
+                let extension = path.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_lowercase());
+
+                // Check for video/gif files
+                if let Some(ext) = extension {
+                    if ext == "mp4" || ext == "gif" {
+                        // Get file metadata for timestamps (async)
+                        if let Ok(metadata) = async_fs::metadata(&path).await {
+                            let file_name = path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("recording")
+                                .to_string();
+
+                            // Use file name as ID (without extension)
+                            let id = path.file_stem()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or(&file_name)
+                                .to_string();
+
+                            // Get creation/modification time
+                            let created_at = metadata.created()
+                                .or_else(|_| metadata.modified())
+                                .map(|t| DateTime::<Utc>::from(t))
+                                .unwrap_or_else(|_| Utc::now());
+
+                            let updated_at = metadata.modified()
+                                .map(|t| DateTime::<Utc>::from(t))
+                                .unwrap_or(created_at);
+
+                            let capture_type = if ext == "gif" { "gif" } else { "video" };
+
+                            // Generate thumbnail if missing
+                            let thumbnail_filename = format!("{}_thumb.png", &id);
+                            let thumbnail_path = thumbnails_dir.join(&thumbnail_filename);
+
+                            let thumb_exists = async_fs::try_exists(&thumbnail_path).await.unwrap_or(false);
+                            if !thumb_exists {
+                                // Generate thumbnail in background to avoid blocking UI
+                                let video_path = path.clone();
+                                let thumb_path = thumbnail_path.clone();
+                                let is_gif = ext == "gif";
+                                std::thread::spawn(move || {
+                                    if is_gif {
+                                        match generate_gif_thumbnail(&video_path, &thumb_path) {
+                                            Ok(()) => println!("[THUMB] GIF OK: {:?}", thumb_path),
+                                            Err(e) => println!("[THUMB] GIF FAILED: {}", e),
+                                        }
+                                    } else {
+                                        match generate_video_thumbnail(&video_path, &thumb_path) {
+                                            Ok(()) => println!("[THUMB] Video OK: {:?}", thumb_path),
+                                            Err(e) => println!("[THUMB] Video FAILED: {}", e),
+                                        }
+                                    }
+                                });
+                            }
+
+                            let thumbnail_path_str = if thumb_exists {
+                                thumbnail_path.to_string_lossy().to_string()
+                            } else {
+                                String::new()
+                            };
+
+                            // Skip video dimension fetching on startup for faster load
+                            // Dimensions will be 0x0 until video is opened
+                            // This avoids blocking ffprobe calls for each video
+                            let dimensions = Dimensions { width: 0, height: 0 };
+
+                            captures.push(CaptureListItem {
+                                id,
+                                created_at,
+                                updated_at,
+                                capture_type: capture_type.to_string(),
+                                dimensions,
+                                thumbnail_path: thumbnail_path_str,
+                                image_path: path.to_string_lossy().to_string(),
+                                has_annotations: false,
+                                tags: Vec::new(),
+                                favorite: false,
+                                is_missing: false,
+                            });
+                        }
                     }
                 }
             }
@@ -545,37 +852,89 @@ pub async fn get_project_image(app: AppHandle, project_id: String) -> Result<Str
     Ok(STANDARD.encode(&image_data))
 }
 
-#[command]
-pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), String> {
-    let base_dir = get_app_data_dir(&app)?;
+/// Determines the type of capture based on its ID and returns the appropriate file path.
+/// Returns (capture_type, file_path) where capture_type is "project", "video", "gif", or "unknown"
+fn determine_capture_type(
+    app: &AppHandle,
+    project_id: &str,
+) -> Result<(String, Option<PathBuf>), String> {
+    let base_dir = get_app_data_dir(app)?;
+    let captures_dir = get_captures_dir(app)?;
 
-    let project_dir = base_dir.join("projects").join(&project_id);
+    // 1. Check if it's a screenshot project (has project.json)
+    let project_dir = base_dir.join("projects").join(project_id);
     let project_file = project_dir.join("project.json");
-
     if project_file.exists() {
+        // It's a screenshot project - get the image path from project.json
         if let Ok(content) = fs::read_to_string(&project_file) {
             if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
-                // Handle both old format (filename only) and new format (full path)
                 let original_path = PathBuf::from(&project.original_image);
                 let image_path = if original_path.is_absolute() {
                     original_path
                 } else {
                     base_dir.join("captures").join(&project.original_image)
                 };
+                return Ok(("project".to_string(), Some(image_path)));
+            }
+        }
+        // project.json exists but couldn't be parsed - still treat as project
+        return Ok(("project".to_string(), None));
+    }
+
+    // 2. Check if it's a video file (.mp4)
+    let video_path = captures_dir.join(format!("{}.mp4", project_id));
+    if video_path.exists() {
+        return Ok(("video".to_string(), Some(video_path)));
+    }
+
+    // 3. Check if it's a GIF file
+    let gif_path = captures_dir.join(format!("{}.gif", project_id));
+    if gif_path.exists() {
+        return Ok(("gif".to_string(), Some(gif_path)));
+    }
+
+    // Unknown type - might be already deleted or invalid ID
+    Ok(("unknown".to_string(), None))
+}
+
+#[command]
+pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), String> {
+    let base_dir = get_app_data_dir(&app)?;
+
+    // Determine what type of capture this is
+    let (capture_type, file_path) = determine_capture_type(&app, &project_id)?;
+
+    match capture_type.as_str() {
+        "project" => {
+            // Screenshot project - delete original image, project dir, and thumbnail
+            if let Some(image_path) = file_path {
                 let _ = fs::remove_file(image_path);
             }
+
+            let project_dir = base_dir.join("projects").join(&project_id);
+            if project_dir.exists() {
+                fs::remove_dir_all(&project_dir)
+                    .map_err(|e| format!("Failed to delete project: {}", e))?;
+            }
+        }
+        "video" | "gif" => {
+            // Video/GIF recording - delete the media file directly
+            if let Some(media_path) = file_path {
+                fs::remove_file(&media_path)
+                    .map_err(|e| format!("Failed to delete {} file: {}", capture_type, e))?;
+            }
+        }
+        _ => {
+            // Unknown type - nothing to delete, but don't error
+            // The item might have already been deleted
         }
     }
 
+    // Always try to delete the thumbnail (common to all types)
     let thumbnail_path = base_dir
         .join("thumbnails")
         .join(format!("{}_thumb.png", &project_id));
     let _ = fs::remove_file(thumbnail_path);
-
-    if project_dir.exists() {
-        fs::remove_dir_all(&project_dir)
-            .map_err(|e| format!("Failed to delete project: {}", e))?;
-    }
 
     Ok(())
 }
@@ -664,67 +1023,96 @@ pub async fn get_storage_stats(app: AppHandle) -> Result<StorageStats, String> {
     })
 }
 
+/// Ensure ffmpeg is available for video thumbnail generation.
+/// Downloads if not already cached.
+#[command]
+pub async fn ensure_ffmpeg() -> Result<bool, String> {
+    // Check if ffmpeg is already available
+    if find_ffmpeg().is_some() {
+        log::info!("ffmpeg already available");
+        return Ok(true);
+    }
+    
+    // Try to download ffmpeg in background
+    log::info!("ffmpeg not found, attempting download...");
+    match ffmpeg_sidecar::download::auto_download() {
+        Ok(()) => {
+            log::info!("ffmpeg downloaded successfully");
+            Ok(true)
+        }
+        Err(e) => {
+            log::warn!("Failed to download ffmpeg: {:?}", e);
+            Ok(false)
+        }
+    }
+}
+
 /// Startup cleanup: ensure directories exist, remove orphan temp files and regenerate missing thumbnails
+/// Returns immediately and runs heavy work in background thread to avoid blocking UI
 #[command]
 pub async fn startup_cleanup(app: AppHandle) -> Result<StartupCleanupResult, String> {
-    let mut temp_files_cleaned = 0;
-    let mut thumbnails_regenerated = 0;
-
-    // 0. Pre-create storage directories so first capture isn't slow
+    // 0. Pre-create storage directories so first capture isn't slow (fast, do sync)
     ensure_directories(&app)?;
 
     // Also pre-create the user's save directory (Pictures/SnapIt or custom)
     let _ = get_captures_dir(&app);
 
-    // 1. Clean up orphan RGBA temp files
+    // Get paths for background work
+    let base_dir = get_app_data_dir(&app)?;
+    let projects_dir = base_dir.join("projects");
+    let thumbnails_dir = base_dir.join("thumbnails");
     let temp_dir = std::env::temp_dir();
-    if let Ok(entries) = fs::read_dir(&temp_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with("snapit_capture_") && name.ends_with(".rgba") {
-                    if fs::remove_file(&path).is_ok() {
-                        temp_files_cleaned += 1;
+
+    // Spawn background thread for heavy cleanup work (don't block UI)
+    std::thread::spawn(move || {
+        let mut temp_files_cleaned = 0;
+        let mut thumbnails_regenerated = 0;
+
+        // 1. Clean up orphan RGBA temp files
+        if let Ok(entries) = fs::read_dir(&temp_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with("snapit_capture_") && name.ends_with(".rgba") {
+                        if fs::remove_file(&path).is_ok() {
+                            temp_files_cleaned += 1;
+                        }
                     }
                 }
             }
         }
-    }
 
-    // 2. Regenerate missing thumbnails
-    let base_dir = get_app_data_dir(&app)?;
-    let projects_dir = base_dir.join("projects");
-    let thumbnails_dir = base_dir.join("thumbnails");
+        // 2. Regenerate missing thumbnails
+        if projects_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&projects_dir) {
+                for entry in entries.flatten() {
+                    let project_dir = entry.path();
+                    if !project_dir.is_dir() {
+                        continue;
+                    }
 
-    if projects_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&projects_dir) {
-            for entry in entries.flatten() {
-                let project_dir = entry.path();
-                if !project_dir.is_dir() {
-                    continue;
-                }
+                    let project_id = project_dir
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
 
-                let project_id = project_dir
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
+                    let thumbnail_path = thumbnails_dir.join(format!("{}_thumb.png", &project_id));
 
-                let thumbnail_path = thumbnails_dir.join(format!("{}_thumb.png", &project_id));
-
-                // Check if thumbnail is missing
-                if !thumbnail_path.exists() {
-                    // Try to read project.json to get the original image path
-                    let project_file = project_dir.join("project.json");
-                    if let Ok(content) = fs::read_to_string(&project_file) {
-                        if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
-                            // Try to regenerate thumbnail from original image
-                            let original_path = PathBuf::from(&project.original_image);
-                            if original_path.exists() {
-                                if let Ok(image) = image::open(&original_path) {
-                                    if let Ok(thumbnail) = generate_thumbnail(&image) {
-                                        if thumbnail.save(&thumbnail_path).is_ok() {
-                                            thumbnails_regenerated += 1;
+                    // Check if thumbnail is missing
+                    if !thumbnail_path.exists() {
+                        // Try to read project.json to get the original image path
+                        let project_file = project_dir.join("project.json");
+                        if let Ok(content) = fs::read_to_string(&project_file) {
+                            if let Ok(project) = serde_json::from_str::<CaptureProject>(&content) {
+                                // Try to regenerate thumbnail from original image
+                                let original_path = PathBuf::from(&project.original_image);
+                                if original_path.exists() {
+                                    if let Ok(image) = image::open(&original_path) {
+                                        if let Ok(thumbnail) = generate_thumbnail(&image) {
+                                            if thumbnail.save(&thumbnail_path).is_ok() {
+                                                thumbnails_regenerated += 1;
+                                            }
                                         }
                                     }
                                 }
@@ -734,11 +1122,18 @@ pub async fn startup_cleanup(app: AppHandle) -> Result<StartupCleanupResult, Str
                 }
             }
         }
-    }
 
+        log::debug!(
+            "Startup cleanup complete: {} temp files, {} thumbnails",
+            temp_files_cleaned,
+            thumbnails_regenerated
+        );
+    });
+
+    // Return immediately - cleanup runs in background
     Ok(StartupCleanupResult {
-        temp_files_cleaned,
-        thumbnails_regenerated,
+        temp_files_cleaned: 0, // Actual count determined in background
+        thumbnails_regenerated: 0,
     })
 }
 

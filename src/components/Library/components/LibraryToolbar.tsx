@@ -1,15 +1,11 @@
 import React from 'react';
 import {
   Search,
-  Star,
   Trash2,
-  LayoutGrid,
-  List,
-  Plus,
   X,
-  FolderOpen,
-  Monitor,
+  ScreenShare,
 } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -18,38 +14,31 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-
-type ViewMode = 'grid' | 'list';
 
 interface LibraryToolbarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   filterFavorites: boolean;
   onFilterFavoritesChange: (value: boolean) => void;
-  viewMode: ViewMode;
-  onViewModeChange: (mode: ViewMode) => void;
+  viewMode: 'grid' | 'list';
+  onViewModeChange: (mode: 'grid' | 'list') => void;
   selectedCount: number;
   onDeleteSelected: () => void;
   onClearSelection: () => void;
   onOpenLibraryFolder: () => void;
   onAllMonitorsCapture: () => void;
-  onNewCapture: () => void;
+  onNewImage: () => void;
+  onNewVideo: () => void;
+  onNewGif: () => void;
 }
 
 export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
   searchQuery,
   onSearchChange,
-  filterFavorites,
-  onFilterFavoritesChange,
-  viewMode,
-  onViewModeChange,
   selectedCount,
   onDeleteSelected,
   onClearSelection,
-  onOpenLibraryFolder,
   onAllMonitorsCapture,
-  onNewCapture,
 }) => {
   return (
     <header className="header-bar">
@@ -62,65 +51,18 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
             placeholder="Search captures..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="h-9 pl-9 pr-3 text-sm bg-[var(--card)] border-[var(--polar-frost)] focus:border-[var(--coral-400)] focus:ring-[var(--coral-glow)] text-[var(--ink-black)] placeholder:text-[var(--ink-subtle)]"
+            className="search-input h-9 pl-9 pr-3 text-sm"
           />
-        </div>
-
-        {/* View Controls */}
-        <div className="flex items-center gap-3">
-          {/* Favorites Filter */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onFilterFavoritesChange(!filterFavorites)}
-                className={`h-9 w-9 rounded-lg transition-all ${
-                  filterFavorites
-                    ? 'bg-[var(--coral-50)] text-[var(--coral-500)] border border-[var(--coral-200)]'
-                    : 'text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-mist)]'
-                }`}
-              >
-                <Star className="w-4 h-4" fill={filterFavorites ? 'currentColor' : 'none'} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p className="text-xs">Show favorites only</p>
-            </TooltipContent>
-          </Tooltip>
-
-          {/* View Toggle */}
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(val) => val && onViewModeChange(val as ViewMode)}
-            className="bg-[var(--polar-ice)] p-1 rounded-lg border border-[var(--polar-frost)]"
-          >
-            <ToggleGroupItem
-              value="grid"
-              aria-label="Grid view"
-              className="h-7 w-7 rounded-md data-[state=on]:bg-[var(--card)] data-[state=on]:text-[var(--coral-500)] data-[state=on]:shadow-sm"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="list"
-              aria-label="List view"
-              className="h-7 w-7 rounded-md data-[state=on]:bg-[var(--card)] data-[state=on]:text-[var(--coral-500)] data-[state=on]:shadow-sm"
-            >
-              <List className="w-3.5 h-3.5" />
-            </ToggleGroupItem>
-          </ToggleGroup>
         </div>
 
         <div className="flex-1" />
 
-        {/* Selection Actions or New Capture */}
-        {selectedCount > 0 ? (
-          <div className="flex items-center gap-2 animate-fade-in">
+        {/* Selection Actions (appears when items selected) */}
+        {selectedCount > 0 && (
+          <div className="flex items-center gap-2">
             <Badge
               variant="secondary"
-              className="bg-[var(--polar-mist)] text-[var(--ink-muted)] border-[var(--polar-frost)] text-xs"
+              className="glass-badge text-xs"
             >
               {selectedCount} selected
             </Badge>
@@ -130,7 +72,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
                   variant="ghost"
                   size="icon"
                   onClick={onDeleteSelected}
-                  className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                  className="glass-btn glass-btn--danger h-8 w-8"
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
@@ -145,7 +87,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
                   variant="ghost"
                   size="icon"
                   onClick={onClearSelection}
-                  className="h-8 w-8 text-[var(--ink-muted)] hover:text-[var(--ink-dark)]"
+                  className="glass-btn h-8 w-8"
                 >
                   <X className="w-4 h-4" />
                 </Button>
@@ -154,34 +96,24 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
                 <p className="text-xs">Clear selection</p>
               </TooltipContent>
             </Tooltip>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={onOpenLibraryFolder}
-              variant="outline"
-              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
-            >
-              <FolderOpen className="w-3.5 h-3.5" />
-              Open Folder
-            </Button>
-            <Button
-              onClick={onAllMonitorsCapture}
-              variant="outline"
-              className="h-8 px-3 gap-1.5 rounded-lg text-sm font-medium bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
-            >
-              <Monitor className="w-3.5 h-3.5" />
-              All Monitors
-            </Button>
-            <Button
-              onClick={onNewCapture}
-              className="btn-coral h-8 px-3 gap-1.5 rounded-lg text-sm font-medium"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              New Capture
-            </Button>
+            <div className="glass-divider h-5" />
           </div>
         )}
+
+        {/* All Monitors Quick Capture */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={onAllMonitorsCapture}
+              className="glass-btn-action h-9 w-9 p-0"
+            >
+              <ScreenShare className="w-4 h-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p className="text-xs">Capture All Monitors</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </header>
   );

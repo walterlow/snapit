@@ -1,26 +1,34 @@
-import { useEffect, useRef, useState, useCallback, Activity } from 'react';
+import { useEffect, useRef, useState, useCallback, lazy, Suspense, Activity } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { save } from '@tauri-apps/plugin-dialog';
-import { writeFile } from '@tauri-apps/plugin-fs';
 import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { DeleteDialog } from './components/Library/components/DeleteDialog';
-import { EditorCanvas } from './components/Editor/EditorCanvas';
-import { Toolbar } from './components/Editor/Toolbar';
-import { PropertiesPanel } from './components/Editor/PropertiesPanel';
+import { EditorErrorBoundary, LibraryErrorBoundary } from './components/ErrorBoundary';
+import type { EditorCanvasRef } from './components/Editor/EditorCanvas';
+
+// Lazy load editor components - only loaded when entering editor view
+const EditorCanvas = lazy(() => import('./components/Editor/EditorCanvas').then(m => ({ default: m.EditorCanvas })));
+const Toolbar = lazy(() => import('./components/Editor/Toolbar').then(m => ({ default: m.Toolbar })));
+const PropertiesPanel = lazy(() => import('./components/Editor/PropertiesPanel').then(m => ({ default: m.PropertiesPanel })));
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
 import { SettingsModal } from './components/Settings/SettingsModal';
+import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore, undo, redo, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
+import { useVideoRecordingStore } from './stores/videoRecordingStore';
 import { registerAllShortcuts, setShortcutHandler } from './utils/hotkeyManager';
 import { useUpdater } from './hooks/useUpdater';
 import { useTheme } from './hooks/useTheme';
-import { getContentBounds, calculateExportBounds, exportCanvas } from './utils/canvasExport';
-import type { Tool, CanvasShape, Annotation, CompositorSettings } from './types';
+import { exportToClipboard, exportToFile } from './utils/canvasExport';
+import { createErrorHandler } from './utils/errorReporting';
+import type { Tool, CanvasShape, Annotation, CropBoundsAnnotation, CompositorSettingsAnnotation } from './types';
+import { isCropBoundsAnnotation, isCompositorSettingsAnnotation } from './types';
 
 // Settings Modal Container - uses store for open/close state
 const SettingsModalContainer: React.FC = () => {
@@ -29,6 +37,35 @@ const SettingsModalContainer: React.FC = () => {
     <SettingsModal open={settingsModalOpen} onClose={closeSettingsModal} />
   );
 };
+
+// Loading skeleton shown while editor components are being lazy-loaded
+const EditorLoadingSkeleton: React.FC = () => (
+  <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex min-h-0">
+      {/* Canvas skeleton */}
+      <div className="flex-1 overflow-hidden min-h-0 relative bg-[var(--polar-snow)] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-[var(--text-muted)]">
+          <div className="w-8 h-8 border-2 border-[var(--aurora-blue)] border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm">Loading editor...</span>
+        </div>
+      </div>
+      {/* Properties panel skeleton */}
+      <div className="w-[280px] glass-panel border-l border-[var(--polar-frost)] p-4">
+        <div className="space-y-4">
+          <div className="h-6 bg-[var(--polar-frost)] rounded animate-pulse" />
+          <div className="h-24 bg-[var(--polar-frost)] rounded animate-pulse" />
+          <div className="h-8 bg-[var(--polar-frost)] rounded animate-pulse" />
+        </div>
+      </div>
+    </div>
+    {/* Toolbar skeleton */}
+    <div className="h-16 glass-panel border-t border-[var(--polar-frost)] flex items-center justify-center gap-2 px-4">
+      {[...Array(8)].map((_, i) => (
+        <div key={i} className="w-10 h-10 bg-[var(--polar-frost)] rounded-lg animate-pulse" />
+      ))}
+    </div>
+  </div>
+);
 
 function App() {
   const {
@@ -47,7 +84,7 @@ function App() {
   } = useCaptureStore();
 
   // Editor state from store
-  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize, setSelectedIds } = useEditorStore();
+  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize, selectedIds, setSelectedIds, canUndo, canRedo } = useEditorStore();
 
   // Initialize theme (applies theme class to document root)
   useTheme();
@@ -67,13 +104,20 @@ function App() {
   const [fillColor, setFillColor] = useState('transparent');
   const [strokeWidth, setStrokeWidth] = useState(3);
   const stageRef = useRef<Konva.Stage>(null);
-  
+  const editorCanvasRef = useRef<EditorCanvasRef>(null);
+
+  // Guard to prevent racing when rapidly exiting/saving
+  const isSavingOnExitRef = useRef(false);
+
   // Loading states for async operations
   const [isCopying, setIsCopying] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
   // Keyboard shortcuts help modal
   const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Command palette
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   // Delete confirmation dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -112,6 +156,35 @@ function App() {
     setDeleteDialogOpen(false);
   }, []);
 
+  // Command palette action handlers
+  const handleFitToCenter = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('fit-to-center'));
+  }, []);
+
+  const handleToggleCompositor = useCallback(() => {
+    setCompositorSettings({ enabled: !compositorSettings.enabled });
+  }, [compositorSettings.enabled, setCompositorSettings]);
+
+  const handleBackToLibrary = useCallback(() => {
+    setView('library');
+  }, [setView]);
+
+  const handleOpenSettings = useCallback(() => {
+    useSettingsStore.getState().openSettingsModal();
+  }, []);
+
+  // Command palette shortcut (Ctrl+K / Cmd+K) - works in all views
+  useEffect(() => {
+    const handleCommandPalette = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(open => !open);
+      }
+    };
+    window.addEventListener('keydown', handleCommandPalette);
+    return () => window.removeEventListener('keydown', handleCommandPalette);
+  }, []);
+
   // Keyboard shortcuts for undo/redo, compositor, and tools
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -146,6 +219,7 @@ function App() {
         'v': 'select',
         'c': 'crop',
         'a': 'arrow',
+        'l': 'line',
         'r': 'rect',
         'e': 'circle',
         't': 'text',
@@ -184,10 +258,19 @@ function App() {
         return;
       }
 
-      // Escape: switch to select mode
+      // Escape: deselect shapes first, then switch to select tool
       if (e.key === 'Escape') {
         e.preventDefault();
-        handleToolChange('select');
+        // Priority 1: Deselect shapes if any are selected
+        if (selectedIds.length > 0) {
+          setSelectedIds([]);
+          return;
+        }
+        // Priority 2: Switch to select tool if on different tool
+        if (selectedTool !== 'select') {
+          handleToolChange('select');
+          return;
+        }
         return;
       }
 
@@ -200,16 +283,42 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings, selectedTool, handleToolChange]);
+  }, [view, handleUndo, handleRedo, compositorSettings.enabled, setCompositorSettings, selectedTool, handleToolChange, selectedIds, setSelectedIds]);
 
   // Load captures on mount
   useEffect(() => {
     loadCaptures();
   }, [loadCaptures]);
 
+  // Refresh library when video recording completes
+  useEffect(() => {
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
+    const unlisten = listen<{ status: string }>('recording-state-changed', (event) => {
+      if (event.payload.status === 'completed') {
+        console.log('[App] Recording completed, refreshing library...');
+        // Delay to ensure file is fully written and flushed
+        const t1 = setTimeout(() => {
+          loadCaptures();
+          // Refresh again after thumbnails might be generated
+          const t2 = setTimeout(() => loadCaptures(), 2000);
+          timeoutIds.push(t2);
+        }, 500);
+        timeoutIds.push(t1);
+      }
+    });
+
+    return () => {
+      timeoutIds.forEach(clearTimeout);
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, [loadCaptures]);
+
   // Run startup cleanup (orphan temp files, missing thumbnails)
   useEffect(() => {
-    invoke('startup_cleanup').catch(() => {});
+    invoke('startup_cleanup').catch(
+      createErrorHandler({ operation: 'startup cleanup', silent: true })
+    );
   }, []);
 
   // Reset to select tool when a new image is loaded
@@ -222,7 +331,7 @@ function App() {
   // Capture trigger functions
   const triggerNewCapture = useCallback(async () => {
     try {
-      await invoke('show_overlay');
+      await invoke('show_overlay', { captureType: 'screenshot' });
     } catch {
       toast.error('Failed to start capture');
     }
@@ -270,26 +379,37 @@ function App() {
     }
   }, []);
 
-  // Initialize settings and register shortcuts
+  // Initialize settings and register shortcuts (non-blocking)
   useEffect(() => {
+    // Set up shortcut handlers IMMEDIATELY (synchronous, no blocking)
+    setShortcutHandler('new_capture', triggerNewCapture);
+    setShortcutHandler('fullscreen_capture', triggerFullscreenCapture);
+    setShortcutHandler('all_monitors_capture', triggerAllMonitorsCapture);
+
+    // Defer heavy initialization to after first paint for responsive UI
     const initSettings = async () => {
-      const { loadSettings } = useSettingsStore.getState();
-      await loadSettings();
+      try {
+        const { loadSettings } = useSettingsStore.getState();
+        await loadSettings();
 
-      // Sync close-to-tray setting with backend
-      const updatedSettings = useSettingsStore.getState().settings;
-      await invoke('set_close_to_tray', { enabled: updatedSettings.general.minimizeToTray });
-
-      // Set up shortcut handlers - these trigger actual captures
-      setShortcutHandler('new_capture', triggerNewCapture);
-      setShortcutHandler('fullscreen_capture', triggerFullscreenCapture);
-      setShortcutHandler('all_monitors_capture', triggerAllMonitorsCapture);
-
-      // Register all shortcuts from settings
-      await registerAllShortcuts();
+        // Run backend sync and shortcut registration in parallel
+        const updatedSettings = useSettingsStore.getState().settings;
+        await Promise.allSettled([
+          invoke('set_close_to_tray', { enabled: updatedSettings.general.minimizeToTray }),
+          registerAllShortcuts(),
+        ]);
+      } catch (error) {
+        console.error('Failed to initialize settings:', error);
+      }
     };
 
-    initSettings();
+    // Use requestIdleCallback if available, otherwise setTimeout
+    // This ensures UI renders first before heavy init work
+    if ('requestIdleCallback' in window) {
+      (window as typeof window & { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(() => initSettings());
+    } else {
+      setTimeout(initSettings, 0);
+    }
   }, [triggerNewCapture, triggerFullscreenCapture, triggerAllMonitorsCapture]);
 
   // Listen for open-settings event from tray menu
@@ -297,9 +417,69 @@ function App() {
     const unlisten = listen('open-settings', () => {
       useSettingsStore.getState().openSettingsModal();
     });
-    
+
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
+  // Sync recording state with backend on window focus
+  // This handles edge cases where frontend/backend state may drift
+  useEffect(() => {
+    const handleFocus = () => {
+      useVideoRecordingStore.getState().refreshStatus();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
+  // Listen for create-capture-toolbar event from Rust D2D overlay
+  // Creates toolbar window from frontend for full control over sizing/positioning
+  useEffect(() => {
+    const unlisten = listen<{ x: number; y: number; width: number; height: number }>(
+      'create-capture-toolbar',
+      async (event) => {
+        const { x, y, width, height } = event.payload;
+
+        // Close any existing toolbar window first
+        const existing = await WebviewWindow.getByLabel('capture-toolbar');
+        if (existing) {
+          try {
+            await existing.close();
+          } catch {
+            // Ignore
+          }
+          await new Promise((r) => setTimeout(r, 50));
+        }
+
+        // Create toolbar window - starts hidden, frontend will position and show
+        const url = `/capture-toolbar.html?x=${x}&y=${y}&width=${width}&height=${height}`;
+        const win = new WebviewWindow('capture-toolbar', {
+          url,
+          title: 'Selection Toolbar',
+          width: 900,
+          height: 300,
+          x: x + Math.floor(width / 2) - 450, // Centered below selection
+          y: y + height + 8,
+          resizable: false,
+          decorations: false,
+          alwaysOnTop: true,
+          transparent: true,
+          skipTaskbar: true,
+          shadow: false,
+          visible: false, // Hidden until toolbar measures and positions itself
+          focus: false,
+        });
+
+        win.once('tauri://error', (e) => {
+          console.error('Failed to create capture toolbar:', e);
+        });
+      }
+    );
+
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -326,7 +506,7 @@ function App() {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, [saveNewCapture, setCurrentImageData, setView, clearEditor]);
 
@@ -364,47 +544,47 @@ function App() {
     );
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, [saveNewCaptureFromFile, setCurrentImageData, setView, clearEditor]);
 
   // Load annotations when project changes
   useEffect(() => {
     if (currentProject?.annotations) {
-      // Separate special annotations from shape annotations
-      const cropBoundsAnn = currentProject.annotations.find((ann) => ann.type === '__crop_bounds__');
-      const compositorAnn = currentProject.annotations.find((ann) => ann.type === '__compositor_settings__');
+      // Separate special annotations from shape annotations using type guards
+      const cropBoundsAnn = currentProject.annotations.find(isCropBoundsAnnotation);
+      const compositorAnn = currentProject.annotations.find(isCompositorSettingsAnnotation);
       const shapeAnnotations = currentProject.annotations.filter(
-        (ann) => ann.type !== '__crop_bounds__' && ann.type !== '__compositor_settings__'
+        (ann) => !isCropBoundsAnnotation(ann) && !isCompositorSettingsAnnotation(ann)
       );
 
-      // Load crop bounds if present
+      // Load crop bounds if present (type is narrowed by type guard)
       if (cropBoundsAnn) {
         setCanvasBounds({
-          width: cropBoundsAnn.width as number,
-          height: cropBoundsAnn.height as number,
-          imageOffsetX: cropBoundsAnn.imageOffsetX as number,
-          imageOffsetY: cropBoundsAnn.imageOffsetY as number,
+          width: cropBoundsAnn.width,
+          height: cropBoundsAnn.height,
+          imageOffsetX: cropBoundsAnn.imageOffsetX,
+          imageOffsetY: cropBoundsAnn.imageOffsetY,
         });
       }
 
-      // Load compositor settings if present
+      // Load compositor settings if present (type is narrowed by type guard)
       if (compositorAnn) {
         setCompositorSettings({
-          enabled: compositorAnn.enabled as boolean,
-          backgroundType: (compositorAnn.backgroundType as CompositorSettings['backgroundType']) ?? 'gradient',
-          backgroundColor: (compositorAnn.backgroundColor as string) ?? '#6366f1',
-          gradientAngle: (compositorAnn.gradientAngle as number) ?? 135,
-          gradientStops: (compositorAnn.gradientStops as CompositorSettings['gradientStops']) ?? [
+          enabled: compositorAnn.enabled,
+          backgroundType: compositorAnn.backgroundType ?? 'gradient',
+          backgroundColor: compositorAnn.backgroundColor ?? '#6366f1',
+          gradientAngle: compositorAnn.gradientAngle ?? 135,
+          gradientStops: compositorAnn.gradientStops ?? [
             { color: '#667eea', position: 0 },
             { color: '#764ba2', position: 100 },
           ],
-          backgroundImage: (compositorAnn.backgroundImage as string | null) ?? null,
-          padding: (compositorAnn.padding as number) ?? 64,
-          borderRadius: (compositorAnn.borderRadius as number) ?? 12,
-          shadowEnabled: (compositorAnn.shadowEnabled as boolean) ?? true,
-          shadowIntensity: (compositorAnn.shadowIntensity as number) ?? 0.5,
-          aspectRatio: (compositorAnn.aspectRatio as CompositorSettings['aspectRatio']) ?? 'auto',
+          backgroundImage: compositorAnn.backgroundImage ?? null,
+          padding: compositorAnn.padding ?? 64,
+          borderRadius: compositorAnn.borderRadius ?? 12,
+          shadowEnabled: compositorAnn.shadowEnabled ?? true,
+          shadowIntensity: compositorAnn.shadowIntensity ?? 0.5,
+          aspectRatio: compositorAnn.aspectRatio ?? 'auto',
         });
       }
 
@@ -440,24 +620,7 @@ function App() {
 
     setIsCopying(true);
     try {
-      const stage = stageRef.current;
-      const layer = stage.findOne('Layer') as Konva.Layer;
-      if (!layer) return;
-
-      const content = getContentBounds(stage, canvasBounds);
-      const bounds = calculateExportBounds(content, compositorSettings);
-      const outputCanvas = exportCanvas(stage, layer, bounds);
-
-      // Browser native clipboard is faster (GPU accelerated, no disk I/O)
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        outputCanvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
-          'image/png'
-        );
-      });
-
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-
+      await exportToClipboard(stageRef, canvasBounds, compositorSettings);
       toast.success('Copied to clipboard');
     } catch {
       toast.error('Failed to copy to clipboard');
@@ -510,24 +673,7 @@ function App() {
       });
 
       if (filePath) {
-        const stage = stageRef.current;
-        const layer = stage.findOne('Layer') as Konva.Layer;
-        if (!layer) return;
-
-        const content = getContentBounds(stage, canvasBounds);
-        const bounds = calculateExportBounds(content, compositorSettings);
-        const outputCanvas = exportCanvas(stage, layer, bounds);
-
-        // Browser toBlob (GPU accelerated) + Tauri writeFile (direct binary, no IPC overhead)
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          outputCanvas.toBlob(
-            (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
-            'image/png'
-          );
-        });
-
-        const arrayBuffer = await blob.arrayBuffer();
-        await writeFile(filePath, new Uint8Array(arrayBuffer));
+        await exportToFile(stageRef, canvasBounds, compositorSettings, filePath);
         toast.success('Image saved successfully');
       }
     } catch (err) {
@@ -544,14 +690,10 @@ function App() {
 
     setIsSaving(true);
     try {
-      const stage = stageRef.current;
-      const layer = stage.findOne('Layer') as Konva.Layer;
-      if (!layer) return;
-
       const formatInfo = {
-        png: { ext: 'png', mime: 'image/png', name: 'PNG', quality: undefined },
-        jpg: { ext: 'jpg', mime: 'image/jpeg', name: 'JPEG', quality: 0.92 },
-        webp: { ext: 'webp', mime: 'image/webp', name: 'WebP', quality: 0.9 },
+        png: { ext: 'png', mime: 'image/png' as const, name: 'PNG', quality: undefined },
+        jpg: { ext: 'jpg', mime: 'image/jpeg' as const, name: 'JPEG', quality: 0.92 },
+        webp: { ext: 'webp', mime: 'image/webp' as const, name: 'WebP', quality: 0.9 },
       }[format];
 
       const filePath = await save({
@@ -560,21 +702,10 @@ function App() {
       });
 
       if (filePath) {
-        const content = getContentBounds(stage, canvasBounds);
-        const bounds = calculateExportBounds(content, compositorSettings);
-        const outputCanvas = exportCanvas(stage, layer, bounds);
-
-        // Browser toBlob (GPU accelerated) + Tauri writeFile (direct binary)
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          outputCanvas.toBlob(
-            (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
-            formatInfo.mime,
-            formatInfo.quality
-          );
+        await exportToFile(stageRef, canvasBounds, compositorSettings, filePath, {
+          format: formatInfo.mime,
+          quality: formatInfo.quality,
         });
-
-        const arrayBuffer = await blob.arrayBuffer();
-        await writeFile(filePath, new Uint8Array(arrayBuffer));
         toast.success(`Image saved as ${formatInfo.name}`);
       }
     } catch (err) {
@@ -585,47 +716,64 @@ function App() {
     }
   };
 
-  // Go back to library - transition immediately, save in background
-  const handleBack = () => {
-    // Capture data for background save BEFORE clearing
-    const projectToSave = currentProject;
-    const shapesToSave = [...shapes];
-    const boundsToSave = canvasBounds;
-    const compositorToSave = { ...compositorSettings };
+  // Go back to library - finalize any in-progress drawing, save, then clear
+  const handleBack = useCallback(async () => {
+    // Guard against rapid multiple clicks causing race conditions
+    if (isSavingOnExitRef.current) return;
+    isSavingOnExitRef.current = true;
 
-    // Switch view immediately - library stays mounted so it's instant
-    setView('library');
-    setCurrentProject(null);
-    setCurrentImageData(null);
+    try {
+      // Finalize any in-progress drawing FIRST to capture shapes that might be in refs
+      // Then read DIRECTLY from store to get latest state (bypasses React batching)
+      editorCanvasRef.current?.finalizeAndGetShapes();
+      const storeState = useEditorStore.getState();
+      const finalizedShapes = storeState.shapes;
 
-    // Defer cleanup and save to next frame so UI updates first
-    requestAnimationFrame(() => {
+      // Capture data for save BEFORE any state changes
+      // Read from store directly to ensure we have latest values
+      const projectToSave = currentProject;
+      const boundsToSave = storeState.canvasBounds;
+      const compositorToSave = { ...storeState.compositorSettings };
+
+      // Switch view immediately for responsive UX
+      setView('library');
+      setCurrentProject(null);
+      setCurrentImageData(null);
       clearEditor();
       clearHistory();
 
-      // Save annotations in background (fire and forget)
+      // Save annotations in background using invoke directly (not updateAnnotations)
+      // because updateAnnotations reads currentProject from store which we just cleared
       if (projectToSave) {
-        const annotations = shapesToSave.map((shape) => ({ ...shape }));
+        const annotations: Annotation[] = finalizedShapes.map((shape) => ({ ...shape }));
         if (boundsToSave) {
-          annotations.push({
+          const cropAnnotation: CropBoundsAnnotation = {
             id: '__crop_bounds__',
             type: '__crop_bounds__',
             width: boundsToSave.width,
             height: boundsToSave.height,
             imageOffsetX: boundsToSave.imageOffsetX,
             imageOffsetY: boundsToSave.imageOffsetY,
-          } as any);
+          };
+          annotations.push(cropAnnotation);
         }
-        annotations.push({
+        const compositorAnnotation: CompositorSettingsAnnotation = {
           id: '__compositor_settings__',
           type: '__compositor_settings__',
           ...compositorToSave,
-        } as any);
+        };
+        annotations.push(compositorAnnotation);
 
-        updateAnnotations(annotations).catch(() => {});
+        // Use invoke directly with captured projectId to bypass store's currentProject check
+        invoke('update_project_annotations', {
+          projectId: projectToSave.id,
+          annotations,
+        }).catch(createErrorHandler({ operation: 'save annotations', silent: true }));
       }
-    });
-  };
+    } finally {
+      isSavingOnExitRef.current = false;
+    }
+  }, [currentProject, setView, setCurrentProject, setCurrentImageData, clearEditor]);
 
   // Keyboard shortcuts for save/copy (separate useEffect since these handlers are defined later)
   useEffect(() => {
@@ -633,7 +781,7 @@ function App() {
       if (view !== 'editor') return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
         e.preventDefault();
         handleSave();
       }
@@ -662,11 +810,33 @@ function App() {
       />
       
       {/* Keyboard Shortcuts Help Modal */}
-      <KeyboardShortcutsModal 
-        open={showShortcuts} 
-        onClose={() => setShowShortcuts(false)} 
+      <KeyboardShortcutsModal
+        open={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
       />
-      
+
+      {/* Command Palette */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        view={view}
+        selectedTool={selectedTool}
+        hasProject={!!currentProject}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onToolChange={handleToolChange}
+        onCopy={handleCopy}
+        onSave={handleSave}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onFitToCenter={handleFitToCenter}
+        onShowShortcuts={() => setShowShortcuts(true)}
+        onOpenSettings={handleOpenSettings}
+        onBackToLibrary={handleBackToLibrary}
+        onRequestDelete={handleRequestDelete}
+        onToggleCompositor={handleToggleCompositor}
+      />
+
       {/* Settings Modal */}
       <SettingsModalContainer />
       
@@ -677,58 +847,65 @@ function App() {
       <div className="flex-1 flex flex-col min-h-0">
         {/* Library */}
         <Activity mode={view === 'library' ? 'visible' : 'hidden'}>
-          <CaptureLibrary />
+          <LibraryErrorBoundary>
+            <CaptureLibrary />
+          </LibraryErrorBoundary>
         </Activity>
 
         {/* Editor */}
         <Activity mode={view === 'editor' ? 'visible' : 'hidden'}>
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Editor Area with optional Sidebar */}
-            <div className="flex-1 flex min-h-0">
-              {/* Canvas Area - flex-1 takes remaining space */}
-              <div className="flex-1 overflow-hidden min-h-0 relative">
-                {currentImageData && (
-                  <EditorCanvas
-                    imageData={currentImageData}
+          <EditorErrorBoundary projectId={currentProject?.id} onBack={handleBack}>
+            <Suspense fallback={<EditorLoadingSkeleton />}>
+              <div className="flex-1 flex flex-col min-h-0">
+                {/* Editor Area with optional Sidebar */}
+                <div className="flex-1 flex min-h-0">
+                  {/* Canvas Area - flex-1 takes remaining space */}
+                  <div className="flex-1 overflow-hidden min-h-0 relative">
+                    {currentImageData && (
+                      <EditorCanvas
+                        ref={editorCanvasRef}
+                        imageData={currentImageData}
+                        selectedTool={selectedTool}
+                        onToolChange={handleToolChange}
+                        strokeColor={strokeColor}
+                        fillColor={fillColor}
+                        strokeWidth={strokeWidth}
+                        shapes={shapes}
+                        onShapesChange={handleShapesChange}
+                        stageRef={stageRef}
+                      />
+                    )}
+                  </div>
+
+                  {/* Properties Sidebar - always visible */}
+                  <PropertiesPanel
                     selectedTool={selectedTool}
-                    onToolChange={handleToolChange}
                     strokeColor={strokeColor}
+                    onStrokeColorChange={setStrokeColor}
                     fillColor={fillColor}
+                    onFillColorChange={setFillColor}
                     strokeWidth={strokeWidth}
-                    shapes={shapes}
-                    onShapesChange={handleShapesChange}
-                    stageRef={stageRef}
+                    onStrokeWidthChange={setStrokeWidth}
                   />
-                )}
+                </div>
+
+                {/* Toolbar */}
+                <Toolbar
+                  selectedTool={selectedTool}
+                  onToolChange={handleToolChange}
+                  onCopy={handleCopy}
+                  onSave={handleSave}
+                  onSaveAs={handleSaveAs}
+                  onBack={handleBack}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                  onDelete={handleRequestDelete}
+                  isCopying={isCopying}
+                  isSaving={isSaving}
+                />
               </div>
-
-              {/* Properties Sidebar - always visible */}
-              <PropertiesPanel
-                selectedTool={selectedTool}
-                strokeColor={strokeColor}
-                onStrokeColorChange={setStrokeColor}
-                fillColor={fillColor}
-                onFillColorChange={setFillColor}
-                strokeWidth={strokeWidth}
-                onStrokeWidthChange={setStrokeWidth}
-              />
-            </div>
-
-            {/* Toolbar */}
-            <Toolbar
-              selectedTool={selectedTool}
-              onToolChange={handleToolChange}
-              onCopy={handleCopy}
-              onSave={handleSave}
-              onSaveAs={handleSaveAs}
-              onBack={handleBack}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              onDelete={handleRequestDelete}
-              isCopying={isCopying}
-              isSaving={isSaving}
-            />
-          </div>
+            </Suspense>
+          </EditorErrorBoundary>
         </Activity>
       </div>
 

@@ -9,11 +9,61 @@ import type {
   SaveCaptureResponse,
 } from '../types';
 
+// Library cache configuration
+const LIBRARY_CACHE_KEY = 'snapit_library_cache';
+const LIBRARY_CACHE_TIMESTAMP_KEY = 'snapit_library_cache_timestamp';
+const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes - after this, show stale indicator
+
+interface LibraryCache {
+  captures: CaptureListItem[];
+  timestamp: number;
+}
+
+// Save captures to localStorage cache
+function saveToCache(captures: CaptureListItem[]): void {
+  try {
+    // Only cache real captures, not temporary placeholders
+    const realCaptures = captures.filter(c => !c.id.startsWith('temp_'));
+    localStorage.setItem(LIBRARY_CACHE_KEY, JSON.stringify(realCaptures));
+    localStorage.setItem(LIBRARY_CACHE_TIMESTAMP_KEY, Date.now().toString());
+  } catch (e) {
+    // localStorage might be full or disabled - fail silently
+    console.warn('Failed to cache library:', e);
+  }
+}
+
+// Load captures from localStorage cache
+function loadFromCache(): LibraryCache | null {
+  try {
+    const cached = localStorage.getItem(LIBRARY_CACHE_KEY);
+    const timestamp = localStorage.getItem(LIBRARY_CACHE_TIMESTAMP_KEY);
+    if (cached && timestamp) {
+      return {
+        captures: JSON.parse(cached),
+        timestamp: parseInt(timestamp, 10),
+      };
+    }
+  } catch (e) {
+    console.warn('Failed to load library cache:', e);
+  }
+  return null;
+}
+
+// Check if cache is stale (older than max age)
+function isCacheStale(timestamp: number): boolean {
+  return Date.now() - timestamp > CACHE_MAX_AGE_MS;
+}
+
 interface CaptureState {
   // Library state
   captures: CaptureListItem[];
   loading: boolean;
   error: string | null;
+
+  // Cache state
+  isFromCache: boolean; // True if currently showing cached data
+  isCacheStale: boolean; // True if cache is older than max age
+  isRefreshing: boolean; // True if refreshing in background
 
   // Current editor state
   currentProject: CaptureProject | null;
@@ -52,6 +102,7 @@ interface CaptureState {
   updateAnnotations: (annotations: Annotation[]) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => Promise<void>;
+  bulkAddTags: (ids: string[], tagsToAdd: string[]) => Promise<void>;
   deleteCapture: (id: string) => Promise<void>;
   deleteCaptures: (ids: string[]) => Promise<void>;
   getStorageStats: () => Promise<StorageStats>;
@@ -111,6 +162,9 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   captures: [],
   loading: false,
   error: null,
+  isFromCache: false,
+  isCacheStale: false,
+  isRefreshing: false,
   currentProject: null,
   currentImageData: null,
   hasUnsavedChanges: false,
@@ -122,19 +176,56 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   view: 'library',
 
   loadCaptures: async () => {
-    // Only show loading skeleton on first load (when no captures exist yet)
-    // This prevents skeleton flash when returning from editor
     const hasExistingCaptures = get().captures.length > 0;
-    if (!hasExistingCaptures) {
-      set({ loading: true, error: null });
+    const isFirstLoad = !hasExistingCaptures;
+
+    // On first load, try to show cached data immediately
+    if (isFirstLoad) {
+      const cached = loadFromCache();
+      if (cached && cached.captures.length > 0) {
+        // Show cached data immediately, mark as from cache
+        set({
+          captures: cached.captures,
+          loading: false,
+          isFromCache: true,
+          isCacheStale: isCacheStale(cached.timestamp),
+          isRefreshing: true, // We'll refresh in background
+        });
+      } else {
+        // No cache, show loading spinner
+        set({ loading: true, error: null });
+      }
+    } else {
+      // Not first load (e.g., returning from editor), just refresh in background
+      set({ isRefreshing: true });
     }
+
     try {
       const captures = await invoke<CaptureListItem[]>('get_capture_list');
       // Preserve any pending temp captures (optimistic updates in progress)
       const pendingCaptures = get().captures.filter(c => c.id.startsWith('temp_'));
-      set({ captures: [...pendingCaptures, ...captures], loading: false });
+      const allCaptures = [...pendingCaptures, ...captures];
+
+      set({
+        captures: allCaptures,
+        loading: false,
+        isFromCache: false,
+        isCacheStale: false,
+        isRefreshing: false,
+      });
+
+      // Update cache with fresh data
+      saveToCache(allCaptures);
     } catch (error) {
-      set({ error: String(error), loading: false });
+      // On error, keep showing cached data if available
+      const { isFromCache } = get();
+      set({
+        error: String(error),
+        loading: false,
+        isRefreshing: false,
+        // If we were showing cache, keep it but mark as stale
+        isCacheStale: isFromCache ? true : get().isCacheStale,
+      });
     }
   },
 
@@ -182,9 +273,11 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
 
       // Replace placeholder with real capture data
       const realCapture = createCaptureFromResponse(result);
-      set({
-        captures: get().captures.map(c => c.id === tempId ? realCapture : c),
-      });
+      const updatedCaptures = get().captures.map(c => c.id === tempId ? realCapture : c);
+      set({ captures: updatedCaptures });
+
+      // Update cache with new capture
+      saveToCache(updatedCaptures);
 
       // Set as current project (unless silent mode - used for background saves)
       if (!options?.silent) {
@@ -240,9 +333,11 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
 
       // Replace placeholder with real capture data
       const realCapture = createCaptureFromResponse(result);
-      set({
-        captures: get().captures.map(c => c.id === tempId ? realCapture : c),
-      });
+      const updatedCaptures = get().captures.map(c => c.id === tempId ? realCapture : c);
+      set({ captures: updatedCaptures });
+
+      // Update cache with new capture
+      saveToCache(updatedCaptures);
 
       if (!options?.silent) {
         set({
@@ -301,6 +396,8 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
         projectId: id,
         favorite: newFavorite,
       });
+      // Update cache on success
+      saveToCache(updatedCaptures);
     } catch (error) {
       // Revert on error
       set({ captures, error: String(error) });
@@ -308,14 +405,66 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   },
 
   updateTags: async (id: string, tags: string[]) => {
+    const captures = get().captures;
+    const captureIndex = captures.findIndex((c) => c.id === id);
+    if (captureIndex === -1) return;
+
+    const capture = captures[captureIndex];
+
+    // Optimistically update local state first
+    const updatedCaptures = [...captures];
+    updatedCaptures[captureIndex] = { ...capture, tags };
+    set({ captures: updatedCaptures });
+
     try {
       await invoke('update_project_metadata', {
         projectId: id,
         tags,
       });
-      await get().loadCaptures();
+      // Update cache on success
+      saveToCache(updatedCaptures);
     } catch (error) {
-      set({ error: String(error) });
+      // Revert on error
+      set({ captures, error: String(error) });
+    }
+  },
+
+  bulkAddTags: async (ids: string[], tagsToAdd: string[]) => {
+    if (ids.length === 0 || tagsToAdd.length === 0) return;
+
+    const captures = get().captures;
+    const updatedCaptures = [...captures];
+
+    // Optimistically update all selected captures
+    for (const id of ids) {
+      const captureIndex = updatedCaptures.findIndex((c) => c.id === id);
+      if (captureIndex === -1) continue;
+
+      const capture = updatedCaptures[captureIndex];
+      // Merge tags, avoiding duplicates
+      const newTags = [...new Set([...capture.tags, ...tagsToAdd])];
+      updatedCaptures[captureIndex] = { ...capture, tags: newTags };
+    }
+
+    set({ captures: updatedCaptures });
+
+    // Update all captures in parallel
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          const capture = updatedCaptures.find((c) => c.id === id);
+          if (!capture) return;
+          await invoke('update_project_metadata', {
+            projectId: id,
+            tags: capture.tags,
+          });
+        })
+      );
+      // Update cache on success
+      saveToCache(updatedCaptures);
+    } catch (error) {
+      // Revert on error
+      set({ captures, error: String(error) });
     }
   },
 
@@ -386,4 +535,16 @@ export const useFilteredCaptures = () => {
 
     return true;
   });
+};
+
+// Selector for all unique tags across all captures (for autocomplete)
+export const useAllTags = () => {
+  const captures = useCaptureStore((state) => state.captures);
+
+  const allTags = new Set<string>();
+  captures.forEach((capture) => {
+    capture.tags.forEach((tag) => allTags.add(tag));
+  });
+
+  return Array.from(allTags).sort((a, b) => a.localeCompare(b));
 };

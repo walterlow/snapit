@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import type { CompositorSettings, GradientStop } from '../types';
 
 export interface BackgroundBounds {
@@ -154,22 +154,43 @@ export function calculateCompositorDimensions(
 
 /**
  * Hook to load compositor background image
+ * Properly cleans up old images when URL changes to prevent memory leaks
  */
 export function useCompositorBackgroundImage(
   backgroundType: CompositorSettings['backgroundType'],
   backgroundImageUrl: string | null
 ): HTMLImageElement | null {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
+    // Clean up previous image before loading new one
+    if (imageRef.current) {
+      imageRef.current.onload = null;
+      imageRef.current.onerror = null;
+      imageRef.current.src = '';
+      imageRef.current = null;
+    }
+
     if (backgroundType === 'image' && backgroundImageUrl) {
       const img = new Image();
+      imageRef.current = img;
       img.onload = () => setImage(img);
       img.onerror = () => setImage(null);
       img.src = backgroundImageUrl;
     } else {
       setImage(null);
     }
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (imageRef.current) {
+        imageRef.current.onload = null;
+        imageRef.current.onerror = null;
+        imageRef.current.src = '';
+        imageRef.current = null;
+      }
+    };
   }, [backgroundType, backgroundImageUrl]);
 
   return image;

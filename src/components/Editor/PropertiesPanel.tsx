@@ -48,6 +48,21 @@ const COLOR_PRESETS = [
 // Stroke width presets
 const STROKE_PRESETS = [1, 2, 3, 4, 6, 8];
 
+// Quick style presets per tool type
+const STROKE_PRESETS_DATA = [
+  { id: 'bug', name: 'Bug', stroke: '#EF4444', strokeWidth: 3 },
+  { id: 'tutorial', name: 'Tutorial', stroke: '#3B82F6', strokeWidth: 2 },
+  { id: 'warning', name: 'Warning', stroke: '#F97316', strokeWidth: 3 },
+  { id: 'subtle', name: 'Subtle', stroke: '#6B7280', strokeWidth: 1 },
+];
+
+const HIGHLIGHT_PRESETS_DATA = [
+  { id: 'yellow', name: 'Yellow', fill: 'rgba(255, 235, 59, 0.4)' },
+  { id: 'green', name: 'Green', fill: 'rgba(76, 175, 80, 0.4)' },
+  { id: 'pink', name: 'Pink', fill: 'rgba(233, 30, 99, 0.4)' },
+  { id: 'blue', name: 'Blue', fill: 'rgba(33, 150, 243, 0.4)' },
+];
+
 // Tool display info
 const TOOL_INFO: Record<Tool, { icon: React.ElementType; label: string }> = {
   select: { icon: MousePointer2, label: 'Select' },
@@ -511,6 +526,73 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     }
   };
 
+  // Apply a stroke-based preset (arrow, line, pen)
+  const applyStrokePreset = (preset: typeof STROKE_PRESETS_DATA[0]) => {
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'arrow') {
+            // Arrow needs both stroke (line) and fill (arrowhead)
+            updateShape(shape.id, { stroke: preset.stroke, fill: preset.stroke, strokeWidth: preset.strokeWidth });
+          } else if (shape.type === 'line' || shape.type === 'pen') {
+            updateShape(shape.id, { stroke: preset.stroke, strokeWidth: preset.strokeWidth });
+          }
+        });
+      });
+    }
+    onStrokeColorChange(preset.stroke);
+    onFillColorChange(preset.stroke); // For new arrows, set fill to match
+    onStrokeWidthChange(preset.strokeWidth);
+  };
+
+  // Apply a fill-based preset (rect, circle) - applies both stroke and fill
+  const applyShapePreset = (preset: typeof STROKE_PRESETS_DATA[0]) => {
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'rect' || shape.type === 'circle') {
+            updateShape(shape.id, { stroke: preset.stroke, strokeWidth: preset.strokeWidth });
+          }
+        });
+      });
+    }
+    onStrokeColorChange(preset.stroke);
+    onStrokeWidthChange(preset.strokeWidth);
+  };
+
+  // Apply a highlight preset
+  const applyHighlightPreset = (preset: typeof HIGHLIGHT_PRESETS_DATA[0]) => {
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'highlight') {
+            updateShape(shape.id, { fill: preset.fill });
+          }
+        });
+      });
+    }
+    // Extract color from rgba for stroke color default
+    const match = preset.fill.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+      const hex = `#${parseInt(match[1]).toString(16).padStart(2, '0')}${parseInt(match[2]).toString(16).padStart(2, '0')}${parseInt(match[3]).toString(16).padStart(2, '0')}`;
+      onStrokeColorChange(hex);
+    }
+  };
+
+  // Apply a steps/badge preset
+  const applyStepsPreset = (preset: typeof STROKE_PRESETS_DATA[0]) => {
+    if (hasSelection) {
+      recordAction(() => {
+        selectedShapes.forEach(shape => {
+          if (shape.type === 'step') {
+            updateShape(shape.id, { fill: preset.stroke });
+          }
+        });
+      });
+    }
+    onStrokeColorChange(preset.stroke);
+  };
+
   // Map shape type to corresponding tool
   const shapeTypeToTool = (shapeType: string): Tool => {
     const mapping: Record<string, Tool> = {
@@ -552,6 +634,140 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         {effectiveTool === 'crop' && (
           <div className="text-xs text-[var(--ink-muted)] leading-relaxed">
             Drag corners or edges to crop. Drag outside the image to expand the canvas.
+          </div>
+        )}
+
+        {/* Quick Styles - Arrow, Line, Pen (stroke-only tools) */}
+        {(effectiveTool === 'arrow' || effectiveTool === 'line' || effectiveTool === 'pen') && (
+          <div className="space-y-3">
+            <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Quick Styles</Label>
+            <div className="flex gap-2">
+              {STROKE_PRESETS_DATA.map((preset) => {
+                const isActive = strokeColor === preset.stroke && strokeWidth === preset.strokeWidth;
+                const IconComponent = effectiveTool === 'arrow' ? MoveUpRight : effectiveTool === 'line' ? Minus : Pencil;
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyStrokePreset(preset)}
+                    className={`flex-1 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all border ${
+                      isActive
+                        ? 'bg-[var(--coral-50)] border-[var(--coral-200)]'
+                        : 'bg-[var(--card)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                    }`}
+                    title={`${preset.name}: ${preset.strokeWidth}px`}
+                  >
+                    <IconComponent
+                      size={20}
+                      style={{ color: preset.stroke, strokeWidth: preset.strokeWidth * 0.8 }}
+                    />
+                    <span className={`text-[10px] font-medium ${isActive ? 'text-[var(--coral-500)]' : 'text-[var(--ink-muted)]'}`}>
+                      {preset.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Quick Styles - Rect, Circle (stroke + fill tools) */}
+        {(effectiveTool === 'rect' || effectiveTool === 'circle') && (
+          <div className="space-y-3">
+            <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Quick Styles</Label>
+            <div className="flex gap-2">
+              {STROKE_PRESETS_DATA.map((preset) => {
+                const isActive = strokeColor === preset.stroke && strokeWidth === preset.strokeWidth;
+                const IconComponent = effectiveTool === 'rect' ? Square : Circle;
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyShapePreset(preset)}
+                    className={`flex-1 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all border ${
+                      isActive
+                        ? 'bg-[var(--coral-50)] border-[var(--coral-200)]'
+                        : 'bg-[var(--card)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                    }`}
+                    title={`${preset.name}: ${preset.strokeWidth}px`}
+                  >
+                    <IconComponent
+                      size={20}
+                      style={{ color: preset.stroke, strokeWidth: preset.strokeWidth * 0.8 }}
+                    />
+                    <span className={`text-[10px] font-medium ${isActive ? 'text-[var(--coral-500)]' : 'text-[var(--ink-muted)]'}`}>
+                      {preset.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Quick Styles - Highlight */}
+        {effectiveTool === 'highlight' && (
+          <div className="space-y-3">
+            <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Quick Styles</Label>
+            <div className="flex gap-2">
+              {HIGHLIGHT_PRESETS_DATA.map((preset) => {
+                // Check if this preset's fill matches
+                const selectedHighlight = singleSelection?.type === 'highlight' ? singleSelection : null;
+                const isActive = selectedHighlight?.fill === preset.fill;
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyHighlightPreset(preset)}
+                    className={`flex-1 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all border ${
+                      isActive
+                        ? 'bg-[var(--coral-50)] border-[var(--coral-200)]'
+                        : 'bg-[var(--card)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                    }`}
+                    title={preset.name}
+                  >
+                    <div
+                      className="w-8 h-4 rounded"
+                      style={{ backgroundColor: preset.fill }}
+                    />
+                    <span className={`text-[10px] font-medium ${isActive ? 'text-[var(--coral-500)]' : 'text-[var(--ink-muted)]'}`}>
+                      {preset.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Quick Styles - Steps/Badge */}
+        {effectiveTool === 'steps' && (
+          <div className="space-y-3">
+            <Label className="text-xs text-[var(--ink-muted)] uppercase tracking-wide font-medium">Quick Styles</Label>
+            <div className="flex gap-2">
+              {STROKE_PRESETS_DATA.map((preset) => {
+                const isActive = strokeColor === preset.stroke;
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyStepsPreset(preset)}
+                    className={`flex-1 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all border ${
+                      isActive
+                        ? 'bg-[var(--coral-50)] border-[var(--coral-200)]'
+                        : 'bg-[var(--card)] border-[var(--polar-frost)] hover:bg-[var(--polar-ice)]'
+                    }`}
+                    title={preset.name}
+                  >
+                    <div
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
+                      style={{ backgroundColor: preset.stroke }}
+                    >
+                      1
+                    </div>
+                    <span className={`text-[10px] font-medium ${isActive ? 'text-[var(--coral-500)]' : 'text-[var(--ink-muted)]'}`}>
+                      {preset.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 

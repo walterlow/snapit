@@ -118,6 +118,14 @@ const TOOL_LABELS: Record<Tool, string> = {
   background: 'Background',
 };
 
+// Tool categories for grouped command palette
+const TOOL_CATEGORIES: { name: string; tools: Tool[] }[] = [
+  { name: 'Selection', tools: ['select', 'crop'] },
+  { name: 'Shapes', tools: ['rect', 'circle', 'arrow', 'line'] },
+  { name: 'Annotation', tools: ['text', 'steps', 'highlight', 'blur', 'pen'] },
+  { name: 'Effects', tools: ['background'] },
+];
+
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
   open,
   onOpenChange,
@@ -146,26 +154,30 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   const isEditor = view === 'editor';
 
-  // Tool commands - only show in editor view
-  const toolCommands = useMemo<CommandItem[]>(() => {
+  // Tool commands grouped by category - only show in editor view
+  const groupedToolCommands = useMemo<{ name: string; commands: CommandItem[] }[]>(() => {
     if (!isEditor) return [];
 
-    const tools: Tool[] = ['select', 'crop', 'arrow', 'rect', 'circle', 'text', 'highlight', 'blur', 'steps', 'pen', 'background'];
-
-    return tools.map(tool => ({
-      id: `tool-${tool}`,
-      label: TOOL_LABELS[tool],
-      icon: TOOL_ICONS[tool],
-      shortcut: TOOL_SHORTCUTS[tool],
-      action: () => {
-        if (tool === 'background') {
-          onToggleCompositor();
-        }
-        onToolChange(tool);
-      },
-      disabled: tool === selectedTool,
+    return TOOL_CATEGORIES.map(category => ({
+      name: category.name,
+      commands: category.tools.map(tool => ({
+        id: `tool-${tool}`,
+        label: TOOL_LABELS[tool],
+        icon: TOOL_ICONS[tool],
+        shortcut: TOOL_SHORTCUTS[tool],
+        action: () => {
+          if (tool === 'background') {
+            onToggleCompositor();
+          }
+          onToolChange(tool);
+        },
+        disabled: tool === selectedTool,
+      })),
     }));
   }, [isEditor, selectedTool, onToolChange, onToggleCompositor]);
+
+  // Check if there are any tool commands
+  const hasToolCommands = groupedToolCommands.length > 0;
 
   // Action commands
   const actionCommands = useMemo<CommandItem[]>(() => {
@@ -260,9 +272,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
 
-        {toolCommands.length > 0 && (
-          <CommandGroup heading="Tools">
-            {toolCommands.map(cmd => (
+        {hasToolCommands && groupedToolCommands.map((category) => (
+          <CommandGroup key={category.name} heading={category.name}>
+            {category.commands.map(cmd => (
               <CommandItem
                 key={cmd.id}
                 onSelect={() => runCommand(cmd.action)}
@@ -274,9 +286,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               </CommandItem>
             ))}
           </CommandGroup>
-        )}
+        ))}
 
-        {toolCommands.length > 0 && actionCommands.length > 0 && <CommandSeparator />}
+        {hasToolCommands && actionCommands.length > 0 && <CommandSeparator />}
 
         {actionCommands.length > 0 && (
           <CommandGroup heading="Actions">
@@ -294,7 +306,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </CommandGroup>
         )}
 
-        {(actionCommands.length > 0 || toolCommands.length > 0) && <CommandSeparator />}
+        {(actionCommands.length > 0 || hasToolCommands) && <CommandSeparator />}
 
         <CommandGroup heading="Navigation">
           {navigationCommands.map(cmd => (

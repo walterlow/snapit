@@ -1622,7 +1622,7 @@ body.overlay-window #root {
 }
 
 [role="option"][aria-selected="true"],
-[role="option"][data-selected] {
+[role="option"][data-selected="true"] {
   background: var(--coral-subtle);
   color: var(--coral-400);
 }
@@ -1940,31 +1940,39 @@ body.overlay-window #root {
 }
 
 /* Settings Select (compact version for inline settings) */
+/* Uses !important to override shadcn/Tailwind defaults */
 .glass-settings-select-trigger {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 500;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 4px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  width: auto !important;
+  padding: 0 6px !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 6px !important;
+  color: #fff !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
+  box-shadow: none !important;
+  ring-offset-width: 0 !important;
 }
 
 .glass-settings-select-trigger:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
 }
 
 .glass-settings-select-trigger:focus {
-  outline: none;
-  border-color: rgba(255, 255, 255, 0.2);
+  outline: none !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: none !important;
+  ring: none !important;
 }
 
 .glass-settings-select-trigger[data-disabled] {
@@ -1972,48 +1980,68 @@ body.overlay-window #root {
   cursor: not-allowed;
 }
 
+/* Style the chevron icon inside the trigger */
+.glass-settings-select-trigger svg {
+  width: 10px !important;
+  height: 10px !important;
+  color: rgba(255, 255, 255, 0.4) !important;
+  opacity: 1 !important;
+  flex-shrink: 0;
+}
+
 .glass-settings-select-icon {
   color: rgba(255, 255, 255, 0.4);
   flex-shrink: 0;
 }
 
+/* Override shadcn SelectContent styles */
 .glass-settings-select-popup {
-  min-width: 80px;
-  padding: 4px;
+  min-width: 80px !important;
+  padding: 4px !important;
   background: linear-gradient(
     135deg,
     rgba(28, 28, 30, 0.98) 0%,
     rgba(18, 18, 20, 0.99) 100%
-  );
+  ) !important;
   backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.5),
     0 2px 8px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
 }
 
+/* Override shadcn SelectItem styles for compact glass design */
 .glass-settings-select-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 5px;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 11px;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 8px !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  border-radius: 5px !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  font-size: 11px !important;
   cursor: pointer;
   transition: all 0.1s ease;
-  outline: none;
+  outline: none !important;
+  position: relative !important;
 }
 
-.glass-settings-select-item[data-highlighted] {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+/* Hide the check indicator in compact select */
+.glass-settings-select-item > span:first-child {
+  display: none !important;
 }
 
-.glass-settings-select-item[data-selected] {
-  color: #fff;
+.glass-settings-select-item[data-highlighted],
+.glass-settings-select-item:focus {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
+}
+
+.glass-settings-select-item[data-state="checked"] {
+  color: #fff !important;
 }
 
 .glass-settings-select-indicator {
@@ -2023,6 +2051,45 @@ body.overlay-window #root {
   width: 14px;
   height: 14px;
   color: rgba(99, 102, 241, 1);
+}
+
+/* Glass tooltip */
+.glass-tooltip {
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 10000;
+  max-width: 250px;
+  animation: fadeIn 0.15s ease;
+}
+
+/* Glass icon button (small) */
+.glass-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.glass-icon-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.glass-icon-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Legacy settings row (for backwards compatibility) */

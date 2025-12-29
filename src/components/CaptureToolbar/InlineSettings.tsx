@@ -4,13 +4,20 @@
  * Column 1: FPS + Quality (technical settings)
  * Column 2: Cursor + Audio + Countdown + Max (capture behavior)
  *
- * Uses Radix Select with glass styling for dropdowns.
+ * Uses shadcn Select with glass styling for dropdowns.
  */
 
-import React, { useCallback, useEffect } from 'react';
-import * as SelectPrimitive from '@radix-ui/react-select';
-import { ChevronDown, Camera } from 'lucide-react';
+import React, { useEffect } from 'react';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import { Camera, RefreshCw } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
 import { useWebcamSettingsStore } from '@/stores/webcamSettingsStore';
 import { useAudioInputStore } from '@/stores/audioInputStore';
@@ -21,7 +28,7 @@ interface SettingsColProps {
   mode: CaptureType;
 }
 
-// Glass-styled Select component for settings
+// Glass-styled Select component for settings using shadcn Select
 interface GlassSelectProps {
   value: string | number;
   options: { value: string | number; label: string }[];
@@ -30,46 +37,107 @@ interface GlassSelectProps {
 }
 
 const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, disabled }) => {
-  const handleValueChange = useCallback((val: string) => {
-    onChange(val);
-  }, [onChange]);
-
-  const currentLabel = options.find(o => String(o.value) === String(value))?.label || String(value);
-
   return (
-    <SelectPrimitive.Root
+    <Select
       value={String(value)}
-      onValueChange={handleValueChange}
+      onValueChange={onChange}
       disabled={disabled}
     >
-      <SelectPrimitive.Trigger className="glass-settings-select-trigger">
-        <SelectPrimitive.Value>{currentLabel}</SelectPrimitive.Value>
-        <SelectPrimitive.Icon className="glass-settings-select-icon">
-          <ChevronDown size={10} />
-        </SelectPrimitive.Icon>
-      </SelectPrimitive.Trigger>
+      <SelectTrigger className="glass-settings-select-trigger">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent
+        position="popper"
+        sideOffset={6}
+        align="start"
+        className="z-[9999] glass-settings-select-popup"
+      >
+        {options.map((opt) => (
+          <SelectItem
+            key={opt.value}
+            value={String(opt.value)}
+            className="glass-settings-select-item"
+          >
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+};
 
-      <SelectPrimitive.Portal>
-        <SelectPrimitive.Content
+// Microphone device selector with tooltips, refresh, and default badge
+interface MicSelectProps {
+  value: number | null;
+  devices: { index: number; name: string; isDefault: boolean }[];
+  onChange: (deviceIndex: number | null) => void;
+  onRefresh: () => void;
+  isLoading?: boolean;
+}
+
+const MicSelect: React.FC<MicSelectProps> = ({ value, devices, onChange, onRefresh, isLoading }) => {
+  const MAX_LABEL_LENGTH = 16;
+
+  const getDisplayLabel = (name: string, isDefault: boolean) => {
+    const suffix = isDefault ? ' ★' : '';
+    const maxLen = MAX_LABEL_LENGTH - suffix.length;
+    const truncated = name.length > maxLen ? name.substring(0, maxLen) + '…' : name;
+    return truncated + suffix;
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      <Select
+        value={value === null ? 'none' : String(value)}
+        onValueChange={(v) => onChange(v === 'none' ? null : parseInt(v))}
+      >
+        <SelectTrigger className="glass-settings-select-trigger">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent
           position="popper"
           sideOffset={6}
           align="start"
           className="z-[9999] glass-settings-select-popup"
         >
-          <SelectPrimitive.Viewport>
-            {options.map((opt) => (
-              <SelectPrimitive.Item
-                key={opt.value}
-                value={String(opt.value)}
-                className="glass-settings-select-item"
-              >
-                <SelectPrimitive.ItemText>{opt.label}</SelectPrimitive.ItemText>
-              </SelectPrimitive.Item>
-            ))}
-          </SelectPrimitive.Viewport>
-        </SelectPrimitive.Content>
-      </SelectPrimitive.Portal>
-    </SelectPrimitive.Root>
+          <SelectItem value="none" className="glass-settings-select-item">
+            None
+          </SelectItem>
+          {devices.map((device) => (
+            <SelectItem
+              key={device.index}
+              value={String(device.index)}
+              className="glass-settings-select-item"
+              title={device.name.length > MAX_LABEL_LENGTH ? device.name : undefined}
+            >
+              {getDisplayLabel(device.name, device.isDefault)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Refresh button */}
+      <Tooltip.Provider delayDuration={300}>
+        <Tooltip.Root>
+          <Tooltip.Trigger asChild>
+            <button
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="glass-icon-button"
+              aria-label="Refresh audio devices"
+            >
+              <RefreshCw size={10} className={isLoading ? 'animate-spin' : ''} />
+            </button>
+          </Tooltip.Trigger>
+          <Tooltip.Portal>
+            <Tooltip.Content side="top" sideOffset={4} className="glass-tooltip">
+              Refresh devices
+              <Tooltip.Arrow className="fill-[var(--glass-bg-solid)]" />
+            </Tooltip.Content>
+          </Tooltip.Portal>
+        </Tooltip.Root>
+      </Tooltip.Provider>
+    </div>
   );
 };
 
@@ -198,7 +266,7 @@ export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
 export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
   const { settings, updateScreenshotSettings, updateVideoSettings, updateGifSettings } =
     useCaptureSettingsStore();
-  const { devices: audioDevices, loadDevices: loadAudioDevices } = useAudioInputStore();
+  const { devices: audioDevices, loadDevices: loadAudioDevices, isLoadingDevices } = useAudioInputStore();
 
   // Load audio devices when in video mode
   useEffect(() => {
@@ -261,18 +329,12 @@ export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
           </div>
           <div className="glass-inline-group">
             <span className="glass-inline-label">Mic</span>
-            <GlassSelect
-              value={settings.video.microphoneDeviceIndex ?? 'none'}
-              options={[
-                { value: 'none', label: 'None' },
-                ...audioDevices.map((d) => ({
-                  value: d.index,
-                  label: d.name.length > 18 ? d.name.substring(0, 18) + '...' : d.name,
-                })),
-              ]}
-              onChange={(v) => updateVideoSettings({
-                microphoneDeviceIndex: v === 'none' ? null : parseInt(v)
-              })}
+            <MicSelect
+              value={settings.video.microphoneDeviceIndex ?? null}
+              devices={audioDevices}
+              onChange={(deviceIndex) => updateVideoSettings({ microphoneDeviceIndex: deviceIndex })}
+              onRefresh={loadAudioDevices}
+              isLoading={isLoadingDevices}
             />
           </div>
           <div className="glass-inline-group">

@@ -97,11 +97,6 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   const isError = mode === 'error';
   const isPaused = mode === 'paused';
 
-  // Stop all pointer events from bubbling up to RegionSelector
-  const stopPropagation = (e: React.MouseEvent | React.PointerEvent) => {
-    e.stopPropagation();
-  };
-
   // Handle drag start - use custom handler if provided, otherwise Tauri's startDragging
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -306,10 +301,6 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   return (
     <div
       className="glass-toolbar glass-toolbar--two-row pointer-events-auto"
-      onPointerDown={stopPropagation}
-      onPointerUp={stopPropagation}
-      onPointerMove={stopPropagation}
-      onClick={stopPropagation}
     >
       {/* Left panel: Grabber + Mode selector (spans both rows) */}
       <div className="glass-toolbar-left">

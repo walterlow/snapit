@@ -95,16 +95,20 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
 
       {/* Modal */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shortcuts-modal-title"
         className="relative bg-[var(--card)] border border-[var(--polar-frost)] rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[80vh] overflow-hidden animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--polar-frost)] bg-[var(--polar-ice)]">
-          <h2 className="text-lg font-semibold text-[var(--ink-black)]">
+          <h2 id="shortcuts-modal-title" className="text-lg font-semibold text-[var(--ink-black)]">
             Keyboard Shortcuts
           </h2>
           <button
             onClick={onClose}
+            aria-label="Close keyboard shortcuts"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-black)] hover:bg-[var(--polar-mist)] transition-colors"
           >
             <X className="w-4 h-4" />

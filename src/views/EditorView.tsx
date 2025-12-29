@@ -64,13 +64,17 @@ export const EditorView = forwardRef<EditorViewRef>(function EditorView(_props, 
     compositorSettings,
     setCompositorSettings,
     setSelectedIds,
+    // Drawing tool settings from store
+    strokeColor,
+    setStrokeColor,
+    fillColor,
+    setFillColor,
+    strokeWidth,
+    setStrokeWidth,
   } = useEditorStore();
 
-  // Local editor UI state
+  // Local editor UI state (only selectedTool remains local as it's view-specific)
   const [selectedTool, setSelectedTool] = useState<Tool>('select');
-  const [strokeColor, setStrokeColor] = useState('#ef4444');
-  const [fillColor, setFillColor] = useState('transparent');
-  const [strokeWidth, setStrokeWidth] = useState(3);
 
   // Refs for canvas access
   const stageRef = useRef<Konva.Stage>(null);

@@ -147,6 +147,11 @@ interface EditorState {
   // Text tool settings
   fontSize: number;
 
+  // Drawing tool settings
+  strokeColor: string;
+  fillColor: string;
+  strokeWidth: number;
+
   // Canvas bounds (null = use image size, no crop/expand)
   canvasBounds: CanvasBounds | null;
   originalImageSize: { width: number; height: number } | null;
@@ -170,6 +175,9 @@ interface EditorState {
   setBlurType: (type: BlurType) => void;
   setBlurAmount: (amount: number) => void;
   setFontSize: (size: number) => void;
+  setStrokeColor: (color: string) => void;
+  setFillColor: (color: string) => void;
+  setStrokeWidth: (width: number) => void;
   setCanvasBounds: (bounds: CanvasBounds | null) => void;
   setOriginalImageSize: (size: { width: number; height: number }) => void;
   resetCanvasBounds: () => void;
@@ -193,6 +201,9 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   blurType: 'pixelate' as BlurType,
   blurAmount: 15,
   fontSize: 36,
+  strokeColor: '#ef4444',
+  fillColor: 'transparent',
+  strokeWidth: 3,
   canvasBounds: null,
   originalImageSize: null,
 
@@ -247,6 +258,9 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   setBlurType: (type) => set({ blurType: type }),
   setBlurAmount: (amount) => set({ blurAmount: amount }),
   setFontSize: (size) => set({ fontSize: size }),
+  setStrokeColor: (color) => set({ strokeColor: color }),
+  setFillColor: (color) => set({ fillColor: color }),
+  setStrokeWidth: (width) => set({ strokeWidth: width }),
   setCanvasBounds: (bounds) => set({ canvasBounds: bounds }),
   setOriginalImageSize: (size) => set({ originalImageSize: size }),
   resetCanvasBounds: () => {

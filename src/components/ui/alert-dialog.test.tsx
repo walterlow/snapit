@@ -70,6 +70,7 @@ describe('AlertDialog', () => {
           <AlertDialogContent data-testid="alert-content">
             <AlertDialogHeader>
               <AlertDialogTitle>Test</AlertDialogTitle>
+              <AlertDialogDescription>Test description</AlertDialogDescription>
             </AlertDialogHeader>
           </AlertDialogContent>
         </AlertDialog>
@@ -93,6 +94,7 @@ describe('AlertDialog', () => {
           <AlertDialogContent data-testid="alert-content">
             <AlertDialogHeader>
               <AlertDialogTitle>Test</AlertDialogTitle>
+              <AlertDialogDescription>Test description</AlertDialogDescription>
             </AlertDialogHeader>
           </AlertDialogContent>
         </AlertDialog>

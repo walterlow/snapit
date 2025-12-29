@@ -39,14 +39,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
       />
 
       {/* Modal */}
-      <div className="relative bg-card border border-(--polar-frost) rounded-lg shadow-2xl w-140 mx-4 max-h-[80vh] flex flex-col overflow-hidden animate-scale-in">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        className="relative bg-card border border-(--polar-frost) rounded-lg shadow-2xl w-140 mx-4 max-h-[80vh] flex flex-col overflow-hidden animate-scale-in"
+      >
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-(--polar-frost) bg-(--polar-ice)">
-          <h2 className="text-lg font-semibold text-(--ink-black)">
+          <h2 id="settings-modal-title" className="text-lg font-semibold text-(--ink-black)">
             Settings
           </h2>
           <button
             onClick={onClose}
+            aria-label="Close settings"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-(--ink-muted) hover:text-(--ink-black) hover:bg-(--polar-mist) transition-colors"
           >
             <X className="w-4 h-4" />

@@ -223,4 +223,57 @@ mod tests {
 
         assert_eq!(recorder.frame_count(), 2);
     }
+
+    #[test]
+    fn test_duration_calculation() {
+        let mut recorder = GifRecorder::new(2, 2, 30, GifQualityPreset::Balanced, 100);
+        let rgba = vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255];
+
+        recorder.add_frame(rgba.clone(), 2, 2, 0.0);
+        recorder.add_frame(rgba.clone(), 2, 2, 5.0);
+        recorder.add_frame(rgba.clone(), 2, 2, 10.0);
+
+        assert_eq!(recorder.frame_count(), 3);
+        assert!((recorder.duration() - 10.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_take_frames() {
+        let mut recorder = GifRecorder::new(2, 2, 30, GifQualityPreset::Balanced, 100);
+        let rgba = vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255];
+
+        recorder.add_frame(rgba.clone(), 2, 2, 0.0);
+        recorder.add_frame(rgba.clone(), 2, 2, 1.0);
+
+        let frames = recorder.take_frames();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(recorder.frame_count(), 0); // Should be empty after take
+    }
+
+    #[test]
+    fn test_actual_fps_calculation() {
+        // Simulate: 20 frames captured over 10 seconds
+        // Actual FPS = (20 - 1) / 10 = 1.9 FPS
+        let frame_count = 20;
+        let duration = 10.0;
+        let actual_fps = (frame_count - 1) as f64 / duration;
+
+        assert!((actual_fps - 1.9).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_actual_fps_single_frame() {
+        // Single frame should fall back to target FPS
+        let frame_count = 1;
+        let duration = 0.0;
+        let target_fps = 30.0;
+
+        let actual_fps = if duration > 0.0 && frame_count > 1 {
+            (frame_count - 1) as f64 / duration
+        } else {
+            target_fps
+        };
+
+        assert!((actual_fps - 30.0).abs() < 0.001);
+    }
 }

@@ -177,3 +177,55 @@ impl FfmpegGifEncoder {
         Ok(file_size)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_preset_fast_filter() {
+        let filter = GifQualityPreset::Fast.to_filter();
+        // Fast preset should use 128 colors and no dithering
+        assert!(filter.contains("max_colors=128"));
+        assert!(filter.contains("dither=none"));
+        assert!(filter.contains("diff_mode=rectangle"));
+        assert!(filter.contains("stats_mode=full"));
+    }
+
+    #[test]
+    fn test_preset_balanced_filter() {
+        let filter = GifQualityPreset::Balanced.to_filter();
+        // Balanced preset should use 256 colors and bayer dithering
+        assert!(filter.contains("max_colors=256"));
+        assert!(filter.contains("dither=bayer"));
+        assert!(filter.contains("bayer_scale=5"));
+        assert!(filter.contains("diff_mode=rectangle"));
+        assert!(filter.contains("stats_mode=full"));
+    }
+
+    #[test]
+    fn test_preset_high_filter() {
+        let filter = GifQualityPreset::High.to_filter();
+        // High preset should use 256 colors and floyd_steinberg dithering
+        assert!(filter.contains("max_colors=256"));
+        assert!(filter.contains("dither=floyd_steinberg"));
+        assert!(filter.contains("diff_mode=rectangle"));
+        assert!(filter.contains("stats_mode=full"));
+    }
+
+    #[test]
+    fn test_all_presets_use_split_filter() {
+        // All presets should use split filter for palette generation
+        for preset in [GifQualityPreset::Fast, GifQualityPreset::Balanced, GifQualityPreset::High] {
+            let filter = preset.to_filter();
+            assert!(filter.starts_with("split[a][b]"));
+            assert!(filter.contains("palettegen"));
+            assert!(filter.contains("paletteuse"));
+        }
+    }
+
+    #[test]
+    fn test_default_preset_is_balanced() {
+        assert_eq!(GifQualityPreset::default(), GifQualityPreset::Balanced);
+    }
+}

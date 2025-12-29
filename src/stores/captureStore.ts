@@ -9,11 +9,8 @@ import type {
   CaptureSource,
   SaveCaptureResponse,
 } from '../types';
-
-// Library cache configuration
-const LIBRARY_CACHE_KEY = 'snapit_library_cache';
-const LIBRARY_CACHE_TIMESTAMP_KEY = 'snapit_library_cache_timestamp';
-const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes - after this, show stale indicator
+import { libraryLogger } from '../utils/logger';
+import { STORAGE } from '../constants';
 
 interface LibraryCache {
   captures: CaptureListItem[];
@@ -25,19 +22,19 @@ function saveToCache(captures: CaptureListItem[]): void {
   try {
     // Only cache real captures, not temporary placeholders
     const realCaptures = captures.filter(c => !c.id.startsWith('temp_'));
-    localStorage.setItem(LIBRARY_CACHE_KEY, JSON.stringify(realCaptures));
-    localStorage.setItem(LIBRARY_CACHE_TIMESTAMP_KEY, Date.now().toString());
+    localStorage.setItem(STORAGE.LIBRARY_CACHE_KEY, JSON.stringify(realCaptures));
+    localStorage.setItem(STORAGE.LIBRARY_CACHE_TIMESTAMP_KEY, Date.now().toString());
   } catch (e) {
     // localStorage might be full or disabled - fail silently
-    console.warn('Failed to cache library:', e);
+    libraryLogger.warn('Failed to cache library:', e);
   }
 }
 
 // Load captures from localStorage cache
 function loadFromCache(): LibraryCache | null {
   try {
-    const cached = localStorage.getItem(LIBRARY_CACHE_KEY);
-    const timestamp = localStorage.getItem(LIBRARY_CACHE_TIMESTAMP_KEY);
+    const cached = localStorage.getItem(STORAGE.LIBRARY_CACHE_KEY);
+    const timestamp = localStorage.getItem(STORAGE.LIBRARY_CACHE_TIMESTAMP_KEY);
     if (cached && timestamp) {
       return {
         captures: JSON.parse(cached),
@@ -45,14 +42,14 @@ function loadFromCache(): LibraryCache | null {
       };
     }
   } catch (e) {
-    console.warn('Failed to load library cache:', e);
+    libraryLogger.warn('Failed to load library cache:', e);
   }
   return null;
 }
 
 // Check if cache is stale (older than max age)
 function isCacheStale(timestamp: number): boolean {
-  return Date.now() - timestamp > CACHE_MAX_AGE_MS;
+  return Date.now() - timestamp > STORAGE.CACHE_MAX_AGE_MS;
 }
 
 interface CaptureState {

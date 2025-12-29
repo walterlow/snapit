@@ -228,50 +228,20 @@ export const GRADIENT_PRESETS = [
   { name: 'Flamingo', stops: [{ color: '#f953c6', position: 0 }, { color: '#b91d73', position: 100 }] },
 ];
 
+// Wallpaper count - single source of truth for wallpaper array generation
+const WALLPAPER_COUNT = 18;
+
 // Default wallpapers from public/wallpapers
 // Full resolution images for actual background use
-export const DEFAULT_WALLPAPERS = [
-  '/wallpapers/wallpaper1.jpg',
-  '/wallpapers/wallpaper2.jpg',
-  '/wallpapers/wallpaper3.jpg',
-  '/wallpapers/wallpaper4.jpg',
-  '/wallpapers/wallpaper5.jpg',
-  '/wallpapers/wallpaper6.jpg',
-  '/wallpapers/wallpaper7.jpg',
-  '/wallpapers/wallpaper8.jpg',
-  '/wallpapers/wallpaper9.jpg',
-  '/wallpapers/wallpaper10.jpg',
-  '/wallpapers/wallpaper11.jpg',
-  '/wallpapers/wallpaper12.jpg',
-  '/wallpapers/wallpaper13.jpg',
-  '/wallpapers/wallpaper14.jpg',
-  '/wallpapers/wallpaper15.jpg',
-  '/wallpapers/wallpaper16.jpg',
-  '/wallpapers/wallpaper17.jpg',
-  '/wallpapers/wallpaper18.jpg',
-];
+export const DEFAULT_WALLPAPERS = Array.from(
+  { length: WALLPAPER_COUNT },
+  (_, i) => `/wallpapers/wallpaper${i + 1}.jpg`
+);
 
 // Thumbnails for fast gallery loading (200px wide, ~5KB each vs ~1MB originals)
-export const WALLPAPER_THUMBNAILS = [
-  '/wallpapers/thumbs/wallpaper1.jpg',
-  '/wallpapers/thumbs/wallpaper2.jpg',
-  '/wallpapers/thumbs/wallpaper3.jpg',
-  '/wallpapers/thumbs/wallpaper4.jpg',
-  '/wallpapers/thumbs/wallpaper5.jpg',
-  '/wallpapers/thumbs/wallpaper6.jpg',
-  '/wallpapers/thumbs/wallpaper7.jpg',
-  '/wallpapers/thumbs/wallpaper8.jpg',
-  '/wallpapers/thumbs/wallpaper9.jpg',
-  '/wallpapers/thumbs/wallpaper10.jpg',
-  '/wallpapers/thumbs/wallpaper11.jpg',
-  '/wallpapers/thumbs/wallpaper12.jpg',
-  '/wallpapers/thumbs/wallpaper13.jpg',
-  '/wallpapers/thumbs/wallpaper14.jpg',
-  '/wallpapers/thumbs/wallpaper15.jpg',
-  '/wallpapers/thumbs/wallpaper16.jpg',
-  '/wallpapers/thumbs/wallpaper17.jpg',
-  '/wallpapers/thumbs/wallpaper18.jpg',
-];
+export const WALLPAPER_THUMBNAILS = DEFAULT_WALLPAPERS.map(
+  (path) => path.replace('/wallpapers/', '/wallpapers/thumbs/')
+);
 
 // Blur effect types
 export type BlurType = 'pixelate' | 'gaussian';

@@ -17,6 +17,9 @@ import {
   mergeWithDefaults,
   needsMigration,
 } from '../utils/settingsMigrations';
+import { createLogger } from '../utils/logger';
+
+const settingsLogger = createLogger('Settings');
 
 const SETTINGS_STORE_PATH = 'settings.json';
 
@@ -94,7 +97,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
       // Save migrated settings if version changed
       if (needsMigration(rawSettings)) {
-        console.log('Settings migrated, saving new version');
+        settingsLogger.info('Settings migrated, saving new version');
         await store.set('_version', SETTINGS_VERSION);
         await store.set('shortcuts', migratedSettings.shortcuts);
         await store.set('general', migratedSettings.general);

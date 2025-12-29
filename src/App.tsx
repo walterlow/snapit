@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo, Activity } from 'rea
 import { Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
-import { LibraryErrorBoundary } from './components/ErrorBoundary';
+import { LibraryErrorBoundary, EditorErrorBoundary } from './components/ErrorBoundary';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { SettingsModalContainer } from './components/Settings/SettingsModalContainer';
@@ -227,7 +227,9 @@ function App() {
 
         {/* Editor */}
         <Activity mode={view === 'editor' ? 'visible' : 'hidden'}>
-          <EditorView ref={editorViewRef} />
+          <EditorErrorBoundary projectId={currentProject?.id} onBack={handleBackToLibrary}>
+            <EditorView ref={editorViewRef} />
+          </EditorErrorBoundary>
         </Activity>
       </div>
     </div>

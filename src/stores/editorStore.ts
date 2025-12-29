@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { CanvasShape, CompositorSettings, BlurType } from '../types';
 import { DEFAULT_COMPOSITOR_SETTINGS } from '../types';
+import { STORAGE } from '../constants';
 
 // Canvas bounds for non-destructive crop/expand
 export interface CanvasBounds {
@@ -16,10 +17,6 @@ interface HistorySnapshot {
   canvasBounds: CanvasBounds | null;
   estimatedBytes: number; // Memory estimate for this snapshot
 }
-
-// History configuration
-const HISTORY_LIMIT = 50; // Max number of entries
-const HISTORY_MEMORY_LIMIT = 50 * 1024 * 1024; // 50MB max memory for history
 
 // Cache for shape hashes to detect changes efficiently
 const shapeHashCache = new WeakMap<CanvasShape, string>();
@@ -329,13 +326,13 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       let newUndoStack = [...history.undoStack, prev];
 
       // Enforce entry count limit
-      while (newUndoStack.length > HISTORY_LIMIT) {
+      while (newUndoStack.length > STORAGE.HISTORY_LIMIT) {
         newUndoStack.shift();
       }
 
       // Enforce memory limit - remove oldest entries until under limit
       let totalBytes = newUndoStack.reduce((sum, s) => sum + s.estimatedBytes, 0);
-      while (totalBytes > HISTORY_MEMORY_LIMIT && newUndoStack.length > 1) {
+      while (totalBytes > STORAGE.HISTORY_MEMORY_LIMIT_BYTES && newUndoStack.length > 1) {
         const removed = newUndoStack.shift();
         if (removed) {
           totalBytes -= removed.estimatedBytes;

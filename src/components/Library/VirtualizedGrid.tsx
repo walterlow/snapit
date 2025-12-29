@@ -181,10 +181,9 @@ export function VirtualizedGrid({
   });
 
   // Force virtualizer to recalculate when row height changes during resize
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     virtualizer.measure();
-  }, [gridRowHeight]);
+  }, [gridRowHeight, virtualizer]);
 
   // Prefetch thumbnails for rows about to enter the viewport
   const virtualItems = virtualizer.getVirtualItems();

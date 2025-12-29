@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 import { LazyStore } from '@tauri-apps/plugin-store';
 import type {
   AppSettings,
@@ -80,7 +81,9 @@ interface SettingsState {
  * updateShortcut('region_capture', 'Ctrl+Shift+A');
  * ```
  */
-export const useSettingsStore = create<SettingsState>((set, get) => ({
+export const useSettingsStore = create<SettingsState>()(
+  devtools(
+    (set, get) => ({
   settings: { ...DEFAULT_SETTINGS },
   isLoading: false,
   isInitialized: false,
@@ -136,26 +139,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   saveSettings: async () => {
     const { settings } = get();
-    try {
-      const store = await getStore();
+    const store = await getStore();
 
-      // Only save the user-configurable parts (not status)
-      const shortcutsToSave: Record<string, Partial<ShortcutConfig>> = {};
-      for (const [id, config] of Object.entries(settings.shortcuts)) {
-        shortcutsToSave[id] = {
-          currentShortcut: config.currentShortcut,
-          useHook: config.useHook,
-        };
-      }
-
-      // Save version, shortcuts, and general settings
-      await store.set('_version', SETTINGS_VERSION);
-      await store.set('shortcuts', shortcutsToSave);
-      await store.set('general', settings.general);
-      await store.save();
-    } catch (error) {
-      throw error;
+    // Only save the user-configurable parts (not status)
+    const shortcutsToSave: Record<string, Partial<ShortcutConfig>> = {};
+    for (const [id, config] of Object.entries(settings.shortcuts)) {
+      shortcutsToSave[id] = {
+        currentShortcut: config.currentShortcut,
+        useHook: config.useHook,
+      };
     }
+
+    // Save version, shortcuts, and general settings
+    await store.set('_version', SETTINGS_VERSION);
+    await store.set('shortcuts', shortcutsToSave);
+    await store.set('general', settings.general);
+    await store.save();
   },
 
   updateShortcut: (id, shortcut) => {
@@ -274,7 +273,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setActiveTab: (tab) => {
     set({ activeTab: tab });
   },
-}));
+}),
+    { name: 'SettingsStore', enabled: process.env.NODE_ENV === 'development' }
+  )
+);
 
 /**
  * Selector for all shortcuts as an array.

@@ -49,3 +49,20 @@ Then:
 - For tagged enums, both `#[serde(tag = "...")]` and `#[serde(rename_all = "...")]` are respected
 - Generated files have "Do not edit" comment - changes will be overwritten
 - serde attributes are still required - ts-rs reads them for type generation, serde uses them for runtime serialization
+
+## React 19.2+ Activity Component
+
+We use `<Activity>` from React 19.2+ to preserve component state when switching views. This is NOT an error - it's a legitimate React feature.
+
+```tsx
+import { Activity } from 'react';
+
+// Keeps component mounted but hidden, preserving state
+<Activity mode={view === 'library' ? 'visible' : 'hidden'}>
+  <CaptureLibrary />
+</Activity>
+```
+
+- `mode="visible"` - Component renders normally
+- `mode="hidden"` - Component is hidden (`display: none`), effects unmounted, but state preserved
+- Used in `App.tsx` to keep Library/Editor mounted when switching views

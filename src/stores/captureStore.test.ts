@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { useCaptureStore, useFilteredCaptures, useAllTags } from './captureStore';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { useCaptureStore } from './captureStore';
 import type { CaptureListItem, SaveCaptureResponse, CaptureProject } from '../types';
 
 // Mock Tauri invoke
@@ -303,7 +303,7 @@ describe('captureStore', () => {
 
   describe('loading states', () => {
     it('should track loading project id', async () => {
-      const capture = createTestCapture({ id: 'cap1' });
+      const _capture = createTestCapture({ id: 'cap1' });
       const project = { id: 'cap1' } as CaptureProject;
 
       mockInvoke.mockImplementation((cmd: string) => {

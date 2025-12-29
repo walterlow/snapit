@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSettingsStore } from './settingsStore';
 import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_GENERAL_SETTINGS } from '../types';
 

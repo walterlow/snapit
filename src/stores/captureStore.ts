@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import { useMemo } from 'react';
 import type {
@@ -173,7 +174,9 @@ function createCaptureFromResponse(result: SaveCaptureResponse): CaptureListItem
  * loadProject(captureId);
  * ```
  */
-export const useCaptureStore = create<CaptureState>((set, get) => ({
+export const useCaptureStore = create<CaptureState>()(
+  devtools(
+    (set, get) => ({
   captures: [],
   loading: false,
   initialized: false,
@@ -529,7 +532,10 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   setView: (view: 'library' | 'editor') => set({ view }),
   setCurrentImageData: (data: string | null) => set({ currentImageData: data }),
   setCurrentProject: (project: CaptureProject | null) => set({ currentProject: project }),
-}));
+}),
+    { name: 'CaptureStore', enabled: process.env.NODE_ENV === 'development' }
+  )
+);
 
 /**
  * Memoized selector for filtered captures based on search, favorites, and tags.

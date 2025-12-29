@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 import type { CanvasShape, CompositorSettings, BlurType } from '../types';
 import { DEFAULT_COMPOSITOR_SETTINGS } from '../types';
 import { STORAGE } from '../constants';
@@ -87,7 +88,9 @@ interface EditorState {
   _clearHistory: () => void;
 }
 
-export const useEditorStore = create<EditorState>()((set, get) => ({
+export const useEditorStore = create<EditorState>()(
+  devtools(
+    (set, get) => ({
   shapes: [],
   selectedIds: [],
   stepCount: 1,
@@ -211,7 +214,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const boundsChanged = haveBoundsChanged(prev.canvasBounds, canvasBounds);
 
     if (shapesChanged || boundsChanged) {
-      let newUndoStack = [...history.undoStack, prev];
+      const newUndoStack = [...history.undoStack, prev];
 
       // Enforce entry count limit
       while (newUndoStack.length > STORAGE.HISTORY_LIMIT) {
@@ -336,7 +339,10 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       canRedo: false,
     });
   },
-}));
+}),
+    { name: 'EditorStore', enabled: process.env.NODE_ENV === 'development' }
+  )
+);
 
 // ============================================================================
 // Exported convenience functions (maintain backwards compatibility)

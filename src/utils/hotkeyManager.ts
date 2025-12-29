@@ -382,7 +382,7 @@ export async function unregisterAllShortcuts(): Promise<void> {
     if (config.useHook) {
       try {
         await invoke('unregister_shortcut_hook', { id: config.id });
-      } catch (error) {
+      } catch {
         // Ignore errors during cleanup
       }
     }

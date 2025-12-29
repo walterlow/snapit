@@ -98,17 +98,12 @@ export const CaptureService = {
    * Convenience method that combines capture + open.
    */
   async captureAllMonitorsToEditor(): Promise<void> {
-    try {
-      const result = await this.captureAllMonitors();
-      await invoke('open_editor_fast', {
-        filePath: result.file_path,
-        width: result.width,
-        height: result.height,
-      });
-    } catch (error) {
-      // Error already reported in captureAllMonitors
-      throw error;
-    }
+    const result = await this.captureAllMonitors();
+    await invoke('open_editor_fast', {
+      filePath: result.file_path,
+      width: result.width,
+      height: result.height,
+    });
   },
 
   /**
@@ -164,17 +159,12 @@ export const CaptureService = {
    * Convenience method that combines capture + open.
    */
   async captureRegionToEditor(selection: ScreenRegionSelection): Promise<void> {
-    try {
-      const result = await this.captureRegion(selection);
-      await invoke('open_editor_fast', {
-        filePath: result.file_path,
-        width: result.width,
-        height: result.height,
-      });
-    } catch (error) {
-      // Error already reported in captureRegion
-      throw error;
-    }
+    const result = await this.captureRegion(selection);
+    await invoke('open_editor_fast', {
+      filePath: result.file_path,
+      width: result.width,
+      height: result.height,
+    });
   },
 };
 

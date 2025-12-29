@@ -4,6 +4,35 @@
 
 import type { CanvasShape } from '../types';
 
+// Checkerboard pattern constants for transparency indication
+const CHECKER_SIZE = 10;
+const CHECKER_LIGHT = '#f5f5f5';
+const CHECKER_DARK = '#e8e8e8';
+
+/**
+ * Create a checkerboard pattern image for transparency indication.
+ * Uses softer colors for light theme compatibility.
+ * @returns HTMLImageElement with checkerboard pattern, or null on failure
+ */
+export const createCheckerPattern = (): HTMLImageElement | null => {
+  const canvas = document.createElement('canvas');
+  canvas.width = CHECKER_SIZE * 2;
+  canvas.height = CHECKER_SIZE * 2;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    console.error('Failed to get 2D canvas context for checker pattern');
+    return null;
+  }
+  ctx.fillStyle = CHECKER_LIGHT;
+  ctx.fillRect(0, 0, CHECKER_SIZE * 2, CHECKER_SIZE * 2);
+  ctx.fillStyle = CHECKER_DARK;
+  ctx.fillRect(0, 0, CHECKER_SIZE, CHECKER_SIZE);
+  ctx.fillRect(CHECKER_SIZE, CHECKER_SIZE, CHECKER_SIZE, CHECKER_SIZE);
+  const img = new window.Image();
+  img.src = canvas.toDataURL();
+  return img;
+};
+
 /**
  * Transform screen position to canvas position (accounting for zoom and pan)
  */

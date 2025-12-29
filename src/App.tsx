@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo, lazy, Suspense, Activity } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
 import Konva from 'konva';
 import { toast, Toaster } from 'sonner';
 import { Titlebar } from './components/Titlebar/Titlebar';
@@ -25,9 +24,11 @@ import { useUpdater } from './hooks/useUpdater';
 import { useTheme } from './hooks/useTheme';
 import { useEditorKeyboardShortcuts } from './hooks/useEditorKeyboardShortcuts';
 import { useAppEventListeners } from './hooks/useAppEventListeners';
-import { exportToClipboard, exportToFile } from './utils/canvasExport';
-import { createErrorHandler } from './utils/errorReporting';
-import type { Tool, CanvasShape, Annotation, CropBoundsAnnotation, CompositorSettingsAnnotation } from './types';
+import { useCaptureActions } from './hooks/useCaptureActions';
+import { useEditorActions } from './hooks/useEditorActions';
+import { useEditorPersistence } from './hooks/useEditorPersistence';
+import { createErrorHandler, reportError } from './utils/errorReporting';
+import type { Tool, CanvasShape } from './types';
 import { isCropBoundsAnnotation, isCompositorSettingsAnnotation } from './types';
 
 // Settings Modal Container - uses store for open/close state
@@ -74,17 +75,14 @@ function App() {
     currentProject,
     currentImageData,
     setCurrentImageData,
-    setCurrentProject,
-    saveNewCapture,
     saveNewCaptureFromFile,
-    updateAnnotations,
     setHasUnsavedChanges,
     loadCaptures,
     deleteCapture,
   } = useCaptureStore();
 
   // Editor state from store
-  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, canvasBounds, setCanvasBounds, setOriginalImageSize, selectedIds, setSelectedIds, canUndo, canRedo } = useEditorStore();
+  const { shapes, setShapes, clearEditor, compositorSettings, setCompositorSettings, setCanvasBounds, setOriginalImageSize, selectedIds, setSelectedIds, canUndo, canRedo } = useEditorStore();
 
   // Initialize theme (applies theme class to document root)
   useTheme();
@@ -105,16 +103,14 @@ function App() {
   const [strokeWidth, setStrokeWidth] = useState(3);
   const stageRef = useRef<Konva.Stage>(null);
   const editorCanvasRef = useRef<EditorCanvasRef>(null);
-
-  // Guard to prevent racing when rapidly exiting/saving
-  const isSavingOnExitRef = useRef(false);
-
-  // Loading states for async operations
-  const [isCopying, setIsCopying] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   
   // Keyboard shortcuts help modal
   const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Extracted hooks for capture/editor actions
+  const { triggerNewCapture, triggerFullscreenCapture, triggerAllMonitorsCapture } = useCaptureActions();
+  const { isCopying, isSaving, handleCopy, handleSave, handleSaveAs } = useEditorActions({ stageRef });
+  const { handleBack } = useEditorPersistence({ editorCanvasRef });
 
   // Delete confirmation dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -143,8 +139,7 @@ function App() {
       toast.success('Capture deleted');
       setView('library');
     } catch (error) {
-      console.error('Failed to delete:', error);
-      toast.error('Failed to delete capture');
+      reportError(error, { operation: 'delete capture' });
     }
     setDeleteDialogOpen(false);
   }, [currentProject, deleteCapture, setView]);
@@ -214,57 +209,6 @@ function App() {
       setSelectedTool('select');
     }
   }, [currentImageData]);
-
-  // Capture trigger functions
-  const triggerNewCapture = useCallback(async () => {
-    try {
-      await invoke('show_overlay', { captureType: 'screenshot' });
-    } catch {
-      toast.error('Failed to start capture');
-    }
-  }, []);
-
-  const triggerFullscreenCapture = useCallback(async () => {
-    try {
-      const result = await invoke<{ image_data: string }>('capture_fullscreen');
-      if (result?.image_data) {
-        await saveNewCapture(result.image_data, 'fullscreen', {});
-        clearEditor();
-        clearHistory();
-        toast.success('Fullscreen captured');
-      }
-    } catch {
-      toast.error('Failed to capture fullscreen');
-    }
-  }, [saveNewCapture, clearEditor]);
-
-  const triggerAllMonitorsCapture = useCallback(async () => {
-    try {
-      // Get virtual screen bounds (calculated in Rust)
-      const bounds = await invoke<{
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-      }>('get_virtual_screen_bounds');
-
-      // Capture full virtual desktop using screen region
-      const result = await invoke<{ file_path: string; width: number; height: number }>(
-        'capture_screen_region_fast',
-        {
-          selection: bounds
-        }
-      );
-
-      await invoke('open_editor_fast', {
-        filePath: result.file_path,
-        width: result.width,
-        height: result.height,
-      });
-    } catch {
-      toast.error('Failed to capture all monitors');
-    }
-  }, []);
 
   // Initialize settings and register shortcuts (non-blocking)
   useEffect(() => {
@@ -378,167 +322,6 @@ function App() {
     setShapes(newShapes);
     setHasUnsavedChanges(true);
   };
-
-  // Copy to clipboard (browser native API - faster than Rust for clipboard)
-  const handleCopy = async () => {
-    if (!stageRef.current || !currentImageData) return;
-
-    setIsCopying(true);
-    try {
-      await exportToClipboard(stageRef, canvasBounds, compositorSettings);
-      toast.success('Copied to clipboard');
-    } catch {
-      toast.error('Failed to copy to clipboard');
-    } finally {
-      setIsCopying(false);
-    }
-  };
-
-  // Save all project annotations (shapes, crop bounds, compositor settings)
-  const saveProjectAnnotations = useCallback(async () => {
-    if (!currentProject) return;
-
-    const shapeAnnotations: Annotation[] = shapes.map((shape) => ({
-      ...shape,
-    } as Annotation));
-
-    const annotations = [...shapeAnnotations];
-    if (canvasBounds) {
-      annotations.push({
-        id: '__crop_bounds__',
-        type: '__crop_bounds__',
-        width: canvasBounds.width,
-        height: canvasBounds.height,
-        imageOffsetX: canvasBounds.imageOffsetX,
-        imageOffsetY: canvasBounds.imageOffsetY,
-      } as Annotation);
-    }
-
-    // Save all compositor settings
-    annotations.push({
-      id: '__compositor_settings__',
-      type: '__compositor_settings__',
-      ...compositorSettings,
-    } as Annotation);
-
-    await updateAnnotations(annotations);
-  }, [currentProject, shapes, canvasBounds, compositorSettings, updateAnnotations]);
-
-  // Save to file (browser toBlob + Tauri writeFile - no IPC serialization)
-  const handleSave = async () => {
-    if (!stageRef.current || !currentImageData) return;
-
-    setIsSaving(true);
-    try {
-      await saveProjectAnnotations();
-
-      const filePath = await save({
-        defaultPath: `capture_${Date.now()}.png`,
-        filters: [{ name: 'Images', extensions: ['png'] }],
-      });
-
-      if (filePath) {
-        await exportToFile(stageRef, canvasBounds, compositorSettings, filePath);
-        toast.success('Image saved successfully');
-      }
-    } catch (err) {
-      console.error('Save failed:', err);
-      toast.error(`Failed to save image: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Save to file with specific format
-  const handleSaveAs = async (format: 'png' | 'jpg' | 'webp') => {
-    if (!stageRef.current || !currentImageData) return;
-
-    setIsSaving(true);
-    try {
-      const formatInfo = {
-        png: { ext: 'png', mime: 'image/png' as const, name: 'PNG', quality: undefined },
-        jpg: { ext: 'jpg', mime: 'image/jpeg' as const, name: 'JPEG', quality: 0.92 },
-        webp: { ext: 'webp', mime: 'image/webp' as const, name: 'WebP', quality: 0.9 },
-      }[format];
-
-      const filePath = await save({
-        defaultPath: `capture_${Date.now()}.${formatInfo.ext}`,
-        filters: [{ name: formatInfo.name, extensions: [formatInfo.ext] }],
-      });
-
-      if (filePath) {
-        await exportToFile(stageRef, canvasBounds, compositorSettings, filePath, {
-          format: formatInfo.mime,
-          quality: formatInfo.quality,
-        });
-        toast.success(`Image saved as ${formatInfo.name}`);
-      }
-    } catch (err) {
-      console.error('Save failed:', err);
-      toast.error(`Failed to save image: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Go back to library - finalize any in-progress drawing, save, then clear
-  const handleBack = useCallback(async () => {
-    // Guard against rapid multiple clicks causing race conditions
-    if (isSavingOnExitRef.current) return;
-    isSavingOnExitRef.current = true;
-
-    try {
-      // Finalize any in-progress drawing FIRST to capture shapes that might be in refs
-      // Then read DIRECTLY from store to get latest state (bypasses React batching)
-      editorCanvasRef.current?.finalizeAndGetShapes();
-      const storeState = useEditorStore.getState();
-      const finalizedShapes = storeState.shapes;
-
-      // Capture data for save BEFORE any state changes
-      // Read from store directly to ensure we have latest values
-      const projectToSave = currentProject;
-      const boundsToSave = storeState.canvasBounds;
-      const compositorToSave = { ...storeState.compositorSettings };
-
-      // Switch view immediately for responsive UX
-      setView('library');
-      setCurrentProject(null);
-      setCurrentImageData(null);
-      clearEditor();
-      clearHistory();
-
-      // Save annotations in background using invoke directly (not updateAnnotations)
-      // because updateAnnotations reads currentProject from store which we just cleared
-      if (projectToSave) {
-        const annotations: Annotation[] = finalizedShapes.map((shape) => ({ ...shape }));
-        if (boundsToSave) {
-          const cropAnnotation: CropBoundsAnnotation = {
-            id: '__crop_bounds__',
-            type: '__crop_bounds__',
-            width: boundsToSave.width,
-            height: boundsToSave.height,
-            imageOffsetX: boundsToSave.imageOffsetX,
-            imageOffsetY: boundsToSave.imageOffsetY,
-          };
-          annotations.push(cropAnnotation);
-        }
-        const compositorAnnotation: CompositorSettingsAnnotation = {
-          id: '__compositor_settings__',
-          type: '__compositor_settings__',
-          ...compositorToSave,
-        };
-        annotations.push(compositorAnnotation);
-
-        // Use invoke directly with captured projectId to bypass store's currentProject check
-        invoke('update_project_annotations', {
-          projectId: projectToSave.id,
-          annotations,
-        }).catch(createErrorHandler({ operation: 'save annotations', silent: true }));
-      }
-    } finally {
-      isSavingOnExitRef.current = false;
-    }
-  }, [currentProject, setView, setCurrentProject, setCurrentImageData, clearEditor]);
 
   // Keyboard shortcuts (consolidated hook)
   const { commandPaletteOpen, setCommandPaletteOpen } = useEditorKeyboardShortcuts({

@@ -165,7 +165,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
-                eprintln!("[window] Failed to create async runtime: {}", e);
+                log::error!("[window] Failed to create async runtime: {}", e);
                 // Restore main window before returning since we hid it earlier
                 if let Some(main_window) = app_clone.get_webview_window("main") {
                     if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
@@ -188,7 +188,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             // The toolbar was created by show_toolbar in wndproc.rs
                             // We need to show the recording border separately
                             if let Err(e) = show_recording_border(app_clone.clone(), x, y, width, height).await {
-                                eprintln!("Failed to show recording border: {}", e);
+                                log::error!("Failed to show recording border: {}", e);
                             }
                             
                             // Determine format based on capture type
@@ -208,7 +208,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             // Show countdown overlay window if countdown is enabled
                             if countdown_secs > 0 {
                                 if let Err(e) = show_countdown_window(app_clone.clone(), x, y, width, height).await {
-                                    eprintln!("Failed to show countdown window: {}", e);
+                                    log::error!("Failed to show countdown window: {}", e);
                                 }
                             }
                             
@@ -242,7 +242,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 crate::commands::video_recording::generate_output_path(&settings)
                                     .unwrap_or_else(|_| std::env::temp_dir().join("recording.mp4"))
                             ).await {
-                                eprintln!("Failed to start recording: {}", e);
+                                log::error!("Failed to start recording: {}", e);
                                 // Close toolbar window and restore main window on error
                                 if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                                     let _ = toolbar.close();
@@ -260,10 +260,10 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
 
                             // Use window capture if a window was selected, otherwise region capture
                             let capture_result = if let Some(hwnd) = window_id {
-                                println!("[CAPTURE] Using window capture for hwnd={}", hwnd);
+                                log::debug!("[CAPTURE] Using window capture for hwnd={}", hwnd);
                                 crate::commands::capture::capture_window_fast(hwnd).await
                             } else {
-                                println!("[CAPTURE] Using region capture: x={}, y={}, w={}, h={}", x, y, width, height);
+                                log::debug!("[CAPTURE] Using region capture: x={}, y={}, w={}, h={}", x, y, width, height);
                                 let selection = crate::commands::capture::ScreenRegionSelection {
                                     x, y, width, height,
                                 };
@@ -279,12 +279,12 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                         result.width,
                                         result.height,
                                     ).await {
-                                        eprintln!("Failed to open editor: {}", e);
+                                        log::error!("Failed to open editor: {}", e);
                                         restore_main_if_visible(&app_clone);
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to capture screenshot: {}", e);
+                                    log::error!("Failed to capture screenshot: {}", e);
                                     restore_main_if_visible(&app_clone);
                                 }
                             }
@@ -302,7 +302,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                     restore_main_if_visible(&app_clone);
                 }
                 Err(e) => {
-                    eprintln!("Capture overlay error: {}", e);
+                    log::error!("Capture overlay error: {}", e);
                     close_capture_windows(&app_clone);
                     restore_main_if_visible(&app_clone);
                 }
@@ -491,7 +491,7 @@ fn show_recording_border_impl(
     
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
-        eprintln!("Warning: Failed to apply DWM transparency to border: {}", e);
+        log::warn!("Failed to apply DWM transparency to border: {}", e);
     }
 
     // Make it click-through so users can interact with the content below
@@ -567,7 +567,7 @@ pub async fn show_capture_toolbar(
 
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
-        eprintln!("Warning: Failed to apply DWM transparency to toolbar: {}", e);
+        log::warn!("Failed to apply DWM transparency to toolbar: {}", e);
     }
 
     Ok(())
@@ -670,7 +670,7 @@ pub async fn set_capture_toolbar_bounds(
 
     // Re-apply DWM transparency
     if let Err(e) = apply_dwm_transparency(&window) {
-        eprintln!("Warning: Failed to apply DWM transparency: {}", e);
+        log::warn!("Failed to apply DWM transparency: {}", e);
     }
 
     Ok(())
@@ -721,7 +721,7 @@ pub async fn show_countdown_window(
     
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
-        eprintln!("Warning: Failed to apply DWM transparency to countdown: {}", e);
+        log::warn!("Failed to apply DWM transparency to countdown: {}", e);
     }
     
     // Now show the window
@@ -742,3 +742,7 @@ pub async fn hide_countdown_window(app: AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+
+
+

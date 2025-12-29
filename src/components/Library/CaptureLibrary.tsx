@@ -2,13 +2,15 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, format, formatDistanceToNow } from 'date-fns';
+import { reportError } from '../../utils/errorReporting';
 import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCaptureStore, useFilteredCaptures, useAllTags } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
 import { useCaptureSettingsStore } from '../../stores/captureSettingsStore';
-import type { CaptureListItem, MonitorInfo, FastCaptureResult, ScreenRegionSelection, RecordingFormat } from '../../types';
+import { CaptureService } from '../../services/captureService';
+import type { CaptureListItem, RecordingFormat } from '../../types';
 import { LAYOUT, TIMING } from '../../constants';
 
 import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock, type VirtualLayoutInfo } from './hooks';
@@ -209,39 +211,24 @@ export const CaptureLibrary: React.FC = () => {
   }, [loadCaptures]);
 
   const handleNewImage = async () => {
-    try {
-      // Set active mode so toolbar shows correct mode
-      const { setActiveMode } = useCaptureSettingsStore.getState();
-      setActiveMode('screenshot');
-      await invoke('show_overlay', { captureType: 'screenshot' });
-    } catch (error) {
-      console.error('Failed to start capture:', error);
-      toast.error('Failed to start capture');
-    }
+    // Set active mode so toolbar shows correct mode
+    const { setActiveMode } = useCaptureSettingsStore.getState();
+    setActiveMode('screenshot');
+    await CaptureService.showScreenshotOverlay();
   };
 
   // Start video/gif recording using native overlay (avoids video blackout)
   // The capture toolbar handles both selection and recording controls
   const startVideoRecording = async (format: RecordingFormat) => {
-    try {
-      // Set format in store before triggering capture
-      // The trigger_capture flow will use this format
-      const { setFormat } = useVideoRecordingStore.getState();
-      setFormat(format);
+    // Set format in store before triggering capture
+    const { setFormat } = useVideoRecordingStore.getState();
+    setFormat(format);
 
-      // Set active mode in capture settings store so toolbar shows correct mode
-      const { setActiveMode } = useCaptureSettingsStore.getState();
-      setActiveMode(format === 'gif' ? 'gif' : 'video');
+    // Set active mode in capture settings store so toolbar shows correct mode
+    const { setActiveMode } = useCaptureSettingsStore.getState();
+    setActiveMode(format === 'gif' ? 'gif' : 'video');
 
-      // Use show_overlay which routes to trigger_capture
-      // For video/gif, this shows the DirectComposition overlay with the unified toolbar
-      // The toolbar handles: selection confirmation, recording start, pause/resume, stop
-      // Recording is started automatically when user clicks Record in the toolbar
-      await invoke('show_overlay', { captureType: format === 'gif' ? 'gif' : 'video' });
-    } catch (error) {
-      console.error('Failed to start video recording:', error);
-      toast.error('Failed to start capture');
-    }
+    await CaptureService.showVideoOverlay(format);
   };
 
   const handleNewVideo = async () => {
@@ -253,43 +240,7 @@ export const CaptureLibrary: React.FC = () => {
   };
 
   const handleAllMonitorsCapture = async () => {
-    try {
-      const monitors = await invoke<MonitorInfo[]>('get_monitors');
-      if (monitors.length === 0) {
-        toast.error('No monitors found');
-        return;
-      }
-
-      // Calculate bounding box of all monitors
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-
-      for (const mon of monitors) {
-        minX = Math.min(minX, mon.x);
-        minY = Math.min(minY, mon.y);
-        maxX = Math.max(maxX, mon.x + mon.width);
-        maxY = Math.max(maxY, mon.y + mon.height);
-      }
-
-      const selection: ScreenRegionSelection = {
-        x: minX,
-        y: minY,
-        width: maxX - minX,
-        height: maxY - minY,
-      };
-
-      const result = await invoke<FastCaptureResult>('capture_screen_region_fast', { selection });
-      await invoke('open_editor_fast', {
-        filePath: result.file_path,
-        width: result.width,
-        height: result.height,
-      });
-    } catch (error) {
-      console.error('Failed to capture all monitors:', error);
-      toast.error('Failed to capture all monitors');
-    }
+    await CaptureService.captureAllMonitorsToEditor();
   };
 
   const handleOpenLibraryFolder = async () => {
@@ -302,8 +253,7 @@ export const CaptureLibrary: React.FC = () => {
       }
       await invoke('open_path_in_explorer', { path: libraryPath });
     } catch (error) {
-      console.error('Failed to open library folder:', error);
-      toast.error('Failed to open library folder');
+      reportError(error, { operation: 'folder open' });
     }
   };
 
@@ -360,8 +310,7 @@ export const CaptureLibrary: React.FC = () => {
         toast.success('Capture deleted');
       }
     } catch (error) {
-      console.error('Failed to delete:', error);
-      toast.error('Failed to delete capture');
+      reportError(error, { operation: 'delete capture' });
     }
     setDeleteDialogOpen(false);
     setPendingDeleteId(null);
@@ -378,8 +327,7 @@ export const CaptureLibrary: React.FC = () => {
     try {
       await invoke('reveal_file_in_explorer', { path: capture.image_path });
     } catch (error) {
-      console.error('Failed to open in folder:', error);
-      toast.error('Failed to open file location');
+      reportError(error, { operation: 'folder open' });
     }
   }, []);
 
@@ -388,8 +336,7 @@ export const CaptureLibrary: React.FC = () => {
       await invoke('copy_image_to_clipboard', { path: capture.image_path });
       toast.success('Copied to clipboard');
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
-      toast.error('Failed to copy to clipboard');
+      reportError(error, { operation: 'copy to clipboard' });
     }
   }, []);
 
@@ -397,8 +344,7 @@ export const CaptureLibrary: React.FC = () => {
     try {
       await invoke('open_file_with_default_app', { path: capture.image_path });
     } catch (error) {
-      console.error('Failed to play media:', error);
-      toast.error('Failed to open file');
+      reportError(error, { operation: 'media open' });
     }
   }, []);
 

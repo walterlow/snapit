@@ -7,6 +7,8 @@ import { useFastImage } from '../../hooks/useFastImage';
 import type { Tool, CanvasShape } from '../../types';
 import { useEditorStore, takeSnapshot, commitSnapshot } from '../../stores/editorStore';
 import { CompositorBackground } from './CompositorBackground';
+import { CompositorCssPreview } from './CompositorCssPreview';
+import { KonvaBackgroundLayer } from './KonvaBackgroundLayer';
 
 // Hooks
 import { useCanvasNavigation } from '../../hooks/useCanvasNavigation';
@@ -30,31 +32,7 @@ import {
 } from './overlays';
 
 // Utility functions
-import { getSelectionBounds, getVisibleBounds } from '../../utils/canvasGeometry';
-
-// Checkerboard pattern for transparency (softer for light theme)
-const CHECKER_SIZE = 10;
-const CHECKER_LIGHT = '#f5f5f5';
-const CHECKER_DARK = '#e8e8e8';
-
-const createCheckerPattern = (): HTMLImageElement | null => {
-  const canvas = document.createElement('canvas');
-  canvas.width = CHECKER_SIZE * 2;
-  canvas.height = CHECKER_SIZE * 2;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    console.error('Failed to get 2D canvas context for checker pattern');
-    return null;
-  }
-  ctx.fillStyle = CHECKER_LIGHT;
-  ctx.fillRect(0, 0, CHECKER_SIZE * 2, CHECKER_SIZE * 2);
-  ctx.fillStyle = CHECKER_DARK;
-  ctx.fillRect(0, 0, CHECKER_SIZE, CHECKER_SIZE);
-  ctx.fillRect(CHECKER_SIZE, CHECKER_SIZE, CHECKER_SIZE, CHECKER_SIZE);
-  const img = new window.Image();
-  img.src = canvas.toDataURL();
-  return img;
-};
+import { getSelectionBounds, getVisibleBounds, createCheckerPattern } from '../../utils/canvasGeometry';
 
 interface EditorCanvasProps {
   imageData: string;
@@ -493,47 +471,16 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         }}
       >
       {/* Composition Preview Background */}
-      {compositorSettings.enabled && compositionBox && visibleBounds && (
-        <div
-          ref={compositorBgRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: compositionBox.left,
-            top: compositionBox.top,
-            width: compositionBox.width,
-            height: compositionBox.height,
-            zIndex: 0,
-            willChange: 'transform',
-            contain: 'layout style paint',
-            ...compositionBackgroundStyle,
-          }}
-        >
-          {compositorSettings.shadowEnabled && (() => {
-            const intensity = compositorSettings.shadowIntensity;
-            const contentLeft = navigation.position.x + visibleBounds.x * navigation.zoom - compositionBox.left;
-            const contentTop = navigation.position.y + visibleBounds.y * navigation.zoom - compositionBox.top;
-            const contentWidth = visibleBounds.width * navigation.zoom;
-            const contentHeight = visibleBounds.height * navigation.zoom;
-
-            return (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: contentLeft,
-                  top: contentTop,
-                  width: contentWidth,
-                  height: contentHeight,
-                  borderRadius: compositorSettings.borderRadius * navigation.zoom,
-                  boxShadow: [
-                    `0 ${2 * intensity}px ${10 * intensity}px rgba(0,0,0,${0.15 * intensity})`,
-                    `0 ${8 * intensity}px ${30 * intensity}px rgba(0,0,0,${0.25 * intensity})`,
-                    `0 ${16 * intensity}px ${60 * intensity}px rgba(0,0,0,${0.35 * intensity})`,
-                  ].join(', '),
-                }}
-              />
-            );
-          })()}
-        </div>
+      {compositionBox && visibleBounds && (
+        <CompositorCssPreview
+          previewRef={compositorBgRef}
+          settings={compositorSettings}
+          compositionBox={compositionBox}
+          contentBounds={visibleBounds}
+          zoom={navigation.zoom}
+          position={navigation.position}
+          backgroundStyle={compositionBackgroundStyle}
+        />
       )}
 
       {/* Canvas Stage */}
@@ -553,86 +500,12 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         style={{ backgroundColor: 'transparent' }}
       >
         <Layer ref={layerRef}>
-          {/* Default shadow when compositor disabled */}
-          {!compositorSettings.enabled && visibleBounds && (
-            <Rect
-              name="editor-shadow"
-              x={visibleBounds.x - 2}
-              y={visibleBounds.y - 2}
-              width={visibleBounds.width + 4}
-              height={visibleBounds.height + 4}
-              fill="rgba(0,0,0,0.15)"
-              cornerRadius={4}
-              shadowColor="black"
-              shadowBlur={24}
-              shadowOpacity={0.25}
-              listening={false}
-            />
-          )}
-
-          {/* Compositor background (with padding) */}
-          {compositorSettings.enabled && visibleBounds && baseCompositionSize.width > 0 && (() => {
-            // Padding is now in pixels - use directly
-            const padding = compositorSettings.padding;
-
-            const compBounds = {
-              x: visibleBounds.x - padding - 1,
-              y: visibleBounds.y - padding - 1,
-              width: visibleBounds.width + padding * 2 + 2,
-              height: visibleBounds.height + padding * 2 + 2,
-            };
-
-            return (
-              <>
-                <CompositorBackground
-                  name="compositor-background"
-                  settings={compositorSettings}
-                  bounds={compBounds}
-                  borderRadius={0}
-                  includeShadow={false}
-                />
-                {compositorSettings.shadowEnabled && (() => {
-                  const intensity = compositorSettings.shadowIntensity;
-                  const shadowLayers = [
-                    { blur: 10, opacity: 0.15 * intensity, offsetY: 2 },
-                    { blur: 30, opacity: 0.25 * intensity, offsetY: 8 },
-                    { blur: 60, opacity: 0.35 * intensity, offsetY: 16 },
-                  ];
-                  return shadowLayers.map((layer, i) => (
-                    <Rect
-                      key={`shadow-${i}`}
-                      name={`content-shadow-${i}`}
-                      x={visibleBounds.x}
-                      y={visibleBounds.y}
-                      width={visibleBounds.width}
-                      height={visibleBounds.height}
-                      fill="black"
-                      cornerRadius={compositorSettings.borderRadius}
-                      shadowColor="black"
-                      shadowBlur={layer.blur}
-                      shadowOffsetX={0}
-                      shadowOffsetY={layer.offsetY}
-                      shadowOpacity={layer.opacity}
-                      shadowEnabled={true}
-                      listening={false}
-                    />
-                  ));
-                })()}
-                {compositorSettings.borderRadius > 0 && (
-                  <CompositorBackground
-                    settings={compositorSettings}
-                    bounds={{
-                      x: visibleBounds.x - 2,
-                      y: visibleBounds.y - 2,
-                      width: visibleBounds.width + 4,
-                      height: visibleBounds.height + 4,
-                    }}
-                    borderRadius={compositorSettings.borderRadius + 2}
-                  />
-                )}
-              </>
-            );
-          })()}
+          {/* Background layer: shadow (disabled compositor) or full compositor background */}
+          <KonvaBackgroundLayer
+            settings={compositorSettings}
+            visibleBounds={visibleBounds}
+            baseCompositionSize={baseCompositionSize}
+          />
 
           {/* Cropped canvas content - only render when visibleBounds is ready */}
           {image && visibleBounds && (() => {

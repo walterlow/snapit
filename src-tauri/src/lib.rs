@@ -176,6 +176,7 @@ pub fn run() {
             commands::video_recording::set_recording_include_cursor,
             commands::video_recording::set_recording_max_duration,
             commands::video_recording::set_recording_microphone_device,
+            commands::video_recording::reset_recording_settings_cmd,
             // Webcam commands
             commands::video_recording::get_webcam_settings_cmd,
             commands::video_recording::set_webcam_enabled,
@@ -209,6 +210,7 @@ pub fn run() {
         .setup(|app| {
             // Initialize logging system first
             if let Err(e) = commands::logging::init_logging(app.handle()) {
+                // Can't use log! here since logging initialization failed
                 eprintln!("Failed to initialize logging: {}", e);
             }
 
@@ -232,7 +234,7 @@ pub fn run() {
                 // (WS_EX_LAYERED from tauri's transparent: true has issues with hardware capture)
                 #[cfg(target_os = "windows")]
                 if let Err(e) = commands::window::apply_dwm_transparency(&window) {
-                    eprintln!("Warning: Failed to apply DWM transparency to main window: {}", e);
+                    log::warn!("Failed to apply DWM transparency to main window: {}", e);
                 }
 
                 let _ = window.show();

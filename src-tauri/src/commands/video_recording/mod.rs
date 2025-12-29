@@ -39,6 +39,26 @@ static INCLUDE_CURSOR: AtomicBool = AtomicBool::new(true);
 static MAX_DURATION_SECS: AtomicU32 = AtomicU32::new(0); // 0 = unlimited
 static MICROPHONE_DEVICE_INDEX: AtomicU32 = AtomicU32::new(u32::MAX); // u32::MAX = no microphone
 
+/// Reset all recording settings to their default values.
+/// Useful when starting a fresh recording session or after errors.
+pub fn reset_recording_settings() {
+    COUNTDOWN_SECS.store(3, Ordering::SeqCst);
+    SYSTEM_AUDIO_ENABLED.store(true, Ordering::SeqCst);
+    FPS.store(30, Ordering::SeqCst);
+    QUALITY.store(80, Ordering::SeqCst);
+    GIF_QUALITY_PRESET.store(1, Ordering::SeqCst); // Balanced
+    INCLUDE_CURSOR.store(true, Ordering::SeqCst);
+    MAX_DURATION_SECS.store(0, Ordering::SeqCst); // unlimited
+    MICROPHONE_DEVICE_INDEX.store(u32::MAX, Ordering::SeqCst); // no microphone
+    log::debug!("[SETTINGS] Recording settings reset to defaults");
+}
+
+/// Reset all recording settings to defaults (Tauri command).
+#[command]
+pub fn reset_recording_settings_cmd() {
+    reset_recording_settings();
+}
+
 /// Get the current countdown setting
 pub fn get_countdown_secs() -> u32 {
     COUNTDOWN_SECS.load(Ordering::SeqCst)
@@ -113,7 +133,7 @@ pub fn get_include_cursor() -> bool {
 /// Set whether to include cursor (called from frontend before starting recording)
 #[command]
 pub fn set_recording_include_cursor(include: bool) {
-    eprintln!("[SETTINGS] set_recording_include_cursor({})", include);
+    log::debug!("[SETTINGS] set_recording_include_cursor({})", include);
     INCLUDE_CURSOR.store(include, Ordering::SeqCst);
 }
 
@@ -140,7 +160,7 @@ pub fn get_microphone_device_index() -> Option<usize> {
 #[command]
 pub fn set_recording_microphone_device(index: Option<u32>) {
     let store_val = index.unwrap_or(u32::MAX);
-    eprintln!("[SETTINGS] set_recording_microphone_device({:?}) -> storing {}", index, store_val);
+    log::debug!("[SETTINGS] set_recording_microphone_device({:?}) -> storing {}", index, store_val);
     MICROPHONE_DEVICE_INDEX.store(store_val, Ordering::SeqCst);
 }
 
@@ -170,7 +190,7 @@ pub fn get_webcam_settings() -> Result<WebcamSettings, SnapItError> {
 #[command]
 pub fn get_webcam_settings_cmd() -> Result<WebcamSettings, SnapItError> {
     let settings = WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.clone();
-    eprintln!("[WEBCAM] get_webcam_settings_cmd returning enabled={}", settings.enabled);
+    log::debug!("[WEBCAM] get_webcam_settings_cmd returning enabled={}", settings.enabled);
     Ok(settings)
 }
 
@@ -182,7 +202,7 @@ pub fn is_webcam_enabled() -> Result<bool, SnapItError> {
 /// Set webcam enabled state.
 #[command]
 pub fn set_webcam_enabled(enabled: bool) -> Result<(), SnapItError> {
-    eprintln!("[SETTINGS] set_webcam_enabled({})", enabled);
+    log::debug!("[SETTINGS] set_webcam_enabled({})", enabled);
     WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.enabled = enabled;
     Ok(())
 }
@@ -190,7 +210,7 @@ pub fn set_webcam_enabled(enabled: bool) -> Result<(), SnapItError> {
 /// Set webcam device index.
 #[command]
 pub fn set_webcam_device(device_index: usize) -> Result<(), SnapItError> {
-    eprintln!("[SETTINGS] set_webcam_device({})", device_index);
+    log::debug!("[SETTINGS] set_webcam_device({})", device_index);
     WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.device_index = device_index;
     Ok(())
 }
@@ -198,7 +218,7 @@ pub fn set_webcam_device(device_index: usize) -> Result<(), SnapItError> {
 /// Set webcam position.
 #[command]
 pub fn set_webcam_position(position: WebcamPosition) -> Result<(), SnapItError> {
-    eprintln!("[SETTINGS] set_webcam_position({:?})", position);
+    log::debug!("[SETTINGS] set_webcam_position({:?})", position);
     WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.position = position;
     Ok(())
 }
@@ -206,7 +226,7 @@ pub fn set_webcam_position(position: WebcamPosition) -> Result<(), SnapItError> 
 /// Set webcam size.
 #[command]
 pub fn set_webcam_size(size: WebcamSize) -> Result<(), SnapItError> {
-    eprintln!("[SETTINGS] set_webcam_size({:?})", size);
+    log::debug!("[SETTINGS] set_webcam_size({:?})", size);
     WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.size = size;
     Ok(())
 }
@@ -214,7 +234,7 @@ pub fn set_webcam_size(size: WebcamSize) -> Result<(), SnapItError> {
 /// Set webcam shape.
 #[command]
 pub fn set_webcam_shape(shape: WebcamShape) -> Result<(), SnapItError> {
-    eprintln!("[SETTINGS] set_webcam_shape({:?})", shape);
+    log::debug!("[SETTINGS] set_webcam_shape({:?})", shape);
     WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.shape = shape;
     Ok(())
 }
@@ -222,7 +242,7 @@ pub fn set_webcam_shape(shape: WebcamShape) -> Result<(), SnapItError> {
 /// Set webcam mirror mode.
 #[command]
 pub fn set_webcam_mirror(mirror: bool) -> Result<(), SnapItError> {
-    eprintln!("[SETTINGS] set_webcam_mirror({})", mirror);
+    log::debug!("[SETTINGS] set_webcam_mirror({})", mirror);
     WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.mirror = mirror;
     Ok(())
 }
@@ -256,7 +276,7 @@ pub fn list_audio_input_devices() -> Result<Vec<AudioInputDevice>, String> {
         }
     }
 
-    eprintln!("[AUDIO] Found {} input devices", result.len());
+    log::debug!("[AUDIO] Found {} input devices", result.len());
     Ok(result)
 }
 
@@ -265,7 +285,7 @@ pub fn list_audio_input_devices() -> Result<Vec<AudioInputDevice>, String> {
 pub async fn close_webcam_preview(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("webcam-preview") {
         window.destroy().map_err(|e| e.to_string())?;
-        eprintln!("[WEBCAM] Preview window closed");
+        log::debug!("[WEBCAM] Preview window closed");
     }
     Ok(())
 }
@@ -346,7 +366,7 @@ pub async fn move_webcam_to_anchor(
             "bottomRight" | _ => (sel_x + sel_width - webcam_size - padding, sel_y + sel_height - webcam_size - padding),
         };
 
-        eprintln!("[WEBCAM] Moving to anchor {} at ({}, {})", anchor, x, y);
+        log::debug!("[WEBCAM] Moving to anchor {} at ({}, {})", anchor, x, y);
 
         // Move the window
         window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
@@ -399,7 +419,7 @@ pub async fn clamp_webcam_to_selection(
 
         // Only move if position changed
         if clamped_x != x || clamped_y != y {
-            eprintln!("[WEBCAM] Clamping from ({}, {}) to ({}, {})", x, y, clamped_x, clamped_y);
+            log::debug!("[WEBCAM] Clamping from ({}, {}) to ({}, {})", x, y, clamped_x, clamped_y);
             window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
                 x: clamped_x,
                 y: clamped_y

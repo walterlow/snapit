@@ -21,6 +21,7 @@ export const PenShape: React.FC<BaseShapeProps> = React.memo(({
       points={shape.points || []}
       stroke={shape.stroke}
       strokeWidth={shape.strokeWidth}
+      strokeScaleEnabled={false}
       hitStrokeWidth={Math.max(20, (shape.strokeWidth || 2) * 3)}
       tension={0.5}
       lineCap="round"

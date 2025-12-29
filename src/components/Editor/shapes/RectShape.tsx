@@ -24,6 +24,7 @@ export const RectShape: React.FC<BaseShapeProps> = React.memo(({
       height={shape.height}
       stroke={shape.stroke}
       strokeWidth={shape.strokeWidth}
+      strokeScaleEnabled={false}
       fill={shape.fill}
       rotation={shape.rotation}
       draggable={isDraggable}

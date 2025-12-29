@@ -24,6 +24,7 @@ export const CircleShape: React.FC<BaseShapeProps> = React.memo(({
       radiusY={shape.radiusY ?? shape.radius ?? 0}
       stroke={shape.stroke}
       strokeWidth={shape.strokeWidth}
+      strokeScaleEnabled={false}
       fill={shape.fill}
       rotation={shape.rotation}
       draggable={isDraggable}

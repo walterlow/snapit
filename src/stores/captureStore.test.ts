@@ -36,13 +36,14 @@ function createSaveResponse(capture: CaptureListItem): SaveCaptureResponse {
       id: capture.id,
       created_at: capture.created_at,
       updated_at: capture.updated_at,
-      capture_type: capture.capture_type,
+      capture_type: 'region' as const,
       dimensions: capture.dimensions,
-      source: { type: 'region', monitor_index: 0 },
+      source: { monitor: 0 },
+      original_image: 'base64_image_data',
       annotations: [],
       tags: capture.tags,
       favorite: capture.favorite,
-    } as CaptureProject,
+    },
   };
 }
 
@@ -276,7 +277,7 @@ describe('captureStore', () => {
       await useCaptureStore.getState().saveNewCapture(
         'base64data',
         'screenshot',
-        { type: 'region', monitor_index: 0 },
+        { monitor: 0 },
         { silent: true }
       );
 

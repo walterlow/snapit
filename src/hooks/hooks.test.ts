@@ -23,7 +23,7 @@ function createTestShape(overrides: Partial<CanvasShape> = {}): CanvasShape {
     width: 50,
     height: 50,
     rotation: 0,
-    color: '#ff0000',
+    stroke: '#ff0000',
     strokeWidth: 2,
     ...overrides,
   };

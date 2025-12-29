@@ -65,6 +65,21 @@ interface SettingsState {
   setActiveTab: (tab: 'shortcuts' | 'general') => void;
 }
 
+/**
+ * Main store for application settings including shortcuts and general preferences.
+ * Persists to Tauri's LazyStore (settings.json) with automatic migration support.
+ *
+ * @example
+ * ```tsx
+ * const { settings, loadSettings, updateShortcut } = useSettingsStore();
+ *
+ * // Load on app start
+ * useEffect(() => { loadSettings(); }, []);
+ *
+ * // Update a shortcut
+ * updateShortcut('region_capture', 'Ctrl+Shift+A');
+ * ```
+ */
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: { ...DEFAULT_SETTINGS },
   isLoading: false,
@@ -261,13 +276,23 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 }));
 
-// Selector for all shortcuts as array (useful for UI)
+/**
+ * Selector for all shortcuts as an array.
+ * Useful for rendering shortcuts list in settings UI.
+ *
+ * @returns Array of all ShortcutConfig objects
+ */
 export const useShortcutsList = () => {
   const shortcuts = useSettingsStore((state) => state.settings.shortcuts);
   return Object.values(shortcuts);
 };
 
-// Selector for a specific shortcut
+/**
+ * Selector for a specific shortcut by ID.
+ *
+ * @param id - The shortcut identifier (e.g., 'region_capture', 'fullscreen_capture')
+ * @returns The ShortcutConfig for the given ID, or undefined if not found
+ */
 export const useShortcut = (id: string) => {
   return useSettingsStore((state) => state.settings.shortcuts[id]);
 };

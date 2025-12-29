@@ -2,6 +2,13 @@ import { create } from 'zustand';
 import type { CanvasShape, CompositorSettings, BlurType } from '../types';
 import { DEFAULT_COMPOSITOR_SETTINGS } from '../types';
 import { STORAGE } from '../constants';
+import {
+  type HistoryState,
+  createShapesSnapshot,
+  estimateSnapshotSize,
+  haveBoundsChanged,
+  haveShapesChanged,
+} from './editorHistory';
 
 // Canvas bounds for non-destructive crop/expand
 export interface CanvasBounds {
@@ -9,114 +16,6 @@ export interface CanvasBounds {
   height: number;
   imageOffsetX: number;
   imageOffsetY: number;
-}
-
-// Snapshot of undoable state
-interface HistorySnapshot {
-  shapes: CanvasShape[];
-  canvasBounds: CanvasBounds | null;
-  estimatedBytes: number; // Memory estimate for this snapshot
-}
-
-// Cache for shape hashes to detect changes efficiently
-const shapeHashCache = new WeakMap<CanvasShape, string>();
-
-/**
- * Compute a lightweight hash for a shape to detect changes.
- * Uses JSON.stringify for reliable comparison but caches results.
- */
-function getShapeHash(shape: CanvasShape): string {
-  let hash = shapeHashCache.get(shape);
-  if (!hash) {
-    // Create hash from mutable properties only
-    hash = JSON.stringify({
-      x: shape.x,
-      y: shape.y,
-      width: shape.width,
-      height: shape.height,
-      rotation: shape.rotation,
-      points: shape.points,
-      text: shape.text,
-      fill: shape.fill,
-      stroke: shape.stroke,
-      strokeWidth: shape.strokeWidth,
-    });
-    shapeHashCache.set(shape, hash);
-  }
-  return hash;
-}
-
-/**
- * Create a snapshot of shapes with structural sharing.
- * Only clones shapes that have actually changed, reuses references otherwise.
- * This significantly reduces memory usage when only a few shapes change.
- */
-function createShapesSnapshot(
-  currentShapes: CanvasShape[],
-  previousSnapshot: CanvasShape[] | null
-): CanvasShape[] {
-  if (!previousSnapshot) {
-    // First snapshot - need to clone everything
-    return currentShapes.map(shape => ({ ...shape }));
-  }
-
-  // Build a map of previous shapes by ID for O(1) lookup
-  const prevShapeMap = new Map<string, CanvasShape>();
-  for (const shape of previousSnapshot) {
-    prevShapeMap.set(shape.id, shape);
-  }
-
-  // Create new array, reusing unchanged shape references
-  return currentShapes.map(shape => {
-    const prevShape = prevShapeMap.get(shape.id);
-    if (prevShape && getShapeHash(shape) === getShapeHash(prevShape)) {
-      // Shape unchanged - reuse the previous reference
-      return prevShape;
-    }
-    // Shape is new or changed - create shallow clone
-    return { ...shape };
-  });
-}
-
-/**
- * Estimate the memory size of a snapshot in bytes.
- * This is an approximation based on typical object overhead and string sizes.
- */
-function estimateSnapshotSize(snapshot: Omit<HistorySnapshot, 'estimatedBytes'>): number {
-  let bytes = 0;
-
-  // Base object overhead
-  bytes += 64;
-
-  // Estimate shapes array
-  for (const shape of snapshot.shapes) {
-    // Base shape overhead
-    bytes += 200;
-
-    // Points array (pen strokes, lines, arrows)
-    if (shape.points) {
-      bytes += shape.points.length * 8; // 8 bytes per number
-    }
-
-    // Text content
-    if (shape.text) {
-      bytes += shape.text.length * 2; // 2 bytes per char (UTF-16)
-    }
-  }
-
-  // Canvas bounds (if present)
-  if (snapshot.canvasBounds) {
-    bytes += 64;
-  }
-
-  return bytes;
-}
-
-// History state managed within Zustand store
-interface HistoryState {
-  undoStack: HistorySnapshot[];
-  redoStack: HistorySnapshot[];
-  pendingSnapshot: HistorySnapshot | null;
 }
 
 // Preview state for smooth slider interactions (only affects CSS preview, not Konva)
@@ -308,19 +207,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     if (!history.pendingSnapshot) return;
 
     const prev = history.pendingSnapshot;
-
-    // Quick change detection: compare array lengths first, then do shallow checks
-    const shapesChanged =
-      prev.shapes.length !== shapes.length ||
-      prev.shapes.some((s, i) => s.id !== shapes[i]?.id);
-    const boundsChanged =
-      (prev.canvasBounds === null) !== (canvasBounds === null) ||
-      (prev.canvasBounds &&
-        canvasBounds &&
-        (prev.canvasBounds.width !== canvasBounds.width ||
-          prev.canvasBounds.height !== canvasBounds.height ||
-          prev.canvasBounds.imageOffsetX !== canvasBounds.imageOffsetX ||
-          prev.canvasBounds.imageOffsetY !== canvasBounds.imageOffsetY));
+    const shapesChanged = haveShapesChanged(prev.shapes, shapes);
+    const boundsChanged = haveBoundsChanged(prev.canvasBounds, canvasBounds);
 
     if (shapesChanged || boundsChanged) {
       let newUndoStack = [...history.undoStack, prev];

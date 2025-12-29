@@ -157,6 +157,22 @@ function createCaptureFromResponse(result: SaveCaptureResponse): CaptureListItem
   };
 }
 
+/**
+ * Main store for capture/project management.
+ * Handles library listing, project loading, saving, and metadata updates.
+ * Uses localStorage caching for instant library display on app start.
+ *
+ * @example
+ * ```tsx
+ * const { captures, loadCaptures, loadProject } = useCaptureStore();
+ *
+ * // Load library on mount
+ * useEffect(() => { loadCaptures(); }, []);
+ *
+ * // Open a project in editor
+ * loadProject(captureId);
+ * ```
+ */
 export const useCaptureStore = create<CaptureState>((set, get) => ({
   captures: [],
   loading: false,
@@ -515,7 +531,12 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   setCurrentProject: (project: CaptureProject | null) => set({ currentProject: project }),
 }));
 
-// Selector for filtered captures - memoized for performance
+/**
+ * Memoized selector for filtered captures based on search, favorites, and tags.
+ * Optimized with early-exit and Set-based lookups for performance.
+ *
+ * @returns Filtered array of captures matching current filter criteria
+ */
 export const useFilteredCaptures = () => {
   // Use individual selectors to minimize re-renders
   const captures = useCaptureStore((state) => state.captures);
@@ -559,7 +580,12 @@ export const useFilteredCaptures = () => {
   }, [captures, searchQuery, filterFavorites, filterTags]);
 };
 
-// Selector for all unique tags across all captures (for autocomplete) - memoized
+/**
+ * Memoized selector for all unique tags across all captures.
+ * Useful for tag autocomplete and filter dropdowns.
+ *
+ * @returns Sorted array of unique tag strings
+ */
 export const useAllTags = () => {
   const captures = useCaptureStore((state) => state.captures);
 

@@ -12,7 +12,7 @@ function createTestShape(overrides: Partial<CanvasShape> = {}): CanvasShape {
     width: 50,
     height: 50,
     rotation: 0,
-    color: '#ff0000',
+    stroke: '#ff0000',
     strokeWidth: 2,
     ...overrides,
   };
@@ -213,7 +213,7 @@ describe('editorStore', () => {
         y: 0,
         points: Array(1000).fill(0).map((_, i) => i), // 1000 points
         rotation: 0,
-        color: '#000',
+        stroke: '#000',
         strokeWidth: 2,
       };
 

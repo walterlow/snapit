@@ -8,6 +8,7 @@ import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { SettingsModalContainer } from './components/Settings/SettingsModalContainer';
 import { EditorView } from './views/EditorView';
 import type { EditorViewRef } from './views/EditorView';
+import { VideoEditorView } from './views/VideoEditorView';
 import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
@@ -214,7 +215,7 @@ function App() {
       <SettingsModalContainer />
       
       {/* Custom Titlebar */}
-      <Titlebar />
+      <Titlebar title="SnapIt Library" />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0">
@@ -230,6 +231,11 @@ function App() {
           <EditorErrorBoundary projectId={currentProject?.id} onBack={handleBackToLibrary}>
             <EditorView ref={editorViewRef} />
           </EditorErrorBoundary>
+        </Activity>
+
+        {/* Video Editor */}
+        <Activity mode={view === 'videoEditor' ? 'visible' : 'hidden'}>
+          <VideoEditorView />
         </Activity>
       </div>
     </div>

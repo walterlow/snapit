@@ -56,11 +56,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // Called when a second instance tries to start
-            // Bring the main window to front
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            // Show the startup toolbar (or bring it to front if already visible)
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = commands::window::show_startup_toolbar(app_handle).await {
+                    log::error!("Failed to show startup toolbar on second instance: {}", e);
+                }
+            });
             println!("Second instance blocked. Args: {:?}, CWD: {:?}", args, cwd);
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build());
@@ -86,7 +88,7 @@ pub fn run() {
                 }
                 // Minimize to tray instead of closing the main window (if enabled)
                 WindowEvent::CloseRequested { api, .. } => {
-                    if window.label() == "main" {
+                    if window.label() == "library" {
                         if commands::settings::is_close_to_tray() {
                             api.prevent_close();
                             let _ = window.hide();
@@ -127,6 +129,8 @@ pub fn run() {
             commands::window::restore_main_window,
             commands::window::show_countdown_window,
             commands::window::hide_countdown_window,
+            commands::window::show_startup_toolbar,
+            commands::window::hide_startup_toolbar,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands
@@ -194,6 +198,36 @@ pub fn run() {
             commands::video_recording::start_webcam_preview,
             commands::video_recording::stop_webcam_preview,
             commands::video_recording::is_webcam_preview_running,
+            commands::video_recording::exclude_webcam_from_capture,
+            // Native webcam preview (Windows-only, GDI-based with circle mask)
+            #[cfg(target_os = "windows")]
+            commands::video_recording::start_native_webcam_preview,
+            #[cfg(target_os = "windows")]
+            commands::video_recording::stop_native_webcam_preview,
+            #[cfg(target_os = "windows")]
+            commands::video_recording::is_native_webcam_preview_running,
+            // MF webcam preview (Windows-only, low-latency async Media Foundation)
+            #[cfg(target_os = "windows")]
+            commands::video_recording::start_mf_webcam_preview,
+            #[cfg(target_os = "windows")]
+            commands::video_recording::stop_mf_webcam_preview,
+            #[cfg(target_os = "windows")]
+            commands::video_recording::is_mf_webcam_preview_running,
+            // Browser-based webcam recording (MediaRecorder chunks)
+            commands::video_recording::webcam_recording_start,
+            commands::video_recording::webcam_recording_chunk,
+            commands::video_recording::webcam_recording_stop,
+            // Video editor commands
+            commands::video_recording::load_video_project,
+            commands::video_recording::save_video_project,
+            commands::video_recording::extract_frame,
+            commands::video_recording::clear_video_frame_cache,
+            commands::video_recording::generate_auto_zoom,
+            commands::video_recording::export_video,
+            // Audio monitoring commands
+            commands::video_recording::start_audio_monitoring,
+            commands::video_recording::stop_audio_monitoring,
+            commands::video_recording::is_audio_monitoring,
             // Logging commands
             commands::logging::write_log,
             commands::logging::write_logs,
@@ -222,8 +256,8 @@ pub fn run() {
                 // after settings are loaded. See commands::settings module.
             }
 
-            // Set window icon and show main window
-            if let Some(window) = app.get_webview_window("main") {
+            // Set window icon on library window (kept for when it's shown via tray)
+            if let Some(window) = app.get_webview_window("library") {
                 // Set the taskbar icon
                 let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
                     .expect("Failed to load window icon");
@@ -234,11 +268,21 @@ pub fn run() {
                 // (WS_EX_LAYERED from tauri's transparent: true has issues with hardware capture)
                 #[cfg(target_os = "windows")]
                 if let Err(e) = commands::window::apply_dwm_transparency(&window) {
-                    log::warn!("Failed to apply DWM transparency to main window: {}", e);
+                    log::warn!("Failed to apply DWM transparency to library window: {}", e);
                 }
 
-                let _ = window.show();
+                // Explicitly hide - window-state plugin may have restored visibility
+                // Library is shown via tray "Show Library" menu
+                let _ = window.hide();
             }
+
+            // Show floating startup toolbar on app launch
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = commands::window::show_startup_toolbar(app_handle).await {
+                    log::error!("Failed to show startup toolbar: {}", e);
+                }
+            });
 
             // Ensure ffmpeg is available for video thumbnails (downloads if needed)
             // This runs in background and doesn't block app startup
@@ -260,6 +304,8 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
     use tauri::menu::PredefinedMenuItem;
 
     let quit = MenuItem::with_id(app, "quit", "Quit SnapIt", true, None::<&str>)?;
+    let show_toolbar =
+        MenuItem::with_id(app, "show_toolbar", "Show Capture Toolbar", true, None::<&str>)?;
     let capture =
         MenuItem::with_id(app, "capture", "New Capture", true, None::<&str>)?;
     let capture_full =
@@ -272,7 +318,7 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
 
     let menu = Menu::with_items(
         app,
-        &[&capture, &capture_full, &capture_all, &separator, &show, &settings, &separator, &quit],
+        &[&show_toolbar, &separator, &capture, &capture_full, &capture_all, &separator, &show, &settings, &separator, &quit],
     )?;
 
     // Load custom tray icon (32x32 is standard for system tray)
@@ -285,6 +331,14 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
+            "show_toolbar" => {
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = commands::window::show_startup_toolbar(app_handle).await {
+                        log::error!("Failed to show capture toolbar: {}", e);
+                    }
+                });
+            }
             "capture" => {
                 let _ = commands::window::trigger_capture(app, None);
             }
@@ -325,14 +379,14 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                 });
             }
             "show" => {
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = app.get_webview_window("library") {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
             }
             "settings" => {
-                // Show main window and emit event to open settings modal
-                if let Some(window) = app.get_webview_window("main") {
+                // Show library window and emit event to open settings modal
+                if let Some(window) = app.get_webview_window("library") {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
@@ -347,11 +401,13 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                 ..
             } = event
             {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                // Left-click shows the capture toolbar
+                let app = tray.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = commands::window::show_startup_toolbar(app).await {
+                        log::error!("Failed to show capture toolbar on tray click: {}", e);
+                    }
+                });
             }
         })
         .build(app)?;

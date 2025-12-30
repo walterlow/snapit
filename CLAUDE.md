@@ -66,3 +66,28 @@ import { Activity } from 'react';
 - `mode="visible"` - Component renders normally
 - `mode="hidden"` - Component is hidden (`display: none`), effects unmounted, but state preserved
 - Used in `App.tsx` to keep Library/Editor mounted when switching views
+
+## Shadows: Use CSS Filter, NOT box-shadow
+
+**NEVER use `box-shadow` for external shadows.** Always use `filter: drop-shadow()` instead.
+
+### Why?
+- `box-shadow` gets clipped at window/element boundaries in Tauri transparent windows
+- `filter: drop-shadow()` renders in a separate compositing layer, avoiding clipping issues
+
+### Pattern
+```css
+/* WRONG - will get clipped */
+box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+
+/* CORRECT - use filter for external shadows */
+filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+
+/* box-shadow is OK for INSET shadows only */
+box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+```
+
+### Checklist when adding shadows
+1. Remove any `shadow-*` Tailwind classes from shadcn/ui components
+2. Use `filter: drop-shadow()` in CSS for external shadows
+3. Only use `box-shadow` for inset effects

@@ -57,20 +57,21 @@ impl FrameBufferPool {
 }
 
 use crossbeam_channel::{Receiver, TryRecvError};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter, Manager};
 use windows_capture::{
     dxgi_duplication_api::DxgiDuplicationApi,
     encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder},
     monitor::Monitor,
 };
 
+use super::audio_multitrack::MultiTrackAudioRecorder;
 use super::audio_sync::AudioCaptureManager;
-use super::cursor::{composite_cursor, CursorCapture};
+use super::cursor::{composite_cursor, CursorCapture, CursorEventCapture, save_cursor_recording};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
-use super::webcam::{self, composite_webcam};
+use super::webcam::stop_preview_service;
 use super::wgc_capture::WgcVideoCapture;
-use super::{emit_state_change, emit_webcam_error, get_webcam_settings, is_webcam_enabled, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
+use super::{emit_state_change, get_webcam_settings, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
 // ============================================================================
 // Video Validation
@@ -354,6 +355,10 @@ pub async fn start_recording(
                 frame_count: 0,
             });
 
+            // NOTE: Webcam preview stays visible for user reference during recording.
+            // The webcam is recorded to a separate file and composited in post-production.
+            // Screen Studio style: preview is visible but final webcam position is set in editor.
+
             // Start capture in background thread
             start_capture_thread(
                 app_clone,
@@ -371,6 +376,7 @@ pub async fn start_recording(
             frame_count: 0,
         });
 
+        // NOTE: Webcam preview stays visible (Screen Studio style)
         start_capture_thread(app, settings, output_path, progress, command_rx);
     }
 
@@ -540,6 +546,22 @@ fn run_video_capture(
 ) -> Result<(), String> {
     println!("[CAPTURE] run_video_capture starting, mode={:?}", settings.mode);
 
+    // === BROWSER-BASED WEBCAM RECORDING ===
+    // Prepare webcam output path (emit will happen right before capture loop)
+    let webcam_enabled = get_webcam_settings()
+        .map(|s| s.enabled)
+        .unwrap_or(false);
+    
+    let webcam_output_path = if webcam_enabled {
+        // Generate webcam output path (.webm for browser MediaRecorder)
+        let mut path = output_path.clone();
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        path.set_file_name(format!("{}_webcam.webm", stem));
+        Some(path.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
     // Get crop region if in region mode
     let crop_region = match &settings.mode {
         RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
@@ -684,10 +706,79 @@ fn run_video_capture(
         None
     };
 
-    // Webcam overlay is captured on-screen (the preview window is part of the screen capture)
-    // No need for separate webcam compositing - the browser's getUserMedia preview is visible
-    let webcam_settings = get_webcam_settings().ok();
-    let use_webcam = false; // Disabled - webcam is captured as part of screen
+    // === WEBCAM SEPARATE RECORDING ===
+    // Webcam recording is now handled by browser MediaRecorder.
+    // The browser captures via getUserMedia and sends chunks to Rust for file writing.
+    // See: webcam-recording-start/stop events emitted above, and webcam_recording_chunk command.
+    // The old Rust-based WebcamEncoder has been removed.
+
+    // === MULTI-TRACK AUDIO RECORDING ===
+    // Record system audio and microphone to separate WAV files for later mixing.
+    // This enables independent volume control in the video editor.
+    // Use shared flags so pause/resume affects multi-track audio too.
+    let mut multitrack_audio = MultiTrackAudioRecorder::with_flags(
+        Arc::clone(&should_stop),
+        Arc::clone(&is_paused),
+    );
+    let (system_audio_path, mic_audio_path) = {
+        let stem = output_path.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let parent = output_path.parent().unwrap_or(std::path::Path::new("."));
+        
+        let system_path = if settings.audio.capture_system_audio {
+            Some(parent.join(format!("{}_system.wav", stem)))
+        } else {
+            None
+        };
+        
+        let mic_path = if settings.audio.microphone_device_index.is_some() {
+            Some(parent.join(format!("{}_mic.wav", stem)))
+        } else {
+            None
+        };
+        
+        (system_path, mic_path)
+    };
+    
+    // Start multi-track audio recording
+    if system_audio_path.is_some() || mic_audio_path.is_some() {
+        match multitrack_audio.start(system_audio_path.clone(), mic_audio_path.clone()) {
+            Ok((sys, mic)) => {
+                if let Some(ref p) = sys {
+                    eprintln!("[CAPTURE] Multi-track system audio: {:?}", p);
+                }
+                if let Some(ref p) = mic {
+                    eprintln!("[CAPTURE] Multi-track microphone: {:?}", p);
+                }
+            }
+            Err(e) => {
+                eprintln!("[CAPTURE] Warning: Failed to start multi-track audio: {}", e);
+            }
+        }
+    }
+
+    // === CURSOR EVENT CAPTURE ===
+    // Record cursor positions and clicks for auto-zoom in video editor
+    let mut cursor_event_capture = CursorEventCapture::new();
+    let cursor_data_path = {
+        let mut path = output_path.clone();
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        path.set_file_name(format!("{}_cursor.json", stem));
+        path
+    };
+    
+    // Get region for cursor capture (if region mode)
+    let cursor_region = match &settings.mode {
+        RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
+        _ => None,
+    };
+    
+    if let Err(e) = cursor_event_capture.start(cursor_region) {
+        eprintln!("[CAPTURE] Warning: Failed to start cursor event capture: {}", e);
+    } else {
+        eprintln!("[CAPTURE] Cursor event capture started, will save to: {:?}", cursor_data_path);
+    }
 
     // Pre-allocate frame buffers to avoid per-frame allocations
     let mut buffer_pool = FrameBufferPool::new(width, height);
@@ -699,6 +790,15 @@ fn run_video_capture(
     let mut paused = false;
     let mut pause_time = Duration::ZERO;
     let mut pause_start: Option<Instant> = None;
+
+    // === START WEBCAM RECORDING (synced with capture loop) ===
+    if let Some(ref path_str) = webcam_output_path {
+        if let Err(e) = app.emit("webcam-recording-start", serde_json::json!({ "outputPath": path_str })) {
+            eprintln!("[CAPTURE] Failed to emit webcam-recording-start: {}", e);
+        } else {
+            eprintln!("[CAPTURE] Emitted webcam-recording-start, path: {}", path_str);
+        }
+    }
 
     let mut loop_count: u64 = 0;
     loop {
@@ -951,33 +1051,8 @@ fn run_video_capture(
             }
         }
 
-        // Composite webcam overlay onto frame (after cursor, before flip)
-        if use_webcam {
-            if webcam::preview_has_error() {
-                if let Some(error_msg) = webcam::get_preview_error() {
-                    static WEBCAM_ERROR_EMITTED: std::sync::atomic::AtomicBool =
-                        std::sync::atomic::AtomicBool::new(false);
-                    if !WEBCAM_ERROR_EMITTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                        eprintln!("[WEBCAM] Fatal error detected: {}", error_msg);
-                        emit_webcam_error(app, &error_msg, true);
-                    }
-                }
-            } else if let Some(webcam_frame) = webcam::get_preview_frame() {
-                if let Some(ref settings) = webcam_settings {
-                    if frame_count == 0 {
-                        eprintln!("[WEBCAM] Compositing webcam frame {}x{} onto recording {}x{}",
-                            webcam_frame.width, webcam_frame.height, width, height);
-                    }
-                    composite_webcam(
-                        frame_data,
-                        width,
-                        height,
-                        &webcam_frame,
-                        settings,
-                    );
-                }
-            }
-        }
+        // NOTE: Webcam is now recorded to a separate file (not composited onto screen)
+        // This allows toggling webcam visibility in the video editor
 
         // Flip vertically using pooled buffer (both DXGI and WGC return top-down, encoder expects bottom-up)
         let flipped_data = buffer_pool.flip_vertical(width, height);
@@ -999,6 +1074,8 @@ fn run_video_capture(
                 }
             }
         }
+
+        // Webcam recording is now handled by browser MediaRecorder (no Rust processing)
 
         frame_count += 1;
         progress.increment_frame();
@@ -1022,6 +1099,16 @@ fn run_video_capture(
         println!("[CAPTURE] WARNING: No video frames were captured!");
     }
 
+    // === STOP BROWSER-BASED WEBCAM RECORDING ===
+    // Emit event to frontend to stop MediaRecorder
+    if webcam_output_path.is_some() {
+        if let Err(e) = app.emit("webcam-recording-stop", ()) {
+            eprintln!("[CAPTURE] Failed to emit webcam-recording-stop: {}", e);
+        } else {
+            eprintln!("[CAPTURE] Emitted webcam-recording-stop");
+        }
+    }
+
     // Stop audio capture threads
     if let Some(mut manager) = audio_manager {
         println!("[CAPTURE] Stopping audio capture...");
@@ -1029,15 +1116,49 @@ fn run_video_capture(
         println!("[CAPTURE] Audio capture stopped");
     }
 
-    // Note: Webcam preview service continues running (shared with preview window)
-    // It will be stopped when the preview window closes
+    // Stop multi-track audio recording
+    if let Err(e) = multitrack_audio.stop() {
+        eprintln!("[CAPTURE] Warning: Failed to stop multi-track audio: {}", e);
+    } else {
+        eprintln!("[CAPTURE] Multi-track audio recording stopped");
+    }
+
+    // Stop webcam preview service to release hardware
+    // This frees the camera for other applications after recording
+    stop_preview_service();
+    eprintln!("[CAPTURE] Webcam preview service stopped");
+
+    // === STOP CURSOR EVENT CAPTURE ===
+    let cursor_recording = cursor_event_capture.stop();
+    eprintln!("[CAPTURE] Cursor event capture stopped, collected {} events", cursor_recording.events.len());
 
     // Check if recording was cancelled - if so, skip encoding and let the file be deleted
     if progress.was_cancelled() {
         println!("[CAPTURE] Recording was cancelled, skipping encoder finish");
         // Drop the encoder without finishing to avoid saving the file
         drop(encoder);
+        // Delete browser-based webcam recording file if it exists
+        if let Some(ref path) = webcam_output_path {
+            if let Err(e) = std::fs::remove_file(path) {
+                eprintln!("[CAPTURE] Failed to delete cancelled webcam file: {}", e);
+            } else {
+                eprintln!("[CAPTURE] Deleted cancelled webcam file: {}", path);
+            }
+        }
         return Ok(());
+    }
+
+    // Webcam recording finish is handled by browser MediaRecorder (webcam_recording_stop command)
+
+    // === SAVE CURSOR DATA ===
+    if !cursor_recording.events.is_empty() {
+        eprintln!("[CAPTURE] Saving cursor data to {:?}...", cursor_data_path);
+        if let Err(e) = save_cursor_recording(&cursor_recording, &cursor_data_path) {
+            eprintln!("[CAPTURE] Warning: Failed to save cursor data: {}", e);
+            // Don't fail the whole recording for cursor data issues
+        } else {
+            eprintln!("[CAPTURE] Cursor data saved ({} events)", cursor_recording.events.len());
+        }
     }
 
     // Finish encoding (only for Stop, not Cancel)
@@ -1057,8 +1178,6 @@ fn run_gif_capture(
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
 ) -> Result<(), String> {
-    use super::wgc_capture::WgcVideoCapture;
-
     println!("[GIF] run_gif_capture starting with WGC");
 
     // Get crop region if in region mode

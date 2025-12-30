@@ -77,6 +77,10 @@
   --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--glass-border);
   --shadow-glow-coral: 0 0 20px rgba(249, 112, 102, 0.3);
 
+  /* Drop Shadow Filters - Use instead of box-shadow to avoid clipping in Tauri */
+  --drop-shadow: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  --drop-shadow-light: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.12)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08));
+
   /* Motion - Refined easing */
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
@@ -1426,14 +1430,14 @@ body.overlay-window #root {
 .light .glass-toolbar {
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.88) 0%,
-    rgba(250, 250, 252, 0.92) 100%
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(250, 250, 252, 1.0) 100%
   );
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(0, 0, 0, 0.08);
+  filter: var(--drop-shadow-light);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
     inset 0 -1px 0 rgba(0, 0, 0, 0.05);
 }
@@ -1712,14 +1716,14 @@ body.overlay-window #root {
   padding-right: 8px;
   background: linear-gradient(
     135deg,
-    rgba(28, 28, 30, 0.92) 0%,
-    rgba(18, 18, 20, 0.95) 100%
+    rgba(28, 28, 30, 0.95) 0%,
+    rgba(18, 18, 20, 1.0) 100%
   );
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  /* No external shadow - only inset for glass effect */
+  filter: var(--drop-shadow);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     inset 0 -1px 0 rgba(0, 0, 0, 0.2);
@@ -2006,10 +2010,8 @@ body.overlay-window #root {
   backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 8px !important;
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.5),
-    0 2px 8px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  filter: var(--drop-shadow) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
 }
 
 /* Override shadcn SelectItem styles for compact glass design */
@@ -3212,4 +3214,774 @@ body.overlay-window #root {
 /* Cloud toolbar tooltip - ensure it renders above the toolbar (portaled to body) */
 [data-radix-popper-content-wrapper] {
   z-index: 150 !important;
+}
+
+/* ========================================
+   REDESIGNED CAPTURE TOOLBAR - Minimal Style
+   Clean horizontal layout with glassmorphism
+   ======================================== */
+
+/* Minimal toolbar variant */
+.glass-toolbar--minimal {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 6px 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(22, 22, 26, 0.95) 0%,
+    rgba(14, 14, 16, 1.0) 100%
+  );
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  filter: var(--drop-shadow);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* Close button */
+.glass-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.glass-close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+/* Vertical divider */
+.glass-divider-vertical {
+  width: 1px;
+  height: 24px;
+  margin: 0 8px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    transparent 100%
+  );
+}
+
+/* Mode selector group (Video/GIF/Photo) */
+.glass-mode-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+}
+
+.glass-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.glass-mode-btn:hover {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.glass-mode-btn--active {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.glass-mode-btn--active:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.glass-mode-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.glass-mode-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* Source selector group (Display/Window/Area) */
+.glass-source-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.glass-source-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.glass-source-btn:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.glass-source-btn--active {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.glass-source-btn--active:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.glass-source-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.glass-source-label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+/* Device buttons (Camera/Mic/Audio) */
+.glass-devices-section {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.glass-device-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.glass-device-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.glass-device-btn--active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+}
+
+.glass-device-btn--active:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.glass-device-btn--toggle {
+  padding: 6px 8px;
+}
+
+.glass-device-label {
+  width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.glass-device-chevron {
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+/* Settings button */
+.glass-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.glass-settings-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Minimal drag handle */
+.glass-drag-handle-minimal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 32px;
+  color: rgba(255, 255, 255, 0.25);
+  cursor: move;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.glass-drag-handle-minimal:hover {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.glass-drag-handle-minimal:active {
+  color: rgba(255, 255, 255, 0.6);
+  cursor: grabbing;
+}
+
+/* Pill-shaped capture button */
+.glass-capture-btn-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  background: linear-gradient(
+    135deg,
+    #ef4444 0%,
+    #dc2626 100%
+  );
+  box-shadow:
+    0 4px 12px rgba(239, 68, 68, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+  transition: all 0.15s ease;
+}
+
+.glass-capture-btn-pill:hover {
+  transform: scale(1.03);
+  box-shadow:
+    0 6px 18px rgba(239, 68, 68, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+}
+
+.glass-capture-btn-pill:active {
+  transform: scale(0.98);
+}
+
+.glass-capture-btn-pill .glass-capture-btn-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Recording UI sections */
+.glass-recording-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.glass-countdown-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+}
+
+.glass-processing-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.glass-error-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.glass-controls-section {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ========================================
+   POPOVER STYLES - Dark Glass
+   ======================================== */
+
+.glass-popover-content {
+  background: linear-gradient(
+    135deg,
+    rgba(24, 24, 28, 0.98) 0%,
+    rgba(16, 16, 18, 0.99) 100%
+  ) !important;
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  filter: var(--drop-shadow) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.glass-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.glass-popover-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.glass-popover-refresh:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.glass-popover-body {
+  padding: 10px;
+}
+
+.glass-popover-divider {
+  height: 1px;
+  margin: 8px -10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.glass-popover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.glass-popover-section-label {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.35);
+  padding: 0 4px;
+}
+
+.glass-popover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px;
+}
+
+.glass-popover-row-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.glass-popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.glass-popover-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.glass-popover-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.glass-popover-option--selected {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+}
+
+.glass-popover-option--selected:hover {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.glass-popover-option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.glass-popover-option-check {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #60a5fa;
+}
+
+.glass-popover-badge {
+  margin-left: 4px;
+  font-size: 10px;
+  color: #fbbf24;
+}
+
+.glass-popover-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.glass-popover-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.glass-popover-link:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* ========================================
+   LIGHT MODE - Redesigned Toolbar
+   ======================================== */
+
+.light .glass-toolbar--minimal {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(250, 250, 252, 1.0) 100%
+  );
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  filter: var(--drop-shadow-light);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+}
+
+.light .glass-close-btn {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-close-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
+.light .glass-divider-vertical {
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.1) 50%,
+    transparent 100%
+  );
+}
+
+.light .glass-mode-group {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.light .glass-mode-btn {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.light .glass-mode-btn:hover {
+  color: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .glass-mode-btn--active {
+  background: rgba(255, 255, 255, 0.9);
+  color: rgba(0, 0, 0, 0.9);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.light .glass-source-btn {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.light .glass-source-btn:hover {
+  color: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .glass-source-btn--active {
+  color: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .glass-device-btn {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.light .glass-device-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.light .glass-device-btn--active {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #2563eb;
+}
+
+.light .glass-settings-btn {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-settings-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.light .glass-drag-handle-minimal {
+  color: rgba(0, 0, 0, 0.2);
+}
+
+.light .glass-drag-handle-minimal:hover {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-popover-content {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(250, 250, 252, 0.99) 100%
+  ) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  filter: var(--drop-shadow-light) !important;
+}
+
+.light .glass-popover-header {
+  color: rgba(0, 0, 0, 0.5);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.light .glass-popover-refresh {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-popover-refresh:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.light .glass-popover-divider {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .glass-popover-section-label {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-popover-row-label {
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.light .glass-popover-option {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.light .glass-popover-option:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.light .glass-popover-option--selected {
+  background: rgba(59, 130, 246, 0.08);
+  color: #2563eb;
+}
+
+.light .glass-popover-option--selected:hover {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.light .glass-popover-empty {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-popover-link {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.light .glass-popover-link:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: rgba(0, 0, 0, 0.8);
+}
+
+/* ========================================
+   AUDIO LEVEL METER
+   Small visual indicator for audio input
+   ======================================== */
+
+.glass-audio-meter {
+  position: relative;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.glass-audio-meter-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e 0%, #4ade80 100%);
+  border-radius: 2px;
+  transition: width 50ms ease-out;
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.5);
+}
+
+/* Light mode */
+.light .glass-audio-meter {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.light .glass-audio-meter-fill {
+  background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+  box-shadow: 0 0 4px rgba(22, 163, 74, 0.4);
+}
+
+/* Column variant - below individual device button */
+.glass-audio-meter--column {
+  width: 100%;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 1.5px;
+}
+
+/* Device column - vertical stack with meter below button */
+.glass-device-column {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Spacer to reserve same height as audio meter for consistent layout */
+.glass-audio-meter--column-spacer {
+  height: 3px;
+  margin-top: 4px;
+}
+
+/* ========================================
+   CAPTURE TOOLBAR WINDOW - Container Layout
+   Centers content with padding for shadow rendering
+   ======================================== */
+
+.toolbar-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px; /* Must match SHADOW_PADDING in CaptureToolbarWindow.tsx */
+  background: transparent;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.toolbar-container > * {
+  pointer-events: auto;
+}
+
+.toolbar-animated-wrapper {
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+}
+
+.toolbar-content-measure {
+  width: max-content;
+  height: max-content;
 }

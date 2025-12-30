@@ -302,7 +302,7 @@ mod tests {
             position: super::super::WebcamPosition::BottomRight,
             size: super::super::WebcamSize::Medium, // 15%
             shape: WebcamShape::Circle,
-            mirror: true,
+            mirror: false,
         };
 
         let (x, y, diameter) = compute_webcam_rect(1920, 1080, &settings);

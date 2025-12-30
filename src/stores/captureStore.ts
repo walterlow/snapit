@@ -80,7 +80,7 @@ interface CaptureState {
   filterTags: string[];
 
   // View state
-  view: 'library' | 'editor';
+  view: 'library' | 'editor' | 'videoEditor';
 
   // Actions
   loadCaptures: () => Promise<void>;
@@ -114,7 +114,7 @@ interface CaptureState {
   setSkipStagger: (value: boolean) => void;
   clearCurrentProject: () => void;
   setHasUnsavedChanges: (value: boolean) => void;
-  setView: (view: 'library' | 'editor') => void;
+  setView: (view: 'library' | 'editor' | 'videoEditor') => void;
   setCurrentImageData: (data: string | null) => void;
   setCurrentProject: (project: CaptureProject | null) => void;
 }
@@ -529,7 +529,7 @@ export const useCaptureStore = create<CaptureState>()(
       view: 'library',
     }),
   setHasUnsavedChanges: (value: boolean) => set({ hasUnsavedChanges: value }),
-  setView: (view: 'library' | 'editor') => set({ view }),
+  setView: (view: 'library' | 'editor' | 'videoEditor') => set({ view }),
   setCurrentImageData: (data: string | null) => set({ currentImageData: data }),
   setCurrentProject: (project: CaptureProject | null) => set({ currentProject: project }),
 }),

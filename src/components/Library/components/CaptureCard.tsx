@@ -25,6 +25,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
     onOpenInFolder,
     onCopyToClipboard,
     onPlayMedia,
+    onEditVideo,
     formatDate,
   }) => {
     const [thumbLoaded, setThumbLoaded] = useState(false);
@@ -260,6 +261,7 @@ export const CaptureCard: React.FC<CaptureCardProps> = memo(
           onManageTags={() => setTagPopoverOpen(true)}
           onDelete={onDelete}
           onPlayMedia={onPlayMedia}
+          onEditVideo={onEditVideo}
         />
       </ContextMenu>
     );

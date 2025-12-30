@@ -1,26 +1,28 @@
 /**
- * CaptureToolbar - Unified toolbar for region selection AND recording controls.
+ * CaptureToolbar - Redesigned minimal capture toolbar
  *
- * Layout: Two-row toolbar with swappable right panel
- * - Left side (always visible): Mode selector, dimensions, settings
- * - Right side (swaps based on mode):
- *   - Selection: Big capture button
- *   - Starting: Countdown display
- *   - Recording: Timer + controls (vertically split)
- *   - Processing: Progress indicator
- *   - Error: Error message
+ * Layout: Horizontal toolbar with glassmorphism styling
+ * [X] | [Display] [Window] [Area] | [Camera ▾] [Mic ▾] [System Audio] | [⚙️]
+ * 
+ * During recording: Shows timer + controls instead of settings
  */
 
 import React, { useCallback } from 'react';
 import {
-  RotateCcw, X, GripVertical,
+  X, GripVertical,
   Square, Pause, Circle
 } from 'lucide-react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { CaptureType, RecordingFormat } from '../../types';
 import { ModeSelector } from './ModeSelector';
-import { SettingsCol1, SettingsCol2, SettingsCol3 } from './InlineSettings';
-import { DimensionSelect } from './DimensionSelect';
+import { SourceSelector, type CaptureSource } from './SourceSelector';
+import { DevicePopover } from './DevicePopover';
+import { MicrophonePopover } from './MicrophonePopover';
+import { SystemAudioToggle } from './SystemAudioToggle';
+import { SettingsPopover } from './SettingsPopover';
+import { AudioLevelMeter } from './AudioLevelMeter';
+import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
+import { useRustAudioLevels } from '@/hooks/useRustAudioLevels';
 
 export type ToolbarMode = 'selection' | 'starting' | 'recording' | 'paused' | 'processing' | 'error';
 
@@ -29,13 +31,19 @@ interface CaptureToolbarProps {
   mode: ToolbarMode;
   /** Current capture type */
   captureType: CaptureType;
+  /** Current capture source (display/window/area) */
+  captureSource?: CaptureSource;
   /** Region dimensions */
   width: number;
   height: number;
+  /** Whether toolbar is in startup mode (source buttons trigger capture) */
+  isStartupMode?: boolean;
   /** Start recording or take screenshot (based on captureType) */
   onCapture: () => void;
   /** Change capture type */
   onCaptureTypeChange: (type: CaptureType) => void;
+  /** Change capture source */
+  onCaptureSourceChange?: (source: CaptureSource) => void;
   /** Redo/redraw the region */
   onRedo: () => void;
   /** Cancel and close */
@@ -62,6 +70,8 @@ interface CaptureToolbarProps {
   onDragStart?: (e: React.MouseEvent) => void;
   /** Callback when user changes dimensions via input */
   onDimensionChange?: (width: number, height: number) => void;
+  /** Open settings modal */
+  onOpenSettings?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -73,11 +83,14 @@ function formatTime(seconds: number): string {
 export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   mode,
   captureType,
-  width,
-  height,
+  captureSource = 'area',
+  width: _width,
+  height: _height,
+  isStartupMode = false,
   onCapture,
   onCaptureTypeChange,
-  onRedo,
+  onCaptureSourceChange,
+  onRedo: _onRedo,
   onCancel,
   format = 'mp4',
   elapsedTime = 0,
@@ -88,7 +101,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   onStop,
   countdownSeconds,
   onDragStart: customDragStart,
-  onDimensionChange,
+  onOpenSettings,
 }) => {
   const isGif = captureType === 'gif' || format === 'gif';
   const isRecording = mode === 'recording' || mode === 'paused';
@@ -96,6 +109,21 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   const isProcessing = mode === 'processing';
   const isError = mode === 'error';
   const isPaused = mode === 'paused';
+  const isVideoMode = captureType === 'video' || captureType === 'gif';
+
+  // Get audio settings for level meters
+  const { settings } = useCaptureSettingsStore();
+  const micDeviceIndex = settings.video.microphoneDeviceIndex;
+  const isMicEnabled = micDeviceIndex !== null;
+  const isSystemAudioEnabled = settings.video.captureSystemAudio;
+
+  // Use Rust WASAPI audio monitoring for both mic and system audio
+  // This provides accurate levels from the same sources used during recording
+  const { micLevel, systemLevel } = useRustAudioLevels({
+    micDeviceIndex: isMicEnabled ? micDeviceIndex : null,
+    monitorSystemAudio: isSystemAudioEnabled,
+    enabled: isVideoMode && !isRecording && !isStarting && !isProcessing,
+  });
 
   // Handle drag start - use custom handler if provided, otherwise Tauri's startDragging
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -107,9 +135,6 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
       getCurrentWebviewWindow().startDragging().catch(console.error);
     }
   }, [customDragStart]);
-
-  // Drag handle props - use JS handler for cursor control
-  const dragHandleProps = { onMouseDown: handleDragStart };
 
   // Handle pause/resume toggle
   const handlePauseResume = useCallback(() => {
@@ -130,79 +155,36 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
     }
   };
 
-  // Render the right panel based on mode
-  const renderRightPanel = () => {
-    // === COUNTDOWN (starting mode) ===
-    if (isStarting) {
-      const showCountdown = countdownSeconds !== undefined && countdownSeconds > 0;
-      return (
-        <div className="glass-right-panel glass-right-panel--countdown">
-          {/* Top: Cancel button */}
-          <button
-            type="button"
-            onClick={onCancel}
-            className="glass-btn glass-btn--sm glass-btn--danger"
-            title="Cancel"
-          >
-            <X size={14} />
-          </button>
-          {/* Bottom: Countdown */}
-          {showCountdown ? (
-            <div className="glass-countdown-large select-none">
-              {countdownSeconds}
-            </div>
-          ) : (
-            <div className="glass-spinner-large" />
-          )}
-        </div>
-      );
+  // Disable mode changes during recording
+  const handleModeChange = useCallback((newMode: CaptureType) => {
+    if (!isRecording && !isStarting && !isProcessing) {
+      onCaptureTypeChange(newMode);
     }
+  }, [isRecording, isStarting, isProcessing, onCaptureTypeChange]);
 
-    // === RECORDING CONTROLS (recording/paused mode) ===
-    if (isRecording) {
-      return (
-        <div className="glass-right-panel glass-right-panel--recording">
-          {/* Top: Control buttons */}
-          <div className="glass-recording-controls">
-            {/* Pause/Resume button (not for GIF) */}
-            {!isGif && (
-              <button
-                type="button"
-                onClick={handlePauseResume}
-                className="glass-btn glass-btn--md"
-                title={isPaused ? 'Resume' : 'Pause'}
-              >
-                {isPaused ? (
-                  <Circle size={14} className="text-red-400" fill="currentColor" />
-                ) : (
-                  <Pause size={14} className="text-amber-400" fill="currentColor" />
-                )}
-              </button>
-            )}
+  // Handle source change
+  const handleSourceChange = useCallback((source: CaptureSource) => {
+    if (!isRecording && !isStarting && !isProcessing) {
+      onCaptureSourceChange?.(source);
+    }
+  }, [isRecording, isStarting, isProcessing, onCaptureSourceChange]);
 
-            {/* Stop button */}
-            <button
-              type="button"
-              onClick={onStop}
-              className="glass-btn glass-btn--md"
-              title="Stop and save"
-            >
-              <Square size={14} className="text-white" fill="currentColor" />
-            </button>
+  // Render recording UI
+  if (isRecording || isStarting || isProcessing || isError) {
+    return (
+      <div className="glass-toolbar glass-toolbar--minimal pointer-events-auto">
+        {/* Drag handle */}
+        <div
+          onMouseDown={handleDragStart}
+          className="glass-drag-handle-minimal"
+          title="Drag to move"
+        >
+          <GripVertical size={14} className="pointer-events-none" />
+        </div>
 
-            {/* Cancel button */}
-            <button
-              type="button"
-              onClick={onCancel}
-              className="glass-btn glass-btn--md glass-btn--danger"
-              title="Cancel recording"
-            >
-              <X size={14} strokeWidth={2.5} />
-            </button>
-          </div>
-
-          {/* Bottom: Timer + Format */}
-          <div className="glass-recording-status">
+        {/* Recording status */}
+        {isRecording && (
+          <div className="glass-recording-section">
             <div className={`glass-recording-dot ${isPaused ? 'glass-recording-dot--paused' : ''}`} />
             <span className="glass-text glass-text--mono text-sm font-medium">
               {formatTime(elapsedTime)}
@@ -213,142 +195,186 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
               {format}
             </div>
           </div>
-        </div>
-      );
-    }
+        )}
 
-    // === PROCESSING (GIF encoding) ===
-    if (isProcessing) {
-      return (
-        <div className="glass-right-panel glass-right-panel--processing">
-          {/* Top: Cancel button */}
+        {/* Countdown */}
+        {isStarting && (
+          <div className="glass-countdown-section">
+            {countdownSeconds !== undefined && countdownSeconds > 0 ? (
+              <div className="glass-countdown-large select-none">
+                {countdownSeconds}
+              </div>
+            ) : (
+              <div className="glass-spinner-large" />
+            )}
+          </div>
+        )}
+
+        {/* Processing */}
+        {isProcessing && (
+          <div className="glass-processing-section">
+            <div className="glass-spinner" />
+            <span className="glass-text--muted text-xs select-none">
+              {Math.round(progress * 100)}%
+            </span>
+          </div>
+        )}
+
+        {/* Error */}
+        {isError && (
+          <div className="glass-error-section">
+            <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
+            <span className="text-red-400 text-[10px] select-none">
+              {errorMessage || 'Failed'}
+            </span>
+          </div>
+        )}
+
+        {/* Divider */}
+        <div className="glass-divider-vertical" />
+
+        {/* Controls */}
+        <div className="glass-controls-section">
+          {/* Pause/Resume button (not for GIF, not during starting/processing/error) */}
+          {isRecording && !isGif && (
+            <button
+              type="button"
+              onClick={handlePauseResume}
+              className="glass-btn glass-btn--md"
+              title={isPaused ? 'Resume' : 'Pause'}
+            >
+              {isPaused ? (
+                <Circle size={14} className="text-red-400" fill="currentColor" />
+              ) : (
+                <Pause size={14} className="text-amber-400" fill="currentColor" />
+              )}
+            </button>
+          )}
+
+          {/* Stop button */}
+          {isRecording && (
+            <button
+              type="button"
+              onClick={onStop}
+              className="glass-btn glass-btn--md"
+              title="Stop and save"
+            >
+              <Square size={14} className="text-white" fill="currentColor" />
+            </button>
+          )}
+
+          {/* Cancel button */}
           <button
             type="button"
             onClick={onCancel}
-            className="glass-btn glass-btn--sm glass-btn--danger"
+            className="glass-btn glass-btn--md glass-btn--danger"
             title="Cancel"
           >
-            <X size={14} />
+            <X size={14} strokeWidth={2.5} />
           </button>
-          {/* Bottom: Progress */}
-          <div className="glass-spinner" />
-          <span className="glass-text--muted text-xs select-none">
-            {Math.round(progress * 100)}%
-          </span>
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
-    // === ERROR ===
-    if (isError) {
-      return (
-        <div className="glass-right-panel glass-right-panel--error">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="glass-btn glass-btn--sm glass-btn--danger"
-            title="Close"
-          >
-            <X size={14} />
-          </button>
-          <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
-          <span className="text-red-400 text-[10px] select-none text-center leading-tight px-1">
-            {errorMessage || 'Failed'}
-          </span>
-        </div>
-      );
-    }
+  // Render selection UI (default state)
+  return (
+    <div className="glass-toolbar glass-toolbar--minimal pointer-events-auto">
+      {/* Close button */}
+      <button
+        onClick={onCancel}
+        className="glass-close-btn"
+        title="Cancel"
+      >
+        <X size={16} strokeWidth={2} />
+      </button>
 
-    // === DEFAULT: Redo + Cancel on top, Capture button below ===
-    return (
-      <div className="glass-right-panel glass-right-panel--selection">
-        {/* Top: Redo + Cancel */}
-        <div className="glass-right-panel-actions">
-          <button
-            onClick={onRedo}
-            className="glass-btn glass-btn--sm"
-            title="Redraw region"
-          >
-            <RotateCcw size={14} />
-          </button>
-          <button
-            onClick={onCancel}
-            className="glass-btn glass-btn--sm glass-btn--danger"
-            title="Cancel"
-          >
-            <X size={14} />
-          </button>
-        </div>
-        {/* Bottom: Capture button */}
+      {/* Divider */}
+      <div className="glass-divider-vertical" />
+
+      {/* Mode selector (Video/GIF/Screenshot) */}
+      <ModeSelector
+        activeMode={captureType}
+        onModeChange={handleModeChange}
+        disabled={isRecording || isStarting || isProcessing}
+      />
+
+      {/* Divider */}
+      <div className="glass-divider-vertical" />
+
+      {/* Source selector (Display/Window/Area) */}
+      <SourceSelector
+        activeSource={captureSource}
+        onSourceChange={handleSourceChange}
+        disabled={isRecording || isStarting || isProcessing}
+      />
+
+      {/* Video mode: Show device selectors in columns */}
+      {isVideoMode && (
+        <>
+          {/* Divider */}
+          <div className="glass-divider-vertical" />
+
+          {/* Device selectors - 3 columns with consistent height */}
+          <div className="glass-devices-section">
+            {/* Camera column - spacer for consistent layout */}
+            <div className="glass-device-column">
+              <DevicePopover disabled={isRecording || isStarting || isProcessing} />
+              <div className="glass-audio-meter--column-spacer" />
+            </div>
+
+            {/* Microphone column with level meter */}
+            <div className="glass-device-column">
+              <MicrophonePopover disabled={isRecording || isStarting || isProcessing} />
+              <AudioLevelMeter
+                enabled
+                level={isMicEnabled ? micLevel : 0}
+                className="glass-audio-meter--column"
+              />
+            </div>
+
+            {/* System Audio column with level meter */}
+            <div className="glass-device-column">
+              <SystemAudioToggle disabled={isRecording || isStarting || isProcessing} />
+              <AudioLevelMeter
+                enabled
+                level={isSystemAudioEnabled ? systemLevel : 0}
+                className="glass-audio-meter--column"
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Divider */}
+      <div className="glass-divider-vertical" />
+
+      {/* Settings gear */}
+      <SettingsPopover 
+        mode={captureType}
+        disabled={isRecording || isStarting || isProcessing}
+        onOpenSettings={onOpenSettings}
+      />
+
+      {/* Drag handle */}
+      <div
+        onMouseDown={handleDragStart}
+        className="glass-drag-handle-minimal"
+        title="Drag to move"
+      >
+        <GripVertical size={14} className="pointer-events-none" />
+      </div>
+
+      {/* Capture button - hidden in startup mode (source buttons trigger capture) */}
+      {!isStartupMode && (
         <button
           onClick={onCapture}
-          className="glass-capture-btn-circle"
+          className="glass-capture-btn-pill"
           title={captureType === 'screenshot' ? 'Take screenshot' : 'Start recording'}
         >
           <span className="glass-capture-btn-label">{getCaptureLabel()}</span>
         </button>
-      </div>
-    );
-  };
-
-  // Disable mode changes during recording
-  const handleModeChange = useCallback((newMode: CaptureType) => {
-    if (!isRecording && !isStarting && !isProcessing) {
-      onCaptureTypeChange(newMode);
-    }
-  }, [isRecording, isStarting, isProcessing, onCaptureTypeChange]);
-
-  return (
-    <div
-      className="glass-toolbar glass-toolbar--two-row pointer-events-auto"
-    >
-      {/* Left panel: Grabber + Mode selector (spans both rows) */}
-      <div className="glass-toolbar-left">
-        {/* Drag handle */}
-        <div
-          {...dragHandleProps}
-          className="glass-drag-handle-vertical"
-          title="Drag to move"
-        >
-          <GripVertical size={14} className="pointer-events-none" />
-        </div>
-
-        {/* Mode selector: Video, GIF, Screenshot (vertical) */}
-        <ModeSelector
-          activeMode={captureType}
-          onModeChange={handleModeChange}
-          disabled={isRecording || isStarting || isProcessing}
-        />
-      </div>
-
-      {/* Main content area (2 columns) */}
-      <div className={`glass-toolbar-content ${(isRecording || isStarting || isProcessing) ? 'opacity-50 pointer-events-none' : ''}`}>
-        {/* Column 1: Dimensions, FPS, Quality */}
-        <div className="glass-toolbar-col">
-          <DimensionSelect
-            width={width}
-            height={height}
-            onDimensionChange={onDimensionChange}
-            disabled={isRecording || isStarting || isProcessing}
-          />
-          <SettingsCol1 mode={captureType} />
-        </div>
-
-        {/* Column 2: Cursor, Audio, Countdown, Max */}
-        <div className="glass-toolbar-col">
-          <SettingsCol2 mode={captureType} />
-        </div>
-
-        {/* Column 3: Webcam (video/gif only) */}
-        {(captureType === 'video' || captureType === 'gif') && (
-          <div className="glass-toolbar-col">
-            <SettingsCol3 mode={captureType} />
-          </div>
-        )}
-      </div>
-
-      {/* Right panel - swaps based on mode */}
-      {renderRightPanel()}
+      )}
     </div>
   );
 };

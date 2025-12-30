@@ -24,12 +24,13 @@
         overflow: visible;
       }
       .toolbar-container {
-        /* Absolute position at top-center, anchor point is top edge */
+        /* Fill entire window, center content with padding for shadows */
         position: absolute;
-        top: 0;
-        left: 50%;
-        transform: translateX(-50%);
-        display: inline-flex;
+        inset: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 32px; /* Must match SHADOW_PADDING in CaptureToolbarWindow.tsx */
         /* Click-through for transparent areas */
         pointer-events: none;
       }

@@ -322,6 +322,16 @@ fn run_overlay(
             let _ = state.app_handle.emit("capture-overlay-closed", ());
         }
 
+        // If cancelled (no result), show the startup toolbar again
+        if result.is_none() {
+            let app_handle = state.app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = crate::commands::window::show_startup_toolbar(app_handle).await {
+                    log::error!("Failed to show startup toolbar after cancel: {}", e);
+                }
+            });
+        }
+
         // Cleanup
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         let _ = DestroyWindow(hwnd);

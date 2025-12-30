@@ -23,7 +23,7 @@ fn close_capture_windows(app: &AppHandle) {
 /// Restore main window if it was visible before capture started
 fn restore_main_if_visible(app: &AppHandle) {
     if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-        if let Some(main_window) = app.get_webview_window("main") {
+        if let Some(main_window) = app.get_webview_window("library") {
             let _ = main_window.show();
         }
     }
@@ -149,7 +149,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
     let ct = capture_type.unwrap_or("screenshot").to_string();
 
     // Track if main window was visible (but don't hide it - user may want to capture it)
-    if let Some(main_window) = app.get_webview_window("main") {
+    if let Some(main_window) = app.get_webview_window("library") {
         let was_visible = main_window.is_visible().unwrap_or(false);
         MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
         // Don't hide main window - user may want to capture their own app
@@ -167,7 +167,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
             Err(e) => {
                 log::error!("[window] Failed to create async runtime: {}", e);
                 // Restore main window before returning since we hid it earlier
-                if let Some(main_window) = app_clone.get_webview_window("main") {
+                if let Some(main_window) = app_clone.get_webview_window("library") {
                     if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
                         let _ = main_window.show();
                     }
@@ -247,7 +247,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 if let Some(toolbar) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
                                     let _ = toolbar.close();
                                 }
-                                if let Some(main_window) = app_clone.get_webview_window("main") {
+                                if let Some(main_window) = app_clone.get_webview_window("library") {
                                     if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
                                         let _ = main_window.show();
                                     }
@@ -325,7 +325,7 @@ pub async fn hide_overlay(app: AppHandle, restore_main_window: Option<bool>) -> 
     // Pass false when starting video recording to keep main window hidden
     let should_restore = restore_main_window.unwrap_or(true);
     if should_restore && MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
-        if let Some(main_window) = app.get_webview_window("main") {
+        if let Some(main_window) = app.get_webview_window("library") {
             let _ = main_window.show();
             let _ = main_window.set_focus();
         }
@@ -339,7 +339,7 @@ pub async fn hide_overlay(app: AppHandle, restore_main_window: Option<bool>) -> 
 pub async fn restore_main_window(app: AppHandle) -> Result<(), String> {
     // Check if main was visible before capture started
     if MAIN_WAS_VISIBLE.swap(false, Ordering::SeqCst) {
-        if let Some(main_window) = app.get_webview_window("main") {
+        if let Some(main_window) = app.get_webview_window("library") {
             let _ = main_window.show();
             let _ = main_window.set_focus();
         }
@@ -361,7 +361,7 @@ pub async fn open_editor_fast(
     hide_overlay(app.clone(), None).await?;
 
     // Show main window with the capture file path
-    if let Some(main_window) = app.get_webview_window("main") {
+    if let Some(main_window) = app.get_webview_window("library") {
         let _ = main_window.unminimize();
 
         main_window
@@ -547,7 +547,7 @@ pub async fn show_capture_toolbar(
 
     // Create window hidden - frontend will configure size/position and show it
     let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
-        .title("Selection Toolbar")
+        .title("SnapIt Capture")
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
@@ -739,6 +739,77 @@ pub async fn show_countdown_window(
 pub async fn hide_countdown_window(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(COUNTDOWN_WINDOW_LABEL) {
         window.close().map_err(|e| format!("Failed to close countdown window: {}", e))?;
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Startup Toolbar (shown on app launch)
+// ============================================================================
+
+/// Show the startup toolbar window (floating, centered on primary monitor).
+/// This is the main toolbar shown on app startup for initiating captures.
+/// Different from capture toolbar which appears during region selection.
+#[command]
+pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
+    // Check if window already exists
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
+        window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
+        return Ok(());
+    }
+
+    // Get primary monitor info for centering
+    let monitors = app.available_monitors()
+        .map_err(|e| format!("Failed to get monitors: {}", e))?;
+    
+    let primary_monitor = monitors.into_iter().next()
+        .ok_or_else(|| "No monitors found".to_string())?;
+    
+    let monitor_pos = primary_monitor.position();
+    let monitor_size = primary_monitor.size();
+
+    // URL with startup mode flag (no selection bounds)
+    let url = WebviewUrl::App("capture-toolbar.html?mode=startup".into());
+
+    // Initial window size (will be resized by frontend after measuring)
+    let initial_width = 700u32;
+    let initial_height = 300u32;
+
+    // Position at bottom-center of primary monitor
+    let x = monitor_pos.x + (monitor_size.width as i32 - initial_width as i32) / 2;
+    let y = monitor_pos.y + monitor_size.height as i32 - initial_height as i32 - 100; // 100px from bottom
+
+    // Create window
+    let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
+        .title("SnapIt Capture")
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(false) // Show in taskbar for startup toolbar
+        .resizable(false)
+        .shadow(false)
+        .visible(false) // Hidden until frontend configures bounds
+        .focused(true)
+        .build()
+        .map_err(|e| format!("Failed to create startup toolbar window: {}", e))?;
+
+    // Set position/size using physical coordinates
+    set_physical_bounds(&window, x, y, initial_width, initial_height)?;
+
+    // Apply DWM blur-behind for true transparency on Windows
+    if let Err(e) = apply_dwm_transparency(&window) {
+        log::warn!("Failed to apply DWM transparency to startup toolbar: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Hide the startup toolbar (used when starting a capture).
+#[command]
+pub async fn hide_startup_toolbar(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        window.hide().map_err(|e| format!("Failed to hide toolbar: {}", e))?;
     }
     Ok(())
 }

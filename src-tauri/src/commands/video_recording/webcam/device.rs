@@ -1,9 +1,8 @@
 //! Webcam device enumeration.
 //!
-//! Uses nokhwa to query available webcam devices.
+//! Device enumeration is now handled by browser's navigator.mediaDevices.enumerateDevices().
+//! This module provides the type definition and a stub function for backwards compatibility.
 
-use nokhwa::utils::CameraIndex;
-use nokhwa::query;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -21,25 +20,10 @@ pub struct WebcamDevice {
 }
 
 /// Get a list of available webcam devices.
+///
+/// Returns empty list - browser now handles device enumeration via getUserMedia.
 pub fn get_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
-    // Query available cameras using nokhwa
-    let cameras = query(nokhwa::native_api_backend().unwrap_or(nokhwa::utils::ApiBackend::Auto))
-        .map_err(|e| format!("Failed to query webcam devices: {}", e))?;
-
-    let devices: Vec<WebcamDevice> = cameras
-        .iter()
-        .enumerate()
-        .map(|(idx, info)| WebcamDevice {
-            index: idx,
-            name: info.human_name().to_string(),
-            description: Some(info.description().to_string()),
-        })
-        .collect();
-
-    Ok(devices)
-}
-
-/// Get the camera index for nokhwa from a device index.
-pub fn camera_index_from_device(device_index: usize) -> CameraIndex {
-    CameraIndex::Index(device_index as u32)
+    // Browser handles device enumeration via navigator.mediaDevices.enumerateDevices()
+    // This is just for backwards compatibility with the command interface
+    Ok(Vec::new())
 }

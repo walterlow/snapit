@@ -45,7 +45,7 @@ export interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   // Editor state
-  view: 'library' | 'editor';
+  view: 'library' | 'editor' | 'videoEditor';
   selectedTool: Tool;
   hasProject: boolean;
   canUndo: boolean;

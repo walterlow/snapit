@@ -67,8 +67,32 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
   loadDevices: async () => {
     set({ isLoadingDevices: true, devicesError: null });
     try {
-      const devices = await invoke<WebcamDevice[]>('list_webcam_devices');
-      set({ devices, isLoadingDevices: false });
+      // Use browser's MediaDevices API to enumerate webcams
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        throw new Error('MediaDevices API not supported');
+      }
+
+      // Request camera permission first (needed to get device labels)
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        // Stop the stream immediately - we just needed permission
+        stream.getTracks().forEach(track => track.stop());
+      } catch (permError) {
+        console.warn('[WebcamStore] Camera permission denied or unavailable:', permError);
+        // Continue anyway - we might still get device IDs without labels
+      }
+
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = allDevices
+        .filter(device => device.kind === 'videoinput')
+        .map((device, index): WebcamDevice => ({
+          index,
+          name: device.label || `Camera ${index + 1}`,
+          description: device.deviceId ? `ID: ${device.deviceId.substring(0, 8)}...` : null,
+        }));
+
+      console.log('[WebcamStore] Found webcam devices:', videoDevices);
+      set({ devices: videoDevices, isLoadingDevices: false });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ devicesError: message, isLoadingDevices: false });
@@ -187,17 +211,29 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       // Close preview using the reliable closePreview method
       await closePreview();
     } else {
-      // First ensure any stale window is closed
+      // First ensure any stale preview is closed
+      try {
+        await invoke('stop_native_webcam_preview');
+      } catch {
+        // Ignore - might not be running
+      }
+      try {
+        await invoke('stop_webcam_preview');
+      } catch {
+        // Ignore - might not be running
+      }
       try {
         await invoke('close_webcam_preview');
       } catch {
         // Ignore - window might not exist
       }
 
-      // Small delay to ensure window is fully destroyed
+      // Small delay to ensure cleanup
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      // Open preview
+      // Create WebView-based preview window
+      // The window component handles both browser getUserMedia (for preview)
+      // and Rust crabcamera service (for recording)
       try {
         const size = PREVIEW_SIZES[settings.size];
         const win = new WebviewWindow('webcam-preview', {
@@ -222,6 +258,14 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
           emit('webcam-settings-changed', settings).catch(
             createErrorHandler({ operation: 'emit webcam-settings-changed', silent: true })
           );
+          
+          // Exclude preview from screen capture (so it doesn't appear in recordings)
+          try {
+            await invoke('exclude_webcam_from_capture');
+          } catch (e) {
+            console.warn('[WebcamStore] Failed to exclude preview from capture:', e);
+          }
+          
           // Trigger anchor positioning after a delay
           setTimeout(async () => {
             try {
@@ -257,7 +301,14 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
   },
 
   closePreview: async () => {
-    // Use Rust command to close the window (most reliable)
+    // Stop native preview (Windows GDI)
+    try {
+      await invoke('stop_native_webcam_preview');
+    } catch {
+      // Ignore - might not be running
+    }
+
+    // Use Rust command to close the WebView window (most reliable)
     try {
       await invoke('close_webcam_preview');
     } catch (e) {

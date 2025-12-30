@@ -47,9 +47,10 @@ image = "0.25"
 # Audio capture
 cpal = "0.17"
 wasapi = "0.22"  # WASAPI loopback for system audio capture
+hound = "3.5"    # WAV file encoding for separate audio tracks
 
-# Webcam capture
-nokhwa = { version = "0.10", features = ["input-msmf", "output-threaded"] }
+# Webcam capture now handled by browser getUserMedia + MediaRecorder
+# crabcamera removed - was causing conflicts with browser camera access
 
 # Thread-safe channels for audio/video sync
 crossbeam-channel = "0.5"
@@ -107,7 +108,11 @@ windows = { version = "0.58", features = [
     "Win32_UI_HiDpi",
     "Win32_System_Com",
     "Win32_Storage_Xps",
+    # Media Foundation for fast webcam capture
+    "Win32_Media_MediaFoundation",
+    "implement",
 ] }
+windows-core = "0.58"
 
 
 [profile.dev]

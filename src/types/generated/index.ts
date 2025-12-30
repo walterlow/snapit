@@ -2,6 +2,7 @@
 // These types are auto-generated from Rust source - do not edit manually
 
 export type { AudioInputDevice } from './AudioInputDevice';
+export type { AudioLevels } from './AudioLevels';
 export type { AudioSettings } from './AudioSettings';
 export type { GifQualityPreset } from './GifQualityPreset';
 export type { RecordingFormat } from './RecordingFormat';
@@ -34,3 +35,44 @@ export type { WebcamPosition } from './WebcamPosition';
 export type { WebcamSettings } from './WebcamSettings';
 export type { WebcamShape } from './WebcamShape';
 export type { WebcamSize } from './WebcamSize';
+
+// Video editor - Cursor event types
+export type { CursorEvent } from './CursorEvent';
+export type { CursorEventType } from './CursorEventType';
+export type { CursorRecording } from './CursorRecording';
+
+// Video editor - Project types
+export type { VideoProject } from './VideoProject';
+export type { VideoSources } from './VideoSources';
+export type { TimelineState } from './TimelineState';
+
+// Video editor - Zoom types
+export type { AutoZoomConfig } from './AutoZoomConfig';
+export type { ZoomConfig } from './ZoomConfig';
+export type { ZoomMode } from './ZoomMode';
+export type { ZoomRegion } from './ZoomRegion';
+export type { ZoomTransition } from './ZoomTransition';
+export type { EasingFunction } from './EasingFunction';
+
+// Video editor - Cursor config types
+export type { CursorConfig } from './CursorConfig';
+export type { ClickHighlightConfig } from './ClickHighlightConfig';
+export type { ClickHighlightStyle } from './ClickHighlightStyle';
+
+// Video editor - Webcam config types
+export type { WebcamConfig } from './WebcamConfig';
+export type { WebcamOverlayPosition } from './WebcamOverlayPosition';
+export type { WebcamOverlayShape } from './WebcamOverlayShape';
+export type { WebcamBorder } from './WebcamBorder';
+export type { VisibilitySegment } from './VisibilitySegment';
+
+// Video editor - Audio track types
+export type { AudioTrackSettings } from './AudioTrackSettings';
+
+// Video editor - Export types
+export type { ExportConfig } from './ExportConfig';
+export type { ExportFormat } from './ExportFormat';
+export type { ExportResolution } from './ExportResolution';
+export type { ExportProgress } from './ExportProgress';
+export type { ExportResult } from './ExportResult';
+export type { ExportStage } from './ExportStage';

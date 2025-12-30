@@ -3,12 +3,24 @@
 //! DXGI Duplication API doesn't capture the hardware cursor by default.
 //! This module extracts cursor bitmaps via Windows API and composites
 //! them onto each captured frame.
+//!
+//! Also provides cursor event capture for video editor features:
+//! - Auto-zoom generation from click locations
+//! - Cursor smooth movement interpolation
+//! - Click highlight animations
 
 mod capture;
 mod composite;
+pub mod events;
+mod highlight;
 
 pub use capture::CursorCapture;
-pub use composite::composite_cursor;
+pub use composite::{composite_cursor, composite_cursor_scaled};
+pub use events::{
+    CursorEvent, CursorEventCapture, CursorEventType, CursorRecording,
+    load_cursor_recording, save_cursor_recording,
+};
+pub use highlight::{get_active_clicks, render_click_highlight};
 
 use std::collections::HashMap;
 use std::sync::Arc;

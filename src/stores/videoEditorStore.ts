@@ -1,0 +1,408 @@
+import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
+import { invoke } from '@tauri-apps/api/core';
+import type {
+  AutoZoomConfig,
+  VideoProject,
+  ZoomRegion,
+  VisibilitySegment,
+  ExportProgress,
+  ExportResult,
+} from '../types';
+
+interface VideoEditorState {
+  // Project state
+  project: VideoProject | null;
+  
+  // Playback state
+  currentTimeMs: number;
+  isPlaying: boolean;
+  
+  // Selection state
+  selectedZoomRegionId: string | null;
+  selectedWebcamSegmentIndex: number | null;
+  
+  // Timeline interaction state
+  isDraggingPlayhead: boolean;
+  isDraggingZoomRegion: boolean;
+  draggedZoomEdge: 'start' | 'end' | 'move' | null;
+  
+  // View state
+  timelineZoom: number; // pixels per millisecond
+  timelineScrollLeft: number;
+  
+  // Export state
+  isExporting: boolean;
+  exportProgress: ExportProgress | null;
+  
+  // Actions
+  setProject: (project: VideoProject | null) => void;
+  setCurrentTime: (timeMs: number) => void;
+  togglePlayback: () => void;
+  setIsPlaying: (playing: boolean) => void;
+  
+  // Zoom region actions
+  selectZoomRegion: (id: string | null) => void;
+  addZoomRegion: (region: ZoomRegion) => void;
+  updateZoomRegion: (id: string, updates: Partial<ZoomRegion>) => void;
+  deleteZoomRegion: (id: string) => void;
+  
+  // Webcam segment actions
+  selectWebcamSegment: (index: number | null) => void;
+  addWebcamSegment: (segment: VisibilitySegment) => void;
+  updateWebcamSegment: (index: number, updates: Partial<VisibilitySegment>) => void;
+  deleteWebcamSegment: (index: number) => void;
+  toggleWebcamAtTime: (timeMs: number) => void;
+  
+  // Timeline view actions
+  setTimelineZoom: (zoom: number) => void;
+  setTimelineScrollLeft: (scrollLeft: number) => void;
+  
+  // Drag state actions
+  setDraggingPlayhead: (dragging: boolean) => void;
+  setDraggingZoomRegion: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
+  
+  // Editor actions
+  clearEditor: () => void;
+  
+  // Auto-zoom generation
+  generateAutoZoom: (config?: AutoZoomConfig) => Promise<void>;
+  isGeneratingAutoZoom: boolean;
+  
+  // Export actions
+  exportVideo: (outputPath: string) => Promise<ExportResult>;
+  setExportProgress: (progress: ExportProgress | null) => void;
+  cancelExport: () => void;
+}
+
+const DEFAULT_TIMELINE_ZOOM = 0.05; // 50px per second
+
+export const useVideoEditorStore = create<VideoEditorState>()(
+  devtools(
+    (set, get) => ({
+      // Initial state
+      project: null,
+      currentTimeMs: 0,
+      isPlaying: false,
+      selectedZoomRegionId: null,
+      selectedWebcamSegmentIndex: null,
+      isDraggingPlayhead: false,
+      isDraggingZoomRegion: false,
+      draggedZoomEdge: null,
+      timelineZoom: DEFAULT_TIMELINE_ZOOM,
+      timelineScrollLeft: 0,
+      isGeneratingAutoZoom: false,
+      isExporting: false,
+      exportProgress: null,
+
+      // Project actions
+      setProject: (project) => set({
+        project,
+        currentTimeMs: 0,
+        isPlaying: false,
+        selectedZoomRegionId: null,
+        selectedWebcamSegmentIndex: null,
+      }),
+
+      // Playback actions
+      setCurrentTime: (timeMs) => {
+        const { project } = get();
+        if (!project) return;
+        
+        // Clamp to valid range
+        const clampedTime = Math.max(0, Math.min(timeMs, project.timeline.durationMs));
+        set({ currentTimeMs: clampedTime });
+      },
+
+      togglePlayback: () => set((state) => ({ isPlaying: !state.isPlaying })),
+      
+      setIsPlaying: (playing) => set({ isPlaying: playing }),
+
+      // Zoom region actions
+      selectZoomRegion: (id) => set({ selectedZoomRegionId: id }),
+
+      addZoomRegion: (region) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            zoom: {
+              ...project.zoom,
+              regions: [...project.zoom.regions, region],
+            },
+          },
+          selectedZoomRegionId: region.id,
+        });
+      },
+
+      updateZoomRegion: (id, updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            zoom: {
+              ...project.zoom,
+              regions: project.zoom.regions.map((r) =>
+                r.id === id ? { ...r, ...updates } : r
+              ),
+            },
+          },
+        });
+      },
+
+      deleteZoomRegion: (id) => {
+        const { project, selectedZoomRegionId } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            zoom: {
+              ...project.zoom,
+              regions: project.zoom.regions.filter((r) => r.id !== id),
+            },
+          },
+          selectedZoomRegionId: selectedZoomRegionId === id ? null : selectedZoomRegionId,
+        });
+      },
+
+      // Webcam segment actions
+      selectWebcamSegment: (index) => set({ selectedWebcamSegmentIndex: index }),
+
+      addWebcamSegment: (segment) => {
+        const { project } = get();
+        if (!project) return;
+
+        const segments = [...project.webcam.visibilitySegments, segment];
+        // Sort by start time
+        segments.sort((a, b) => a.startMs - b.startMs);
+
+        set({
+          project: {
+            ...project,
+            webcam: {
+              ...project.webcam,
+              visibilitySegments: segments,
+            },
+          },
+        });
+      },
+
+      updateWebcamSegment: (index, updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        const segments = [...project.webcam.visibilitySegments];
+        segments[index] = { ...segments[index], ...updates };
+
+        set({
+          project: {
+            ...project,
+            webcam: {
+              ...project.webcam,
+              visibilitySegments: segments,
+            },
+          },
+        });
+      },
+
+      deleteWebcamSegment: (index) => {
+        const { project, selectedWebcamSegmentIndex } = get();
+        if (!project) return;
+
+        const segments = project.webcam.visibilitySegments.filter((_, i) => i !== index);
+
+        set({
+          project: {
+            ...project,
+            webcam: {
+              ...project.webcam,
+              visibilitySegments: segments,
+            },
+          },
+          selectedWebcamSegmentIndex:
+            selectedWebcamSegmentIndex === index ? null : selectedWebcamSegmentIndex,
+        });
+      },
+
+      toggleWebcamAtTime: (timeMs) => {
+        const { project } = get();
+        if (!project) return;
+
+        const segments = project.webcam.visibilitySegments;
+        
+        // Find if current time is within a segment
+        const segmentIndex = segments.findIndex(
+          (s) => timeMs >= s.startMs && timeMs <= s.endMs
+        );
+
+        if (segmentIndex >= 0) {
+          // Split or remove segment
+          const segment = segments[segmentIndex];
+          const newSegments = [...segments];
+          
+          if (timeMs === segment.startMs) {
+            // At start, just remove
+            newSegments.splice(segmentIndex, 1);
+          } else if (timeMs === segment.endMs) {
+            // At end, just remove
+            newSegments.splice(segmentIndex, 1);
+          } else {
+            // In middle, split into two
+            newSegments.splice(segmentIndex, 1, 
+              { ...segment, endMs: timeMs },
+              { ...segment, startMs: timeMs }
+            );
+          }
+
+          set({
+            project: {
+              ...project,
+              webcam: {
+                ...project.webcam,
+                visibilitySegments: newSegments,
+              },
+            },
+          });
+        } else {
+          // Add new segment (default 5 seconds)
+          const endMs = Math.min(timeMs + 5000, project.timeline.durationMs);
+          const newSegment: VisibilitySegment = {
+            startMs: timeMs,
+            endMs,
+            visible: true,
+          };
+
+          const newSegments = [...segments, newSegment].sort((a, b) => a.startMs - b.startMs);
+
+          set({
+            project: {
+              ...project,
+              webcam: {
+                ...project.webcam,
+                visibilitySegments: newSegments,
+              },
+            },
+          });
+        }
+      },
+
+      // Timeline view actions
+      setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(0.01, Math.min(0.5, zoom)) }),
+      
+      setTimelineScrollLeft: (scrollLeft) => set({ timelineScrollLeft: scrollLeft }),
+
+      // Drag state actions
+      setDraggingPlayhead: (dragging) => set({ isDraggingPlayhead: dragging }),
+      
+      setDraggingZoomRegion: (dragging, edge) => set({
+        isDraggingZoomRegion: dragging,
+        draggedZoomEdge: dragging ? edge ?? null : null,
+      }),
+
+      // Editor actions
+      clearEditor: () => set({
+        project: null,
+        currentTimeMs: 0,
+        isPlaying: false,
+        selectedZoomRegionId: null,
+        selectedWebcamSegmentIndex: null,
+        isDraggingPlayhead: false,
+        isDraggingZoomRegion: false,
+        draggedZoomEdge: null,
+        timelineZoom: DEFAULT_TIMELINE_ZOOM,
+        timelineScrollLeft: 0,
+        isGeneratingAutoZoom: false,
+        isExporting: false,
+        exportProgress: null,
+      }),
+
+      // Auto-zoom generation
+      generateAutoZoom: async (config?: AutoZoomConfig) => {
+        const { project } = get();
+        if (!project) return;
+        
+        // Check if cursor data exists
+        if (!project.sources.cursorData) {
+          throw new Error('No cursor data available for this recording. Auto-zoom requires cursor data to be recorded.');
+        }
+        
+        set({ isGeneratingAutoZoom: true });
+        
+        try {
+          const updatedProject = await invoke<VideoProject>('generate_auto_zoom', {
+            project,
+            config: config ?? null,
+          });
+          
+          set({ 
+            project: updatedProject,
+            isGeneratingAutoZoom: false,
+          });
+        } catch (error) {
+          set({ isGeneratingAutoZoom: false });
+          throw error;
+        }
+      },
+
+      // Export actions
+      exportVideo: async (outputPath: string): Promise<ExportResult> => {
+        const { project } = get();
+        if (!project) {
+          throw new Error('No project loaded');
+        }
+        
+        set({ isExporting: true, exportProgress: null });
+        
+        try {
+          const result = await invoke<ExportResult>('export_video', {
+            project,
+            outputPath,
+          });
+          
+          set({ isExporting: false, exportProgress: null });
+          return result;
+        } catch (error) {
+          set({ isExporting: false, exportProgress: null });
+          throw error;
+        }
+      },
+
+      setExportProgress: (progress: ExportProgress | null) => {
+        set({ exportProgress: progress });
+      },
+
+      cancelExport: () => {
+        // TODO: Implement cancel via Tauri command when backend supports it
+        set({ isExporting: false, exportProgress: null });
+      },
+    }),
+    { name: 'VideoEditorStore', enabled: process.env.NODE_ENV === 'development' }
+  )
+);
+
+// Utility functions
+export function generateZoomRegionId(): string {
+  return `zoom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+export function formatTimecode(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const frames = Math.floor((ms % 1000) / (1000 / 30)); // Assuming 30fps
+  
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+}
+
+export function formatTimeSimple(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}

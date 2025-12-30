@@ -727,6 +727,13 @@ async fn load_media_item(
         return None;
     }
 
+    // Filter out auxiliary video editor files (webcam recordings, cursor data)
+    // These are stored alongside the main recording but shouldn't appear in library
+    let file_stem = path.file_stem().and_then(|n| n.to_str()).unwrap_or("");
+    if file_stem.ends_with("_webcam") || file_stem.ends_with("_cursor") {
+        return None;
+    }
+
     let file_name = path.file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("recording")

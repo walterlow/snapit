@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, Trash2, Copy, ExternalLink, Play, Tag } from 'lucide-react';
+import { Star, Trash2, Copy, ExternalLink, Play, Tag, Film } from 'lucide-react';
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -17,6 +17,7 @@ interface CaptureContextMenuProps {
   onManageTags?: () => void;
   onDelete: () => void;
   onPlayMedia?: () => void;
+  onEditVideo?: () => void;
 }
 
 // Check if capture is a video or gif
@@ -32,8 +33,10 @@ export const CaptureContextMenu: React.FC<CaptureContextMenuProps> = ({
   onManageTags,
   onDelete,
   onPlayMedia,
+  onEditVideo,
 }) => {
   const isMedia = isMediaType(captureType);
+  const isVideo = captureType === 'video';
 
   return (
     <ContextMenuContent>
@@ -45,6 +48,16 @@ export const CaptureContextMenu: React.FC<CaptureContextMenuProps> = ({
         >
           <Play className="w-4 h-4 mr-2" />
           Play {captureType === 'gif' ? 'GIF' : 'Video'}
+        </ContextMenuItem>
+      )}
+      {isVideo && onEditVideo && (
+        <ContextMenuItem
+          onClick={onEditVideo}
+          disabled={isMissing}
+          className={isMissing ? 'opacity-50 cursor-not-allowed' : ''}
+        >
+          <Film className="w-4 h-4 mr-2" />
+          Edit Video
         </ContextMenuItem>
       )}
       {!isMedia && (

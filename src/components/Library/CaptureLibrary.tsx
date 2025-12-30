@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCaptureStore, useFilteredCaptures, useAllTags } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
+import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { useCaptureSettingsStore } from '../../stores/captureSettingsStore';
 import { CaptureService } from '../../services/captureService';
 import type { CaptureListItem, RecordingFormat } from '../../types';
@@ -348,6 +349,23 @@ export const CaptureLibrary: React.FC = () => {
     }
   }, []);
 
+  const handleEditVideo = useCallback(async (capture: CaptureListItem) => {
+    try {
+      // Load video project from file using Tauri command
+      const project = await invoke('load_video_project', { videoPath: capture.image_path });
+      
+      // Set project in video editor store
+      useVideoEditorStore.getState().setProject(project as import('../../types').VideoProject);
+      
+      // Switch to video editor view
+      const { setView } = useCaptureStore.getState();
+      setView('videoEditor');
+    } catch (error) {
+      reportError(error, { operation: 'video editor open' });
+      toast.error('Failed to open video editor');
+    }
+  }, []);
+
   const getDeleteCount = () => {
     if (pendingBulkDelete) return selectedIds.size;
     return pendingDeleteId ? 1 : 0;
@@ -382,6 +400,7 @@ export const CaptureLibrary: React.FC = () => {
                 onOpenInFolder={() => handleOpenInFolder(capture)}
                 onCopyToClipboard={() => handleCopyToClipboard(capture)}
                 onPlayMedia={() => handlePlayMedia(capture)}
+                onEditVideo={capture.capture_type === 'video' ? () => handleEditVideo(capture) : undefined}
                 formatDate={formatDate}
               />
             ))}
@@ -412,6 +431,7 @@ export const CaptureLibrary: React.FC = () => {
                 onOpenInFolder={() => handleOpenInFolder(capture)}
                 onCopyToClipboard={() => handleCopyToClipboard(capture)}
                 onPlayMedia={() => handlePlayMedia(capture)}
+                onEditVideo={capture.capture_type === 'video' ? () => handleEditVideo(capture) : undefined}
                 formatDate={formatDate}
               />
             ))}
@@ -452,6 +472,7 @@ export const CaptureLibrary: React.FC = () => {
             onOpenInFolder={handleOpenInFolder}
             onCopyToClipboard={handleCopyToClipboard}
             onPlayMedia={handlePlayMedia}
+            onEditVideo={handleEditVideo}
             formatDate={formatDate}
             containerRef={containerRef as React.RefObject<HTMLDivElement>}
             onMouseDown={handleMarqueeMouseDown}

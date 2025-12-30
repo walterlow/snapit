@@ -14,8 +14,10 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { availableMonitors, type Monitor } from '@tauri-apps/api/window';
 import { toast, Toaster } from 'sonner';
 import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
+import type { CaptureSource } from '../components/CaptureToolbar/SourceSelector';
 import { useCaptureSettingsStore } from '../stores/captureSettingsStore';
 import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { createErrorHandler } from '../utils/errorReporting';
 import { useTheme } from '../hooks/useTheme';
 import type { RecordingState, RecordingFormat } from '../types';
@@ -38,7 +40,7 @@ interface ToolbarPosition {
 }
 
 const MARGIN = 8;
-const DROPDOWN_BUFFER = 200; // Extra space for dropdown menus
+const SHADOW_PADDING = 32; // Padding around toolbar for shadow rendering
 
 /**
  * Calculate optimal toolbar position with multi-monitor support.
@@ -152,14 +154,18 @@ async function calculateToolbarPosition(
 }
 
 const CaptureToolbarWindow: React.FC = () => {
-  // Parse initial selection bounds from URL
-  const initialBounds = useMemo((): SelectionBounds => {
+  // Parse initial selection bounds and mode from URL
+  const { initialBounds, isStartupMode } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode');
     return {
-      x: parseInt(params.get('x') || '0', 10),
-      y: parseInt(params.get('y') || '0', 10),
-      width: parseInt(params.get('width') || '0', 10),
-      height: parseInt(params.get('height') || '0', 10),
+      isStartupMode: mode === 'startup',
+      initialBounds: {
+        x: parseInt(params.get('x') || '0', 10),
+        y: parseInt(params.get('y') || '0', 10),
+        width: parseInt(params.get('width') || '0', 10),
+        height: parseInt(params.get('height') || '0', 10),
+      } as SelectionBounds
     };
   }, []);
 
@@ -187,6 +193,7 @@ const CaptureToolbarWindow: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [countdownSeconds, setCountdownSeconds] = useState<number | undefined>();
+  const [captureSource, setCaptureSource] = useState<CaptureSource>('area');
 
   // Refs
   const isRecordingActiveRef = useRef(false);
@@ -203,7 +210,10 @@ const CaptureToolbarWindow: React.FC = () => {
   }, [isInitialized, loadSettings]);
 
   // Load webcam settings from Rust and restore preview state on mount
+  // Skip in startup mode - webcam is only for active capture sessions
   useEffect(() => {
+    if (isStartupMode) return; // Skip webcam init in startup mode
+
     const initWebcam = async () => {
       // Load settings from Rust (source of truth, shared across windows)
       const { loadSettings } = useWebcamSettingsStore.getState();
@@ -229,7 +239,7 @@ const CaptureToolbarWindow: React.FC = () => {
     // Delay to ensure overlay is created first
     const timeoutId = setTimeout(initWebcam, 200);
     return () => clearTimeout(timeoutId);
-  }, []);
+  }, [isStartupMode]);
 
   // Track if window has been shown (to avoid re-showing on mode change)
   const windowShownRef = useRef(false);
@@ -246,63 +256,113 @@ const CaptureToolbarWindow: React.FC = () => {
       const contentWidth = Math.ceil(rect.width);
       const contentHeight = Math.ceil(rect.height);
 
-      // Calculate window dimensions (include buffer for dropdown menus)
-      const windowWidth = contentWidth;
-      const windowHeight = contentHeight + DROPDOWN_BUFFER;
+      // Calculate window dimensions with padding for shadow rendering
+      const windowWidth = contentWidth + (SHADOW_PADDING * 2); // padding on both sides
+      const windowHeight = contentHeight + (SHADOW_PADDING * 2); // padding top and bottom
 
-      // Use multi-monitor positioning algorithm
-      // This tries: below selection → above selection → alternate monitor → clamp
-      const pos = await calculateToolbarPosition(initialBounds, windowWidth, windowHeight);
+      // In startup mode, just resize and show - position was set by Rust
+      // In capture mode, calculate position based on selection bounds
+      if (isStartupMode) {
+        try {
+          // Resize the window to fit content
+          await invoke('resize_capture_toolbar', {
+            width: windowWidth,
+            height: windowHeight,
+          });
+          // Show the window (it's positioned by Rust in show_startup_toolbar)
+          const currentWindow = getCurrentWebviewWindow();
+          await currentWindow.show();
+          windowShownRef.current = true;
+        } catch (e) {
+          console.error('Failed to show startup toolbar:', e);
+        }
+      } else {
+        // Use multi-monitor positioning algorithm
+        // This tries: below selection → above selection → alternate monitor → clamp
+        const pos = await calculateToolbarPosition(initialBounds, windowWidth, windowHeight);
 
-      try {
-        // Set bounds and show window
-        await invoke('set_capture_toolbar_bounds', {
-          x: pos.x,
-          y: pos.y,
-          width: windowWidth,
-          height: windowHeight,
-        });
-        windowShownRef.current = true;
-      } catch (e) {
-        console.error('Failed to set toolbar bounds:', e);
+        try {
+          // Set bounds and show window
+          await invoke('set_capture_toolbar_bounds', {
+            x: pos.x,
+            y: pos.y,
+            width: windowWidth,
+            height: windowHeight,
+          });
+          windowShownRef.current = true;
+        } catch (e) {
+          console.error('Failed to set toolbar bounds:', e);
+        }
       }
     };
 
     // Delay to ensure content has rendered
     const timeoutId = setTimeout(measureAndShow, 50);
     return () => clearTimeout(timeoutId);
-  }, [initialBounds]);
+  }, [initialBounds, isStartupMode]);
 
 
-  // ResizeObserver - resize Tauri window when content changes
+  // ResizeObserver - resize Tauri window when ANY content changes (including portaled popovers)
+  // Observes document.body to catch all DOM changes automatically
   useEffect(() => {
-    if (!contentRef.current) return;
-
     let lastWidth = 0;
     let lastHeight = 0;
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) {
-          const newWidth = Math.ceil(width);
-          const newHeight = Math.ceil(height);
+    const calculateAndResize = () => {
+      // Get the bounding box of all content including portaled elements
+      const body = document.body;
+      const scrollWidth = body.scrollWidth;
+      const scrollHeight = body.scrollHeight;
+      
+      // Also check for any Radix portaled content that might extend beyond
+      const portalElements = document.querySelectorAll('[data-radix-popper-content-wrapper]');
+      let maxBottom = scrollHeight;
+      let maxRight = scrollWidth;
+      
+      portalElements.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        maxBottom = Math.max(maxBottom, rect.bottom);
+        maxRight = Math.max(maxRight, rect.right);
+      });
 
-          // Only resize if dimensions actually changed
-          if (newWidth !== lastWidth || newHeight !== lastHeight) {
-            lastWidth = newWidth;
-            lastHeight = newHeight;
-            // Include dropdown buffer to prevent clipping dropdown menus
-            invoke('resize_capture_toolbar', { width: newWidth, height: newHeight + DROPDOWN_BUFFER }).catch(
-              createErrorHandler({ operation: 'resize capture toolbar', silent: true })
-            );
-          }
-        }
+      const newWidth = Math.ceil(Math.max(scrollWidth, maxRight));
+      const newHeight = Math.ceil(Math.max(scrollHeight, maxBottom));
+
+      // Only resize if dimensions actually changed
+      if (newWidth !== lastWidth || newHeight !== lastHeight) {
+        lastWidth = newWidth;
+        lastHeight = newHeight;
+        invoke('resize_capture_toolbar', { width: newWidth, height: newHeight }).catch(
+          createErrorHandler({ operation: 'resize capture toolbar', silent: true })
+        );
       }
+    };
+
+    // Debounced resize to avoid excessive calls
+    const debouncedResize = () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(calculateAndResize, 16); // ~1 frame
+    };
+
+    // Observe document body for any size changes
+    const resizeObserver = new ResizeObserver(debouncedResize);
+    resizeObserver.observe(document.body);
+
+    // Also observe for DOM mutations (popover portals being added/removed)
+    const mutationObserver = new MutationObserver(debouncedResize);
+    mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'data-state'],
     });
 
-    resizeObserver.observe(contentRef.current);
-    return () => resizeObserver.disconnect();
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+    };
   }, []);
 
   // Helper to move webcam to its current anchor position
@@ -327,7 +387,10 @@ const CaptureToolbarWindow: React.FC = () => {
   }, []);
 
   // Listen for selection updates (dimension display + webcam positioning)
+  // Skip in startup mode - no active selection
   useEffect(() => {
+    if (isStartupMode) return; // Skip selection listeners in startup mode
+
     let unlistenSelection: UnlistenFn | null = null;
     let unlistenAnchor: UnlistenFn | null = null;
     let unlistenDragged: UnlistenFn | null = null;
@@ -382,10 +445,13 @@ const CaptureToolbarWindow: React.FC = () => {
       unlistenAnchor?.();
       unlistenDragged?.();
     };
-  }, [moveWebcamToCurrentAnchor]);
+  }, [isStartupMode, moveWebcamToCurrentAnchor]);
 
   // Position webcam on initial mount (after a delay for window creation)
+  // Skip in startup mode - no active selection
   useEffect(() => {
+    if (isStartupMode) return; // Skip webcam positioning in startup mode
+
     const initWebcamPosition = async () => {
       // Wait a bit for webcam preview to be created
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -393,7 +459,7 @@ const CaptureToolbarWindow: React.FC = () => {
     };
 
     initWebcamPosition();
-  }, [initialBounds, moveWebcamToCurrentAnchor]);
+  }, [initialBounds, isStartupMode, moveWebcamToCurrentAnchor]);
 
   // Note: We do NOT close webcam on unmount - it stays open during reselection
   // Webcam is only closed via handleCancel or when recording completes
@@ -578,6 +644,40 @@ const CaptureToolbarWindow: React.FC = () => {
   // Handlers
   const handleCapture = useCallback(async () => {
     try {
+      // In startup mode, trigger capture based on source
+      if (isStartupMode) {
+        const currentWindow = getCurrentWebviewWindow();
+        
+        if (captureSource === 'display') {
+          // Fullscreen capture - close toolbar and capture
+          await currentWindow.hide();
+          
+          if (captureType === 'screenshot') {
+            // Fast fullscreen screenshot
+            const result = await invoke<{ file_path: string; width: number; height: number }>('capture_fullscreen_fast');
+            await invoke('open_editor_fast', {
+              filePath: result.file_path,
+              width: result.width,
+              height: result.height,
+            });
+            await currentWindow.close();
+          } else {
+            // Video/GIF recording - use overlay with fullscreen selection
+            const ctStr = captureType === 'gif' ? 'gif' : 'video';
+            await invoke('show_overlay', { captureType: ctStr });
+            await currentWindow.close();
+          }
+        } else {
+          // Area or Window - show overlay for region selection
+          const ctStr = captureType === 'screenshot' ? 'screenshot' : captureType === 'gif' ? 'gif' : 'video';
+          await currentWindow.hide();
+          await invoke('show_overlay', { captureType: ctStr });
+          await currentWindow.close();
+        }
+        return;
+      }
+
+      // In capture mode (with active selection), confirm the capture
       if (captureType === 'screenshot') {
         // Screenshot capture
         await invoke('capture_overlay_confirm', { action: 'screenshot' });
@@ -618,7 +718,7 @@ const CaptureToolbarWindow: React.FC = () => {
       recordingInitiatedRef.current = false;
       setMode('selection');
     }
-  }, [captureType, settings, webcamSettings.enabled]);
+  }, [captureType, captureSource, isStartupMode, settings, webcamSettings.enabled]);
 
   const handleRedo = useCallback(async () => {
     console.log('[Toolbar] handleRedo called');
@@ -632,7 +732,14 @@ const CaptureToolbarWindow: React.FC = () => {
 
   const handleCancel = useCallback(async () => {
     try {
-      // Close webcam preview if open
+      // In startup mode, just close the toolbar window
+      if (isStartupMode) {
+        const currentWindow = getCurrentWebviewWindow();
+        await currentWindow.close();
+        return;
+      }
+
+      // In capture mode, close webcam preview and cancel overlay/recording
       await closeWebcamPreview();
 
       if (mode !== 'selection') {
@@ -643,7 +750,7 @@ const CaptureToolbarWindow: React.FC = () => {
     } catch (e) {
       console.error('Failed to cancel:', e);
     }
-  }, [mode, closeWebcamPreview]);
+  }, [isStartupMode, mode, closeWebcamPreview]);
 
   const handlePause = useCallback(async () => {
     try { await invoke('pause_recording'); } catch (e) { console.error('Failed to pause:', e); }
@@ -665,6 +772,50 @@ const CaptureToolbarWindow: React.FC = () => {
     }
   }, []);
 
+  const handleCaptureSourceChange = useCallback(async (source: CaptureSource) => {
+    setCaptureSource(source);
+    
+    // In startup mode, clicking a source immediately triggers capture
+    if (isStartupMode) {
+      const currentWindow = getCurrentWebviewWindow();
+      
+      try {
+        if (source === 'display') {
+          // Fullscreen capture
+          await currentWindow.hide();
+          
+          if (captureType === 'screenshot') {
+            const result = await invoke<{ file_path: string; width: number; height: number }>('capture_fullscreen_fast');
+            await invoke('open_editor_fast', {
+              filePath: result.file_path,
+              width: result.width,
+              height: result.height,
+            });
+            await currentWindow.close();
+          } else {
+            // Video/GIF - trigger overlay for fullscreen (user can resize if needed)
+            const ctStr = captureType === 'gif' ? 'gif' : 'video';
+            await invoke('show_overlay', { captureType: ctStr });
+            await currentWindow.close();
+          }
+        } else {
+          // Area or Window - show overlay for region/window selection
+          const ctStr = captureType === 'screenshot' ? 'screenshot' : captureType === 'gif' ? 'gif' : 'video';
+          await currentWindow.hide();
+          await invoke('show_overlay', { captureType: ctStr });
+          await currentWindow.close();
+        }
+      } catch (e) {
+        console.error('Failed to trigger capture:', e);
+        await currentWindow.show();
+      }
+    }
+  }, [isStartupMode, captureType]);
+
+  const handleOpenSettings = useCallback(() => {
+    useSettingsStore.getState().openSettingsModal();
+  }, []);
+
   return (
     <>
       <div ref={toolbarRef} className="toolbar-container">
@@ -675,10 +826,13 @@ const CaptureToolbarWindow: React.FC = () => {
             <CaptureToolbar
               mode={mode}
               captureType={captureType}
+              captureSource={captureSource}
               width={selectionBounds.width}
               height={selectionBounds.height}
+              isStartupMode={isStartupMode}
               onCapture={handleCapture}
               onCaptureTypeChange={setCaptureType}
+              onCaptureSourceChange={handleCaptureSourceChange}
               onRedo={handleRedo}
               onCancel={handleCancel}
               format={format}
@@ -690,6 +844,7 @@ const CaptureToolbarWindow: React.FC = () => {
               onStop={handleStop}
               countdownSeconds={countdownSeconds}
               onDimensionChange={handleDimensionChange}
+              onOpenSettings={handleOpenSettings}
             />
           </div>
         </div>

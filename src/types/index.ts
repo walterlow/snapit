@@ -372,6 +372,44 @@ export type {
   VideoFormat,
 } from './generated';
 
+// ============================================
+// Video Editor Types (generated from Rust via ts-rs)
+// ============================================
+
+// Cursor event types for auto-zoom
+export type {
+  CursorEvent,
+  CursorEventType,
+  CursorRecording,
+} from './generated';
+
+// Video project types
+export type {
+  AutoZoomConfig,
+  VideoProject,
+  VideoSources,
+  TimelineState,
+  ZoomConfig,
+  ZoomMode,
+  ZoomRegion,
+  ZoomTransition,
+  EasingFunction,
+  CursorConfig,
+  ClickHighlightConfig,
+  ClickHighlightStyle,
+  WebcamConfig,
+  WebcamOverlayPosition,
+  WebcamOverlayShape,
+  WebcamBorder,
+  VisibilitySegment,
+  ExportConfig,
+  ExportFormat,
+  ExportResolution,
+  ExportProgress,
+  ExportResult,
+  ExportStage,
+} from './generated';
+
 // Import Rust type for extension
 import type { RecordingState as RustRecordingState } from './generated';
 

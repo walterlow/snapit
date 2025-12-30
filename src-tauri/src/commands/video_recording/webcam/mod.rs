@@ -1,22 +1,19 @@
 //! Webcam capture and compositing for video recording.
 //!
 //! Provides Picture-in-Picture (PiP) webcam overlay functionality.
-//! Uses nokhwa with Windows Media Foundation backend for webcam capture.
+//! Preview and recording now handled by browser getUserMedia + MediaRecorder.
 
-mod capture;
 mod composite;
 mod device;
-mod preview;
+// Note: encoder module kept for reference but WebcamEncoder is no longer used
+// (browser MediaRecorder handles webcam recording now)
+mod encoder;
 
-pub use capture::{WebcamCapture, WebcamError};
 pub use composite::composite_webcam;
 pub use device::{get_webcam_devices, WebcamDevice};
-pub use preview::{
-    get_preview_error, get_preview_frame, is_preview_running, preview_has_error,
-    set_preview_emission_enabled, start_preview_service, stop_preview_service,
-};
 
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use ts_rs::TS;
 
 /// Webcam frame data ready for compositing.
@@ -28,6 +25,12 @@ pub struct WebcamFrame {
     pub width: u32,
     /// Frame height in pixels.
     pub height: u32,
+    /// Unique frame ID (increments with each new frame from camera).
+    /// Used by encoder to detect new frames and avoid duplicates.
+    pub frame_id: u64,
+    /// Wall-clock time when this frame was captured.
+    /// Used by encoder to calculate PTS for correct playback timing.
+    pub captured_at: Instant,
 }
 
 impl Default for WebcamFrame {
@@ -36,6 +39,8 @@ impl Default for WebcamFrame {
             bgra_data: Vec::new(),
             width: 0,
             height: 0,
+            frame_id: 0,
+            captured_at: Instant::now(),
         }
     }
 }
@@ -133,7 +138,7 @@ impl Default for WebcamSettings {
             position: WebcamPosition::default(),
             size: WebcamSize::default(),
             shape: WebcamShape::default(),
-            mirror: true,
+            mirror: false,
         }
     }
 }
@@ -160,4 +165,17 @@ pub fn compute_webcam_rect(
     };
 
     (x, y, diameter)
+}
+
+// === STUB FUNCTIONS FOR REMOVED CRABCAMERA/NATIVE PREVIEW ===
+// These are called by frontend for cleanup but are now no-ops
+
+/// Stub - preview service no longer used (browser handles it)
+pub fn stop_preview_service() {
+    // No-op: browser getUserMedia handles preview now
+}
+
+/// Stub - preview service no longer used
+pub fn is_preview_running() -> bool {
+    false
 }

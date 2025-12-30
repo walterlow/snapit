@@ -6,8 +6,15 @@
 //! - Region, window, monitor, and all-monitors capture modes
 //! - Optional system audio and microphone capture
 //! - Configurable FPS (10-60) and quality settings
+//!
+//! Video Editor features:
+//! - Cursor event capture for auto-zoom
+//! - Separate webcam recording for post-editing
+//! - Video project management with zoom/cursor/webcam configuration
 
 pub mod audio;
+pub mod audio_monitor;
+pub mod audio_multitrack;
 pub mod audio_sync;
 pub mod audio_wasapi;
 pub mod cursor;
@@ -15,6 +22,8 @@ pub mod ffmpeg_gif_encoder;
 pub mod gif_encoder;
 pub mod recorder;
 pub mod state;
+pub mod video_export;
+pub mod video_project;
 pub mod webcam;
 pub mod wgc_capture;
 
@@ -28,6 +37,23 @@ use crate::error::{LockResultExt, SnapItError};
 
 pub use ffmpeg_gif_encoder::GifQualityPreset;
 pub use state::RECORDING_CONTROLLER;
+
+// Video editor types
+pub use cursor::{
+    CursorEvent, CursorEventCapture, CursorEventType, CursorRecording,
+    load_cursor_recording, save_cursor_recording,
+};
+pub use video_project::{
+    AudioTrackSettings, AutoZoomConfig, ClickHighlightConfig, ClickHighlightStyle, CursorConfig,
+    EasingFunction, ExportConfig, ExportFormat, ExportResolution, TimelineState, VideoProject,
+    VideoSources, VisibilitySegment, WebcamBorder, WebcamConfig,
+    WebcamOverlayPosition, WebcamOverlayShape, ZoomConfig, ZoomMode, ZoomRegion,
+    ZoomTransition, apply_auto_zoom_to_project, load_video_project_from_file, 
+    get_video_frame_cached, clear_frame_cache,
+};
+pub use audio_multitrack::MultiTrackAudioRecorder;
+pub use audio_monitor::AudioLevels;
+pub use video_export::{ExportProgress, ExportResult, ExportStage, VideoExporter};
 
 // Global recording settings (set from frontend before starting recording)
 static COUNTDOWN_SECS: AtomicU32 = AtomicU32::new(3);
@@ -172,7 +198,7 @@ use std::sync::Mutex;
 use lazy_static::lazy_static;
 
 pub use webcam::{
-    WebcamCapture, WebcamDevice, WebcamFrame, WebcamPosition, WebcamSettings, WebcamShape,
+    WebcamDevice, WebcamFrame, WebcamPosition, WebcamSettings, WebcamShape,
     WebcamSize, composite_webcam, compute_webcam_rect, get_webcam_devices,
 };
 
@@ -254,24 +280,43 @@ pub fn list_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
 }
 
 /// Get available audio input devices (microphones).
+/// Uses wasapi to get full friendly names (e.g., "Headset (WH-1000XM3 Hands-Free AG Audio)")
 #[command]
 pub fn list_audio_input_devices() -> Result<Vec<AudioInputDevice>, String> {
-    use cpal::traits::{DeviceTrait, HostTrait};
-
-    let host = cpal::default_host();
-    let default_name = host.default_input_device().and_then(|d| d.name().ok());
-
-    let devices = host
-        .input_devices()
-        .map_err(|e| format!("Failed to enumerate audio input devices: {}", e))?;
-
+    use wasapi::{DeviceEnumerator, Direction, initialize_mta};
+    
+    // Initialize COM for this thread
+    initialize_mta().ok();
+    
+    let enumerator = DeviceEnumerator::new()
+        .map_err(|e| format!("Failed to create device enumerator: {:?}", e))?;
+    
+    // Get default device ID for comparison
+    let default_id = enumerator
+        .get_default_device(&Direction::Capture)
+        .ok()
+        .and_then(|d| d.get_id().ok());
+    
+    // Get all capture (input) devices
+    let collection = enumerator
+        .get_device_collection(&Direction::Capture)
+        .map_err(|e| format!("Failed to get device collection: {:?}", e))?;
+    
     let mut result = Vec::new();
-    for (index, device) in devices.enumerate() {
-        if let Ok(name) = device.name() {
+    for (index, device_result) in collection.into_iter().enumerate() {
+        if let Ok(device) = device_result {
+            let device_id = device.get_id().ok();
+            let is_default = device_id.is_some() && device_id == default_id;
+            
+            // get_friendlyname() returns full name like "Headset (WH-1000XM3 Hands-Free AG Audio)"
+            let name = device.get_friendlyname().unwrap_or_else(|_| "Unknown Device".to_string());
+            
+            log::debug!("[AUDIO] Device {}: name='{}', is_default={}", index, name, is_default);
+            
             result.push(AudioInputDevice {
                 index,
-                name: name.clone(),
-                is_default: default_name.as_ref() == Some(&name),
+                name,
+                is_default,
             });
         }
     }
@@ -431,29 +476,182 @@ pub async fn clamp_webcam_to_selection(
 }
 
 // ============================================================================
-// Webcam Preview Service (Single-source capture)
+// Webcam Preview Service (DEPRECATED - browser handles preview now)
 // ============================================================================
+// Preview is now handled by browser getUserMedia in WebcamPreviewWindow.tsx
+// These commands are kept as no-ops for backwards compatibility with frontend cleanup calls.
 
-/// Start the webcam preview service (Rust-based capture that emits frames to frontend).
-/// This replaces the browser's getUserMedia approach to avoid hardware conflicts.
+/// Start the webcam preview service.
+/// DEPRECATED: Browser now handles preview via getUserMedia. This is a no-op.
 #[command]
-pub async fn start_webcam_preview(app: tauri::AppHandle) -> Result<(), String> {
-    let settings = WEBCAM_SETTINGS.lock()
-        .map_err(|_| "Failed to lock webcam settings".to_string())?
-        .clone();
-    webcam::start_preview_service(app, settings.device_index, settings.mirror)
+pub async fn start_webcam_preview(_app: tauri::AppHandle) -> Result<(), String> {
+    // No-op: browser getUserMedia handles preview now
+    log::debug!("[WEBCAM] start_webcam_preview called (no-op, browser handles preview)");
+    Ok(())
 }
 
 /// Stop the webcam preview service.
+/// DEPRECATED: Browser handles preview. This is a no-op for cleanup compatibility.
 #[command]
 pub fn stop_webcam_preview() {
-    webcam::stop_preview_service();
+    // No-op: browser handles preview
+    log::debug!("[WEBCAM] stop_webcam_preview called (no-op)");
 }
 
 /// Check if the webcam preview service is running.
+/// DEPRECATED: Always returns false, browser handles preview.
 #[command]
 pub fn is_webcam_preview_running() -> bool {
-    webcam::is_preview_running()
+    false
+}
+
+/// Exclude the webcam preview window from screen capture.
+/// Uses Windows SetWindowDisplayAffinity API to make the window invisible to capture.
+#[command]
+pub async fn exclude_webcam_from_capture(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
+
+        if let Some(window) = app.get_webview_window("webcam-preview") {
+            let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
+            unsafe {
+                SetWindowDisplayAffinity(HWND(hwnd.0), WDA_EXCLUDEFROMCAPTURE)
+                    .map_err(|e| format!("Failed to exclude from capture: {:?}", e))?;
+            }
+            log::debug!("[WEBCAM] Preview window excluded from screen capture");
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Native/MF Webcam Preview (REMOVED - browser handles preview now)
+// ============================================================================
+// These commands are kept as no-ops for backwards compatibility with frontend cleanup calls.
+
+/// Start native webcam preview.
+/// DEPRECATED: Browser handles preview. This is a no-op.
+#[command]
+#[cfg(target_os = "windows")]
+pub async fn start_native_webcam_preview(_app: tauri::AppHandle) -> Result<(), String> {
+    log::debug!("[WEBCAM] start_native_webcam_preview called (no-op, browser handles preview)");
+    Ok(())
+}
+
+/// Stop native webcam preview.
+/// DEPRECATED: Browser handles preview. This is a no-op for cleanup compatibility.
+#[command]
+#[cfg(target_os = "windows")]
+pub fn stop_native_webcam_preview() {
+    log::debug!("[WEBCAM] stop_native_webcam_preview called (no-op)");
+}
+
+/// Check if native webcam preview is running.
+/// DEPRECATED: Always returns false, browser handles preview.
+#[command]
+#[cfg(target_os = "windows")]
+pub fn is_native_webcam_preview_running() -> bool {
+    false
+}
+
+/// Start MF-based webcam preview.
+/// DEPRECATED: Browser handles preview. This is a no-op.
+#[command]
+#[cfg(target_os = "windows")]
+pub async fn start_mf_webcam_preview(_app: tauri::AppHandle) -> Result<(), String> {
+    log::debug!("[WEBCAM] start_mf_webcam_preview called (no-op, browser handles preview)");
+    Ok(())
+}
+
+/// Stop MF webcam preview.
+/// DEPRECATED: Browser handles preview. This is a no-op for cleanup compatibility.
+#[command]
+#[cfg(target_os = "windows")]
+pub fn stop_mf_webcam_preview() {
+    log::debug!("[WEBCAM] stop_mf_webcam_preview called (no-op)");
+}
+
+/// Check if MF webcam preview is running.
+/// DEPRECATED: Always returns false, browser handles preview.
+#[command]
+#[cfg(target_os = "windows")]
+pub fn is_mf_webcam_preview_running() -> bool {
+    false
+}
+
+// ============================================================================
+// Browser-based Webcam Recording (MediaRecorder chunks from frontend)
+// ============================================================================
+
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+
+lazy_static! {
+    /// Active webcam recording file handle.
+    static ref WEBCAM_RECORDING_FILE: Mutex<Option<File>> = Mutex::new(None);
+}
+
+/// Start webcam recording - creates the output file.
+/// Called from frontend when screen recording starts.
+#[command]
+pub fn webcam_recording_start(output_path: String) -> Result<(), String> {
+    let mut guard = WEBCAM_RECORDING_FILE.lock()
+        .map_err(|e| format!("Failed to lock webcam recording state: {}", e))?;
+    
+    // Close any existing file
+    if guard.is_some() {
+        log::warn!("[WEBCAM-REC] Previous recording not properly closed, closing now");
+        *guard = None;
+    }
+    
+    // Create new file
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&output_path)
+        .map_err(|e| format!("Failed to create webcam recording file: {}", e))?;
+    
+    *guard = Some(file);
+    log::info!("[WEBCAM-REC] Started recording to: {}", output_path);
+    Ok(())
+}
+
+/// Write a chunk of webcam video data.
+/// Called from frontend's MediaRecorder ondataavailable.
+#[command]
+pub fn webcam_recording_chunk(chunk: Vec<u8>) -> Result<(), String> {
+    let mut guard = WEBCAM_RECORDING_FILE.lock()
+        .map_err(|e| format!("Failed to lock webcam recording state: {}", e))?;
+    
+    if let Some(ref mut file) = *guard {
+        file.write_all(&chunk)
+            .map_err(|e| format!("Failed to write webcam chunk: {}", e))?;
+        log::trace!("[WEBCAM-REC] Wrote {} bytes", chunk.len());
+        Ok(())
+    } else {
+        Err("Webcam recording not started".to_string())
+    }
+}
+
+/// Stop webcam recording - closes the file.
+/// Called from frontend when screen recording stops.
+#[command]
+pub fn webcam_recording_stop() -> Result<(), String> {
+    let mut guard = WEBCAM_RECORDING_FILE.lock()
+        .map_err(|e| format!("Failed to lock webcam recording state: {}", e))?;
+    
+    if let Some(file) = guard.take() {
+        // File is closed when dropped
+        drop(file);
+        log::info!("[WEBCAM-REC] Recording stopped and file closed");
+        Ok(())
+    } else {
+        log::warn!("[WEBCAM-REC] Stop called but no recording active");
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -506,10 +704,10 @@ pub enum RecordingMode {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct AudioInputDevice {
-    /// Device index for selection (matches cpal enumeration order).
+    /// Device index for selection (matches wasapi enumeration order).
     #[ts(type = "number")]
     pub index: usize,
-    /// Human-readable device name.
+    /// Human-readable device name (full friendly name from Windows, e.g., "Headset (WH-1000XM3 Hands-Free AG Audio)").
     pub name: String,
     /// Whether this is the system default input device.
     pub is_default: bool,
@@ -783,6 +981,162 @@ pub async fn get_recording_status() -> Result<RecordingStatus, String> {
 }
 
 // ============================================================================
+// Video Editor Commands
+// ============================================================================
+
+/// Load a video project from a screen recording file.
+///
+/// This command:
+/// 1. Extracts video metadata (dimensions, duration, fps) using ffprobe
+/// 2. Detects associated files (webcam: `_webcam.mp4`, cursor: `_cursor.json`)
+/// 3. Creates a VideoProject with default configurations
+///
+/// # Arguments
+/// * `video_path` - Path to the screen recording MP4 file
+///
+/// # Returns
+/// A VideoProject ready for editing in the video editor UI.
+#[command]
+pub async fn load_video_project(video_path: String) -> Result<VideoProject, String> {
+    let path = std::path::Path::new(&video_path);
+    
+    if !path.exists() {
+        return Err(format!("Video file not found: {}", video_path));
+    }
+    
+    load_video_project_from_file(path)
+}
+
+/// Save a video project to a JSON file.
+///
+/// The project file is saved alongside the source video with `.snapit` extension.
+#[command]
+pub async fn save_video_project(project: VideoProject) -> Result<(), String> {
+    let video_path = std::path::Path::new(&project.sources.screen_video);
+    let project_path = video_path.with_extension("snapit");
+    
+    project.save(&project_path)
+}
+
+/// Extract a video frame at the specified timestamp.
+///
+/// Returns a base64-encoded JPEG image. Uses caching to improve scrubbing performance.
+///
+/// # Arguments
+/// * `video_path` - Path to the video file
+/// * `timestamp_ms` - Timestamp in milliseconds
+/// * `max_width` - Optional max width for scaling down (default: 1280)
+/// * `tolerance_ms` - Cache tolerance in ms (default: 100ms, returns cached frame if within tolerance)
+#[command]
+pub async fn extract_frame(
+    video_path: String,
+    timestamp_ms: u64,
+    max_width: Option<u32>,
+    tolerance_ms: Option<u64>,
+) -> Result<String, String> {
+    let path = std::path::Path::new(&video_path);
+    
+    if !path.exists() {
+        return Err(format!("Video file not found: {}", video_path));
+    }
+    
+    let max_w = max_width.unwrap_or(1280);
+    let tolerance = tolerance_ms.unwrap_or(100);
+    
+    get_video_frame_cached(path, timestamp_ms, Some(max_w), tolerance)
+}
+
+/// Clear the frame cache for a video or all videos.
+///
+/// Call this when closing the video editor to free memory.
+#[command]
+pub fn clear_video_frame_cache(video_path: Option<String>) {
+    let path = video_path.as_ref().map(|p| std::path::Path::new(p));
+    clear_frame_cache(path);
+}
+
+/// Generate auto-zoom regions from cursor data.
+///
+/// Analyzes the cursor recording to find click events and creates zoom regions
+/// that will zoom to each click location. This is the core of the "auto-zoom to clicks"
+/// feature similar to ScreenStudio.
+///
+/// # Arguments
+/// * `project` - The video project to generate zoom regions for
+/// * `config` - Optional auto-zoom configuration. Uses defaults if not provided.
+///
+/// # Returns
+/// Updated VideoProject with auto-generated zoom regions
+#[command]
+pub async fn generate_auto_zoom(
+    project: VideoProject,
+    config: Option<AutoZoomConfig>,
+) -> Result<VideoProject, String> {
+    let zoom_config = config.unwrap_or_default();
+    
+    log::info!(
+        "[AUTO_ZOOM] Generating auto-zoom for project '{}' with scale={}, hold={}ms",
+        project.name,
+        zoom_config.scale,
+        zoom_config.hold_duration_ms
+    );
+    
+    apply_auto_zoom_to_project(project, &zoom_config)
+}
+
+/// Export a video project with zoom effects applied.
+///
+/// Takes a VideoProject and exports it to the specified format with all
+/// configured zoom regions, applying smooth transitions.
+///
+/// Progress is reported via `export-progress` events.
+///
+/// # Arguments
+/// * `app` - Tauri app handle for progress events
+/// * `project` - The video project to export
+/// * `output_path` - Path where the exported video will be saved
+///
+/// # Returns
+/// ExportResult with output file information
+#[command]
+pub async fn export_video(
+    app: AppHandle,
+    project: VideoProject,
+    output_path: String,
+) -> Result<ExportResult, String> {
+    log::info!(
+        "[EXPORT] Starting export of '{}' to '{}'",
+        project.name,
+        output_path
+    );
+    
+    let path = std::path::PathBuf::from(&output_path);
+    
+    // Ensure output directory exists
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create output directory: {}", e))?;
+    }
+    
+    let exporter = VideoExporter::new(project, path)?;
+    
+    // Run export in a blocking task to not block the async runtime
+    let result = tokio::task::spawn_blocking(move || {
+        exporter.export(&app)
+    })
+    .await
+    .map_err(|e| format!("Export task failed: {}", e))??;
+    
+    log::info!(
+        "[EXPORT] Export complete: {} bytes, {:.1}s",
+        result.file_size_bytes,
+        result.duration_secs
+    );
+    
+    Ok(result)
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -837,4 +1191,37 @@ pub fn emit_webcam_error(app: &AppHandle, message: &str, is_fatal: bool) {
     };
     println!("[EMIT] webcam-error: {:?}", event);
     let _ = app.emit("webcam-error", event);
+}
+
+// ============================================================================
+// Audio Level Monitoring Commands
+// ============================================================================
+
+/// Start audio level monitoring.
+///
+/// Starts background threads that monitor audio input levels and emit
+/// `audio-levels` events to the frontend at ~20Hz.
+///
+/// # Arguments
+/// * `mic_device_index` - Optional microphone device index to monitor
+/// * `monitor_system_audio` - Whether to monitor system audio (loopback)
+#[command]
+pub fn start_audio_monitoring(
+    app: AppHandle,
+    mic_device_index: Option<usize>,
+    monitor_system_audio: bool,
+) -> Result<(), String> {
+    audio_monitor::start_monitoring(app, mic_device_index, monitor_system_audio)
+}
+
+/// Stop audio level monitoring.
+#[command]
+pub fn stop_audio_monitoring() -> Result<(), String> {
+    audio_monitor::stop_monitoring()
+}
+
+/// Check if audio monitoring is currently active.
+#[command]
+pub fn is_audio_monitoring() -> bool {
+    audio_monitor::is_monitoring()
 }

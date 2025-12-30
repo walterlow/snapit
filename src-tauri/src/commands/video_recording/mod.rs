@@ -18,6 +18,7 @@ pub mod audio_multitrack;
 pub mod audio_sync;
 pub mod audio_wasapi;
 pub mod cursor;
+pub mod desktop_icons;
 pub mod ffmpeg_gif_encoder;
 pub mod gif_encoder;
 pub mod recorder;
@@ -188,6 +189,13 @@ pub fn set_recording_microphone_device(index: Option<u32>) {
     let store_val = index.unwrap_or(u32::MAX);
     log::debug!("[SETTINGS] set_recording_microphone_device({:?}) -> storing {}", index, store_val);
     MICROPHONE_DEVICE_INDEX.store(store_val, Ordering::SeqCst);
+}
+
+/// Set whether to hide desktop icons during recording
+#[command]
+pub fn set_hide_desktop_icons(enabled: bool) {
+    log::debug!("[SETTINGS] set_hide_desktop_icons({})", enabled);
+    desktop_icons::set_hide_desktop_icons_enabled(enabled);
 }
 
 // ============================================================================

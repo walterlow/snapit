@@ -67,6 +67,7 @@ use windows_capture::{
 use super::audio_multitrack::MultiTrackAudioRecorder;
 use super::audio_sync::AudioCaptureManager;
 use super::cursor::{composite_cursor, CursorCapture, CursorEventCapture, save_cursor_recording};
+use super::desktop_icons::{hide_desktop_icons, show_desktop_icons};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
 use super::webcam::stop_preview_service;
@@ -399,6 +400,9 @@ fn start_capture_thread(
     let handle = std::thread::spawn(move || {
         println!("[THREAD] Capture thread started, format={:?}", settings.format);
         
+        // Hide desktop icons if enabled (will be restored when recording ends)
+        hide_desktop_icons();
+        
         // Catch any panics to ensure we log them
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 
@@ -531,6 +535,9 @@ fn start_capture_thread(
                 message: format!("Capture thread panicked: {}", panic_msg) 
             });
         }
+        
+        // Always restore desktop icons when recording ends (success, error, or panic)
+        show_desktop_icons();
     });
     
     println!("[START] Capture thread spawned successfully, handle: {:?}", handle.thread().id());

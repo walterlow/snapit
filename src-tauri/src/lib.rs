@@ -88,13 +88,21 @@ pub fn run() {
                 }
                 // Minimize to tray instead of closing the main window (if enabled)
                 WindowEvent::CloseRequested { api, .. } => {
-                    if window.label() == "library" {
-                        if commands::settings::is_close_to_tray() {
-                            api.prevent_close();
-                            let _ = window.hide();
+                    let label = window.label();
+                    
+                    // Close webcam preview when main window or capture toolbar closes
+                    if label == "library" || label == "capture-toolbar" {
+                        if let Some(webcam_window) = window.app_handle().get_webview_window("webcam-preview") {
+                            let _ = webcam_window.destroy();
                         }
-                        // If close_to_tray is false, let the window close normally
                     }
+                    
+                    // Handle minimize to tray for library window
+                    if label == "library" && commands::settings::is_close_to_tray() {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                    // Otherwise let the window close normally
                 }
                 _ => {}
             }
@@ -126,6 +134,7 @@ pub fn run() {
             commands::window::hide_capture_toolbar,
             commands::window::resize_capture_toolbar,
             commands::window::set_capture_toolbar_bounds,
+            commands::window::set_capture_toolbar_ignore_cursor,
             commands::window::restore_main_window,
             commands::window::show_countdown_window,
             commands::window::hide_countdown_window,
@@ -180,6 +189,7 @@ pub fn run() {
             commands::video_recording::set_recording_include_cursor,
             commands::video_recording::set_recording_max_duration,
             commands::video_recording::set_recording_microphone_device,
+            commands::video_recording::set_hide_desktop_icons,
             commands::video_recording::reset_recording_settings_cmd,
             // Webcam commands
             commands::video_recording::get_webcam_settings_cmd,
@@ -247,6 +257,15 @@ pub fn run() {
                 // Can't use log! here since logging initialization failed
                 eprintln!("Failed to initialize logging: {}", e);
             }
+
+            // Install panic hook to restore desktop icons on any future panic (fast, non-blocking)
+            commands::video_recording::desktop_icons::install_panic_hook();
+            
+            // Safety: Restore desktop icons in case previous session crashed while hiding them
+            // Run in background thread to not block startup toolbar
+            std::thread::spawn(|| {
+                commands::video_recording::desktop_icons::force_show_desktop_icons();
+            });
 
             #[cfg(desktop)]
             {

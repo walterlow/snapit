@@ -39,6 +39,7 @@ const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
   microphoneDeviceIndex: null,
   captureWebcam: false, // Placeholder - always false for now
   countdownSecs: 3,
+  hideDesktopIcons: false,
 };
 
 const DEFAULT_GIF_SETTINGS: GifSettings = {

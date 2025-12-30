@@ -90,12 +90,15 @@ pub async fn show_capture_overlay(
     _monitor_index: Option<usize>,
     capture_type: Option<String>,
 ) -> Result<Option<OverlayResult>, String> {
+    log::info!("[show_capture_overlay] Called with capture_type: {:?}", capture_type);
+    
     let app_clone = app.clone();
     let ct = CaptureType::from_str(capture_type.as_deref().unwrap_or("video"));
 
     // Get virtual screen bounds (spans all monitors)
     let (x, y, width, height) = get_virtual_screen_bounds();
     let bounds = Rect::from_xywh(x, y, width, height);
+    log::info!("[show_capture_overlay] Virtual screen bounds: x={}, y={}, w={}, h={}", x, y, width, height);
 
     tokio::task::spawn_blocking(move || run_overlay(app_clone, bounds, ct))
         .await
@@ -120,8 +123,11 @@ fn run_overlay(
     bounds: Rect,
     capture_type: CaptureType,
 ) -> Result<Option<OverlayResult>, String> {
+    log::info!("[run_overlay] Starting overlay for {:?}", capture_type);
+    
     // Prevent concurrent overlays
     if OVERLAY_ACTIVE.swap(true, Ordering::SeqCst) {
+        log::warn!("[run_overlay] Overlay already active, returning None");
         return Ok(None);
     }
 
@@ -235,6 +241,7 @@ fn run_overlay(
             // (WS_EX_NOACTIVATE windows don't receive keyboard messages normally)
             let esc_pressed = (GetAsyncKeyState(0x1B) as u16 & 0x8000) != 0;
             if esc_pressed && !esc_was_pressed {
+                log::info!("[Overlay] ESC pressed, cancelling overlay");
                 if state.adjustment.is_active {
                     state.adjustment.reset();
                 }
@@ -324,12 +331,18 @@ fn run_overlay(
 
         // If cancelled (no result), show the startup toolbar again
         if result.is_none() {
+            log::info!("[Overlay] Result is None (cancelled), will show startup toolbar");
             let app_handle = state.app_handle.clone();
             tauri::async_runtime::spawn(async move {
+                log::info!("[Overlay] Spawned task to show startup toolbar");
                 if let Err(e) = crate::commands::window::show_startup_toolbar(app_handle).await {
                     log::error!("Failed to show startup toolbar after cancel: {}", e);
+                } else {
+                    log::info!("[Overlay] show_startup_toolbar completed successfully");
                 }
             });
+        } else {
+            log::info!("[Overlay] Result is Some (confirmed), not showing startup toolbar");
         }
 
         // Cleanup

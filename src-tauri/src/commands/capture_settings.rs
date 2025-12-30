@@ -103,6 +103,8 @@ pub struct VideoSettings {
     /// Countdown duration before recording starts (0-10 seconds).
     #[ts(type = "number")]
     pub countdown_secs: u32,
+    /// Hide desktop icons during recording for cleaner videos.
+    pub hide_desktop_icons: bool,
 }
 
 impl Default for VideoSettings {
@@ -117,6 +119,7 @@ impl Default for VideoSettings {
             microphone_device_index: None,
             capture_webcam: false, // Placeholder - always false for now
             countdown_secs: 3,
+            hide_desktop_icons: false,
         }
     }
 }

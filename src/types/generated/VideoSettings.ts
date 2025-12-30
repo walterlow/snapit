@@ -40,4 +40,8 @@ captureWebcam: boolean,
 /**
  * Countdown duration before recording starts (0-10 seconds).
  */
-countdownSecs: number, };
+countdownSecs: number, 
+/**
+ * Hide desktop icons during recording for cleaner videos.
+ */
+hideDesktopIcons: boolean, };

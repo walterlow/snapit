@@ -555,8 +555,8 @@ pub async fn save_capture_from_file(
         .save(&thumbnail_path)
         .map_err(|e| format!("Failed to save thumbnail: {}", e))?;
 
-    // Clean up the temporary RGBA file
-    let _ = fs::remove_file(&file_path);
+    // NOTE: Don't delete the temp file here - JS needs to read it for display.
+    // The useFastImage hook will clean it up after loading successfully.
 
     // Create project data - store full path to image
     let project = CaptureProject {

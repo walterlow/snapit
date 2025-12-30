@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Settings, MousePointer2, Timer, Gauge, Film, ExternalLink } from 'lucide-react';
+import { Settings, MousePointer2, Timer, Gauge, Film, ExternalLink, Monitor } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -221,6 +221,20 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               onCheckedChange={setCursorEnabled}
             />
           </div>
+
+          {/* Hide desktop icons toggle (video only) */}
+          {mode === 'video' && (
+            <div className="glass-popover-row">
+              <div className="flex items-center gap-2">
+                <Monitor size={14} className="text-white/50" />
+                <span className="glass-popover-row-label">Hide desktop icons</span>
+              </div>
+              <Switch
+                checked={settings.video.hideDesktopIcons}
+                onCheckedChange={(checked) => updateVideoSettings({ hideDesktopIcons: checked })}
+              />
+            </div>
+          )}
 
           {/* Link to full settings */}
           {onOpenSettings && (

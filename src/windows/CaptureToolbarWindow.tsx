@@ -11,7 +11,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { availableMonitors, type Monitor } from '@tauri-apps/api/window';
+import { availableMonitors, cursorPosition, type Monitor } from '@tauri-apps/api/window';
 import { toast, Toaster } from 'sonner';
 import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
 import type { CaptureSource } from '../components/CaptureToolbar/SourceSelector';
@@ -154,10 +154,13 @@ async function calculateToolbarPosition(
 }
 
 const CaptureToolbarWindow: React.FC = () => {
+  console.log('[Toolbar] Component rendering, URL:', window.location.href);
+  
   // Parse initial selection bounds and mode from URL
   const { initialBounds, isStartupMode } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
+    console.log('[Toolbar] Parsed URL params:', { mode, isStartupMode: mode === 'startup' });
     return {
       isStartupMode: mode === 'startup',
       initialBounds: {
@@ -247,11 +250,36 @@ const CaptureToolbarWindow: React.FC = () => {
   // Initial measurement and positioning on mount
   // Measures content, calculates position (with multi-monitor support), sets bounds, and shows window
   useEffect(() => {
-    if (!contentRef.current || windowShownRef.current) return;
+    console.log('[Toolbar] measureAndShow effect running', { 
+      hasContentRef: !!contentRef.current, 
+      windowShown: windowShownRef.current,
+      isStartupMode 
+    });
+    
+    if (windowShownRef.current) {
+      console.log('[Toolbar] Skipping measureAndShow: window already shown');
+      return;
+    }
+
+    let retryCount = 0;
+    const maxRetries = 10;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     const measureAndShow = async () => {
+      console.log('[Toolbar] measureAndShow called, attempt:', retryCount + 1);
       const rect = contentRef.current?.getBoundingClientRect();
-      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      console.log('[Toolbar] Content rect:', rect);
+      
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          console.log('[Toolbar] Invalid content dimensions, retrying in 50ms...');
+          timeoutId = setTimeout(measureAndShow, 50);
+          return;
+        }
+        console.error('[Toolbar] Failed to get valid content dimensions after', maxRetries, 'attempts');
+        return;
+      }
 
       const contentWidth = Math.ceil(rect.width);
       const contentHeight = Math.ceil(rect.height);
@@ -260,10 +288,13 @@ const CaptureToolbarWindow: React.FC = () => {
       const windowWidth = contentWidth + (SHADOW_PADDING * 2); // padding on both sides
       const windowHeight = contentHeight + (SHADOW_PADDING * 2); // padding top and bottom
 
+      console.log('[Toolbar] Window dimensions:', { windowWidth, windowHeight });
+
       // In startup mode, just resize and show - position was set by Rust
       // In capture mode, calculate position based on selection bounds
       if (isStartupMode) {
         try {
+          console.log('[Toolbar] Startup mode: resizing and showing window');
           // Resize the window to fit content
           await invoke('resize_capture_toolbar', {
             width: windowWidth,
@@ -273,6 +304,7 @@ const CaptureToolbarWindow: React.FC = () => {
           const currentWindow = getCurrentWebviewWindow();
           await currentWindow.show();
           windowShownRef.current = true;
+          console.log('[Toolbar] Window shown successfully');
         } catch (e) {
           console.error('Failed to show startup toolbar:', e);
         }
@@ -297,19 +329,24 @@ const CaptureToolbarWindow: React.FC = () => {
     };
 
     // Delay to ensure content has rendered
-    const timeoutId = setTimeout(measureAndShow, 50);
+    timeoutId = setTimeout(measureAndShow, 50);
     return () => clearTimeout(timeoutId);
   }, [initialBounds, isStartupMode]);
 
 
+  // Track content left edge position (screen coordinates) for left-anchored resizing
+  const contentLeftRef = useRef<number | null>(null);
+
   // ResizeObserver - resize Tauri window when ANY content changes (including portaled popovers)
   // Observes document.body to catch all DOM changes automatically
+  // Uses left-anchor: content left edge stays fixed, window extends/shrinks to the right
   useEffect(() => {
+    const currentWindow = getCurrentWebviewWindow();
     let lastWidth = 0;
     let lastHeight = 0;
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    const calculateAndResize = () => {
+    const calculateAndResize = async () => {
       // Get the bounding box of all content including portaled elements
       const body = document.body;
       const scrollWidth = body.scrollWidth;
@@ -333,9 +370,35 @@ const CaptureToolbarWindow: React.FC = () => {
       if (newWidth !== lastWidth || newHeight !== lastHeight) {
         lastWidth = newWidth;
         lastHeight = newHeight;
-        invoke('resize_capture_toolbar', { width: newWidth, height: newHeight }).catch(
-          createErrorHandler({ operation: 'resize capture toolbar', silent: true })
-        );
+
+        try {
+          // Get current window position
+          const windowPos = await currentWindow.outerPosition();
+          
+          // Calculate content left edge: window.x + SHADOW_PADDING
+          const currentContentLeft = windowPos.x + SHADOW_PADDING;
+          
+          // Store initial content left edge
+          if (contentLeftRef.current === null) {
+            contentLeftRef.current = currentContentLeft;
+          }
+          
+          // Calculate new window X to keep content left edge fixed
+          const newX = contentLeftRef.current - SHADOW_PADDING;
+          
+          // Set new bounds with left-anchored position
+          await invoke('set_capture_toolbar_bounds', {
+            x: newX,
+            y: windowPos.y,
+            width: newWidth,
+            height: newHeight,
+          });
+        } catch {
+          // Fallback to simple resize if position tracking fails
+          invoke('resize_capture_toolbar', { width: newWidth, height: newHeight }).catch(
+            createErrorHandler({ operation: 'resize capture toolbar', silent: true })
+          );
+        }
       }
     };
 
@@ -363,6 +426,115 @@ const CaptureToolbarWindow: React.FC = () => {
       mutationObserver.disconnect();
       if (resizeTimeout) clearTimeout(resizeTimeout);
     };
+  }, []);
+
+  // Click-through handling: transparent areas should pass through to desktop
+  // We poll cursor position and toggle ignore_cursor_events based on whether
+  // cursor is over the toolbar content
+  useEffect(() => {
+    const currentWindow = getCurrentWebviewWindow();
+    let isIgnoring = false;
+    let animationFrameId: number | null = null;
+
+    const checkCursorPosition = async () => {
+      try {
+        // Get cursor position in screen coordinates
+        const cursor = await cursorPosition();
+        
+        // Get window position in screen coordinates
+        const windowPos = await currentWindow.outerPosition();
+        
+        // Get content bounds relative to window
+        const contentRect = contentRef.current?.getBoundingClientRect();
+        if (!contentRect) {
+          animationFrameId = requestAnimationFrame(checkCursorPosition);
+          return;
+        }
+
+        // Calculate content bounds in screen coordinates
+        // Content is centered with SHADOW_PADDING on all sides
+        const contentLeft = windowPos.x + SHADOW_PADDING;
+        const contentTop = windowPos.y + SHADOW_PADDING;
+        const contentRight = contentLeft + contentRect.width;
+        const contentBottom = contentTop + contentRect.height;
+
+        // Check if cursor is within content bounds (with small margin for edge tolerance)
+        const margin = 4;
+        let isOverContent =
+          cursor.x >= contentLeft - margin &&
+          cursor.x <= contentRight + margin &&
+          cursor.y >= contentTop - margin &&
+          cursor.y <= contentBottom + margin;
+
+        // Also check if cursor is over any portaled content (popovers, dropdowns, selects)
+        // These are rendered outside contentRef but still need to be interactive
+        if (!isOverContent) {
+          const portalElements = document.querySelectorAll('[data-radix-popper-content-wrapper]');
+          for (const el of portalElements) {
+            const rect = el.getBoundingClientRect();
+            // rect is relative to viewport, which matches window coordinates for this window
+            const portalLeft = windowPos.x + rect.left;
+            const portalTop = windowPos.y + rect.top;
+            const portalRight = portalLeft + rect.width;
+            const portalBottom = portalTop + rect.height;
+            
+            if (
+              cursor.x >= portalLeft - margin &&
+              cursor.x <= portalRight + margin &&
+              cursor.y >= portalTop - margin &&
+              cursor.y <= portalBottom + margin
+            ) {
+              isOverContent = true;
+              break;
+            }
+          }
+        }
+
+        // Toggle click-through if state changed
+        const shouldIgnore = !isOverContent;
+        if (shouldIgnore !== isIgnoring) {
+          isIgnoring = shouldIgnore;
+          await invoke('set_capture_toolbar_ignore_cursor', { ignore: shouldIgnore });
+        }
+      } catch {
+        // Ignore errors (window might be closing)
+      }
+
+      // Continue polling
+      animationFrameId = requestAnimationFrame(checkCursorPosition);
+    };
+
+    // Start polling after window is shown
+    const startPolling = () => {
+      if (windowShownRef.current) {
+        animationFrameId = requestAnimationFrame(checkCursorPosition);
+      } else {
+        // Wait for window to be shown
+        setTimeout(startPolling, 100);
+      }
+    };
+
+    startPolling();
+
+    return () => {
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+      }
+      // Ensure window is interactive when unmounting
+      invoke('set_capture_toolbar_ignore_cursor', { ignore: false }).catch(() => {});
+    };
+  }, []);
+
+  // Close popovers when window loses focus (clicking outside Tauri window)
+  // Radix popovers don't receive outside clicks from other windows, so we simulate one
+  useEffect(() => {
+    const handleBlur = () => {
+      // Dispatch pointerdown to trigger Radix's DismissableLayer outside-click detection
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    };
+    
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
   }, []);
 
   // Helper to move webcam to its current anchor position
@@ -463,6 +635,43 @@ const CaptureToolbarWindow: React.FC = () => {
 
   // Note: We do NOT close webcam on unmount - it stays open during reselection
   // Webcam is only closed via handleCancel or when recording completes
+
+  // ESC key handler - cancel and restore startup toolbar
+  useEffect(() => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        console.log('[Toolbar] ESC pressed, mode:', mode, 'isStartupMode:', isStartupMode);
+        
+        // Only handle ESC in selection mode (not during recording/processing)
+        if (mode === 'selection') {
+          e.preventDefault();
+          
+          // Close webcam and cancel
+          await closeWebcamPreview();
+          
+          if (isStartupMode) {
+            // In startup mode, close toolbar and show main window
+            const currentWindow = getCurrentWebviewWindow();
+            await currentWindow.close();
+          } else {
+            // In capture mode, cancel overlay and show startup toolbar
+            try {
+              await invoke('capture_overlay_cancel');
+              // Show startup toolbar after cancelling
+              await invoke('show_startup_toolbar');
+            } catch (err) {
+              console.error('[Toolbar] Failed to cancel:', err);
+            }
+            const currentWindow = getCurrentWebviewWindow();
+            await currentWindow.close();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mode, isStartupMode, closeWebcamPreview]);
 
   // Listen for recording state changes
   useEffect(() => {
@@ -700,6 +909,11 @@ const CaptureToolbarWindow: React.FC = () => {
         await invoke('set_recording_fps', { fps });
         await invoke('set_recording_include_cursor', { include: includeCursor });
         await invoke('set_recording_max_duration', { secs: maxDurationSecs ?? 0 });
+
+        // Hide desktop icons setting (video only)
+        if (captureType === 'video') {
+          await invoke('set_hide_desktop_icons', { enabled: settings.video.hideDesktopIcons });
+        }
 
         // Video uses quality percentage, GIF uses quality preset
         if (captureType === 'video') {

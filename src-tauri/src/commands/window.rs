@@ -145,6 +145,8 @@ fn apply_rounded_corners(_window: &tauri::WebviewWindow) -> Result<(), String> {
 /// Uses DirectComposition overlay to avoid blackout issues with hardware-accelerated
 /// video content. This works for all capture types (screenshot, video, gif).
 pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<(), String> {
+    log::info!("[trigger_capture] Called with capture_type: {:?}", capture_type);
+    
     // Convert to owned String early to avoid lifetime issues with thread spawn
     let ct = capture_type.unwrap_or("screenshot").to_string();
 
@@ -676,6 +678,24 @@ pub async fn set_capture_toolbar_bounds(
     Ok(())
 }
 
+/// Set whether the capture toolbar should ignore cursor events (click-through).
+/// Used to make transparent areas click-through while keeping toolbar interactive.
+#[command]
+pub async fn set_capture_toolbar_ignore_cursor(
+    app: AppHandle,
+    ignore: bool,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    window
+        .set_ignore_cursor_events(ignore)
+        .map_err(|e| format!("Failed to set ignore cursor events: {}", e))?;
+
+    Ok(())
+}
+
 // ============================================================================
 // Countdown Window
 // ============================================================================
@@ -752,12 +772,17 @@ pub async fn hide_countdown_window(app: AppHandle) -> Result<(), String> {
 /// Different from capture toolbar which appears during region selection.
 #[command]
 pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
+    log::info!("[show_startup_toolbar] Called");
+    
     // Check if window already exists
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        log::info!("[show_startup_toolbar] Window already exists, showing it");
         window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
         window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
         return Ok(());
     }
+
+    log::info!("[show_startup_toolbar] Window does not exist, creating new one");
 
     // Get primary monitor info for centering
     let monitors = app.available_monitors()
@@ -780,7 +805,9 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
     let x = monitor_pos.x + (monitor_size.width as i32 - initial_width as i32) / 2;
     let y = monitor_pos.y + monitor_size.height as i32 - initial_height as i32 - 100; // 100px from bottom
 
-    // Create window
+    log::info!("[show_startup_toolbar] Creating window at position ({}, {}) with size {}x{}", x, y, initial_width, initial_height);
+
+    // Create window - visible immediately, frontend will resize after measuring
     let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
         .title("SnapIt Capture")
         .transparent(true)
@@ -789,10 +816,12 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
         .skip_taskbar(false) // Show in taskbar for startup toolbar
         .resizable(false)
         .shadow(false)
-        .visible(false) // Hidden until frontend configures bounds
+        .visible(true) // Show immediately - frontend will resize after measuring
         .focused(true)
         .build()
         .map_err(|e| format!("Failed to create startup toolbar window: {}", e))?;
+
+    log::info!("[show_startup_toolbar] Window created successfully");
 
     // Set position/size using physical coordinates
     set_physical_bounds(&window, x, y, initial_width, initial_height)?;
@@ -801,6 +830,13 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
     if let Err(e) = apply_dwm_transparency(&window) {
         log::warn!("Failed to apply DWM transparency to startup toolbar: {}", e);
     }
+
+    // Show the window immediately - frontend will resize it after measuring content
+    // This ensures the window appears even if frontend has timing issues
+    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
+    window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
+    
+    log::info!("[show_startup_toolbar] Window shown and focused");
 
     Ok(())
 }

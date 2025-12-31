@@ -22,6 +22,7 @@ pub mod desktop_icons;
 pub mod ffmpeg_gif_encoder;
 pub mod gif_encoder;
 pub mod gpu_editor;
+pub mod master_clock;
 pub mod recorder;
 pub mod state;
 pub mod video_export;

@@ -1,17 +1,20 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
+import { emit, listen } from '@tauri-apps/api/event';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { Theme } from '@/types';
 
 /**
  * Hook for managing app theme (light/dark/system)
- * 
+ *
  * - Applies theme class to document root
  * - Listens for OS preference changes when theme is 'system'
  * - Persists to settings store
+ * - Syncs theme across all windows via Tauri events
  */
 export function useTheme() {
   const theme = useSettingsStore((s) => s.settings.general.theme);
   const updateGeneralSettings = useSettingsStore((s) => s.updateGeneralSettings);
+  const isExternalUpdate = useRef(false);
 
   // Apply theme class to document root
   useEffect(() => {
@@ -58,8 +61,30 @@ export function useTheme() {
     return () => mediaQuery.removeEventListener('change', handler);
   }, [theme]);
 
+  // Listen for theme changes from other windows
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    listen<{ theme: Theme }>('theme-changed', (event) => {
+      // Update local state without emitting again
+      isExternalUpdate.current = true;
+      updateGeneralSettings({ theme: event.payload.theme });
+      isExternalUpdate.current = false;
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [updateGeneralSettings]);
+
   const setTheme = useCallback((newTheme: Theme) => {
     updateGeneralSettings({ theme: newTheme });
+    // Emit event to sync other windows (unless this is from an external update)
+    if (!isExternalUpdate.current) {
+      emit('theme-changed', { theme: newTheme }).catch(console.error);
+    }
   }, [updateGeneralSettings]);
 
   // Toggle between light and dark (skips system)

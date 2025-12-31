@@ -148,7 +148,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   const getCaptureLabel = () => {
     switch (captureType) {
       case 'video': return 'REC';
-      case 'gif': return 'GIF';
+      case 'gif': return 'REC';
       case 'screenshot': return 'SNAP';
       default: return 'GO';
     }
@@ -353,6 +353,8 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
           disabled={isRecording || isStarting || isProcessing}
           onOpenSettings={onOpenSettings}
         />
+
+        <div className="w-2" />
 
         <button
           onClick={onCapture}

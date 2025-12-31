@@ -21,6 +21,7 @@ pub mod cursor;
 pub mod desktop_icons;
 pub mod ffmpeg_gif_encoder;
 pub mod gif_encoder;
+pub mod gpu_editor;
 pub mod recorder;
 pub mod state;
 pub mod video_export;
@@ -55,6 +56,9 @@ pub use video_project::{
 pub use audio_multitrack::MultiTrackAudioRecorder;
 pub use audio_monitor::AudioLevels;
 pub use video_export::{ExportProgress, ExportResult, ExportStage, VideoExporter};
+
+// GPU-accelerated editor
+pub use gpu_editor::EditorState;
 
 // Global recording settings (set from frontend before starting recording)
 static COUNTDOWN_SECS: AtomicU32 = AtomicU32::new(3);

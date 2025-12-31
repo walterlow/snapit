@@ -76,3 +76,9 @@ export type { ExportResolution } from './ExportResolution';
 export type { ExportProgress } from './ExportProgress';
 export type { ExportResult } from './ExportResult';
 export type { ExportStage } from './ExportStage';
+
+// GPU Video Editor types (wgpu-accelerated rendering)
+export type { EditorInstanceInfo } from './EditorInstanceInfo';
+export type { PlaybackEvent } from './PlaybackEvent';
+export type { PlaybackState } from './PlaybackState';
+export type { RenderedFrame } from './RenderedFrame';

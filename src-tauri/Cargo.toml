@@ -81,6 +81,23 @@ futures = "0.3"
 # FFmpeg for video thumbnail generation (bundled binary)
 ffmpeg-sidecar = "2.4"
 
+# GPU-accelerated rendering for video editor
+wgpu = "23"
+pollster = "0.4"        # Block on async for wgpu initialization
+bytemuck = { version = "1", features = ["derive"] }  # Safe buffer casting
+
+# Video decoding
+ffmpeg-next = "7"       # Native FFmpeg bindings for fast decoding
+
+# Easing/animation
+bezier_easing = "0.1"
+
+# Unique IDs
+uuid = { version = "1", features = ["v4"] }
+
+# Parking lot for faster mutexes
+parking_lot = "0.12"
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"

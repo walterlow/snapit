@@ -11,6 +11,7 @@ use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
 pub mod error;
+pub mod rendering;
 
 /// Holds references to tray menu items for dynamic updates
 #[cfg(desktop)]
@@ -238,6 +239,16 @@ pub fn run() {
             commands::video_recording::clear_video_frame_cache,
             commands::video_recording::generate_auto_zoom,
             commands::video_recording::export_video,
+            // GPU-accelerated video editor commands
+            commands::video_recording::gpu_editor::create_editor_instance,
+            commands::video_recording::gpu_editor::destroy_editor_instance,
+            commands::video_recording::gpu_editor::editor_play,
+            commands::video_recording::gpu_editor::editor_pause,
+            commands::video_recording::gpu_editor::editor_seek,
+            commands::video_recording::gpu_editor::editor_set_speed,
+            commands::video_recording::gpu_editor::editor_get_state,
+            commands::video_recording::gpu_editor::editor_render_frame,
+            commands::video_recording::gpu_editor::editor_get_timestamp,
             // Audio monitoring commands
             commands::video_recording::start_audio_monitoring,
             commands::video_recording::stop_audio_monitoring,
@@ -284,6 +295,9 @@ pub fn run() {
                 // Note: Shortcuts are now registered dynamically via frontend
                 // after settings are loaded. See commands::settings module.
             }
+
+            // Initialize GPU editor state for video editing
+            app.manage(commands::video_recording::EditorState::new());
 
             // Set window icon on library window (kept for when it's shown via tray)
             if let Some(window) = app.get_webview_window("library") {

@@ -15,7 +15,7 @@ import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useCaptureStore } from '../stores/captureStore';
 import { useVideoEditorStore } from '../stores/videoEditorStore';
-import { VideoPreview } from '../components/VideoEditor/VideoPreview';
+import { GPUVideoPreview } from '../components/VideoEditor/GPUVideoPreview';
 import { VideoTimeline } from '../components/VideoEditor/VideoTimeline';
 import { PlaybackControls } from '../components/VideoEditor/PlaybackControls';
 import { Button } from '../components/ui/button';
@@ -138,20 +138,13 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     exportVideo: handleExport,
   }), [togglePlayback, handleSeekToStart, handleSeekToEnd, handleExport]);
 
-  // Get video dimensions from project
-  const videoWidth = project?.sources.originalWidth ?? 1920;
-  const videoHeight = project?.sources.originalHeight ?? 1080;
-
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-zinc-950">
       {/* Main content area - Preview and Properties */}
       <div className="flex-1 flex min-h-0">
         {/* Video Preview */}
         <div className="flex-1 flex flex-col min-w-0 p-4">
-          <VideoPreview
-            width={videoWidth}
-            height={videoHeight}
-          />
+          <GPUVideoPreview />
         </div>
 
         {/* Right sidebar for properties (future: zoom settings, cursor config, etc.) */}

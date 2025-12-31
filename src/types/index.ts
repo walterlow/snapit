@@ -421,6 +421,14 @@ export type {
   ExportStage,
 } from './generated';
 
+// GPU Video Editor types (wgpu-accelerated rendering)
+export type {
+  EditorInstanceInfo,
+  PlaybackEvent,
+  PlaybackState,
+  RenderedFrame,
+} from './generated';
+
 // Import Rust type for extension
 import type { RecordingState as RustRecordingState } from './generated';
 

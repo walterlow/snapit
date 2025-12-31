@@ -8,15 +8,27 @@ import type {
   VisibilitySegment,
   ExportProgress,
   ExportResult,
+  EditorInstanceInfo,
+  PlaybackEvent,
+  RenderedFrame,
 } from '../types';
 
 interface VideoEditorState {
   // Project state
   project: VideoProject | null;
   
+  // GPU Editor instance state
+  editorInstanceId: string | null;
+  editorInfo: EditorInstanceInfo | null;
+  isInitializingEditor: boolean;
+  
   // Playback state
   currentTimeMs: number;
+  currentFrame: number;
   isPlaying: boolean;
+  
+  // Current rendered frame (GPU-rendered RGBA data)
+  renderedFrame: RenderedFrame | null;
   
   // Selection state
   selectedZoomRegionId: string | null;
@@ -40,6 +52,15 @@ interface VideoEditorState {
   setCurrentTime: (timeMs: number) => void;
   togglePlayback: () => void;
   setIsPlaying: (playing: boolean) => void;
+  
+  // GPU Editor actions
+  initializeGPUEditor: (project: VideoProject) => Promise<void>;
+  destroyGPUEditor: () => Promise<void>;
+  handlePlaybackEvent: (event: PlaybackEvent) => void;
+  renderFrame: (timestampMs: number) => Promise<RenderedFrame | null>;
+  gpuPlay: () => Promise<void>;
+  gpuPause: () => Promise<void>;
+  gpuSeek: (timestampMs: number) => Promise<void>;
   
   // Zoom region actions
   selectZoomRegion: (id: string | null) => void;
@@ -82,8 +103,20 @@ export const useVideoEditorStore = create<VideoEditorState>()(
     (set, get) => ({
       // Initial state
       project: null,
+      
+      // GPU Editor instance state
+      editorInstanceId: null,
+      editorInfo: null,
+      isInitializingEditor: false,
+      
+      // Playback state
       currentTimeMs: 0,
+      currentFrame: 0,
       isPlaying: false,
+      
+      // Current rendered frame
+      renderedFrame: null,
+      
       selectedZoomRegionId: null,
       selectedWebcamSegmentIndex: null,
       isDraggingPlayhead: false,
@@ -304,22 +337,135 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         draggedZoomEdge: dragging ? edge ?? null : null,
       }),
 
+      // GPU Editor actions
+      initializeGPUEditor: async (project) => {
+        const { editorInstanceId: existingId } = get();
+        
+        // Clean up existing instance first
+        if (existingId) {
+          try {
+            await invoke('destroy_editor_instance', { instanceId: existingId });
+          } catch (e) {
+            console.warn('Failed to destroy existing editor instance:', e);
+          }
+        }
+        
+        set({ isInitializingEditor: true, editorInstanceId: null, editorInfo: null });
+        
+        try {
+          const info = await invoke<EditorInstanceInfo>('create_editor_instance', { project });
+          set({
+            editorInstanceId: info.instanceId,
+            editorInfo: info,
+            isInitializingEditor: false,
+            currentFrame: 0,
+            currentTimeMs: 0,
+          });
+        } catch (error) {
+          set({ isInitializingEditor: false });
+          throw error;
+        }
+      },
+
+      destroyGPUEditor: async () => {
+        const { editorInstanceId } = get();
+        if (!editorInstanceId) return;
+        
+        try {
+          await invoke('destroy_editor_instance', { instanceId: editorInstanceId });
+        } catch (e) {
+          console.warn('Failed to destroy editor instance:', e);
+        }
+        
+        set({
+          editorInstanceId: null,
+          editorInfo: null,
+          renderedFrame: null,
+          currentFrame: 0,
+        });
+      },
+
+      handlePlaybackEvent: (event) => {
+        set({
+          currentFrame: event.frame,
+          currentTimeMs: event.timestampMs,
+          isPlaying: event.state === 'playing',
+        });
+      },
+
+      renderFrame: async (timestampMs) => {
+        const { editorInstanceId } = get();
+        if (!editorInstanceId) return null;
+        
+        try {
+          const frame = await invoke<RenderedFrame>('editor_render_frame', {
+            instanceId: editorInstanceId,
+            timestampMs,
+          });
+          set({ renderedFrame: frame, currentFrame: frame.frame, currentTimeMs: frame.timestampMs });
+          return frame;
+        } catch (error) {
+          console.error('Failed to render frame:', error);
+          return null;
+        }
+      },
+
+      gpuPlay: async () => {
+        const { editorInstanceId } = get();
+        if (!editorInstanceId) return;
+        
+        await invoke('editor_play', { instanceId: editorInstanceId });
+        set({ isPlaying: true });
+      },
+
+      gpuPause: async () => {
+        const { editorInstanceId } = get();
+        if (!editorInstanceId) return;
+        
+        await invoke('editor_pause', { instanceId: editorInstanceId });
+        set({ isPlaying: false });
+      },
+
+      gpuSeek: async (timestampMs) => {
+        const { editorInstanceId, project } = get();
+        if (!editorInstanceId || !project) return;
+        
+        // Clamp to valid range
+        const clampedTime = Math.max(0, Math.min(timestampMs, project.timeline.durationMs));
+        
+        await invoke('editor_seek', { instanceId: editorInstanceId, timestampMs: clampedTime });
+        set({ currentTimeMs: clampedTime });
+      },
+
       // Editor actions
-      clearEditor: () => set({
-        project: null,
-        currentTimeMs: 0,
-        isPlaying: false,
-        selectedZoomRegionId: null,
-        selectedWebcamSegmentIndex: null,
-        isDraggingPlayhead: false,
-        isDraggingZoomRegion: false,
-        draggedZoomEdge: null,
-        timelineZoom: DEFAULT_TIMELINE_ZOOM,
-        timelineScrollLeft: 0,
-        isGeneratingAutoZoom: false,
-        isExporting: false,
-        exportProgress: null,
-      }),
+      clearEditor: () => {
+        // Destroy GPU editor if active (fire-and-forget)
+        const { editorInstanceId } = get();
+        if (editorInstanceId) {
+          invoke('destroy_editor_instance', { instanceId: editorInstanceId }).catch(console.warn);
+        }
+        
+        set({
+          project: null,
+          editorInstanceId: null,
+          editorInfo: null,
+          isInitializingEditor: false,
+          currentTimeMs: 0,
+          currentFrame: 0,
+          isPlaying: false,
+          renderedFrame: null,
+          selectedZoomRegionId: null,
+          selectedWebcamSegmentIndex: null,
+          isDraggingPlayhead: false,
+          isDraggingZoomRegion: false,
+          draggedZoomEdge: null,
+          timelineZoom: DEFAULT_TIMELINE_ZOOM,
+          timelineScrollLeft: 0,
+          isGeneratingAutoZoom: false,
+          isExporting: false,
+          exportProgress: null,
+        });
+      },
 
       // Auto-zoom generation
       generateAutoZoom: async (config?: AutoZoomConfig) => {

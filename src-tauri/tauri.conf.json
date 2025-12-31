@@ -17,7 +17,11 @@
         "enable": true,
         "scope": [
           "$APPDATA/**",
-          "$APPDATA"
+          "$VIDEO/**",
+          "$DOWNLOAD/**",
+          "$TEMP/**",
+          "$HOME/**",
+          "**"
         ]
       }
     },

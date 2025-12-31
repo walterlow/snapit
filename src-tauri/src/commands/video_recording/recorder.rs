@@ -60,7 +60,7 @@ use crossbeam_channel::{Receiver, TryRecvError};
 use tauri::{AppHandle, Emitter, Manager};
 use windows_capture::{
     dxgi_duplication_api::DxgiDuplicationApi,
-    encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder},
+    encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder, VideoSettingsSubType},
     monitor::Monitor,
 };
 
@@ -650,7 +650,9 @@ fn run_video_capture(
     let capture_audio = settings.audio.capture_system_audio || settings.audio.microphone_device_index.is_some();
 
     // Create video encoder with audio enabled if needed
+    // Use H.264 codec for better browser/WebView compatibility (HEVC requires paid extension)
     let video_settings = VideoSettingsBuilder::new(width, height)
+        .sub_type(VideoSettingsSubType::H264)
         .bitrate(bitrate)
         .frame_rate(settings.fps);
 

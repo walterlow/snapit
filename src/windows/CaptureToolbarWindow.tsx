@@ -401,7 +401,7 @@ const CaptureToolbarWindow: React.FC = () => {
 
   return (
     <div className="app-container">
-      <Titlebar title="SnapIt Capture" showLogo={false} showMaximize={false} onClose={handleTitlebarClose} onOpenLibrary={handleOpenLibrary} />
+      <Titlebar title="SnapIt Capture" showMaximize={false} onClose={handleTitlebarClose} onOpenLibrary={handleOpenLibrary} />
       <div ref={toolbarRef} className="toolbar-container">
         <div className="toolbar-animated-wrapper">
           <div ref={contentRef} className="toolbar-content-measure">

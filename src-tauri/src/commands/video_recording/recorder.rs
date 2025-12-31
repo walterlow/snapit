@@ -264,6 +264,7 @@ fn get_window_rect(_window_id: u32) -> Result<(i32, i32, u32, u32), String> {
 }
 
 /// Convert Window mode to Region mode by getting window bounds.
+/// Only used for modes that don't support native window capture.
 fn resolve_window_to_region(mode: &RecordingMode) -> Result<RecordingMode, String> {
     match mode {
         RecordingMode::Window { window_id } => {
@@ -271,6 +272,14 @@ fn resolve_window_to_region(mode: &RecordingMode) -> Result<RecordingMode, Strin
             Ok(RecordingMode::Region { x, y, width, height })
         }
         other => Ok(other.clone()),
+    }
+}
+
+/// Check if mode is Window capture (for native window recording).
+fn is_window_mode(mode: &RecordingMode) -> Option<u32> {
+    match mode {
+        RecordingMode::Window { window_id } => Some(*window_id),
+        _ => None,
     }
 }
 
@@ -399,38 +408,22 @@ fn start_capture_thread(
 
     let handle = std::thread::spawn(move || {
         println!("[THREAD] Capture thread started, format={:?}", settings.format);
-        
+
         // Hide desktop icons if enabled (will be restored when recording ends)
         hide_desktop_icons();
-        
+
         // Catch any panics to ensure we log them
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 
-        // Resolve Window mode to Region mode (fixed region capture)
-        let resolved_mode = match resolve_window_to_region(&settings.mode) {
-            Ok(mode) => mode,
-            Err(e) => {
-                println!("[THREAD] Failed to resolve window mode: {}", e);
-                emit_state_change(&app, &RecordingState::Error { message: e.clone() });
-                if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                    controller.set_error(e);
-                }
-                return;
-            }
-        };
+        // Window mode is now handled natively by WGC in run_video_capture/run_gif_capture
+        // No need to resolve to region mode anymore
 
-        // Create settings with resolved mode
-        let resolved_settings = RecordingSettings {
-            mode: resolved_mode,
-            ..settings.clone()
-        };
-
-        let result = match resolved_settings.format {
+        let result = match settings.format {
             RecordingFormat::Mp4 => {
-                run_video_capture(&app, &resolved_settings, &output_path, progress.clone(), command_rx)
+                run_video_capture(&app, &settings, &output_path, progress.clone(), command_rx)
             }
             RecordingFormat::Gif => {
-                run_gif_capture(&app, &resolved_settings, &output_path, progress.clone(), command_rx)
+                run_gif_capture(&app, &settings, &output_path, progress.clone(), command_rx)
             }
         };
 
@@ -569,19 +562,20 @@ fn run_video_capture(
         None
     };
 
-    // Get crop region if in region mode
+    // Check if this is Window mode (native window capture via WGC)
+    let window_id = is_window_mode(&settings.mode);
+
+    // Get crop region if in region mode (not used for Window mode)
     let crop_region = match &settings.mode {
         RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
         _ => None,
     };
 
-    // Get monitor index for potential WGC fallback
-    // For region mode, find which monitor contains the region
+    // Get monitor index for potential WGC fallback (not used for Window mode)
     let monitor_index = match &settings.mode {
         RecordingMode::Monitor { monitor_index } => *monitor_index,
         RecordingMode::Region { x, y, .. } => {
             // Find monitor that contains this region's top-left corner
-            // Use xcap::Monitor which has position info
             if let Ok(monitors) = xcap::Monitor::all() {
                 let mut found_idx = 0;
                 for (idx, m) in monitors.iter().enumerate() {
@@ -600,35 +594,43 @@ fn run_video_capture(
                 0
             }
         }
-        _ => 0, // Primary monitor for other modes
+        _ => 0,
     };
 
-    eprintln!("[CAPTURE] Detected monitor index for WGC fallback: {}", monitor_index);
+    // Create capture backend based on mode
+    let mut capture = if let Some(wid) = window_id {
+        // Window mode: use native WGC window capture
+        eprintln!("[CAPTURE] Using native WGC window capture for window {}", wid);
+        let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
+            .map_err(|e| format!("Failed to create WGC window capture: {}", e))?;
+        CaptureBackend::Wgc(wgc)
+    } else {
+        // Monitor/Region mode: use DXGI with WGC fallback
+        eprintln!("[CAPTURE] Detected monitor index for WGC fallback: {}", monitor_index);
 
-    // Get monitor to capture
-    let monitor = match &settings.mode {
-        RecordingMode::Monitor { monitor_index } => {
-            let monitors = Monitor::enumerate()
-                .map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
-            monitors
-                .get(*monitor_index)
-                .ok_or("Monitor not found")?
-                .clone()
-        }
-        _ => Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?,
+        let monitor = match &settings.mode {
+            RecordingMode::Monitor { monitor_index } => {
+                let monitors = Monitor::enumerate()
+                    .map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
+                monitors
+                    .get(*monitor_index)
+                    .ok_or("Monitor not found")?
+                    .clone()
+            }
+            _ => Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?,
+        };
+
+        println!("[CAPTURE] Using monitor: {:?}", monitor.name());
+
+        // Create DXGI duplication session (will fallback to WGC if needed)
+        let dxgi = DxgiDuplicationApi::new(monitor)
+            .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
+
+        // Small delay to let DXGI stabilize
+        std::thread::sleep(Duration::from_millis(50));
+
+        CaptureBackend::Dxgi(dxgi)
     };
-
-    println!("[CAPTURE] Using monitor: {:?}", monitor.name());
-
-    // Create DXGI duplication session (will fallback to WGC if needed)
-    let dxgi = DxgiDuplicationApi::new(monitor)
-        .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
-
-    // Small delay to let DXGI stabilize (helps with GPU power-saving states)
-    std::thread::sleep(Duration::from_millis(50));
-
-    // Wrap in capture backend
-    let mut capture = CaptureBackend::Dxgi(dxgi);
 
     // Get capture dimensions
     let (width, height) = if let Some((_, _, w, h)) = crop_region {
@@ -1187,21 +1189,30 @@ fn run_gif_capture(
 ) -> Result<(), String> {
     println!("[GIF] run_gif_capture starting with WGC");
 
-    // Get crop region if in region mode
+    // Check if this is Window mode (native window capture via WGC)
+    let window_id = is_window_mode(&settings.mode);
+
+    // Get crop region if in region mode (not used for Window mode)
     let crop_region = match &settings.mode {
         RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
         _ => None,
     };
 
-    // Get monitor index
-    let monitor_index = match &settings.mode {
-        RecordingMode::Monitor { monitor_index } => *monitor_index,
-        _ => 0, // Primary monitor
+    // Start WGC capture based on mode
+    let wgc = if let Some(wid) = window_id {
+        // Window mode: use native WGC window capture
+        eprintln!("[GIF] Using native WGC window capture for window {}", wid);
+        WgcVideoCapture::new_window(wid, settings.include_cursor)
+            .map_err(|e| format!("Failed to start WGC window capture: {}", e))?
+    } else {
+        // Monitor/Region mode: use monitor capture
+        let monitor_index = match &settings.mode {
+            RecordingMode::Monitor { monitor_index } => *monitor_index,
+            _ => 0,
+        };
+        WgcVideoCapture::new(monitor_index, settings.include_cursor)
+            .map_err(|e| format!("Failed to start WGC capture: {}", e))?
     };
-
-    // Start WGC capture
-    let wgc = WgcVideoCapture::new(monitor_index, settings.include_cursor)
-        .map_err(|e| format!("Failed to start WGC capture: {}", e))?;
 
     // Get capture dimensions
     let (capture_width, capture_height) = (wgc.width(), wgc.height());

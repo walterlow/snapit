@@ -12,6 +12,8 @@ import { X, Square, Pause, Circle } from 'lucide-react';
 import type { CaptureType, RecordingFormat } from '../../types';
 import { ModeSelector } from './ModeSelector';
 import { SourceSelector, type CaptureSource } from './SourceSelector';
+import { DimensionSelect } from './DimensionSelect';
+import { SourceInfoDisplay } from './SourceInfoDisplay';
 import { DevicePopover } from './DevicePopover';
 import { MicrophonePopover } from './MicrophonePopover';
 import { SystemAudioToggle } from './SystemAudioToggle';
@@ -27,9 +29,19 @@ interface CaptureToolbarProps {
   mode: ToolbarMode;
   /** Current capture type */
   captureType: CaptureType;
+  /** Current capture source */
+  captureSource?: CaptureSource;
   /** Region dimensions */
   width: number;
   height: number;
+  /** Source type: 'area', 'window', or 'display' */
+  sourceType?: 'area' | 'window' | 'display';
+  /** Window/app title if sourceType is 'window' */
+  sourceTitle?: string | null;
+  /** Monitor name if sourceType is 'display' */
+  monitorName?: string | null;
+  /** Monitor index if sourceType is 'display' */
+  monitorIndex?: number | null;
   /** Whether a selection has been confirmed (shows record button) */
   selectionConfirmed?: boolean;
   /** Start recording or take screenshot (based on captureType) */
@@ -76,14 +88,19 @@ function formatTime(seconds: number): string {
 export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   mode,
   captureType,
-  width: _width,
-  height: _height,
+  captureSource: _captureSource = 'area',
+  width,
+  height,
+  sourceType,
+  sourceTitle,
+  monitorName,
+  monitorIndex,
   selectionConfirmed = false,
   onCapture,
   onCaptureTypeChange,
   onCaptureSourceChange,
   onCaptureComplete,
-  onRedo: _onRedo,
+  onRedo,
   onCancel,
   format = 'mp4',
   elapsedTime = 0,
@@ -93,6 +110,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   onResume,
   onStop,
   countdownSeconds,
+  onDimensionChange,
   onOpenSettings,
 }) => {
   const isGif = captureType === 'gif' || format === 'gif';
@@ -262,15 +280,39 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         />
       </div>
 
-      {/* Row 2: Source selector, devices, settings */}
+      {/* Row 2: Source selector OR dimensions/info, devices, settings */}
       <div className="glass-toolbar-row">
-        {/* Source selector (Display/Window/Area) */}
-        <SourceSelector
-          onSelectArea={() => handleSourceChange('area')}
-          captureType={captureType}
-          onCaptureComplete={onCaptureComplete}
-          disabled={isRecording || isStarting || isProcessing}
-        />
+        {/* Show source info based on selection type, or source selector if no selection */}
+        {selectionConfirmed ? (
+          // Selection confirmed - show appropriate info based on source type
+          sourceType === 'window' || sourceType === 'display' ? (
+            <SourceInfoDisplay
+              sourceType={sourceType}
+              sourceTitle={sourceTitle}
+              monitorName={monitorName}
+              monitorIndex={monitorIndex}
+              onBack={onRedo}
+              disabled={isRecording || isStarting || isProcessing}
+            />
+          ) : (
+            // Area selection - show dimension selector
+            <DimensionSelect
+              width={width}
+              height={height}
+              onDimensionChange={onDimensionChange}
+              onBack={onRedo}
+              disabled={isRecording || isStarting || isProcessing}
+            />
+          )
+        ) : (
+          // No selection - show source selector
+          <SourceSelector
+            onSelectArea={() => handleSourceChange('area')}
+            captureType={captureType}
+            onCaptureComplete={onCaptureComplete}
+            disabled={isRecording || isStarting || isProcessing}
+          />
+        )}
 
         {/* Video mode only: Show device selectors (GIF doesn't support audio/webcam) */}
         {isVideoMode && (

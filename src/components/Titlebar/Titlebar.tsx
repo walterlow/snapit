@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Window } from '@tauri-apps/api/window';
-import { Minus, Square, X, Maximize2, Aperture, Sun, Moon } from 'lucide-react';
+import { Minus, Square, X, Maximize2, Aperture, Sun, Moon, FolderOpen } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 
 interface TitlebarProps {
@@ -9,6 +9,8 @@ interface TitlebarProps {
   showMaximize?: boolean;
   /** Called before window closes. Return false to prevent close. */
   onClose?: () => void | boolean | Promise<void | boolean>;
+  /** Called when library button is clicked. Button only shown if provided. */
+  onOpenLibrary?: () => void;
 }
 
 export const Titlebar: React.FC<TitlebarProps> = ({
@@ -16,6 +18,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   showLogo = true,
   showMaximize = true,
   onClose,
+  onOpenLibrary,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -84,6 +87,16 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
       {/* Right: Window Controls */}
       <div className="titlebar-controls">
+        {onOpenLibrary && (
+          <button
+            onClick={onOpenLibrary}
+            className="titlebar-button"
+            aria-label="Open Library"
+            title="Open Library"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           onClick={toggleTheme}
           className="titlebar-button"

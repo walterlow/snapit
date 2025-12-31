@@ -87,15 +87,21 @@ pub fn get_windows() -> Result<Vec<WindowInfo>, CaptureError> {
         let is_min = w.is_minimized().unwrap_or(true);
         let width = w.width().unwrap_or(0);
         let height = w.height().unwrap_or(0);
+        let app_name = w.app_name().unwrap_or_default();
 
         if is_min || width == 0 || height == 0 {
+            continue;
+        }
+
+        // Skip Windows Explorer (taskbar, desktop, etc.)
+        if app_name == "Windows Explorer" {
             continue;
         }
 
         infos.push(WindowInfo {
             id: w.id().unwrap_or(0),
             title: w.title().unwrap_or_default(),
-            app_name: w.app_name().unwrap_or_default(),
+            app_name,
             x: w.x().unwrap_or(0),
             y: w.y().unwrap_or(0),
             width,
@@ -119,50 +125,28 @@ pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
     encode_image_to_result(image, false)
 }
 
-/// Capture a window by capturing the screen region at its DWM bounds.
-/// Uses DWMWA_EXTENDED_FRAME_BOUNDS to get the visible window area without shadow.
+/// Capture a window using xcap's native window capture (PrintWindow).
+/// This captures the actual window content even if covered by other windows.
 #[cfg(target_os = "windows")]
 pub fn capture_window_xcap(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
-    use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
-    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    // Find the window by HWND and use xcap's native capture
+    let windows = Window::all()
+        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to enumerate windows: {}", e)))?;
 
-    let hwnd = HWND(hwnd_value as *mut std::ffi::c_void);
-    let mut dwm_rect = RECT::default();
-    let mut window_rect = RECT::default();
+    let window = windows
+        .into_iter()
+        .find(|w| w.id().unwrap_or(0) as isize == hwnd_value)
+        .ok_or(CaptureError::WindowNotFound)?;
 
-    unsafe {
-        let _ = GetWindowRect(hwnd, &mut window_rect);
-        let dwm_result = DwmGetWindowAttribute(
-            hwnd,
-            DWMWA_EXTENDED_FRAME_BOUNDS,
-            &mut dwm_rect as *mut _ as *mut _,
-            std::mem::size_of::<RECT>() as u32,
-        );
+    println!("[CAPTURE] Window capture using xcap native: hwnd={} (0x{:X}), title={}",
+        hwnd_value, hwnd_value, window.title().unwrap_or_default());
 
-        // Fall back to window rect if DWM fails
-        if dwm_result.is_err() {
-            dwm_rect = window_rect;
-        }
-    }
+    let image = window.capture_image()
+        .map_err(|e| CaptureError::CaptureFailed(format!("xcap capture failed: {}", e)))?;
 
-    // Get visible border thickness and subtract from DWM bounds
-    let border = crate::commands::win_utils::get_visible_border_thickness(hwnd);
-    let x = dwm_rect.left + border;
-    let y = dwm_rect.top; // No top border - title bar is clean
-    let width = ((dwm_rect.right - dwm_rect.left) - 2 * border).max(1) as u32;
-    let height = ((dwm_rect.bottom - dwm_rect.top) - border).max(1) as u32;
-
-    println!("[CAPTURE] Window capture: hwnd={} (0x{:X}), border={}, capture={}x{} at ({},{})",
-        hwnd_value, hwnd_value, border, width, height, x, y);
-
-    // Use screen region capture at the adjusted bounds
-    capture_screen_region_raw(super::types::ScreenRegionSelection {
-        x,
-        y,
-        width,
-        height,
-    })
+    let width = image.width();
+    let height = image.height();
+    Ok((image.into_raw(), width, height))
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -16,6 +16,7 @@ use windows_capture::{
     frame::Frame,
     graphics_capture_api::InternalCaptureControl,
     monitor::Monitor,
+    window::Window,
     settings::{
         ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
         MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
@@ -186,11 +187,90 @@ impl WgcVideoCapture {
         let settings = Settings::new(
             monitor,
             cursor_settings,
-            DrawBorderSettings::Default, // WithoutBorder not supported on all systems
+            DrawBorderSettings::Default,
             SecondaryWindowSettings::Default,
             MinimumUpdateIntervalSettings::Default,
             DirtyRegionSettings::Default,
-            ColorFormat::Bgra8, // Use BGRA to match DXGI output
+            ColorFormat::Bgra8,
+            flags,
+        );
+
+        // Start capture in background thread
+        let handle = std::thread::spawn(move || {
+            eprintln!("[WGC] Starting VideoCaptureHandler...");
+            match VideoCaptureHandler::start(settings) {
+                Ok(()) => eprintln!("[WGC] VideoCaptureHandler finished normally"),
+                Err(e) => eprintln!("[WGC] VideoCaptureHandler error: {:?}", e),
+            }
+        });
+
+        // Wait briefly for capture to start
+        std::thread::sleep(Duration::from_millis(100));
+
+        Ok(Self {
+            frame_rx: rx,
+            should_stop,
+            _thread_handle: handle,
+            width,
+            height,
+        })
+    }
+
+    /// Create a new WGC video capture session for a specific window.
+    ///
+    /// Captures the actual window content even if covered by other windows.
+    /// Brings the window to the foreground before starting capture.
+    ///
+    /// # Arguments
+    /// * `window_id` - The HWND of the window to capture
+    /// * `include_cursor` - Whether to include the cursor in capture
+    pub fn new_window(window_id: u32, include_cursor: bool) -> Result<Self, String> {
+        // Create Window from raw HWND
+        let window = Window::from_raw_hwnd(window_id as isize as *mut std::ffi::c_void);
+
+        // Validate window is capturable
+        if !window.is_valid() {
+            return Err(format!("Window {} is not valid for capture", window_id));
+        }
+
+        // Bring window to front before capturing
+        bring_window_to_front(window_id);
+
+        let title = window.title().unwrap_or_default();
+
+        // Get window dimensions from rect
+        let (width, height) = match window.rect() {
+            Ok(rect) => ((rect.right - rect.left) as u32, (rect.bottom - rect.top) as u32),
+            Err(_) => (1920, 1080),
+        };
+
+        eprintln!("[WGC] Starting capture for window {} '{}' ({}x{})", window_id, title, width, height);
+
+        // Create channel for frames (buffer 1 second at 60 FPS)
+        let (tx, rx) = mpsc::sync_channel::<FrameMessage>(60);
+        let should_stop = Arc::new(AtomicBool::new(false));
+        let should_stop_clone = Arc::clone(&should_stop);
+
+        let cursor_settings = if include_cursor {
+            CursorCaptureSettings::WithCursor
+        } else {
+            CursorCaptureSettings::WithoutCursor
+        };
+
+        let flags = CaptureFlags {
+            tx,
+            should_stop: should_stop_clone,
+            include_cursor,
+        };
+
+        let settings = Settings::new(
+            window,
+            cursor_settings,
+            DrawBorderSettings::Default,
+            SecondaryWindowSettings::Default,
+            MinimumUpdateIntervalSettings::Default,
+            DirtyRegionSettings::Default,
+            ColorFormat::Bgra8,
             flags,
         );
 
@@ -260,4 +340,25 @@ impl Drop for WgcVideoCapture {
 /// Check if WGC is available on this system.
 pub fn is_wgc_available() -> bool {
     Monitor::enumerate().is_ok()
+}
+
+/// Bring a window to the foreground.
+fn bring_window_to_front(window_id: u32) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetForegroundWindow, ShowWindow, SW_RESTORE, IsIconic,
+    };
+
+    let hwnd = HWND(window_id as isize as *mut std::ffi::c_void);
+
+    unsafe {
+        // If minimized, restore it first
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        // Bring to foreground
+        let _ = SetForegroundWindow(hwnd);
+    }
+
+    eprintln!("[WGC] Brought window {} to foreground", window_id);
 }

@@ -66,7 +66,7 @@ const CaptureToolbarWindow: React.FC = () => {
   // --- Hooks for window management ---
 
   // Webcam coordination (errors, preview lifecycle)
-  const { closeWebcamPreview } = useWebcamCoordination();
+  const { closeWebcamPreview, openWebcamPreviewIfEnabled } = useWebcamCoordination();
 
   // Recording state machine
   const {
@@ -88,7 +88,7 @@ const CaptureToolbarWindow: React.FC = () => {
   } = useSelectionEvents();
 
   // Measure content and resize window to fit
-  useToolbarPositioning({ contentRef });
+  useToolbarPositioning({ contentRef, selectionConfirmed });
 
   // --- Event handlers ---
 
@@ -229,15 +229,14 @@ const CaptureToolbarWindow: React.FC = () => {
           });
         }
 
+        // Use window mode if we have a windowId, otherwise use region mode
+        const mode = bounds.windowId
+          ? { type: 'window' as const, windowId: bounds.windowId }
+          : { type: 'region' as const, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+
         const recordingSettings = {
           format: captureType === 'gif' ? 'gif' : 'mp4',
-          mode: {
-            type: 'region' as const,
-            x: bounds.x,
-            y: bounds.y,
-            width: bounds.width,
-            height: bounds.height,
-          },
+          mode,
           fps,
           maxDurationSecs: maxDurationSecs ?? null,
           includeCursor,
@@ -261,9 +260,15 @@ const CaptureToolbarWindow: React.FC = () => {
 
   const handleRedo = useCallback(async () => {
     try {
-      await invoke('capture_overlay_reselect');
+      // Cancel overlay and reset to startup (source selector view)
+      try {
+        await invoke('capture_overlay_cancel');
+      } catch {
+        // Overlay may already be closed - that's fine
+      }
+      await emit('reset-to-startup', null);
     } catch (e) {
-      console.error('Failed to reselect:', e);
+      console.error('Failed to go back:', e);
     }
   }, []);
 
@@ -360,11 +365,19 @@ const CaptureToolbarWindow: React.FC = () => {
     await currentWindow.close();
   }, []);
 
-  const handleModeChange = useCallback((newMode: typeof captureType) => {
+  const handleModeChange = useCallback(async (newMode: typeof captureType) => {
     if (mode === 'selection') {
+      // Close webcam when switching away from video mode
+      if (captureType === 'video' && newMode !== 'video') {
+        await closeWebcamPreview();
+      }
+      // Re-open webcam when switching back to video mode (if it was enabled)
+      if (captureType !== 'video' && newMode === 'video') {
+        await openWebcamPreviewIfEnabled();
+      }
       setCaptureType(newMode);
     }
-  }, [mode, setCaptureType]);
+  }, [mode, captureType, setCaptureType, closeWebcamPreview, openWebcamPreviewIfEnabled]);
 
   const handleTitlebarClose = useCallback(async () => {
     // Cancel overlay when toolbar is closed
@@ -376,19 +389,32 @@ const CaptureToolbarWindow: React.FC = () => {
     await closeWebcamPreview();
   }, [closeWebcamPreview]);
 
+  const handleOpenLibrary = useCallback(async () => {
+    try {
+      await invoke('show_library_window');
+    } catch (e) {
+      console.error('Failed to open library:', e);
+    }
+  }, []);
+
   // --- Render ---
 
   return (
     <div className="app-container">
-      <Titlebar title="SnapIt Capture" showLogo={false} showMaximize={false} onClose={handleTitlebarClose} />
+      <Titlebar title="SnapIt Capture" showLogo={false} showMaximize={false} onClose={handleTitlebarClose} onOpenLibrary={handleOpenLibrary} />
       <div ref={toolbarRef} className="toolbar-container">
         <div className="toolbar-animated-wrapper">
           <div ref={contentRef} className="toolbar-content-measure">
             <CaptureToolbar
               mode={mode}
               captureType={captureType}
+              captureSource={captureSource}
               width={selectionBounds.width}
               height={selectionBounds.height}
+              sourceType={selectionBounds.sourceType}
+              sourceTitle={selectionBounds.sourceTitle}
+              monitorName={selectionBounds.monitorName}
+              monitorIndex={selectionBounds.monitorIndex}
               selectionConfirmed={selectionConfirmed}
               onCapture={handleCapture}
               onCaptureTypeChange={handleModeChange}

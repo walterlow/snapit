@@ -1816,13 +1816,17 @@ body.overlay-window #root {
   background: transparent;
   border: none;
   border-radius: 4px;
-  color: #fff;
+  color: rgba(255, 255, 255, 0.9);
   font-size: 12px;
   font-weight: 500;
   text-align: center;
   font-variant-numeric: tabular-nums;
   outline: none;
   transition: background 0.15s ease;
+  /* Prevent browser default input styles */
+  -webkit-appearance: none;
+  appearance: none;
+  color-scheme: dark;
 }
 
 .glass-dimension-input::placeholder {
@@ -2753,9 +2757,7 @@ body.overlay-window #root {
 .glass-inline-group {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  width: 100%;
   /* Smooth appearance transition */
   transition: opacity 180ms ease, transform 180ms ease;
 }
@@ -3234,9 +3236,10 @@ body.overlay-window #root {
 
 /* Two-row toolbar variant */
 .glass-toolbar--two-row {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 0;
+  width: max-content;
   background: var(--polar-night);
   border: none;
   border-radius: 0;
@@ -3246,6 +3249,11 @@ body.overlay-window #root {
   display: flex;
   align-items: center;
   padding: 6px 8px;
+}
+
+/* Second row determines the toolbar width */
+.glass-toolbar-row:last-child {
+  width: max-content;
 }
 
 .glass-toolbar-row:first-child {
@@ -3390,6 +3398,74 @@ body.overlay-window #root {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Back button variant - smaller, icon only */
+.glass-source-btn--back {
+  flex-direction: row;
+  padding: 8px;
+  min-width: unset;
+}
+
+/* Source info display (for window/display) */
+.glass-source-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.glass-source-label--truncate {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Compact dimension inputs (matches source button style) */
+.glass-dimension-compact {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.glass-dimension-compact-input {
+  width: 44px;
+  height: 20px;
+  padding: 0 2px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: background 0.15s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.glass-dimension-compact-input:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.glass-dimension-compact-input:focus {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.glass-dimension-compact-sep {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+  font-weight: 400;
+  user-select: none;
 }
 
 .glass-source-label {
@@ -4006,6 +4082,75 @@ body.overlay-window #root {
   background: rgba(0, 0, 0, 0.06);
 }
 
+.light .glass-source-info {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+/* Light theme - Compact dimension inputs */
+.light .glass-dimension-compact-input {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.light .glass-dimension-compact-input:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.light .glass-dimension-compact-input:focus {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.light .glass-dimension-compact-sep {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+/* Light theme - Dimension inputs */
+.light .glass-inline-label {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.light .glass-dimension-inputs {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.light .glass-dimension-input {
+  color: rgba(0, 0, 0, 0.85);
+  color-scheme: light;
+}
+
+.light .glass-dimension-input::placeholder {
+  color: rgba(0, 0, 0, 0.3);
+}
+
+.light .glass-dimension-input:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .glass-dimension-input:focus {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .glass-dimension-separator {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+.light .glass-dimension-preset-trigger {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .glass-dimension-preset-trigger:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.light .glass-dimension-preset-icon {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-dimension-preset-trigger:hover .glass-dimension-preset-icon {
+  color: rgba(0, 0, 0, 0.6);
+}
+
 .light .glass-device-btn {
   background: rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 0, 0, 0.08);
@@ -4188,7 +4333,11 @@ body.overlay-window #root {
 .toolbar-animated-wrapper {
   display: flex;
   flex-direction: column;
-  border-radius: 14px;
+  background: var(--polar-night);
+}
+
+.light .toolbar-animated-wrapper {
+  background: var(--polar-snow);
 }
 
 .toolbar-content-measure {

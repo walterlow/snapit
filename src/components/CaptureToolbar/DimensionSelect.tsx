@@ -1,12 +1,14 @@
 /**
- * DimensionSelect - Text inputs for dimensions with preset dropdown.
+ * DimensionSelect - Compact dimension inputs matching source selector style.
  *
- * Shows editable W × H inputs plus a preset dropdown for quick selection.
+ * Shows editable W × H inputs plus a button that opens a native OS menu
+ * for preset selection. Styled to match glass-source-group buttons.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import * as SelectPrimitive from '@radix-ui/react-select';
-import { ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Menu, MenuItem, PredefinedMenuItem } from '@tauri-apps/api/menu';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
+import { ChevronDown, ChevronLeft } from 'lucide-react';
 
 // Common dimension presets
 const DIMENSION_PRESETS = [
@@ -22,6 +24,7 @@ interface DimensionSelectProps {
   width: number;
   height: number;
   onDimensionChange?: (width: number, height: number) => void;
+  onBack?: () => void;
   disabled?: boolean;
 }
 
@@ -29,11 +32,13 @@ export const DimensionSelect: React.FC<DimensionSelectProps> = ({
   width,
   height,
   onDimensionChange,
+  onBack,
   disabled = false,
 }) => {
   // Local state for inputs
   const [widthInput, setWidthInput] = useState(String(Math.round(width)));
   const [heightInput, setHeightInput] = useState(String(Math.round(height)));
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Sync when props change
   useEffect(() => {
@@ -67,87 +72,101 @@ export const DimensionSelect: React.FC<DimensionSelectProps> = ({
     }
   }, [applyChange, width, height]);
 
-  // Handle preset selection
-  const handlePresetChange = (value: string) => {
-    const preset = DIMENSION_PRESETS.find((p) => p.label === value);
-    if (preset) {
-      onDimensionChange?.(preset.width, preset.height);
-    }
-  };
+  // Handle preset selection via native menu
+  const handlePresetSelect = useCallback((preset: typeof DIMENSION_PRESETS[number]) => {
+    onDimensionChange?.(preset.width, preset.height);
+  }, [onDimensionChange]);
 
-  // Find current preset match
-  const currentPreset = DIMENSION_PRESETS.find(
-    (p) => p.width === Math.round(width) && p.height === Math.round(height)
-  )?.label || '';
+  // Open native menu
+  const openPresetMenu = useCallback(async () => {
+    if (disabled) return;
+
+    try {
+      const items = await Promise.all([
+        MenuItem.new({
+          id: 'header',
+          text: 'Presets',
+          enabled: false,
+        }),
+        PredefinedMenuItem.new({ item: 'Separator' }),
+        ...DIMENSION_PRESETS.map((preset) =>
+          MenuItem.new({
+            id: `preset-${preset.label}`,
+            text: `${preset.label}  (${preset.width}×${preset.height})`,
+            action: () => handlePresetSelect(preset),
+          })
+        ),
+      ]);
+
+      const menu = await Menu.new({ items });
+
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (rect) {
+        await menu.popup(new LogicalPosition(rect.left, rect.bottom + 4));
+      } else {
+        await menu.popup();
+      }
+    } catch (error) {
+      console.error('Failed to open preset menu:', error);
+    }
+  }, [disabled, handlePresetSelect]);
 
   return (
-    <div className="glass-inline-group">
-      <span className="glass-inline-label">Size</span>
-      <div className="glass-dimension-inputs">
-        {/* Width input */}
+    <div className={`glass-source-group ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+      {/* Back button */}
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="glass-source-btn"
+          title="Back to source selection"
+        >
+          <span className="glass-source-icon">
+            <ChevronLeft size={18} strokeWidth={1.5} />
+          </span>
+          <span className="glass-source-label">Back</span>
+        </button>
+      )}
+
+      {/* Dimension inputs styled as a source button */}
+      <div className="glass-dimension-compact">
         <input
           type="text"
           value={widthInput}
           onChange={(e) => setWidthInput(e.target.value)}
           onBlur={applyChange}
           onKeyDown={handleKeyDown}
-          className="glass-dimension-input"
+          className="glass-dimension-compact-input"
           title="Width"
           disabled={disabled}
         />
-
-        <span className="glass-dimension-separator">×</span>
-
-        {/* Height input */}
+        <span className="glass-dimension-compact-sep">×</span>
         <input
           type="text"
           value={heightInput}
           onChange={(e) => setHeightInput(e.target.value)}
           onBlur={applyChange}
           onKeyDown={handleKeyDown}
-          className="glass-dimension-input"
+          className="glass-dimension-compact-input"
           title="Height"
           disabled={disabled}
         />
-
-        {/* Preset dropdown */}
-        <SelectPrimitive.Root
-          value={currentPreset}
-          onValueChange={handlePresetChange}
-          disabled={disabled}
-        >
-          <SelectPrimitive.Trigger className="glass-dimension-preset-trigger">
-            <SelectPrimitive.Icon className="glass-dimension-preset-icon">
-              <ChevronDown size={12} />
-            </SelectPrimitive.Icon>
-          </SelectPrimitive.Trigger>
-
-          <SelectPrimitive.Portal>
-            <SelectPrimitive.Content
-              position="popper"
-              sideOffset={6}
-              className="z-[9999] glass-dimension-select-popup"
-            >
-              <SelectPrimitive.Viewport>
-                {DIMENSION_PRESETS.map((preset) => (
-                  <SelectPrimitive.Item
-                    key={preset.label}
-                    value={preset.label}
-                    className="glass-dimension-select-item"
-                  >
-                    <SelectPrimitive.ItemText>
-                      <span className="glass-dimension-select-label">{preset.label}</span>
-                      <span className="glass-dimension-select-dims">
-                        {preset.width}×{preset.height}
-                      </span>
-                    </SelectPrimitive.ItemText>
-                  </SelectPrimitive.Item>
-                ))}
-              </SelectPrimitive.Viewport>
-            </SelectPrimitive.Content>
-          </SelectPrimitive.Portal>
-        </SelectPrimitive.Root>
       </div>
+
+      {/* Preset menu button styled as source button */}
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={openPresetMenu}
+        className="glass-source-btn"
+        disabled={disabled}
+        title="Dimension presets"
+      >
+        <span className="glass-source-icon">
+          <ChevronDown size={18} strokeWidth={1.5} />
+        </span>
+        <span className="glass-source-label">Preset</span>
+      </button>
     </div>
   );
 };

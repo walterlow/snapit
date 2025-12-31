@@ -20,10 +20,12 @@ interface WebcamErrorEvent {
 interface UseWebcamCoordinationReturn {
   /** Close the webcam preview window */
   closeWebcamPreview: () => Promise<void>;
+  /** Open webcam preview if enabled in settings */
+  openWebcamPreviewIfEnabled: () => Promise<void>;
 }
 
 export function useWebcamCoordination(): UseWebcamCoordinationReturn {
-  const { closePreview } = useWebcamSettingsStore();
+  const { closePreview, togglePreview, settings, previewOpen } = useWebcamSettingsStore();
 
   // Load webcam settings on mount
   useEffect(() => {
@@ -67,7 +69,15 @@ export function useWebcamCoordination(): UseWebcamCoordinationReturn {
     await closePreview();
   }, [closePreview]);
 
+  const openWebcamPreviewIfEnabled = useCallback(async () => {
+    // Only open if webcam is enabled in settings but preview is not already open
+    if (settings.enabled && !previewOpen) {
+      await togglePreview();
+    }
+  }, [settings.enabled, previewOpen, togglePreview]);
+
   return {
     closeWebcamPreview,
+    openWebcamPreviewIfEnabled,
   };
 }

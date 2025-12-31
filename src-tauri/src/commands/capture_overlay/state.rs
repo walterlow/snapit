@@ -377,6 +377,14 @@ pub struct OverlayState {
     pub adjustment: AdjustmentState,
     /// Cursor position and hovered window
     pub cursor: CursorState,
+    /// Preselected window HWND (for window capture mode)
+    pub preselected_window_id: Option<isize>,
+    /// Preselected window title (for window capture mode)
+    pub preselected_window_title: Option<String>,
+    /// Preselected monitor index (for display capture mode)
+    pub preselected_monitor_index: Option<usize>,
+    /// Preselected monitor name (for display capture mode)
+    pub preselected_monitor_name: Option<String>,
 
     // Graphics resources (boxed to reduce struct size)
     /// All graphics resources

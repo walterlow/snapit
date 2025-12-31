@@ -354,6 +354,16 @@ pub async fn restore_main_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Show the library window (always shows, regardless of previous state)
+#[command]
+pub async fn show_library_window(app: AppHandle) -> Result<(), String> {
+    if let Some(main_window) = app.get_webview_window("library") {
+        let _ = main_window.show();
+        let _ = main_window.set_focus();
+    }
+    Ok(())
+}
+
 /// Open editor with a file path to raw RGBA data.
 /// This is used with fast capture commands to skip PNG encoding on the Rust side.
 /// The frontend will handle conversion to displayable format using browser APIs.
@@ -570,8 +580,8 @@ pub async fn show_capture_toolbar(
         .build()
         .map_err(|e| format!("Failed to create capture toolbar window: {}", e))?;
 
-    // Fixed toolbar size: 1024x144px
-    let toolbar_width = 1024u32;
+    // Fixed toolbar size: 1280x144px
+    let toolbar_width = 1280u32;
     let toolbar_height = 144u32;
     let initial_x = x + (width as i32 / 2) - (toolbar_width as i32 / 2);
     let initial_y = y + height as i32 + 8; // Below selection
@@ -695,9 +705,14 @@ pub async fn resize_capture_toolbar(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
+    const MAX_WIDTH: u32 = 1280;
+
     let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
         return Ok(());
     };
+
+    // Clamp width to max
+    let width = width.min(MAX_WIDTH);
 
     // Get current position to maintain it
     let current_pos = window.outer_position()
@@ -712,6 +727,26 @@ pub async fn resize_capture_toolbar(
 /// Set capture toolbar bounds (position + size) and show the window.
 /// Called by frontend after measuring content and calculating position.
 /// This allows frontend to fully control toolbar layout without hardcoded dimensions.
+/// Set only the position of the capture toolbar (preserves current size)
+#[command]
+pub async fn set_capture_toolbar_position(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    // Get current size
+    let size = window.outer_size().map_err(|e| format!("Failed to get size: {}", e))?;
+
+    // Set position only (preserve size)
+    set_physical_bounds(&window, x, y, size.width, size.height)?;
+
+    Ok(())
+}
+
 #[command]
 pub async fn set_capture_toolbar_bounds(
     app: AppHandle,
@@ -876,8 +911,8 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
     // No URL params - toolbar starts in startup state by default
     let url = WebviewUrl::App("capture-toolbar.html".into());
 
-    // Fixed toolbar size: 1024x144px
-    let initial_width = 1024u32;
+    // Fixed toolbar size: 1280x144px
+    let initial_width = 1280u32;
     let initial_height = 144u32;
 
     // Position at bottom-center of primary monitor

@@ -17,6 +17,16 @@ export interface SelectionBounds {
   y: number;
   width: number;
   height: number;
+  /** Source type: 'area', 'window', or 'display' */
+  sourceType?: 'area' | 'window' | 'display';
+  /** Window ID (HWND) if sourceType is 'window' */
+  windowId?: number | null;
+  /** Window/app title if sourceType is 'window' */
+  sourceTitle?: string | null;
+  /** Monitor name if sourceType is 'display' */
+  monitorName?: string | null;
+  /** Monitor index if sourceType is 'display' */
+  monitorIndex?: number | null;
 }
 
 /** Default bounds (no selection) */
@@ -101,12 +111,10 @@ async function repositionToolbar(selection: SelectionBounds): Promise<void> {
     finalPos = clampToMonitor(centeredX, belowY, monitors[0]);
   }
 
-  // Update position via Rust
-  await invoke('set_capture_toolbar_bounds', {
+  // Update position via Rust (size is handled by useToolbarPositioning)
+  await invoke('set_capture_toolbar_position', {
     x: finalPos.x,
     y: finalPos.y,
-    width: toolbarWidth,
-    height: toolbarHeight,
   });
 }
 
@@ -149,6 +157,10 @@ export function useSelectionEvents(): UseSelectionEventsReturn {
         setSelectionBounds(bounds);
         selectionBoundsRef.current = bounds;
         setSelectionConfirmed(true);
+
+        // Wait for React to re-render and resize hook to run, then reposition
+        // This ensures the window size is updated AFTER DimensionSelect renders
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         // Reposition toolbar for the new selection
         try {

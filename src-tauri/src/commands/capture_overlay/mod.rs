@@ -117,18 +117,36 @@ pub async fn show_capture_overlay(
     let bounds = Rect::from_xywh(x, y, width, height);
     log::info!("[show_capture_overlay] Virtual screen bounds: x={}, y={}, w={}, h={}", x, y, width, height);
 
-    // Calculate pre-selection bounds if provided
+    // Calculate pre-selection bounds and metadata if provided
+    let mut preselect_window_title: Option<String> = None;
+    let mut preselect_monitor_name: Option<String> = None;
+
     let preselect_bounds = if let Some(monitor_idx) = preselect_monitor {
+        // Get monitor name
+        if let Ok(monitors) = xcap::Monitor::all() {
+            if let Some(mon) = monitors.get(monitor_idx) {
+                preselect_monitor_name = mon.name().ok();
+            }
+        }
         get_monitor_bounds(monitor_idx)
     } else if let Some(hwnd) = preselect_window {
+        // Bring the selected window to front
+        bring_window_to_front(hwnd);
+        // Get window title
+        preselect_window_title = get_window_title(hwnd);
         render::get_window_bounds_by_hwnd(hwnd)
     } else {
         None
     };
-    
-    log::info!("[show_capture_overlay] Preselect bounds: {:?}", preselect_bounds);
 
-    tokio::task::spawn_blocking(move || run_overlay(app_clone, bounds, ct, mode, preselect_bounds))
+    log::info!("[show_capture_overlay] Preselect bounds: {:?}, window_title: {:?}, monitor_name: {:?}",
+        preselect_bounds, preselect_window_title, preselect_monitor_name);
+
+    tokio::task::spawn_blocking(move || run_overlay(
+        app_clone, bounds, ct, mode, preselect_bounds,
+        preselect_window, preselect_window_title,
+        preselect_monitor, preselect_monitor_name
+    ))
         .await
         .map_err(|e| format!("Task failed: {:?}", e))?
 }
@@ -145,6 +163,45 @@ fn get_monitor_bounds(monitor_idx: usize) -> Option<Rect> {
         }
     }
     None
+}
+
+/// Bring a window to the foreground.
+fn bring_window_to_front(hwnd: isize) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetForegroundWindow, ShowWindow, SW_RESTORE, IsIconic,
+    };
+
+    let hwnd = HWND(hwnd as *mut std::ffi::c_void);
+
+    unsafe {
+        // If minimized, restore it first
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        // Bring to foreground
+        let _ = SetForegroundWindow(hwnd);
+    }
+
+    log::info!("[Overlay] Brought window to foreground");
+}
+
+/// Get a window's title by HWND.
+fn get_window_title(hwnd: isize) -> Option<String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+
+    let hwnd = HWND(hwnd as *mut std::ffi::c_void);
+    let mut buffer = [0u16; 256];
+
+    unsafe {
+        let len = GetWindowTextW(hwnd, &mut buffer);
+        if len > 0 {
+            Some(String::from_utf16_lossy(&buffer[..len as usize]))
+        } else {
+            None
+        }
+    }
 }
 
 /// Get the virtual screen bounds (all monitors combined)
@@ -166,8 +223,15 @@ fn run_overlay(
     capture_type: CaptureType,
     overlay_mode: OverlayMode,
     preselect_bounds: Option<Rect>,
+    preselect_window_id: Option<isize>,
+    preselect_window_title: Option<String>,
+    preselect_monitor_index: Option<usize>,
+    preselect_monitor_name: Option<String>,
 ) -> Result<Option<OverlayResult>, String> {
-    log::info!("[run_overlay] Starting overlay for {:?} with mode {:?}, preselect: {:?}", capture_type, overlay_mode, preselect_bounds);
+    log::info!("[run_overlay] Starting overlay for {:?} with mode {:?}, preselect: {:?}, window: {:?}/{:?}, monitor: {:?}/{:?}",
+        capture_type, overlay_mode, preselect_bounds,
+        preselect_window_id, preselect_window_title,
+        preselect_monitor_index, preselect_monitor_name);
     
     // Prevent concurrent overlays
     if OVERLAY_ACTIVE.swap(true, Ordering::SeqCst) {
@@ -269,6 +333,10 @@ fn run_overlay(
                 position: types::Point::new(initial_cursor_x, initial_cursor_y),
                 hovered_window: None,
             },
+            preselected_window_id: preselect_window_id,
+            preselected_window_title: preselect_window_title,
+            preselected_monitor_index: preselect_monitor_index,
+            preselected_monitor_name: preselect_monitor_name,
             graphics: Box::new(GraphicsState {
                 swap_chain,
                 comp_device: compositor_resources.device.clone(),
@@ -293,13 +361,29 @@ fn run_overlay(
             if let Some(screen_sel) = state.get_screen_selection() {
                 // Emit confirm-selection to update existing toolbar (avoids destroy/recreate crash)
                 // This sets selectionConfirmed=true and updates the selection bounds
+                // Include windowId if this is a window capture
+                // Determine source type based on what was preselected
+                let source_type = if state.preselected_window_id.is_some() {
+                    "window"
+                } else if state.preselected_monitor_index.is_some() {
+                    "display"
+                } else {
+                    "area"
+                };
+
                 let _ = state.app_handle.emit("confirm-selection", serde_json::json!({
                     "x": screen_sel.left,
                     "y": screen_sel.top,
                     "width": screen_sel.width(),
-                    "height": screen_sel.height()
+                    "height": screen_sel.height(),
+                    "sourceType": source_type,
+                    "windowId": state.preselected_window_id,
+                    "sourceTitle": state.preselected_window_title,
+                    "monitorIndex": state.preselected_monitor_index,
+                    "monitorName": state.preselected_monitor_name
                 }));
-                log::info!("[run_overlay] Confirmed selection on existing toolbar for preselection");
+                log::info!("[run_overlay] Confirmed selection: source_type={}, window={:?}, monitor={:?}",
+                    source_type, state.preselected_window_title, state.preselected_monitor_name);
             }
             // Make overlay click-through for locked preselection
             // This is bulletproof - no Z-order fighting with toolbar
@@ -326,10 +410,9 @@ fn run_overlay(
             }
 
             // Poll ESC key using GetAsyncKeyState
-            // (WS_EX_NOACTIVATE windows don't receive keyboard messages normally)
-            // Only handle ESC when NOT in adjustment mode - toolbar handles ESC when visible
+            // (WS_EX_NOACTIVATE and WS_EX_TRANSPARENT windows don't receive keyboard messages)
             let esc_pressed = (GetAsyncKeyState(0x1B) as u16 & 0x8000) != 0;
-            if esc_pressed && !esc_was_pressed && !state.adjustment.is_active {
+            if esc_pressed && !esc_was_pressed {
                 log::info!("[Overlay] ESC pressed, cancelling overlay");
                 state.cancel();
             }

@@ -1,7 +1,10 @@
-import { useCallback, useRef, useEffect, useState } from 'react';
+import { memo, useCallback, useRef, useEffect, useState, useMemo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Play, Pause, Volume2, VolumeX, Maximize2 } from 'lucide-react';
 import { useVideoEditorStore, formatTimecode } from '../../stores/videoEditorStore';
+import { usePlaybackTime, usePlaybackControls, initPlaybackEngine } from '../../hooks/usePlaybackEngine';
+import { useZoomPreview } from '../../hooks/useZoomPreview';
+import { WebcamOverlay } from './WebcamOverlay';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -10,58 +13,237 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
+// Selectors to prevent re-renders from unrelated store changes
+const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
+const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
+
 /**
- * Simple video preview using HTML5 video element.
- * GPU rendering will be added later for effects.
+ * Memoized timecode display - only re-renders when time changes.
+ */
+const TimecodeDisplay = memo(function TimecodeDisplay({ 
+  durationMs 
+}: { 
+  durationMs: number;
+}) {
+  const currentTimeMs = usePlaybackTime();
+  const currentTimecode = formatTimecode(currentTimeMs);
+  const durationTimecode = formatTimecode(durationMs);
+  
+  return (
+    <div className="flex items-center gap-1 text-sm font-mono">
+      <span className="text-white">{currentTimecode}</span>
+      <span className="text-zinc-500">/</span>
+      <span className="text-zinc-400">{durationTimecode}</span>
+    </div>
+  );
+});
+
+/**
+ * Memoized video element with zoom transform.
+ * Re-renders at 60fps via usePlaybackTime, but only the transform changes.
+ */
+const VideoWithZoom = memo(function VideoWithZoom({
+  videoRef,
+  videoSrc,
+  zoomRegions,
+  onVideoClick,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  videoSrc: string;
+  zoomRegions: Parameters<typeof useZoomPreview>[0];
+  onVideoClick: () => void;
+}) {
+  const currentTimeMs = usePlaybackTime();
+  const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs);
+  
+  return (
+    <video
+      ref={videoRef}
+      src={videoSrc}
+      className="w-full h-full object-contain cursor-pointer bg-zinc-900"
+      style={{ 
+        minWidth: 320, 
+        minHeight: 180,
+        ...zoomStyle,
+      }}
+      onClick={onVideoClick}
+      playsInline
+      preload="auto"
+    />
+  );
+});
+
+/**
+ * Memoized controls bar - only re-renders on play state change.
+ */
+const ControlsBar = memo(function ControlsBar({
+  videoSrc,
+  durationMs,
+  onToggleMute,
+  onFullscreen,
+  isMuted,
+}: {
+  videoSrc: string | null;
+  durationMs: number;
+  onToggleMute: () => void;
+  onFullscreen: () => void;
+  isMuted: boolean;
+}) {
+  const isPlaying = useVideoEditorStore(selectIsPlaying);
+  const controls = usePlaybackControls();
+  
+  const handlePlayPause = useCallback(() => {
+    controls.toggle();
+  }, [controls]);
+  
+  return (
+    <div className="h-12 bg-zinc-900/80 border-t border-zinc-700/50 flex items-center justify-between px-4 gap-4">
+      <div className="flex items-center gap-3">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handlePlayPause}
+              disabled={!videoSrc}
+              className="h-8 w-8 text-zinc-300 hover:text-white hover:bg-zinc-700 disabled:opacity-50"
+            >
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <span className="text-xs">{isPlaying ? 'Pause' : 'Play'} (Space)</span>
+          </TooltipContent>
+        </Tooltip>
+
+        <TimecodeDisplay durationMs={durationMs} />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onToggleMute}
+              className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-700"
+            >
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <span className="text-xs">{isMuted ? 'Unmute' : 'Mute'}</span>
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onFullscreen}
+              className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-700"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <span className="text-xs">Fullscreen</span>
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </div>
+  );
+});
+
+/**
+ * Main video preview component.
+ * Optimized to minimize re-renders during playback.
  */
 export function GPUVideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
-  const isSeekingRef = useRef(false);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   
-  const {
-    currentTimeMs,
-    isPlaying,
-    project,
-    setCurrentTime,
-    setIsPlaying,
-  } = useVideoEditorStore();
+  // Use selectors for stable subscriptions
+  const project = useVideoEditorStore(selectProject);
+  const isPlaying = useVideoEditorStore(selectIsPlaying);
+  const controls = usePlaybackControls();
 
-  // Convert file path to asset URL
-  const videoSrc = project?.sources.screenVideo 
-    ? convertFileSrc(project.sources.screenVideo)
-    : null;
-
-  // Debug: log video source
+  // Track container size for webcam overlay positioning
   useEffect(() => {
-    if (videoSrc) {
-      console.log('[VIDEO] Source path:', project?.sources.screenVideo);
-      console.log('[VIDEO] Converted URL:', videoSrc);
-    }
-  }, [videoSrc, project?.sources.screenVideo]);
+    const container = containerRef.current;
+    if (!container) return;
 
-  const currentTimecode = formatTimecode(currentTimeMs);
-  const durationTimecode = project ? formatTimecode(project.timeline.durationMs) : '00:00:00';
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setContainerSize({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+      }
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  // Convert file path to asset URL (memoized)
+  const videoSrc = useMemo(() => {
+    return project?.sources.screenVideo 
+      ? convertFileSrc(project.sources.screenVideo)
+      : null;
+  }, [project?.sources.screenVideo]);
   
-  // Get aspect ratio from project
-  const aspectRatio = project?.sources.originalWidth && project?.sources.originalHeight
-    ? project.sources.originalWidth / project.sources.originalHeight
-    : 16 / 9;
+  // Get aspect ratio from project (memoized)
+  const aspectRatio = useMemo(() => {
+    return project?.sources.originalWidth && project?.sources.originalHeight
+      ? project.sources.originalWidth / project.sources.originalHeight
+      : 16 / 9;
+  }, [project?.sources.originalWidth, project?.sources.originalHeight]);
 
-  // Handle video time updates during playback
+  // Container style (memoized)
+  const containerStyle = useMemo(() => ({
+    aspectRatio,
+    maxWidth: '100%',
+    maxHeight: '100%',
+    filter: 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
+  }), [aspectRatio]);
+
+  // Initialize playback engine when project loads
+  useEffect(() => {
+    if (project?.timeline.durationMs) {
+      initPlaybackEngine(project.timeline.durationMs);
+    }
+  }, [project?.timeline.durationMs]);
+
+  // Register video element with playback engine
+  useEffect(() => {
+    controls.setVideoElement(videoRef.current);
+  }, [controls]);
+
+  // Set duration when project loads
+  useEffect(() => {
+    if (project?.timeline.durationMs) {
+      controls.setDuration(project.timeline.durationMs);
+    }
+  }, [project?.timeline.durationMs, controls]);
+
+  // Handle video element events
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     const onTimeUpdate = () => {
-      if (!isSeekingRef.current) {
-        setCurrentTime(video.currentTime * 1000);
-      }
+      // Sync time from video element to playback engine
+      controls.syncFromVideo(video.currentTime * 1000);
     };
 
     const onEnded = () => {
-      setIsPlaying(false);
+      controls.pause();
     };
 
     const onError = (e: Event) => {
@@ -73,54 +255,22 @@ export function GPUVideoPreview() {
 
     const onLoadedData = () => {
       setVideoError(null);
-      console.log('[VIDEO] Loaded - dimensions:', video.videoWidth, 'x', video.videoHeight, 'duration:', video.duration);
-    };
-
-    const onLoadedMetadata = () => {
-      console.log('[VIDEO] Metadata - dimensions:', video.videoWidth, 'x', video.videoHeight);
-    };
-
-    const onCanPlay = () => {
-      console.log('[VIDEO] Can play now');
     };
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
     video.addEventListener('error', onError);
     video.addEventListener('loadeddata', onLoadedData);
-    video.addEventListener('loadedmetadata', onLoadedMetadata);
-    video.addEventListener('canplay', onCanPlay);
 
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('error', onError);
       video.removeEventListener('loadeddata', onLoadedData);
-      video.removeEventListener('loadedmetadata', onLoadedMetadata);
-      video.removeEventListener('canplay', onCanPlay);
     };
-  }, [setCurrentTime, setIsPlaying]);
+  }, [controls]);
 
-  // Sync video position when currentTimeMs changes externally (e.g., timeline scrub)
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || isPlaying) return;
-
-    const targetTime = currentTimeMs / 1000;
-    const diff = Math.abs(video.currentTime - targetTime);
-    
-    // Only seek if difference is significant (> 100ms)
-    if (diff > 0.1) {
-      isSeekingRef.current = true;
-      video.currentTime = targetTime;
-      // Reset seeking flag after a short delay
-      setTimeout(() => {
-        isSeekingRef.current = false;
-      }, 50);
-    }
-  }, [currentTimeMs, isPlaying]);
-
-  // Sync play/pause state
+  // Sync play/pause state from store to video element
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -128,12 +278,12 @@ export function GPUVideoPreview() {
     if (isPlaying && video.paused) {
       video.play().catch(e => {
         console.error('Play failed:', e);
-        setIsPlaying(false);
+        controls.pause();
       });
     } else if (!isPlaying && !video.paused) {
       video.pause();
     }
-  }, [isPlaying, setIsPlaying]);
+  }, [isPlaying, controls]);
 
   // Sync mute state
   useEffect(() => {
@@ -142,10 +292,6 @@ export function GPUVideoPreview() {
       video.muted = isMuted;
     }
   }, [isMuted]);
-
-  const handlePlayPause = useCallback(() => {
-    setIsPlaying(!isPlaying);
-  }, [isPlaying, setIsPlaying]);
 
   const handleToggleMute = useCallback(() => {
     setIsMuted(prev => !prev);
@@ -158,10 +304,11 @@ export function GPUVideoPreview() {
     }
   }, []);
 
-  // Click on video to play/pause
   const handleVideoClick = useCallback(() => {
-    handlePlayPause();
-  }, [handlePlayPause]);
+    controls.toggle();
+  }, [controls]);
+
+  const durationMs = project?.timeline.durationMs ?? 0;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -169,29 +316,31 @@ export function GPUVideoPreview() {
         {/* Video container */}
         <div className="flex-1 flex items-center justify-center bg-zinc-950 rounded-lg overflow-hidden relative">
           <div 
+            ref={containerRef}
             className="relative bg-black rounded-md overflow-hidden"
-            style={{
-              aspectRatio,
-              maxWidth: '100%',
-              maxHeight: '100%',
-              filter: 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
-            }}
+            style={containerStyle}
           >
             {videoSrc ? (
-              <video
-                ref={videoRef}
-                src={videoSrc}
-                className="w-full h-full object-contain cursor-pointer bg-zinc-900"
-                style={{ minWidth: 320, minHeight: 180 }}
-                onClick={handleVideoClick}
-                playsInline
-                preload="auto"
-                controls
+              <VideoWithZoom
+                videoRef={videoRef}
+                videoSrc={videoSrc}
+                zoomRegions={project?.zoom?.regions}
+                onVideoClick={handleVideoClick}
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="text-zinc-500">No video loaded</span>
               </div>
+            )}
+
+            {/* Webcam overlay */}
+            {project?.sources.webcamVideo && project.webcam && containerSize.width > 0 && (
+              <WebcamOverlay
+                webcamVideoPath={project.sources.webcamVideo}
+                config={project.webcam}
+                containerWidth={containerSize.width}
+                containerHeight={containerSize.height}
+              />
             )}
 
             {/* Error overlay */}
@@ -220,66 +369,13 @@ export function GPUVideoPreview() {
         </div>
 
         {/* Controls bar */}
-        <div className="h-12 bg-zinc-900/80 border-t border-zinc-700/50 flex items-center justify-between px-4 gap-4">
-          <div className="flex items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handlePlayPause}
-                  disabled={!videoSrc}
-                  className="h-8 w-8 text-zinc-300 hover:text-white hover:bg-zinc-700 disabled:opacity-50"
-                >
-                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <span className="text-xs">{isPlaying ? 'Pause' : 'Play'} (Space)</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <div className="flex items-center gap-1 text-sm font-mono">
-              <span className="text-white">{currentTimecode}</span>
-              <span className="text-zinc-500">/</span>
-              <span className="text-zinc-400">{durationTimecode}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleToggleMute}
-                  className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-700"
-                >
-                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <span className="text-xs">{isMuted ? 'Unmute' : 'Mute'}</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleFullscreen}
-                  className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-700"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <span className="text-xs">Fullscreen</span>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
+        <ControlsBar
+          videoSrc={videoSrc}
+          durationMs={durationMs}
+          onToggleMute={handleToggleMute}
+          onFullscreen={handleFullscreen}
+          isMuted={isMuted}
+        />
       </div>
     </TooltipProvider>
   );

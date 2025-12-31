@@ -1,39 +1,177 @@
-import { useCallback, useRef, useMemo } from 'react';
+import { memo, useCallback, useRef, useMemo } from 'react';
 import { Film, Plus } from 'lucide-react';
 import { useVideoEditorStore, generateZoomRegionId } from '../../stores/videoEditorStore';
+import { usePlaybackTime, usePlaybackControls, getPlaybackState } from '../../hooks/usePlaybackEngine';
 import { TimelineRuler } from './TimelineRuler';
 import { ZoomTrack } from './ZoomTrack';
 import { WebcamTrack } from './WebcamTrack';
 import type { ZoomRegion, ZoomTransition } from '../../types';
 
+// Selectors to prevent re-renders from unrelated store changes
+const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
+const selectTimelineZoom = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.timelineZoom;
+const selectIsDraggingPlayhead = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isDraggingPlayhead;
+
+/**
+ * Memoized playhead component - only re-renders when position changes.
+ * Uses usePlaybackTime for 60fps updates without triggering parent re-renders.
+ */
+const Playhead = memo(function Playhead({
+  timelineZoom,
+  trackLabelWidth,
+  isDragging,
+  onMouseDown,
+}: {
+  timelineZoom: number;
+  trackLabelWidth: number;
+  isDragging: boolean;
+  onMouseDown: (e: React.MouseEvent) => void;
+}) {
+  const currentTimeMs = usePlaybackTime();
+  const playheadPosition = currentTimeMs * timelineZoom + trackLabelWidth;
+
+  return (
+    <div
+      className={`
+        absolute top-0 bottom-0 w-0.5 z-30 pointer-events-auto
+        ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}
+      `}
+      style={{ 
+        left: `${playheadPosition}px`,
+        backgroundColor: 'var(--coral-400)',
+      }}
+      onMouseDown={onMouseDown}
+    >
+      {/* Playhead handle */}
+      <div 
+        className={`
+          absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-4 rounded-b-sm
+          shadow-lg
+          ${isDragging ? 'scale-110' : 'hover:scale-105'}
+          transition-transform
+        `}
+        style={{
+          clipPath: 'polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%)',
+          backgroundColor: 'var(--coral-400)',
+          boxShadow: '0 10px 15px -3px rgba(249, 112, 102, 0.3)',
+        }}
+      />
+      
+      {/* Time indicator (shown when dragging) */}
+      {isDragging && (
+        <PlayheadTimeIndicator />
+      )}
+    </div>
+  );
+});
+
+/**
+ * Separate component for the time indicator to minimize re-renders.
+ */
+const PlayheadTimeIndicator = memo(function PlayheadTimeIndicator() {
+  const currentTimeMs = usePlaybackTime();
+  
+  return (
+    <div 
+      className="absolute top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-zinc-900 rounded text-[10px] font-mono whitespace-nowrap shadow-lg"
+      style={{ 
+        borderColor: 'rgba(249, 112, 102, 0.5)',
+        borderWidth: '1px',
+        color: 'var(--coral-300)',
+      }}
+    >
+      {Math.floor(currentTimeMs / 60000)}:{String(Math.floor((currentTimeMs % 60000) / 1000)).padStart(2, '0')}
+    </div>
+  );
+});
+
+/**
+ * Memoized video track with thumbnails.
+ */
+const VideoTrack = memo(function VideoTrack({
+  timelineWidth,
+  trackLabelWidth,
+  timelineZoom,
+}: {
+  timelineWidth: number;
+  trackLabelWidth: number;
+  timelineZoom: number;
+}) {
+  // Video preview thumbnails (placeholder - would be generated from video frames)
+  const thumbnails = useMemo(() => {
+    const count = Math.ceil(timelineWidth / 100);
+    return Array.from({ length: count }, (_, i) => ({
+      x: i * 100,
+      timeMs: (i * 100) / timelineZoom,
+    }));
+  }, [timelineWidth, timelineZoom]);
+
+  return (
+    <div 
+      className="relative h-16 bg-zinc-800/40 border-b border-zinc-700/30"
+      style={{ width: `${timelineWidth + trackLabelWidth}px` }}
+    >
+      {/* Track label */}
+      <div className="absolute left-0 top-0 bottom-0 w-20 bg-zinc-900/80 border-r border-zinc-700/50 flex items-center justify-center z-10">
+        <div className="flex items-center gap-1.5 text-zinc-400">
+          <Film className="w-3.5 h-3.5" />
+          <span className="text-[11px] font-medium">Video</span>
+        </div>
+      </div>
+
+      {/* Thumbnail strip placeholder */}
+      <div 
+        className="absolute left-20 top-1 bottom-1 right-0 flex"
+        style={{
+          background: `
+            repeating-linear-gradient(
+              90deg,
+              rgba(39, 39, 42, 0.5) 0px,
+              rgba(39, 39, 42, 0.5) 99px,
+              rgba(63, 63, 70, 0.3) 99px,
+              rgba(63, 63, 70, 0.3) 100px
+            )
+          `,
+        }}
+      >
+        {thumbnails.map((thumb, i) => (
+          <div
+            key={i}
+            className="flex-shrink-0 w-[100px] h-full border-r border-zinc-700/20 flex items-center justify-center text-[10px] text-zinc-600"
+          >
+            {Math.floor(thumb.timeMs / 1000)}s
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
 /**
  * VideoTimeline - Main timeline component with ruler, tracks, and playhead.
- * Displays video preview strip, zoom regions, and webcam visibility segments.
+ * Optimized to prevent re-renders during playback.
  */
 export function VideoTimeline() {
+  const project = useVideoEditorStore(selectProject);
+  const timelineZoom = useVideoEditorStore(selectTimelineZoom);
+  const isDraggingPlayhead = useVideoEditorStore(selectIsDraggingPlayhead);
+  
   const {
-    project,
-    currentTimeMs,
-    setCurrentTime,
-    timelineZoom,
     setTimelineScrollLeft,
-    isDraggingPlayhead,
     setDraggingPlayhead,
     addZoomRegion,
     selectZoomRegion,
     selectWebcamSegment,
   } = useVideoEditorStore();
 
+  const controls = usePlaybackControls();
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Calculate timeline dimensions
-  const durationMs = project?.timeline.durationMs ?? 60000; // Default 1 minute
+  const durationMs = project?.timeline.durationMs ?? 60000;
   const timelineWidth = durationMs * timelineZoom;
-  const trackLabelWidth = 80; // Fixed width for track labels
-
-  // Playhead position in pixels
-  const playheadPosition = currentTimeMs * timelineZoom + trackLabelWidth;
+  const trackLabelWidth = 80;
 
   // Handle clicking on timeline to seek
   const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -41,12 +179,12 @@ export function VideoTimeline() {
     const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
     const x = e.clientX - rect.left + scrollLeft - trackLabelWidth;
     const newTimeMs = Math.max(0, Math.min(durationMs, x / timelineZoom));
-    setCurrentTime(newTimeMs);
+    controls.seek(newTimeMs);
     
     // Deselect any selected regions
     selectZoomRegion(null);
     selectWebcamSegment(null);
-  }, [durationMs, timelineZoom, setCurrentTime, selectZoomRegion, selectWebcamSegment]);
+  }, [durationMs, timelineZoom, controls, selectZoomRegion, selectWebcamSegment]);
 
   // Handle playhead dragging
   const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {
@@ -62,7 +200,7 @@ export function VideoTimeline() {
       const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
       const x = moveEvent.clientX - rect.left + scrollLeft - trackLabelWidth;
       const newTimeMs = Math.max(0, Math.min(durationMs, x / timelineZoom));
-      setCurrentTime(newTimeMs);
+      controls.seek(newTimeMs);
     };
 
     const handleMouseUp = () => {
@@ -73,7 +211,7 @@ export function VideoTimeline() {
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [durationMs, timelineZoom, setCurrentTime, setDraggingPlayhead]);
+  }, [durationMs, timelineZoom, controls, setDraggingPlayhead]);
 
   // Handle scroll
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -82,7 +220,8 @@ export function VideoTimeline() {
 
   // Add zoom region at current time
   const handleAddZoomRegion = useCallback(() => {
-    const defaultDuration = 3000; // 3 seconds
+    const { currentTimeMs } = getPlaybackState();
+    const defaultDuration = 3000;
     const endMs = Math.min(currentTimeMs + defaultDuration, durationMs);
     
     const defaultTransition: ZoomTransition = {
@@ -103,16 +242,7 @@ export function VideoTimeline() {
     };
     
     addZoomRegion(newRegion);
-  }, [currentTimeMs, durationMs, addZoomRegion]);
-
-  // Video preview thumbnails (placeholder - would be generated from video frames)
-  const thumbnails = useMemo(() => {
-    const count = Math.ceil(timelineWidth / 100); // One thumbnail per 100px
-    return Array.from({ length: count }, (_, i) => ({
-      x: i * 100,
-      timeMs: (i * 100) / timelineZoom,
-    }));
-  }, [timelineWidth, timelineZoom]);
+  }, [durationMs, addZoomRegion]);
 
   return (
     <div 
@@ -158,44 +288,11 @@ export function VideoTimeline() {
           </div>
 
           {/* Video Preview Track */}
-          <div 
-            className="relative h-16 bg-zinc-800/40 border-b border-zinc-700/30"
-            style={{ width: `${timelineWidth + trackLabelWidth}px` }}
-          >
-            {/* Track label */}
-            <div className="absolute left-0 top-0 bottom-0 w-20 bg-zinc-900/80 border-r border-zinc-700/50 flex items-center justify-center z-10">
-              <div className="flex items-center gap-1.5 text-zinc-400">
-                <Film className="w-3.5 h-3.5" />
-                <span className="text-[11px] font-medium">Video</span>
-              </div>
-            </div>
-
-            {/* Thumbnail strip placeholder */}
-            <div 
-              className="absolute left-20 top-1 bottom-1 right-0 flex"
-              style={{
-                background: `
-                  repeating-linear-gradient(
-                    90deg,
-                    rgba(39, 39, 42, 0.5) 0px,
-                    rgba(39, 39, 42, 0.5) 99px,
-                    rgba(63, 63, 70, 0.3) 99px,
-                    rgba(63, 63, 70, 0.3) 100px
-                  )
-                `,
-              }}
-            >
-              {/* Frame placeholders */}
-              {thumbnails.map((thumb, i) => (
-                <div
-                  key={i}
-                  className="flex-shrink-0 w-[100px] h-full border-r border-zinc-700/20 flex items-center justify-center text-[10px] text-zinc-600"
-                >
-                  {Math.floor(thumb.timeMs / 1000)}s
-                </div>
-              ))}
-            </div>
-          </div>
+          <VideoTrack
+            timelineWidth={timelineWidth}
+            trackLabelWidth={trackLabelWidth}
+            timelineZoom={timelineZoom}
+          />
 
           {/* Zoom Track */}
           {project && (
@@ -219,46 +316,12 @@ export function VideoTimeline() {
           )}
 
           {/* Playhead */}
-          <div
-            className={`
-              absolute top-0 bottom-0 w-0.5 z-30 pointer-events-auto
-              ${isDraggingPlayhead ? 'cursor-grabbing' : 'cursor-grab'}
-            `}
-            style={{ 
-              left: `${playheadPosition}px`,
-              backgroundColor: 'var(--coral-400)',
-            }}
+          <Playhead
+            timelineZoom={timelineZoom}
+            trackLabelWidth={trackLabelWidth}
+            isDragging={isDraggingPlayhead}
             onMouseDown={handlePlayheadMouseDown}
-          >
-            {/* Playhead handle */}
-            <div 
-              className={`
-                absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-4 rounded-b-sm
-                shadow-lg
-                ${isDraggingPlayhead ? 'scale-110' : 'hover:scale-105'}
-                transition-transform
-              `}
-              style={{
-                clipPath: 'polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%)',
-                backgroundColor: 'var(--coral-400)',
-                boxShadow: '0 10px 15px -3px rgba(249, 112, 102, 0.3)',
-              }}
-            />
-            
-            {/* Time indicator (shown when dragging) */}
-            {isDraggingPlayhead && (
-              <div 
-                className="absolute top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-zinc-900 rounded text-[10px] font-mono whitespace-nowrap shadow-lg"
-                style={{ 
-                  borderColor: 'rgba(249, 112, 102, 0.5)',
-                  borderWidth: '1px',
-                  color: 'var(--coral-300)',
-                }}
-              >
-                {Math.floor(currentTimeMs / 60000)}:{String(Math.floor((currentTimeMs % 60000) / 1000)).padStart(2, '0')}
-              </div>
-            )}
-          </div>
+          />
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { memo, useCallback } from 'react';
 import { ZoomIn, GripVertical } from 'lucide-react';
 import type { ZoomRegion } from '../../types';
 import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
@@ -10,37 +10,48 @@ interface ZoomTrackProps {
   width: number;
 }
 
-/**
- * ZoomTrack - Displays and allows editing of zoom regions.
- * Blue rectangles represent zoom-in areas that can be dragged and resized.
- */
-export function ZoomTrack({ regions, durationMs, timelineZoom, width }: ZoomTrackProps) {
-  const {
-    selectedZoomRegionId,
-    selectZoomRegion,
-    updateZoomRegion,
-    deleteZoomRegion,
-    setDraggingZoomRegion,
-  } = useVideoEditorStore();
+// Selectors for atomic subscriptions
+const selectSelectedZoomRegionId = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.selectedZoomRegionId;
 
-  const handleRegionClick = useCallback((e: React.MouseEvent, regionId: string) => {
+/**
+ * Memoized zoom region component.
+ */
+const ZoomRegionItem = memo(function ZoomRegionItem({
+  region,
+  isSelected,
+  timelineZoom,
+  durationMs,
+  onSelect,
+  onUpdate,
+  onDelete,
+  onDragStart,
+}: {
+  region: ZoomRegion;
+  isSelected: boolean;
+  timelineZoom: number;
+  durationMs: number;
+  onSelect: (id: string) => void;
+  onUpdate: (id: string, updates: Partial<ZoomRegion>) => void;
+  onDelete: (id: string) => void;
+  onDragStart: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
+}) {
+  const left = region.startMs * timelineZoom;
+  const regionWidth = (region.endMs - region.startMs) * timelineZoom;
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    selectZoomRegion(regionId);
-  }, [selectZoomRegion]);
+    onSelect(region.id);
+  }, [onSelect, region.id]);
 
   const handleMouseDown = useCallback((
     e: React.MouseEvent,
-    regionId: string,
     edge: 'start' | 'end' | 'move'
   ) => {
     e.preventDefault();
     e.stopPropagation();
     
-    selectZoomRegion(regionId);
-    setDraggingZoomRegion(true, edge);
-
-    const region = regions.find(r => r.id === regionId);
-    if (!region) return;
+    onSelect(region.id);
+    onDragStart(true, edge);
 
     const startX = e.clientX;
     const startTimeMs = edge === 'end' ? region.endMs : region.startMs;
@@ -52,16 +63,14 @@ export function ZoomTrack({ regions, durationMs, timelineZoom, width }: ZoomTrac
       
       if (edge === 'start') {
         const newStartMs = Math.max(0, Math.min(region.endMs - 500, startTimeMs + deltaMs));
-        updateZoomRegion(regionId, { startMs: newStartMs });
+        onUpdate(region.id, { startMs: newStartMs });
       } else if (edge === 'end') {
         const newEndMs = Math.max(region.startMs + 500, Math.min(durationMs, startTimeMs + deltaMs));
-        updateZoomRegion(regionId, { endMs: newEndMs });
+        onUpdate(region.id, { endMs: newEndMs });
       } else {
-        // Move entire region
         let newStartMs = startTimeMs + deltaMs;
         let newEndMs = newStartMs + regionDuration;
         
-        // Clamp to timeline bounds
         if (newStartMs < 0) {
           newStartMs = 0;
           newEndMs = regionDuration;
@@ -71,24 +80,107 @@ export function ZoomTrack({ regions, durationMs, timelineZoom, width }: ZoomTrac
           newStartMs = durationMs - regionDuration;
         }
         
-        updateZoomRegion(regionId, { startMs: newStartMs, endMs: newEndMs });
+        onUpdate(region.id, { startMs: newStartMs, endMs: newEndMs });
       }
     };
 
     const handleMouseUp = () => {
-      setDraggingZoomRegion(false);
+      onDragStart(false);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [regions, durationMs, timelineZoom, selectZoomRegion, updateZoomRegion, setDraggingZoomRegion]);
+  }, [region, durationMs, timelineZoom, onSelect, onUpdate, onDragStart]);
 
-  const handleDelete = useCallback((e: React.MouseEvent, regionId: string) => {
+  const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    deleteZoomRegion(regionId);
-  }, [deleteZoomRegion]);
+    onDelete(region.id);
+  }, [onDelete, region.id]);
+
+  return (
+    <div
+      className={`
+        absolute top-1 bottom-1 rounded-md cursor-pointer
+        transition-all duration-100
+        ${isSelected
+          ? 'bg-blue-500/40 border-2 border-blue-400 shadow-lg shadow-blue-500/20'
+          : 'bg-blue-500/25 border border-blue-500/50 hover:bg-blue-500/35'
+        }
+        ${region.isAuto ? 'border-dashed' : ''}
+      `}
+      style={{
+        left: `${left}px`,
+        width: `${Math.max(regionWidth, 20)}px`,
+      }}
+      onClick={handleClick}
+    >
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 rounded-l-md"
+        onMouseDown={(e) => handleMouseDown(e, 'start')}
+      />
+
+      {/* Center drag handle */}
+      <div
+        className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center"
+        onMouseDown={(e) => handleMouseDown(e, 'move')}
+      >
+        {regionWidth > 60 && (
+          <div className="flex items-center gap-1 text-blue-300/80">
+            <GripVertical className="w-3 h-3" />
+            <span className="text-[10px] font-mono">
+              {region.scale.toFixed(1)}x
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Right resize handle */}
+      <div
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 rounded-r-md"
+        onMouseDown={(e) => handleMouseDown(e, 'end')}
+      />
+
+      {/* Delete button (shown when selected) */}
+      {isSelected && regionWidth > 40 && (
+        <button
+          className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
+          onClick={handleDelete}
+        >
+          ×
+        </button>
+      )}
+
+      {/* Tooltip showing time range */}
+      {isSelected && (
+        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap">
+          {formatTimeSimple(region.startMs)} - {formatTimeSimple(region.endMs)}
+        </div>
+      )}
+    </div>
+  );
+});
+
+/**
+ * ZoomTrack - Displays and allows editing of zoom regions.
+ * Memoized to prevent re-renders during playback.
+ */
+export const ZoomTrack = memo(function ZoomTrack({ 
+  regions, 
+  durationMs, 
+  timelineZoom, 
+  width 
+}: ZoomTrackProps) {
+  const selectedZoomRegionId = useVideoEditorStore(selectSelectedZoomRegionId);
+  
+  const {
+    selectZoomRegion,
+    updateZoomRegion,
+    deleteZoomRegion,
+    setDraggingZoomRegion,
+  } = useVideoEditorStore();
 
   return (
     <div 
@@ -105,76 +197,20 @@ export function ZoomTrack({ regions, durationMs, timelineZoom, width }: ZoomTrac
 
       {/* Zoom regions */}
       <div className="absolute left-20 top-0 bottom-0 right-0">
-        {regions.map((region) => {
-          const left = region.startMs * timelineZoom;
-          const regionWidth = (region.endMs - region.startMs) * timelineZoom;
-          const isSelected = region.id === selectedZoomRegionId;
-
-          return (
-            <div
-              key={region.id}
-              className={`
-                absolute top-1 bottom-1 rounded-md cursor-pointer
-                transition-all duration-100
-                ${isSelected
-                  ? 'bg-blue-500/40 border-2 border-blue-400 shadow-lg shadow-blue-500/20'
-                  : 'bg-blue-500/25 border border-blue-500/50 hover:bg-blue-500/35'
-                }
-                ${region.isAuto ? 'border-dashed' : ''}
-              `}
-              style={{
-                left: `${left}px`,
-                width: `${Math.max(regionWidth, 20)}px`,
-              }}
-              onClick={(e) => handleRegionClick(e, region.id)}
-            >
-              {/* Left resize handle */}
-              <div
-                className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 rounded-l-md"
-                onMouseDown={(e) => handleMouseDown(e, region.id, 'start')}
-              />
-
-              {/* Center drag handle */}
-              <div
-                className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center"
-                onMouseDown={(e) => handleMouseDown(e, region.id, 'move')}
-              >
-                {regionWidth > 60 && (
-                  <div className="flex items-center gap-1 text-blue-300/80">
-                    <GripVertical className="w-3 h-3" />
-                    <span className="text-[10px] font-mono">
-                      {region.scale.toFixed(1)}x
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Right resize handle */}
-              <div
-                className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 rounded-r-md"
-                onMouseDown={(e) => handleMouseDown(e, region.id, 'end')}
-              />
-
-              {/* Delete button (shown when selected) */}
-              {isSelected && regionWidth > 40 && (
-                <button
-                  className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
-                  onClick={(e) => handleDelete(e, region.id)}
-                >
-                  ×
-                </button>
-              )}
-
-              {/* Tooltip showing time range */}
-              {isSelected && (
-                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap">
-                  {formatTimeSimple(region.startMs)} - {formatTimeSimple(region.endMs)}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {regions.map((region) => (
+          <ZoomRegionItem
+            key={region.id}
+            region={region}
+            isSelected={region.id === selectedZoomRegionId}
+            timelineZoom={timelineZoom}
+            durationMs={durationMs}
+            onSelect={selectZoomRegion}
+            onUpdate={updateZoomRegion}
+            onDelete={deleteZoomRegion}
+            onDragStart={setDraggingZoomRegion}
+          />
+        ))}
       </div>
     </div>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { memo, useCallback } from 'react';
 import { Video, Eye, EyeOff } from 'lucide-react';
 import type { VisibilitySegment } from '../../types';
 import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
@@ -11,35 +11,47 @@ interface WebcamTrackProps {
   enabled: boolean;
 }
 
-/**
- * WebcamTrack - Displays webcam visibility segments.
- * Green segments indicate when the webcam overlay is visible.
- */
-export function WebcamTrack({ segments, durationMs, timelineZoom, width, enabled }: WebcamTrackProps) {
-  const {
-    selectedWebcamSegmentIndex,
-    selectWebcamSegment,
-    updateWebcamSegment,
-    deleteWebcamSegment,
-  } = useVideoEditorStore();
+// Selectors for atomic subscriptions
+const selectSelectedWebcamSegmentIndex = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.selectedWebcamSegmentIndex;
 
-  const handleSegmentClick = useCallback((e: React.MouseEvent, index: number) => {
+/**
+ * Memoized webcam segment component.
+ */
+const WebcamSegmentItem = memo(function WebcamSegmentItem({
+  segment,
+  index,
+  isSelected,
+  timelineZoom,
+  durationMs,
+  onSelect,
+  onUpdate,
+  onDelete,
+}: {
+  segment: VisibilitySegment;
+  index: number;
+  isSelected: boolean;
+  timelineZoom: number;
+  durationMs: number;
+  onSelect: (index: number) => void;
+  onUpdate: (index: number, updates: Partial<VisibilitySegment>) => void;
+  onDelete: (index: number) => void;
+}) {
+  const left = segment.startMs * timelineZoom;
+  const segmentWidth = (segment.endMs - segment.startMs) * timelineZoom;
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    selectWebcamSegment(index);
-  }, [selectWebcamSegment]);
+    onSelect(index);
+  }, [onSelect, index]);
 
   const handleMouseDown = useCallback((
     e: React.MouseEvent,
-    index: number,
     edge: 'start' | 'end' | 'move'
   ) => {
     e.preventDefault();
     e.stopPropagation();
     
-    selectWebcamSegment(index);
-
-    const segment = segments[index];
-    if (!segment) return;
+    onSelect(index);
 
     const startX = e.clientX;
     const startTimeMs = edge === 'end' ? segment.endMs : segment.startMs;
@@ -51,16 +63,14 @@ export function WebcamTrack({ segments, durationMs, timelineZoom, width, enabled
       
       if (edge === 'start') {
         const newStartMs = Math.max(0, Math.min(segment.endMs - 100, startTimeMs + deltaMs));
-        updateWebcamSegment(index, { startMs: newStartMs });
+        onUpdate(index, { startMs: newStartMs });
       } else if (edge === 'end') {
         const newEndMs = Math.max(segment.startMs + 100, Math.min(durationMs, startTimeMs + deltaMs));
-        updateWebcamSegment(index, { endMs: newEndMs });
+        onUpdate(index, { endMs: newEndMs });
       } else {
-        // Move entire segment
         let newStartMs = startTimeMs + deltaMs;
         let newEndMs = newStartMs + segmentDuration;
         
-        // Clamp to timeline bounds
         if (newStartMs < 0) {
           newStartMs = 0;
           newEndMs = segmentDuration;
@@ -70,7 +80,7 @@ export function WebcamTrack({ segments, durationMs, timelineZoom, width, enabled
           newStartMs = durationMs - segmentDuration;
         }
         
-        updateWebcamSegment(index, { startMs: newStartMs, endMs: newEndMs });
+        onUpdate(index, { startMs: newStartMs, endMs: newEndMs });
       }
     };
 
@@ -81,20 +91,111 @@ export function WebcamTrack({ segments, durationMs, timelineZoom, width, enabled
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [segments, durationMs, timelineZoom, selectWebcamSegment, updateWebcamSegment]);
+  }, [segment, index, durationMs, timelineZoom, onSelect, onUpdate]);
 
-  const handleDelete = useCallback((e: React.MouseEvent, index: number) => {
+  const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    deleteWebcamSegment(index);
-  }, [deleteWebcamSegment]);
+    onDelete(index);
+  }, [onDelete, index]);
 
-  const handleToggleVisibility = useCallback((e: React.MouseEvent, index: number) => {
+  const handleToggleVisibility = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    const segment = segments[index];
-    if (segment) {
-      updateWebcamSegment(index, { visible: !segment.visible });
-    }
-  }, [segments, updateWebcamSegment]);
+    onUpdate(index, { visible: !segment.visible });
+  }, [segment.visible, index, onUpdate]);
+
+  return (
+    <div
+      className={`
+        absolute top-1 bottom-1 rounded-md cursor-pointer
+        transition-all duration-100
+        ${segment.visible
+          ? isSelected
+            ? 'bg-emerald-500/50 border-2 border-emerald-400 shadow-lg shadow-emerald-500/20'
+            : 'bg-emerald-500/30 border border-emerald-500/50 hover:bg-emerald-500/40'
+          : isSelected
+            ? 'bg-zinc-600/50 border-2 border-zinc-400'
+            : 'bg-zinc-600/30 border border-zinc-500/50 hover:bg-zinc-600/40'
+        }
+      `}
+      style={{
+        left: `${left}px`,
+        width: `${Math.max(segmentWidth, 20)}px`,
+      }}
+      onClick={handleClick}
+    >
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-emerald-400/50 rounded-l-md"
+        onMouseDown={(e) => handleMouseDown(e, 'start')}
+      />
+
+      {/* Center drag handle */}
+      <div
+        className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center"
+        onMouseDown={(e) => handleMouseDown(e, 'move')}
+      >
+        {segmentWidth > 40 && (
+          <button
+            className={`p-1 rounded transition-colors ${
+              segment.visible 
+                ? 'text-emerald-300/80 hover:text-emerald-200' 
+                : 'text-zinc-400/80 hover:text-zinc-300'
+            }`}
+            onClick={handleToggleVisibility}
+          >
+            {segment.visible ? (
+              <Eye className="w-3.5 h-3.5" />
+            ) : (
+              <EyeOff className="w-3.5 h-3.5" />
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Right resize handle */}
+      <div
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-emerald-400/50 rounded-r-md"
+        onMouseDown={(e) => handleMouseDown(e, 'end')}
+      />
+
+      {/* Delete button (shown when selected) */}
+      {isSelected && segmentWidth > 40 && (
+        <button
+          className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
+          onClick={handleDelete}
+        >
+          ×
+        </button>
+      )}
+
+      {/* Tooltip showing time range */}
+      {isSelected && (
+        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20">
+          {formatTimeSimple(segment.startMs)} - {formatTimeSimple(segment.endMs)}
+        </div>
+      )}
+    </div>
+  );
+});
+
+/**
+ * WebcamTrack - Displays webcam visibility segments.
+ * Memoized to prevent re-renders during playback.
+ */
+export const WebcamTrack = memo(function WebcamTrack({ 
+  segments, 
+  durationMs, 
+  timelineZoom, 
+  width, 
+  enabled 
+}: WebcamTrackProps) {
+  const selectedWebcamSegmentIndex = useVideoEditorStore(selectSelectedWebcamSegmentIndex);
+  
+  const {
+    selectWebcamSegment,
+    updateWebcamSegment,
+    deleteWebcamSegment,
+  } = useVideoEditorStore();
 
   return (
     <div 
@@ -125,87 +226,20 @@ export function WebcamTrack({ segments, durationMs, timelineZoom, width, enabled
           }}
         />
 
-        {segments.map((segment, index) => {
-          const left = segment.startMs * timelineZoom;
-          const segmentWidth = (segment.endMs - segment.startMs) * timelineZoom;
-          const isSelected = index === selectedWebcamSegmentIndex;
-
-          return (
-            <div
-              key={`webcam-${index}-${segment.startMs}`}
-              className={`
-                absolute top-1 bottom-1 rounded-md cursor-pointer
-                transition-all duration-100
-                ${segment.visible
-                  ? isSelected
-                    ? 'bg-emerald-500/50 border-2 border-emerald-400 shadow-lg shadow-emerald-500/20'
-                    : 'bg-emerald-500/30 border border-emerald-500/50 hover:bg-emerald-500/40'
-                  : isSelected
-                    ? 'bg-zinc-600/50 border-2 border-zinc-400'
-                    : 'bg-zinc-600/30 border border-zinc-500/50 hover:bg-zinc-600/40'
-                }
-              `}
-              style={{
-                left: `${left}px`,
-                width: `${Math.max(segmentWidth, 20)}px`,
-              }}
-              onClick={(e) => handleSegmentClick(e, index)}
-            >
-              {/* Left resize handle */}
-              <div
-                className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-emerald-400/50 rounded-l-md"
-                onMouseDown={(e) => handleMouseDown(e, index, 'start')}
-              />
-
-              {/* Center drag handle */}
-              <div
-                className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center"
-                onMouseDown={(e) => handleMouseDown(e, index, 'move')}
-              >
-                {segmentWidth > 40 && (
-                  <button
-                    className={`p-1 rounded transition-colors ${
-                      segment.visible 
-                        ? 'text-emerald-300/80 hover:text-emerald-200' 
-                        : 'text-zinc-400/80 hover:text-zinc-300'
-                    }`}
-                    onClick={(e) => handleToggleVisibility(e, index)}
-                  >
-                    {segment.visible ? (
-                      <Eye className="w-3.5 h-3.5" />
-                    ) : (
-                      <EyeOff className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                )}
-              </div>
-
-              {/* Right resize handle */}
-              <div
-                className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-emerald-400/50 rounded-r-md"
-                onMouseDown={(e) => handleMouseDown(e, index, 'end')}
-              />
-
-              {/* Delete button (shown when selected) */}
-              {isSelected && segmentWidth > 40 && (
-                <button
-                  className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
-                  onClick={(e) => handleDelete(e, index)}
-                >
-                  ×
-                </button>
-              )}
-
-              {/* Tooltip showing time range */}
-              {isSelected && (
-                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20">
-                  {formatTimeSimple(segment.startMs)} - {formatTimeSimple(segment.endMs)}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {segments.map((segment, index) => (
+          <WebcamSegmentItem
+            key={`webcam-${index}-${segment.startMs}`}
+            segment={segment}
+            index={index}
+            isSelected={index === selectedWebcamSegmentIndex}
+            timelineZoom={timelineZoom}
+            durationMs={durationMs}
+            onSelect={selectWebcamSegment}
+            onUpdate={updateWebcamSegment}
+            onDelete={deleteWebcamSegment}
+          />
+        ))}
       </div>
     </div>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { formatTimeSimple } from '../../stores/videoEditorStore';
 
 interface TimelineRulerProps {
@@ -10,8 +10,9 @@ interface TimelineRulerProps {
 /**
  * TimelineRuler - Displays time markers along the top of the timeline.
  * Shows tick marks at regular intervals with time labels.
+ * Memoized to prevent re-renders during playback.
  */
-export function TimelineRuler({ durationMs, timelineZoom, width }: TimelineRulerProps) {
+export const TimelineRuler = memo(function TimelineRuler({ durationMs, timelineZoom, width }: TimelineRulerProps) {
   // Calculate tick intervals based on zoom level
   const ticks = useMemo(() => {
     const pxPerSecond = timelineZoom * 1000;
@@ -80,4 +81,4 @@ export function TimelineRuler({ durationMs, timelineZoom, width }: TimelineRuler
       ))}
     </div>
   );
-}
+});

@@ -130,13 +130,13 @@ impl WasapiLoopback {
     ///
     /// # Arguments
     /// * `audio_tx` - Channel to send captured audio frames
-    /// * `start_time` - Recording start time (for timestamp calculation)
+    /// * `_start_time` - Recording start time (unused - we use sample-based timing)
     /// * `should_stop` - Atomic flag to signal when to stop
     /// * `is_paused` - Atomic flag indicating if recording is paused
     pub fn capture_loop(
         self,
         audio_tx: Sender<AudioFrame>,
-        start_time: Instant,
+        _start_time: Instant,
         should_stop: Arc<AtomicBool>,
         is_paused: Arc<AtomicBool>,
     ) -> Result<(), String> {
@@ -145,9 +145,12 @@ impl WasapiLoopback {
             self.block_align as usize * 48000, // ~1 second buffer
         );
 
-        // Track pause time to match video timestamps
-        let mut pause_time = std::time::Duration::ZERO;
-        let mut pause_start: Option<Instant> = None;
+        // Track total samples for accurate timestamps
+        // Using sample count instead of wall clock prevents audio jitter
+        let mut total_samples_captured: u64 = 0;
+        let samples_to_100ns = 10_000_000.0 / self.sample_rate as f64; // Convert samples to 100ns units
+
+        // Track pause state
         let mut was_paused = false;
 
         // Start the audio stream
@@ -155,7 +158,7 @@ impl WasapiLoopback {
             .start_stream()
             .map_err(|e| format!("Failed to start audio stream: {:?}", e))?;
 
-        log::info!("WASAPI capture started: {} Hz, {} ch", self.sample_rate, self.channels);
+        log::info!("WASAPI capture started: {} Hz, {} ch (sample-based timestamps)", self.sample_rate, self.channels);
 
         // Capture loop
         loop {
@@ -164,12 +167,10 @@ impl WasapiLoopback {
                 break;
             }
 
-            // Track pause time to match video timestamps
+            // Handle pause state
             let currently_paused = is_paused.load(Ordering::Relaxed);
             if currently_paused {
-                // Start tracking pause if not already
-                if pause_start.is_none() {
-                    pause_start = Some(Instant::now());
+                if !was_paused {
                     was_paused = true;
                     log::debug!("Audio capture paused");
                 }
@@ -181,43 +182,33 @@ impl WasapiLoopback {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(5));
                 continue;
-            } else if let Some(ps) = pause_start.take() {
-                // Just resumed - add pause duration
-                pause_time += ps.elapsed();
-                log::debug!("Audio resumed, total pause time: {:?}", pause_time);
-                
-                // Quick drain of any buffered audio from pause period
-                // Use a short timeout and limited iterations to avoid blocking
-                if was_paused {
-                    let mut drained_samples = 0;
-                    // Only do a few quick drain iterations (max ~50ms)
-                    for _ in 0..5 {
-                        if should_stop.load(Ordering::Relaxed) {
-                            break; // Don't block if stopping
-                        }
-                        // Very short timeout (10ms)
-                        if self.event_handle.wait_for_event(10).is_ok() {
-                            if let Ok(_) = self.capture_client.read_from_device_to_deque(&mut sample_queue) {
-                                if !sample_queue.is_empty() {
-                                    drained_samples += sample_queue.len();
-                                    sample_queue.clear();
-                                }
+            } else if was_paused {
+                // Just resumed - drain any stale audio
+                log::debug!("Audio resumed");
+                let mut drained_samples = 0;
+                for _ in 0..5 {
+                    if should_stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    if self.event_handle.wait_for_event(10).is_ok() {
+                        if self.capture_client.read_from_device_to_deque(&mut sample_queue).is_ok() {
+                            if !sample_queue.is_empty() {
+                                drained_samples += sample_queue.len();
+                                sample_queue.clear();
                             }
-                        } else {
-                            break; // No more audio waiting
                         }
+                    } else {
+                        break;
                     }
-                    if drained_samples > 0 {
-                        log::debug!("Drained {} bytes of accumulated audio after resume", drained_samples);
-                    }
-                    was_paused = false;
                 }
+                if drained_samples > 0 {
+                    log::debug!("Drained {} bytes of accumulated audio after resume", drained_samples);
+                }
+                was_paused = false;
             }
 
             // Wait for buffer event (with timeout of 100ms)
-            // Note: wait_for_event takes milliseconds, not 100ns units
             if self.event_handle.wait_for_event(100).is_err() {
-                // Timeout - check flags and continue
                 continue;
             }
 
@@ -226,13 +217,16 @@ impl WasapiLoopback {
                 Ok(_buffer_info) => {
                     // Process captured audio if we have enough data
                     if sample_queue.len() >= self.block_align as usize {
-                        // Calculate timestamp relative to recording start, minus pause time
-                        let actual_elapsed = start_time.elapsed() - pause_time;
-                        let timestamp_100ns = (actual_elapsed.as_micros() * 10) as i64;
-
                         // Convert bytes to f32 samples
                         let samples = bytes_to_f32_samples(&sample_queue);
                         let frame_count = samples.len() / self.channels as usize;
+
+                        // Calculate timestamp based on cumulative sample count
+                        // This ensures continuous, jitter-free audio timestamps
+                        let timestamp_100ns = (total_samples_captured as f64 * samples_to_100ns) as i64;
+                        
+                        // Update total sample count for next frame
+                        total_samples_captured += frame_count as u64;
 
                         // Clear the queue
                         sample_queue.clear();
@@ -245,7 +239,6 @@ impl WasapiLoopback {
                         };
 
                         if audio_tx.try_send(frame).is_err() {
-                            // Channel full, skip this frame (better than blocking)
                             log::trace!("Audio channel full, dropping frame");
                         }
                     }
@@ -261,7 +254,7 @@ impl WasapiLoopback {
             .stop_stream()
             .map_err(|e| format!("Failed to stop audio stream: {:?}", e))?;
 
-        log::info!("WASAPI capture stopped");
+        log::info!("WASAPI capture stopped, total samples: {}", total_samples_captured);
         Ok(())
     }
 }

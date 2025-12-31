@@ -1,17 +1,14 @@
 /**
- * DevicePopover - Camera device selector with popover
- * 
- * Shows current camera status, opens popover with device list.
- * Selecting "No camera" disables, selecting a device enables.
+ * DevicePopover - Camera device selector using native Tauri menu
+ *
+ * Shows current camera status, opens native menu with device list.
+ * Native menus avoid popover clipping issues in transparent windows.
  */
 
-import React, { useEffect } from 'react';
-import { Video, VideoOff, ChevronDown, RefreshCw } from 'lucide-react';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import React, { useEffect, useRef, useCallback } from 'react';
+import { Video, VideoOff, ChevronDown } from 'lucide-react';
+import { Menu, MenuItem, PredefinedMenuItem, CheckMenuItem } from '@tauri-apps/api/menu';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { useWebcamSettingsStore } from '@/stores/webcamSettingsStore';
 
 interface DevicePopoverProps {
@@ -22,11 +19,11 @@ export const DevicePopover: React.FC<DevicePopoverProps> = ({ disabled = false }
   const {
     settings,
     devices,
-    isLoadingDevices,
     loadDevices,
     setEnabled,
     setDevice,
   } = useWebcamSettingsStore();
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Load devices on mount
   useEffect(() => {
@@ -41,103 +38,91 @@ export const DevicePopover: React.FC<DevicePopoverProps> = ({ disabled = false }
     : 'No camera';
 
   // Truncate display name for button
-  const truncatedName = displayName.length > 12 
-    ? displayName.substring(0, 12) + '…' 
+  const truncatedName = displayName.length > 12
+    ? displayName.substring(0, 12) + '…'
     : displayName;
 
-  const handleSelectDevice = async (deviceIndex: number | null) => {
+  const handleSelectDevice = useCallback(async (deviceIndex: number | null) => {
     if (deviceIndex === null) {
-      // Disable camera
       await setEnabled(false);
     } else {
-      // Enable and select device
       await setDevice(deviceIndex);
       if (!settings.enabled) {
         await setEnabled(true);
       }
     }
-  };
+  }, [settings.enabled, setEnabled, setDevice]);
+
+  // Open native menu
+  const openMenu = useCallback(async () => {
+    if (disabled) return;
+
+    // Refresh devices in background (don't block menu)
+    loadDevices();
+
+    try {
+      const items = await Promise.all([
+        // Header
+        MenuItem.new({
+          id: 'header',
+          text: 'Camera',
+          enabled: false
+        }),
+        PredefinedMenuItem.new({ item: 'Separator' }),
+        // No camera option
+        CheckMenuItem.new({
+          id: 'no-camera',
+          text: 'No camera',
+          checked: !settings.enabled,
+          action: () => handleSelectDevice(null),
+        }),
+        PredefinedMenuItem.new({ item: 'Separator' }),
+        // Device list
+        ...devices.map((device) =>
+          CheckMenuItem.new({
+            id: `device-${device.index}`,
+            text: device.name.length > 40 ? device.name.substring(0, 40) + '…' : device.name,
+            checked: settings.enabled && settings.deviceIndex === device.index,
+            action: () => handleSelectDevice(device.index),
+          })
+        ),
+        // Refresh option
+        PredefinedMenuItem.new({ item: 'Separator' }),
+        MenuItem.new({
+          id: 'refresh',
+          text: 'Refresh Devices',
+          action: loadDevices,
+        }),
+      ]);
+
+      const menu = await Menu.new({ items });
+
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (rect) {
+        await menu.popup(new LogicalPosition(rect.left, rect.bottom + 4));
+      } else {
+        await menu.popup();
+      }
+    } catch (error) {
+      console.error('Failed to open camera menu:', error);
+    }
+  }, [disabled, devices, settings.enabled, settings.deviceIndex, loadDevices, handleSelectDevice]);
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          className={`glass-device-btn ${settings.enabled ? 'glass-device-btn--active' : ''}`}
-          disabled={disabled}
-        >
-          {settings.enabled ? (
-            <Video size={14} strokeWidth={1.5} />
-          ) : (
-            <VideoOff size={14} strokeWidth={1.5} />
-          )}
-          <span className="glass-device-label">{truncatedName}</span>
-          <ChevronDown size={12} className="glass-device-chevron" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent 
-        side="bottom" 
-        sideOffset={8} 
-        align="start"
-        className="glass-popover-content w-64"
-      >
-        <div className="glass-popover-header">
-          <span>Camera</span>
-          <button
-            onClick={() => loadDevices()}
-            disabled={isLoadingDevices}
-            className="glass-popover-refresh"
-            title="Refresh devices"
-          >
-            <RefreshCw size={12} className={isLoadingDevices ? 'animate-spin' : ''} />
-          </button>
-        </div>
-        <div className="glass-popover-body">
-          <div className="glass-popover-list">
-            {/* No camera option */}
-            <button
-              onClick={() => handleSelectDevice(null)}
-              className={`glass-popover-option ${
-                !settings.enabled ? 'glass-popover-option--selected' : ''
-              }`}
-            >
-              <VideoOff size={14} />
-              <span className="glass-popover-option-label">No camera</span>
-              {!settings.enabled && (
-                <span className="glass-popover-option-check">✓</span>
-              )}
-            </button>
-
-            {/* Device list */}
-            {devices.map((device) => (
-              <button
-                key={device.index}
-                onClick={() => handleSelectDevice(device.index)}
-                className={`glass-popover-option ${
-                  settings.enabled && settings.deviceIndex === device.index ? 'glass-popover-option--selected' : ''
-                }`}
-              >
-                <Video size={14} />
-                <span className="glass-popover-option-label">
-                  {device.name.length > 26 
-                    ? device.name.substring(0, 26) + '…' 
-                    : device.name}
-                </span>
-                {settings.enabled && settings.deviceIndex === device.index && (
-                  <span className="glass-popover-option-check">✓</span>
-                )}
-              </button>
-            ))}
-
-            {devices.length === 0 && !isLoadingDevices && (
-              <div className="glass-popover-empty">No cameras found</div>
-            )}
-            {isLoadingDevices && (
-              <div className="glass-popover-empty">Loading devices...</div>
-            )}
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+    <button
+      ref={buttonRef}
+      onClick={openMenu}
+      className={`glass-device-btn ${settings.enabled ? 'glass-device-btn--active' : ''}`}
+      disabled={disabled}
+    >
+      {settings.enabled ? (
+        <Video size={14} strokeWidth={1.5} />
+      ) : (
+        <VideoOff size={14} strokeWidth={1.5} />
+      )}
+      <span className="glass-device-label">{truncatedName}</span>
+      <ChevronDown size={12} className="glass-device-chevron" />
+    </button>
   );
 };
 

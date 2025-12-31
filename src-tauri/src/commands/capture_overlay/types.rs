@@ -176,6 +176,30 @@ pub enum CaptureType {
     Gif,
 }
 
+/// The overlay selection mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverlayMode {
+    /// Display selection - click on monitor to select entire display
+    DisplaySelect,
+    /// Window selection - click on window to select it
+    WindowSelect,
+    /// Region selection - drag to select custom region (default behavior)
+    #[default]
+    RegionSelect,
+}
+
+impl OverlayMode {
+    /// Parse overlay mode from string
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "display" => Self::DisplaySelect,
+            "window" => Self::WindowSelect,
+            "area" | "region" => Self::RegionSelect,
+            _ => Self::RegionSelect,
+        }
+    }
+}
+
 impl CaptureType {
     /// Parse capture type from string
     pub fn from_str(s: &str) -> Self {

@@ -10,14 +10,19 @@ const CAPTURE_TOOLBAR_LABEL: &str = "capture-toolbar";
 // Track if main window was visible before capture started
 static MAIN_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
-/// Close all capture-related windows
-fn close_capture_windows(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        let _ = window.close();
-    }
+/// Close recording border window (not toolbar - it persists)
+fn close_recording_border_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
         let _ = window.close();
     }
+}
+
+/// Close all capture-related windows including toolbar
+fn close_all_capture_windows(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        let _ = window.close();
+    }
+    close_recording_border_window(app);
 }
 
 /// Restore main window if it was visible before capture started
@@ -180,7 +185,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
         rt.block_on(async {
             use crate::commands::capture_overlay::{OverlayAction, OverlayResult};
             
-            match crate::commands::capture_overlay::show_capture_overlay(app_clone.clone(), None, Some(ct_for_thread)).await {
+            match crate::commands::capture_overlay::show_capture_overlay(app_clone.clone(), None, Some(ct_for_thread), None, None, None).await {
                 Ok(Some(result)) => {
                     let OverlayResult { x, y, width, height, action, window_id } = result;
 
@@ -257,8 +262,8 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             }
                         }
                         OverlayAction::CaptureScreenshot => {
-                            // Screenshot flow - close controls, capture, open editor
-                            close_capture_windows(&app_clone);
+                            // Screenshot flow - close all windows, capture, open editor
+                            close_all_capture_windows(&app_clone);
 
                             // Use window capture if a window was selected, otherwise region capture
                             let capture_result = if let Some(hwnd) = window_id {
@@ -292,20 +297,20 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             }
                         }
                         OverlayAction::Cancelled => {
-                            // User cancelled - close windows and restore main
-                            close_capture_windows(&app_clone);
+                            // User cancelled - close recording border only (toolbar persists)
+                            close_recording_border_window(&app_clone);
                             restore_main_if_visible(&app_clone);
                         }
                     }
                 }
                 Ok(None) => {
-                    // Cancelled (no selection made) - restore main window
-                    close_capture_windows(&app_clone);
+                    // Cancelled (no selection made) - toolbar persists, just restore main
+                    close_recording_border_window(&app_clone);
                     restore_main_if_visible(&app_clone);
                 }
                 Err(e) => {
                     log::error!("Capture overlay error: {}", e);
-                    close_capture_windows(&app_clone);
+                    close_recording_border_window(&app_clone);
                     restore_main_if_visible(&app_clone);
                 }
             }
@@ -525,6 +530,8 @@ pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
 /// Create the capture toolbar window (hidden).
 /// Frontend will measure content, calculate position, and call set_capture_toolbar_bounds to show.
 /// This allows frontend to fully control sizing/positioning without hardcoded dimensions.
+///
+/// If selection bounds are provided, emits `confirm-selection` event to the window.
 #[command]
 pub async fn show_capture_toolbar(
     app: AppHandle,
@@ -535,42 +542,51 @@ pub async fn show_capture_toolbar(
 ) -> Result<(), String> {
     // Check if window already exists
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        // Emit selection update for dimension display - frontend will reposition
-        let _ = window.emit("selection-updated", serde_json::json!({
+        // Emit confirm-selection to update bounds and mark selection confirmed
+        let _ = window.emit("confirm-selection", serde_json::json!({
             "x": x, "y": y, "width": width, "height": height
         }));
+        window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
+        window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
         return Ok(());
     }
 
-    // URL with selection dimensions for the dimension badge
-    let url = WebviewUrl::App(
-        format!("capture-toolbar.html?x={}&y={}&width={}&height={}", x, y, width, height).into()
-    );
+    // No URL params - toolbar always starts in startup state
+    let url = WebviewUrl::App("capture-toolbar.html".into());
 
     // Create window hidden - frontend will configure size/position and show it
+    // Uses custom titlebar like the main library window (decorations: false, transparent: true)
     let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
         .title("SnapIt Capture")
         .transparent(true)
         .decorations(false)
+        .maximizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
+        .resizable(false) // Auto-resized by frontend
+        .shadow(true)
         .visible(false) // Hidden until frontend configures bounds
         .focused(false)
         .build()
         .map_err(|e| format!("Failed to create capture toolbar window: {}", e))?;
 
-    // Set initial position near selection (frontend will adjust after measuring)
-    // Use generous initial size so content renders correctly for measurement
-    let initial_x = x + (width as i32 / 2) - 450; // Centered horizontally
+    // Fixed toolbar size: 1024x144px
+    let toolbar_width = 1024u32;
+    let toolbar_height = 144u32;
+    let initial_x = x + (width as i32 / 2) - (toolbar_width as i32 / 2);
     let initial_y = y + height as i32 + 8; // Below selection
-    set_physical_bounds(&window, initial_x, initial_y, 900, 300)?;
 
-    // Apply DWM blur-behind for true transparency on Windows
-    if let Err(e) = apply_dwm_transparency(&window) {
-        log::warn!("Failed to apply DWM transparency to toolbar: {}", e);
-    }
+    set_physical_bounds(&window, initial_x, initial_y, toolbar_width, toolbar_height)?;
+
+    // Emit confirm-selection after a short delay to ensure frontend is ready
+    let app_clone = app.clone();
+    let bounds = serde_json::json!({ "x": x, "y": y, "width": width, "height": height });
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        if let Some(window) = app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+            let _ = window.emit("confirm-selection", bounds);
+        }
+    });
 
     Ok(())
 }
@@ -617,12 +633,57 @@ pub async fn update_capture_toolbar(
     Ok(())
 }
 
-/// Hide the capture toolbar window.
+/// Hide the capture toolbar window (does NOT close it).
 #[command]
 pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
+        window.hide().map_err(|e| format!("Failed to hide capture toolbar: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Close the capture toolbar window (actually destroys it).
+#[command]
+pub async fn close_capture_toolbar(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         window.close().map_err(|e| format!("Failed to close capture toolbar: {}", e))?;
     }
+    Ok(())
+}
+
+/// Show and bring the capture toolbar to front.
+#[command]
+pub async fn bring_capture_toolbar_to_front(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SetForegroundWindow, ShowWindow,
+            HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
+        };
+
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let _ = ShowWindow(HWND(hwnd.0), SW_RESTORE);
+                let _ = ShowWindow(HWND(hwnd.0), SW_SHOW);
+                let _ = SetWindowPos(
+                    HWND(hwnd.0),
+                    HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                );
+                let _ = SetForegroundWindow(HWND(hwnd.0));
+            }
+        }
+    }
+
+    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
+    window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
+
     Ok(())
 }
 
@@ -675,24 +736,42 @@ pub async fn set_capture_toolbar_bounds(
         log::warn!("Failed to apply DWM transparency: {}", e);
     }
 
+    // Bring toolbar to front and focus it
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, BringWindowToTop, SetForegroundWindow, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW};
+
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let hwnd = HWND(hwnd.0);
+                // Set as topmost
+                let _ = SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+                );
+                // Bring to top of Z-order
+                let _ = BringWindowToTop(hwnd);
+                // Set as foreground window (gives keyboard focus)
+                let _ = SetForegroundWindow(hwnd);
+            }
+        }
+    }
+
     Ok(())
 }
 
 /// Set whether the capture toolbar should ignore cursor events (click-through).
-/// Used to make transparent areas click-through while keeping toolbar interactive.
+/// NOTE: This is now a no-op since toolbar uses decorations (title bar).
+/// Kept for API compatibility.
 #[command]
 pub async fn set_capture_toolbar_ignore_cursor(
-    app: AppHandle,
-    ignore: bool,
+    _app: AppHandle,
+    _ignore: bool,
 ) -> Result<(), String> {
-    let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
-        return Ok(());
-    };
-
-    window
-        .set_ignore_cursor_events(ignore)
-        .map_err(|e| format!("Failed to set ignore cursor events: {}", e))?;
-
+    // No-op: toolbar now has decorations, no click-through needed
     Ok(())
 }
 
@@ -787,19 +866,19 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
     // Get primary monitor info for centering
     let monitors = app.available_monitors()
         .map_err(|e| format!("Failed to get monitors: {}", e))?;
-    
+
     let primary_monitor = monitors.into_iter().next()
         .ok_or_else(|| "No monitors found".to_string())?;
-    
+
     let monitor_pos = primary_monitor.position();
     let monitor_size = primary_monitor.size();
 
-    // URL with startup mode flag (no selection bounds)
-    let url = WebviewUrl::App("capture-toolbar.html?mode=startup".into());
+    // No URL params - toolbar starts in startup state by default
+    let url = WebviewUrl::App("capture-toolbar.html".into());
 
-    // Initial window size (will be resized by frontend after measuring)
-    let initial_width = 700u32;
-    let initial_height = 300u32;
+    // Fixed toolbar size: 1024x144px
+    let initial_width = 1024u32;
+    let initial_height = 144u32;
 
     // Position at bottom-center of primary monitor
     let x = monitor_pos.x + (monitor_size.width as i32 - initial_width as i32) / 2;
@@ -808,14 +887,16 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
     log::info!("[show_startup_toolbar] Creating window at position ({}, {}) with size {}x{}", x, y, initial_width, initial_height);
 
     // Create window - visible immediately, frontend will resize after measuring
+    // Uses custom titlebar like the main library window (decorations: false, transparent: true)
     let window = WebviewWindowBuilder::new(&app, CAPTURE_TOOLBAR_LABEL, url)
         .title("SnapIt Capture")
         .transparent(true)
         .decorations(false)
+        .maximizable(false)
         .always_on_top(true)
-        .skip_taskbar(false) // Show in taskbar for startup toolbar
-        .resizable(false)
-        .shadow(false)
+        .skip_taskbar(false)
+        .resizable(false) // Auto-resized by frontend
+        .shadow(true)
         .visible(true) // Show immediately - frontend will resize after measuring
         .focused(true)
         .build()
@@ -825,11 +906,6 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
 
     // Set position/size using physical coordinates
     set_physical_bounds(&window, x, y, initial_width, initial_height)?;
-
-    // Apply DWM blur-behind for true transparency on Windows
-    if let Err(e) = apply_dwm_transparency(&window) {
-        log::warn!("Failed to apply DWM transparency to startup toolbar: {}", e);
-    }
 
     // Show the window immediately - frontend will resize it after measuring content
     // This ensures the window appears even if frontend has timing issues

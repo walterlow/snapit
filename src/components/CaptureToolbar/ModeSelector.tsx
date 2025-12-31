@@ -13,6 +13,7 @@ interface ModeSelectorProps {
   activeMode: CaptureType;
   onModeChange: (mode: CaptureType) => void;
   disabled?: boolean;
+  fullWidth?: boolean;
 }
 
 const modes: { id: CaptureType; icon: React.ReactNode; label: string }[] = [
@@ -25,9 +26,10 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
   activeMode,
   onModeChange,
   disabled = false,
+  fullWidth = false,
 }) => {
   return (
-    <div className={`glass-mode-group ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+    <div className={`glass-mode-group ${fullWidth ? 'glass-mode-group--full' : ''} ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
       {modes.map((mode) => (
         <button
           key={mode.id}

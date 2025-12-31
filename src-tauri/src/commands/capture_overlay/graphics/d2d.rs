@@ -118,6 +118,8 @@ pub struct D2DResources {
     pub brushes: Brushes,
     /// Text format for size indicator
     pub text_format: IDWriteTextFormat,
+    /// Larger text format for window name indicator
+    pub text_format_large: IDWriteTextFormat,
     /// Stroke style for dashed crosshair
     pub crosshair_stroke: ID2D1StrokeStyle1,
 }
@@ -199,18 +201,47 @@ pub fn create_text_format() -> Result<IDWriteTextFormat> {
     }
 }
 
+/// Create larger text format for window name indicator.
+pub fn create_text_format_large() -> Result<IDWriteTextFormat> {
+    use windows::Win32::Graphics::DirectWrite::DWRITE_FONT_WEIGHT_EXTRA_BOLD;
+
+    unsafe {
+        let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
+
+        let font: Vec<u16> = "Segoe UI\0".encode_utf16().collect();
+        let locale: Vec<u16> = "en-US\0".encode_utf16().collect();
+
+        let format = factory.CreateTextFormat(
+            PCWSTR(font.as_ptr()),
+            None,
+            DWRITE_FONT_WEIGHT_EXTRA_BOLD,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            24.0,
+            PCWSTR(locale.as_ptr()),
+        )?;
+
+        format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+        format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
+
+        Ok(format)
+    }
+}
+
 /// Create all D2D resources needed for rendering.
 pub fn create_resources(d3d_device: &ID3D11Device) -> Result<D2DResources> {
     let (factory, context) = create_context(d3d_device)?;
     let brushes = create_brushes(&context)?;
     let crosshair_stroke = create_crosshair_stroke(&factory)?;
     let text_format = create_text_format()?;
+    let text_format_large = create_text_format_large()?;
 
     Ok(D2DResources {
         factory,
         context,
         brushes,
         text_format,
+        text_format_large,
         crosshair_stroke,
     })
 }

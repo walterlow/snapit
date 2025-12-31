@@ -132,6 +132,8 @@ pub fn run() {
             commands::window::show_capture_toolbar,
             commands::window::update_capture_toolbar,
             commands::window::hide_capture_toolbar,
+            commands::window::close_capture_toolbar,
+            commands::window::bring_capture_toolbar_to_front,
             commands::window::resize_capture_toolbar,
             commands::window::set_capture_toolbar_bounds,
             commands::window::set_capture_toolbar_ignore_cursor,
@@ -250,6 +252,12 @@ pub fn run() {
             commands::capture_overlay::commands::capture_overlay_cancel,
             commands::capture_overlay::commands::capture_overlay_reselect,
             commands::capture_overlay::commands::capture_overlay_set_dimensions,
+            commands::capture_overlay::commands::capture_overlay_highlight_monitor,
+            commands::capture_overlay::commands::capture_overlay_highlight_window,
+            // Preview overlay for picker panels
+            commands::capture_overlay::start_highlight_preview,
+            commands::capture_overlay::stop_highlight_preview,
+            commands::capture_overlay::is_highlight_preview_active,
         ])
         .setup(|app| {
             // Initialize logging system first

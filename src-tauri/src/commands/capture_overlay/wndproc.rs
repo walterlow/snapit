@@ -116,11 +116,24 @@ fn handle_mouse_down(state_ptr: *mut OverlayState, lparam: LPARAM) -> LRESULT {
                 state.adjustment.start_drag(handle, Point::new(x, y));
             }
         } else {
-            // Start selection drag
-            state.drag.is_active = true;
-            state.drag.is_dragging = false;
-            state.drag.start = Point::new(x, y);
-            state.drag.current = Point::new(x, y);
+            // Mode-specific behavior for initial click
+            match state.overlay_mode {
+                OverlayMode::DisplaySelect => {
+                    // Display mode: click immediately selects the monitor under cursor
+                    // No drag needed
+                }
+                OverlayMode::WindowSelect => {
+                    // Window mode: click selects the hovered window
+                    // No drag needed
+                }
+                OverlayMode::RegionSelect => {
+                    // Region mode: start drag selection
+                    state.drag.is_active = true;
+                    state.drag.is_dragging = false;
+                    state.drag.start = Point::new(x, y);
+                    state.drag.current = Point::new(x, y);
+                }
+            }
         }
     }
     LRESULT(0)
@@ -151,19 +164,37 @@ fn handle_mouse_move(state_ptr: *mut OverlayState, lparam: LPARAM) -> LRESULT {
                     emit_dimensions_update(state);
                 }
             }
-        } else if state.drag.is_active {
-            state.drag.current = Point::new(x, y);
-
-            // Check if we've dragged enough to enter region selection mode
-            if !state.drag.is_dragging && state.drag.exceeds_threshold() {
-                state.drag.is_dragging = true;
-                state.cursor.clear_hovered(); // Clear window detection when dragging
-            }
         } else {
-            // Window detection mode - find window under cursor
-            let screen_x = state.monitor.x + x;
-            let screen_y = state.monitor.y + y;
-            state.cursor.hovered_window = get_window_at_point(screen_x, screen_y, state.hwnd);
+            // Mode-specific mouse move behavior
+            match state.overlay_mode {
+                OverlayMode::DisplaySelect => {
+                    // Display mode: just update cursor, no window detection
+                    // Monitor highlight is based purely on cursor position (handled in render)
+                }
+                OverlayMode::WindowSelect => {
+                    // Window mode: detect window under cursor
+                    let screen_x = state.monitor.x + x;
+                    let screen_y = state.monitor.y + y;
+                    state.cursor.hovered_window = get_window_at_point(screen_x, screen_y, state.hwnd);
+                }
+                OverlayMode::RegionSelect => {
+                    // Region mode: handle drag or window detection
+                    if state.drag.is_active {
+                        state.drag.current = Point::new(x, y);
+
+                        // Check if we've dragged enough to enter region selection mode
+                        if !state.drag.is_dragging && state.drag.exceeds_threshold() {
+                            state.drag.is_dragging = true;
+                            state.cursor.clear_hovered(); // Clear window detection when dragging
+                        }
+                    } else {
+                        // Window detection mode - find window under cursor
+                        let screen_x = state.monitor.x + x;
+                        let screen_y = state.monitor.y + y;
+                        state.cursor.hovered_window = get_window_at_point(screen_x, screen_y, state.hwnd);
+                    }
+                }
+            }
         }
 
         let _ = render::render(state);
@@ -187,19 +218,39 @@ fn handle_mouse_up(state_ptr: *mut OverlayState) -> LRESULT {
             }
             state.adjustment.end_drag();
             let _ = render::render(state);
-        } else if state.drag.is_active {
-            state.drag.is_active = false;
+        } else {
+            // Mode-specific mouse up behavior
+            match state.overlay_mode {
+                OverlayMode::DisplaySelect => {
+                    // Display mode: select the monitor under cursor
+                    handle_monitor_selection(state);
+                }
+                OverlayMode::WindowSelect => {
+                    // Window mode: select the hovered window
+                    if let Some(ref win) = state.cursor.hovered_window {
+                        let hwnd = win.hwnd.0 as isize;
+                        handle_window_selection(state, win.bounds, hwnd);
+                    }
+                    // If no window hovered, do nothing (click in empty space)
+                }
+                OverlayMode::RegionSelect => {
+                    // Region mode: original behavior
+                    if state.drag.is_active {
+                        state.drag.is_active = false;
 
-            if state.drag.is_dragging {
-                // Region selection completed
-                handle_region_selection_complete(state);
-            } else if let Some(ref win) = state.cursor.hovered_window {
-                // Window selection - pass hwnd for window capture (isize for 64-bit safety)
-                let hwnd = win.hwnd.0 as isize;
-                handle_window_selection(state, win.bounds, hwnd);
-            } else {
-                // Click on empty area - select the monitor under cursor
-                handle_monitor_selection(state);
+                        if state.drag.is_dragging {
+                            // Region selection completed
+                            handle_region_selection_complete(state);
+                        } else if let Some(ref win) = state.cursor.hovered_window {
+                            // Window selection - pass hwnd for window capture (isize for 64-bit safety)
+                            let hwnd = win.hwnd.0 as isize;
+                            handle_window_selection(state, win.bounds, hwnd);
+                        } else {
+                            // Click on empty area - select the monitor under cursor
+                            handle_monitor_selection(state);
+                        }
+                    }
+                }
             }
         }
 
@@ -254,9 +305,9 @@ fn handle_window_selection(state: &mut OverlayState, window_bounds: Rect, window
         state.result.confirm_window(window_bounds, OverlayAction::CaptureScreenshot, window_id);
         state.should_close = true;
     } else {
-        // For video/gif, enter adjustment mode (uses region, not window capture)
+        // For video/gif, enter locked adjustment mode (window bounds are fixed)
         let local_bounds = state.monitor.screen_rect_to_local(window_bounds);
-        state.enter_adjustment_mode(local_bounds);
+        state.enter_adjustment_mode_locked(local_bounds);
         emit_adjustment_ready(state, window_bounds);
         show_toolbar(state, window_bounds);
     }
@@ -287,8 +338,9 @@ fn handle_monitor_selection(state: &mut OverlayState) {
                 state.result.confirm(screen_bounds, OverlayAction::CaptureScreenshot);
                 state.should_close = true;
             } else {
+                // For video/gif, enter locked adjustment mode (monitor bounds are fixed)
                 let local_bounds = state.monitor.screen_rect_to_local(screen_bounds);
-                state.enter_adjustment_mode(local_bounds);
+                state.enter_adjustment_mode_locked(local_bounds);
                 emit_adjustment_ready(state, screen_bounds);
                 show_toolbar(state, screen_bounds);
             }
@@ -415,12 +467,34 @@ fn emit_final_selection(state: &OverlayState) {
 /// Emit event to create capture toolbar window from frontend
 /// Frontend has full control over sizing/positioning without hardcoded dimensions
 fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
+    // For locked selections (display/window), make overlay click-through
+    // This is bulletproof - no Z-order fighting needed
+    if state.adjustment.is_locked {
+        make_overlay_click_through(state);
+    }
+    // For unlocked selections (region), overlay stays interactive for adjustment handles
+    // The toolbar will still appear on top due to TOPMOST flag
+    
     let _ = state.app_handle.emit("create-capture-toolbar", serde_json::json!({
         "x": screen_bounds.left,
         "y": screen_bounds.top,
         "width": screen_bounds.width(),
         "height": screen_bounds.height()
     }));
+}
+
+/// Make the overlay click-through so the toolbar receives all mouse events.
+/// This is bulletproof - no Z-order fighting, overlay just passes input through.
+fn make_overlay_click_through(state: &OverlayState) {
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_TRANSPARENT, WS_EX_LAYERED};
+        
+        let ex_style = GetWindowLongW(state.hwnd, GWL_EXSTYLE);
+        // Add WS_EX_TRANSPARENT to make the window click-through
+        // WS_EX_LAYERED is already set for our D2D rendering
+        let new_style = ex_style | WS_EX_TRANSPARENT.0 as i32 | WS_EX_LAYERED.0 as i32;
+        SetWindowLongW(state.hwnd, GWL_EXSTYLE, new_style);
+    }
 }
 
 /// Bring the webcam preview window to front (above D2D overlay)

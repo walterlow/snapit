@@ -6,11 +6,16 @@ import { useTheme } from '@/hooks/useTheme';
 interface TitlebarProps {
   title?: string;
   showLogo?: boolean;
+  showMaximize?: boolean;
+  /** Called before window closes. Return false to prevent close. */
+  onClose?: () => void | boolean | Promise<void | boolean>;
 }
 
 export const Titlebar: React.FC<TitlebarProps> = ({
   title = 'SnapIt',
-  showLogo = true
+  showLogo = true,
+  showMaximize = true,
+  onClose,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -46,7 +51,13 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
   const handleMinimize = () => appWindow.minimize();
   const handleMaximize = () => appWindow.toggleMaximize();
-  const handleClose = () => appWindow.close();
+  const handleClose = async () => {
+    if (onClose) {
+      const result = await onClose();
+      if (result === false) return; // Prevent close if callback returns false
+    }
+    appWindow.close();
+  };
 
   return (
     <div
@@ -93,17 +104,19 @@ export const Titlebar: React.FC<TitlebarProps> = ({
         >
           <Minus className="w-3.5 h-3.5" />
         </button>
-        <button
-          onClick={handleMaximize}
-          className="titlebar-button titlebar-button-maximize"
-          aria-label={isMaximized ? 'Restore' : 'Maximize'}
-        >
-          {isMaximized ? (
-            <Maximize2 className="w-3 h-3" />
-          ) : (
-            <Square className="w-3 h-3" />
-          )}
-        </button>
+        {showMaximize && (
+          <button
+            onClick={handleMaximize}
+            className="titlebar-button titlebar-button-maximize"
+            aria-label={isMaximized ? 'Restore' : 'Maximize'}
+          >
+            {isMaximized ? (
+              <Maximize2 className="w-3 h-3" />
+            ) : (
+              <Square className="w-3 h-3" />
+            )}
+          </button>
+        )}
         <button
           onClick={handleClose}
           className="titlebar-button titlebar-button-close"

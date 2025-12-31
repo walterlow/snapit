@@ -1,24 +1,14 @@
 /**
- * SettingsPopover - Settings gear icon with dropdown popover
- * 
+ * SettingsPopover - Settings gear icon with native Tauri menu
+ *
  * Contains video settings (FPS, Quality), countdown, cursor capture toggle.
+ * Native menus avoid popover clipping issues in transparent windows.
  */
 
-import React from 'react';
-import { Settings, MousePointer2, Timer, Gauge, Film, ExternalLink, Monitor } from 'lucide-react';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import React, { useRef, useCallback } from 'react';
+import { Settings } from 'lucide-react';
+import { Menu, MenuItem, PredefinedMenuItem, CheckMenuItem, Submenu } from '@tauri-apps/api/menu';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
 import type { CaptureType } from '@/types';
 
@@ -28,30 +18,31 @@ interface SettingsPopoverProps {
   onOpenSettings?: () => void;
 }
 
-export const SettingsPopover: React.FC<SettingsPopoverProps> = ({ 
-  mode, 
+export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
+  mode,
   disabled = false,
   onOpenSettings,
 }) => {
-  const { 
-    settings, 
-    updateVideoSettings, 
+  const {
+    settings,
+    updateVideoSettings,
     updateGifSettings,
     updateScreenshotSettings,
   } = useCaptureSettingsStore();
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Get current cursor setting based on mode
-  const getCursorEnabled = () => {
+  const getCursorEnabled = useCallback(() => {
     switch (mode) {
       case 'screenshot': return settings.screenshot.includeCursor;
       case 'video': return settings.video.includeCursor;
       case 'gif': return settings.gif.includeCursor;
       default: return false;
     }
-  };
+  }, [mode, settings]);
 
   // Update cursor setting for current mode
-  const setCursorEnabled = (enabled: boolean) => {
+  const setCursorEnabled = useCallback((enabled: boolean) => {
     switch (mode) {
       case 'screenshot':
         updateScreenshotSettings({ includeCursor: enabled });
@@ -63,18 +54,18 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         updateGifSettings({ includeCursor: enabled });
         break;
     }
-  };
+  }, [mode, updateVideoSettings, updateGifSettings, updateScreenshotSettings]);
 
   // Get countdown setting
-  const getCountdown = () => {
+  const getCountdown = useCallback(() => {
     switch (mode) {
       case 'video': return settings.video.countdownSecs;
       case 'gif': return settings.gif.countdownSecs;
       default: return 0;
     }
-  };
+  }, [mode, settings]);
 
-  const setCountdown = (secs: number) => {
+  const setCountdown = useCallback((secs: number) => {
     switch (mode) {
       case 'video':
         updateVideoSettings({ countdownSecs: secs });
@@ -83,175 +74,172 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         updateGifSettings({ countdownSecs: secs });
         break;
     }
-  };
+  }, [mode, updateVideoSettings, updateGifSettings]);
+
+  // Open native menu
+  const openMenu = useCallback(async () => {
+    if (disabled) return;
+
+    try {
+      const menuItems: (MenuItem | PredefinedMenuItem | CheckMenuItem | Submenu)[] = [];
+
+      // Header
+      menuItems.push(await MenuItem.new({
+        id: 'header',
+        text: 'Settings',
+        enabled: false
+      }));
+      menuItems.push(await PredefinedMenuItem.new({ item: 'Separator' }));
+
+      // Video/GIF specific settings
+      if (mode === 'video' || mode === 'gif') {
+        // FPS submenu
+        const currentFps = mode === 'video' ? settings.video.fps : settings.gif.fps;
+        const fpsOptions = mode === 'video' ? [15, 24, 30, 60] : [10, 15, 20, 30];
+        const fpsItems = await Promise.all(
+          fpsOptions.map(fps =>
+            CheckMenuItem.new({
+              id: `fps-${fps}`,
+              text: `${fps} fps`,
+              checked: currentFps === fps,
+              action: () => {
+                if (mode === 'video') {
+                  updateVideoSettings({ fps });
+                } else {
+                  updateGifSettings({ fps });
+                }
+              },
+            })
+          )
+        );
+        menuItems.push(await Submenu.new({
+          id: 'fps-submenu',
+          text: `Frame Rate: ${currentFps} fps`,
+          items: fpsItems,
+        }));
+
+        // Quality submenu
+        if (mode === 'video') {
+          const qualityOptions = [40, 60, 80, 100];
+          const qualityItems = await Promise.all(
+            qualityOptions.map(q =>
+              CheckMenuItem.new({
+                id: `quality-${q}`,
+                text: `${q}%`,
+                checked: settings.video.quality === q,
+                action: () => updateVideoSettings({ quality: q }),
+              })
+            )
+          );
+          menuItems.push(await Submenu.new({
+            id: 'quality-submenu',
+            text: `Quality: ${settings.video.quality}%`,
+            items: qualityItems,
+          }));
+        } else {
+          const presetLabels: Record<string, string> = { fast: 'Fast', balanced: 'Balanced', high: 'High' };
+          const presetItems = await Promise.all(
+            (['fast', 'balanced', 'high'] as const).map(preset =>
+              CheckMenuItem.new({
+                id: `preset-${preset}`,
+                text: presetLabels[preset],
+                checked: settings.gif.qualityPreset === preset,
+                action: () => updateGifSettings({ qualityPreset: preset }),
+              })
+            )
+          );
+          menuItems.push(await Submenu.new({
+            id: 'preset-submenu',
+            text: `Quality: ${presetLabels[settings.gif.qualityPreset]}`,
+            items: presetItems,
+          }));
+        }
+
+        // Countdown submenu
+        const countdownOptions = [0, 3, 5];
+        const countdownLabels: Record<number, string> = { 0: 'Off', 3: '3 sec', 5: '5 sec' };
+        const currentCountdown = getCountdown();
+        const countdownItems = await Promise.all(
+          countdownOptions.map(secs =>
+            CheckMenuItem.new({
+              id: `countdown-${secs}`,
+              text: countdownLabels[secs],
+              checked: currentCountdown === secs,
+              action: () => setCountdown(secs),
+            })
+          )
+        );
+        menuItems.push(await Submenu.new({
+          id: 'countdown-submenu',
+          text: `Countdown: ${countdownLabels[currentCountdown]}`,
+          items: countdownItems,
+        }));
+
+        menuItems.push(await PredefinedMenuItem.new({ item: 'Separator' }));
+      }
+
+      // Cursor capture toggle
+      menuItems.push(await CheckMenuItem.new({
+        id: 'cursor',
+        text: 'Capture Cursor',
+        checked: getCursorEnabled(),
+        action: () => setCursorEnabled(!getCursorEnabled()),
+      }));
+
+      // Hide desktop icons toggle (video only)
+      if (mode === 'video') {
+        menuItems.push(await CheckMenuItem.new({
+          id: 'hide-icons',
+          text: 'Hide Desktop Icons',
+          checked: settings.video.hideDesktopIcons,
+          action: () => updateVideoSettings({ hideDesktopIcons: !settings.video.hideDesktopIcons }),
+        }));
+      }
+
+      // Link to full settings
+      if (onOpenSettings) {
+        menuItems.push(await PredefinedMenuItem.new({ item: 'Separator' }));
+        menuItems.push(await MenuItem.new({
+          id: 'open-settings',
+          text: 'Open Full Settings...',
+          action: onOpenSettings,
+        }));
+      }
+
+      const menu = await Menu.new({ items: menuItems });
+
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (rect) {
+        await menu.popup(new LogicalPosition(rect.right - 200, rect.bottom + 4));
+      } else {
+        await menu.popup();
+      }
+    } catch (error) {
+      console.error('Failed to open settings menu:', error);
+    }
+  }, [
+    disabled,
+    mode,
+    settings,
+    getCursorEnabled,
+    setCursorEnabled,
+    getCountdown,
+    setCountdown,
+    updateVideoSettings,
+    updateGifSettings,
+    onOpenSettings,
+  ]);
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          className="glass-settings-btn"
-          disabled={disabled}
-          title="Settings"
-        >
-          <Settings size={16} strokeWidth={1.5} />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent 
-        side="bottom" 
-        sideOffset={8} 
-        align="end"
-        className="glass-popover-content w-72"
-      >
-        <div className="glass-popover-header">Settings</div>
-        <div className="glass-popover-body">
-          {/* Video/GIF specific settings */}
-          {(mode === 'video' || mode === 'gif') && (
-            <>
-              {/* FPS */}
-              <div className="glass-popover-row">
-                <div className="flex items-center gap-2">
-                  <Film size={14} className="text-white/50" />
-                  <span className="glass-popover-row-label">Frame Rate</span>
-                </div>
-                <Select
-                  value={String(mode === 'video' ? settings.video.fps : settings.gif.fps)}
-                  onValueChange={(v) => {
-                    const fps = parseInt(v);
-                    if (mode === 'video') {
-                      updateVideoSettings({ fps });
-                    } else {
-                      updateGifSettings({ fps });
-                    }
-                  }}
-                >
-                  <SelectTrigger className="glass-settings-select-trigger w-20">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="glass-settings-select-popup">
-                    {mode === 'video' ? (
-                      <>
-                        <SelectItem value="15" className="glass-settings-select-item">15 fps</SelectItem>
-                        <SelectItem value="24" className="glass-settings-select-item">24 fps</SelectItem>
-                        <SelectItem value="30" className="glass-settings-select-item">30 fps</SelectItem>
-                        <SelectItem value="60" className="glass-settings-select-item">60 fps</SelectItem>
-                      </>
-                    ) : (
-                      <>
-                        <SelectItem value="10" className="glass-settings-select-item">10 fps</SelectItem>
-                        <SelectItem value="15" className="glass-settings-select-item">15 fps</SelectItem>
-                        <SelectItem value="20" className="glass-settings-select-item">20 fps</SelectItem>
-                        <SelectItem value="30" className="glass-settings-select-item">30 fps</SelectItem>
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Quality */}
-              <div className="glass-popover-row">
-                <div className="flex items-center gap-2">
-                  <Gauge size={14} className="text-white/50" />
-                  <span className="glass-popover-row-label">Quality</span>
-                </div>
-                {mode === 'video' ? (
-                  <Select
-                    value={String(settings.video.quality)}
-                    onValueChange={(v) => updateVideoSettings({ quality: parseInt(v) })}
-                  >
-                    <SelectTrigger className="glass-settings-select-trigger w-20">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="glass-settings-select-popup">
-                      <SelectItem value="40" className="glass-settings-select-item">40%</SelectItem>
-                      <SelectItem value="60" className="glass-settings-select-item">60%</SelectItem>
-                      <SelectItem value="80" className="glass-settings-select-item">80%</SelectItem>
-                      <SelectItem value="100" className="glass-settings-select-item">100%</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Select
-                    value={settings.gif.qualityPreset}
-                    onValueChange={(v) => updateGifSettings({ qualityPreset: v as 'fast' | 'balanced' | 'high' })}
-                  >
-                    <SelectTrigger className="glass-settings-select-trigger w-24">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="glass-settings-select-popup">
-                      <SelectItem value="fast" className="glass-settings-select-item">Fast</SelectItem>
-                      <SelectItem value="balanced" className="glass-settings-select-item">Balanced</SelectItem>
-                      <SelectItem value="high" className="glass-settings-select-item">High</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              {/* Countdown */}
-              <div className="glass-popover-row">
-                <div className="flex items-center gap-2">
-                  <Timer size={14} className="text-white/50" />
-                  <span className="glass-popover-row-label">Countdown</span>
-                </div>
-                <Select
-                  value={String(getCountdown())}
-                  onValueChange={(v) => setCountdown(parseInt(v))}
-                >
-                  <SelectTrigger className="glass-settings-select-trigger w-20">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="glass-settings-select-popup">
-                    <SelectItem value="0" className="glass-settings-select-item">Off</SelectItem>
-                    <SelectItem value="3" className="glass-settings-select-item">3 sec</SelectItem>
-                    <SelectItem value="5" className="glass-settings-select-item">5 sec</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="glass-popover-divider" />
-            </>
-          )}
-
-          {/* Cursor capture toggle */}
-          <div className="glass-popover-row">
-            <div className="flex items-center gap-2">
-              <MousePointer2 size={14} className="text-white/50" />
-              <span className="glass-popover-row-label">Capture cursor</span>
-            </div>
-            <Switch
-              checked={getCursorEnabled()}
-              onCheckedChange={setCursorEnabled}
-            />
-          </div>
-
-          {/* Hide desktop icons toggle (video only) */}
-          {mode === 'video' && (
-            <div className="glass-popover-row">
-              <div className="flex items-center gap-2">
-                <Monitor size={14} className="text-white/50" />
-                <span className="glass-popover-row-label">Hide desktop icons</span>
-              </div>
-              <Switch
-                checked={settings.video.hideDesktopIcons}
-                onCheckedChange={(checked) => updateVideoSettings({ hideDesktopIcons: checked })}
-              />
-            </div>
-          )}
-
-          {/* Link to full settings */}
-          {onOpenSettings && (
-            <>
-              <div className="glass-popover-divider" />
-              <button
-                onClick={onOpenSettings}
-                className="glass-popover-link"
-              >
-                <ExternalLink size={14} />
-                <span>Open full settings</span>
-              </button>
-            </>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <button
+      ref={buttonRef}
+      onClick={openMenu}
+      className="glass-settings-btn"
+      disabled={disabled}
+      title="Settings"
+    >
+      <Settings size={16} strokeWidth={1.5} />
+    </button>
   );
 };
 

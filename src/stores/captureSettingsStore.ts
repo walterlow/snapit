@@ -8,6 +8,9 @@ import type {
   GifSettings,
 } from '../types/generated';
 import type { CaptureType } from '../types';
+
+/** Source mode for capture selection */
+export type CaptureSourceMode = 'display' | 'window' | 'area';
 import { createErrorHandler } from '../utils/errorReporting';
 
 const CAPTURE_SETTINGS_STORE_PATH = 'capture-settings.json';
@@ -64,10 +67,16 @@ interface CaptureSettingsState {
 
   // Current active mode
   activeMode: CaptureType;
+  
+  // Current source mode (display/window/region)
+  sourceMode: CaptureSourceMode;
 
   // Actions - Settings management
   loadSettings: () => Promise<void>;
   saveSettings: () => Promise<void>;
+  
+  // Actions - Source mode
+  setSourceMode: (mode: CaptureSourceMode) => void;
 
   // Actions - Mode
   setActiveMode: (mode: CaptureType) => void;
@@ -93,6 +102,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
   isLoading: false,
   isInitialized: false,
   activeMode: 'video',
+  sourceMode: 'area',
 
   loadSettings: async () => {
     set({ isLoading: true });
@@ -101,6 +111,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
 
       const savedSettings = await store.get<CaptureSettings>('captureSettings');
       const savedActiveMode = await store.get<CaptureType>('activeMode');
+      const savedSourceMode = await store.get<CaptureSourceMode>('sourceMode');
 
       // Merge with defaults (in case new settings were added)
       const settings: CaptureSettings = {
@@ -123,6 +134,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       set({
         settings,
         activeMode: savedActiveMode || 'video',
+        sourceMode: savedSourceMode || 'area',
         isLoading: false,
         isInitialized: true,
       });
@@ -131,6 +143,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       set({
         settings: { ...DEFAULT_CAPTURE_SETTINGS },
         activeMode: 'video',
+  sourceMode: 'area',
         isLoading: false,
         isInitialized: true,
       });
@@ -138,11 +151,12 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
   },
 
   saveSettings: async () => {
-    const { settings, activeMode } = get();
+    const { settings, activeMode, sourceMode } = get();
     try {
       const store = await getStore();
       await store.set('captureSettings', settings);
       await store.set('activeMode', activeMode);
+      await store.set('sourceMode', sourceMode);
       await store.save();
     } catch (error) {
       console.error('Failed to save capture settings:', error);
@@ -153,6 +167,14 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
   setActiveMode: (mode) => {
     set({ activeMode: mode });
     // Auto-save when mode changes
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
+  },
+
+  setSourceMode: (mode) => {
+    set({ sourceMode: mode });
+    // Auto-save when source mode changes
     get().saveSettings().catch(
       createErrorHandler({ operation: 'save capture settings', silent: true })
     );
@@ -257,6 +279,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
     set({
       settings: { ...DEFAULT_CAPTURE_SETTINGS },
       activeMode: 'video',
+      sourceMode: 'area',
     });
     get().saveSettings().catch(
       createErrorHandler({ operation: 'save capture settings', silent: true })
@@ -294,4 +317,9 @@ export const useVideoSettings = () => {
 // Selector for GIF settings
 export const useGifSettings = () => {
   return useCaptureSettingsStore((state) => state.settings.gif);
+};
+
+// Selector for source mode
+export const useSourceMode = () => {
+  return useCaptureSettingsStore((state) => state.sourceMode);
 };

@@ -149,6 +149,8 @@ impl DragState {
 pub struct AdjustmentState {
     /// True when in adjustment mode
     pub is_active: bool,
+    /// True when selection is locked (display/window mode - no resize/move allowed)
+    pub is_locked: bool,
     /// Currently selected handle (if dragging)
     pub handle: HandlePosition,
     /// True when dragging a handle
@@ -205,8 +207,12 @@ impl AdjustmentState {
         self.bounds = self.bounds.ensure_min_size(MIN_SELECTION_SIZE);
     }
 
-    /// Start dragging a handle
+    /// Start dragging a handle.
+    /// Does nothing if the selection is locked (display/window mode).
     pub fn start_drag(&mut self, handle: HandlePosition, mouse: Point) {
+        if self.is_locked {
+            return; // Don't allow drag when locked
+        }
         self.handle = handle;
         self.is_dragging = true;
         self.drag_start = mouse;
@@ -222,6 +228,17 @@ impl AdjustmentState {
     /// Enter adjustment mode with given bounds
     pub fn enter(&mut self, bounds: Rect) {
         self.is_active = true;
+        self.is_locked = false;
+        self.bounds = bounds;
+        self.is_dragging = false;
+        self.handle = HandlePosition::None;
+    }
+
+    /// Enter adjustment mode with locked bounds (no resize/move allowed).
+    /// Used for display and window selection modes.
+    pub fn enter_locked(&mut self, bounds: Rect) {
+        self.is_active = true;
+        self.is_locked = true;
         self.bounds = bounds;
         self.is_dragging = false;
         self.handle = HandlePosition::None;
@@ -342,6 +359,8 @@ pub struct OverlayState {
     pub app_handle: AppHandle,
     /// Type of capture being performed
     pub capture_type: CaptureType,
+    /// Overlay selection mode (display/window/region)
+    pub overlay_mode: OverlayMode,
 
     // Win32 window
     /// Handle to the overlay window
@@ -410,6 +429,14 @@ impl OverlayState {
     /// Transition to adjustment mode with the given local bounds.
     pub fn enter_adjustment_mode(&mut self, local_bounds: Rect) {
         self.adjustment.enter(local_bounds);
+        self.drag.reset();
+        self.cursor.clear_hovered();
+    }
+
+    /// Transition to locked adjustment mode (no resize/move allowed).
+    /// Used for display and window selection where bounds should not change.
+    pub fn enter_adjustment_mode_locked(&mut self, local_bounds: Rect) {
+        self.adjustment.enter_locked(local_bounds);
         self.drag.reset();
         self.cursor.clear_hovered();
     }

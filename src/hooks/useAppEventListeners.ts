@@ -62,46 +62,30 @@ export function useAppEventListeners(callbacks: AppEventCallbacks) {
       })
     );
 
-    // Create capture toolbar window from D2D overlay
+    // Update capture toolbar bounds from D2D overlay
+    // If toolbar exists, confirm selection and update; if not, let Rust create it
     unlisteners.push(
       listen<{ x: number; y: number; width: number; height: number }>(
         'create-capture-toolbar',
         async (event) => {
           const { x, y, width, height } = event.payload;
 
-          // Close any existing toolbar window first
+          // Check if toolbar already exists
           const existing = await WebviewWindow.getByLabel('capture-toolbar');
           if (existing) {
-            try {
-              await existing.close();
-            } catch {
-              // Ignore
-            }
-            await new Promise((r) => setTimeout(r, 50));
+            // Toolbar exists - emit confirm-selection to mark selection confirmed and reposition
+            // This is a NEW selection from overlay, not an adjustment update
+            await existing.emit('confirm-selection', { x, y, width, height });
+            // Bring to front
+            await existing.show();
+            await existing.setFocus();
+            return;
           }
 
-          // Create toolbar window - starts hidden, frontend will position and show
-          const url = `/capture-toolbar.html?x=${x}&y=${y}&width=${width}&height=${height}`;
-          const win = new WebviewWindow('capture-toolbar', {
-            url,
-            title: 'Selection Toolbar',
-            width: 900,
-            height: 300,
-            x: x + Math.floor(width / 2) - 450,
-            y: y + height + 8,
-            resizable: false,
-            decorations: false,
-            alwaysOnTop: true,
-            transparent: true,
-            skipTaskbar: true,
-            shadow: false,
-            visible: false,
-            focus: false,
-          });
-
-          win.once('tauri://error', (e) => {
-            console.error('Failed to create capture toolbar:', e);
-          });
+          // Toolbar doesn't exist - create it via Rust command
+          // This ensures consistent window creation
+          const { invoke } = await import('@tauri-apps/api/core');
+          await invoke('show_capture_toolbar', { x, y, width, height });
         }
       )
     );

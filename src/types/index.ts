@@ -124,6 +124,17 @@ export interface MonitorInfo {
   scale_factor: number;
 }
 
+export interface WindowInfo {
+  id: number;
+  title: string;
+  app_name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  is_minimized: boolean;
+}
+
 export interface StorageStats {
   total_size_bytes: number;
   total_size_mb: number;

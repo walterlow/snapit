@@ -285,7 +285,7 @@ textarea,
 .titlebar {
   display: flex;
   align-items: center;
-  height: 44px;
+  height: 40px;
   padding: 0 8px 0 16px;
   background: linear-gradient(180deg, var(--glass-surface-light) 0%, var(--glass-surface-dark) 100%);
   backdrop-filter: var(--glass-backdrop);
@@ -3227,19 +3227,29 @@ body.overlay-window #root {
   align-items: center;
   gap: 0;
   padding: 6px 8px;
-  background: linear-gradient(
-    135deg,
-    rgba(22, 22, 26, 0.95) 0%,
-    rgba(14, 14, 16, 1.0) 100%
-  );
-  backdrop-filter: blur(24px) saturate(200%);
-  -webkit-backdrop-filter: blur(24px) saturate(200%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  filter: var(--drop-shadow);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+  background: var(--polar-night);
+  border: none;
+  border-radius: 0;
+}
+
+/* Two-row toolbar variant */
+.glass-toolbar--two-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--polar-night);
+  border: none;
+  border-radius: 0;
+}
+
+.glass-toolbar-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+}
+
+.glass-toolbar-row:first-child {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Close button */
@@ -3284,6 +3294,15 @@ body.overlay-window #root {
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 10px;
+}
+
+.glass-mode-group--full {
+  flex: 1;
+}
+
+.glass-mode-group--full .glass-mode-btn {
+  flex: 1;
+  justify-content: center;
 }
 
 .glass-mode-btn {
@@ -3512,6 +3531,22 @@ body.overlay-window #root {
   transform: scale(0.98);
 }
 
+.glass-capture-btn-pill:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow:
+    0 2px 6px rgba(239, 68, 68, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.glass-capture-btn-pill:disabled:hover {
+  transform: none;
+  box-shadow:
+    0 2px 6px rgba(239, 68, 68, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
 .glass-capture-btn-pill .glass-capture-btn-label {
   font-size: 12px;
   font-weight: 700;
@@ -3727,21 +3762,196 @@ body.overlay-window #root {
   color: rgba(255, 255, 255, 0.8);
 }
 
+/* Display Picker Panel Styles */
+.glass-display-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px !important;
+}
+
+.glass-display-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.glass-display-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.glass-display-primary {
+  font-size: 10px;
+  font-weight: 400;
+  color: rgba(59, 130, 246, 0.9);
+  background: rgba(59, 130, 246, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.glass-display-resolution {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Window Picker Panel Styles */
+.glass-window-search {
+  position: relative;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-window-search-icon {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+
+.glass-window-search-input {
+  width: 100%;
+  padding-left: 28px;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  height: 32px;
+}
+
+.glass-window-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.glass-window-search-input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.glass-window-list-scroll {
+  max-height: 280px;
+}
+
+.glass-window-list {
+  padding: 6px;
+}
+
+.glass-window-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px !important;
+}
+
+.glass-window-icon {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.glass-window-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.glass-window-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.glass-window-app {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.glass-popover-option--hovered {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+/* Light mode - Display and Window Picker */
+.light .glass-display-name {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.light .glass-display-primary {
+  color: rgba(37, 99, 235, 1);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.light .glass-display-resolution {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.light .glass-window-search {
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+.light .glass-window-search-icon {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-window-search-input {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.light .glass-window-search-input::placeholder {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.light .glass-window-icon {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.light .glass-window-title {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.light .glass-window-app {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.light .glass-popover-option--hovered {
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
 /* ========================================
    LIGHT MODE - Redesigned Toolbar
    ======================================== */
 
 .light .glass-toolbar--minimal {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(250, 250, 252, 1.0) 100%
-  );
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  filter: var(--drop-shadow-light);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+  background: var(--polar-snow);
+  border: none;
+}
+
+.light .glass-toolbar--two-row {
+  background: var(--polar-snow);
+  border: none;
+}
+
+.light .glass-toolbar-row:first-child {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .light .glass-close-btn {

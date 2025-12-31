@@ -1,16 +1,14 @@
 /**
- * MicrophonePopover - Microphone device selector with popover
- * 
- * Shows current microphone status, opens popover with device list.
+ * MicrophonePopover - Microphone device selector using native Tauri menu
+ *
+ * Shows current microphone status, opens native menu with device list.
+ * Native menus avoid popover clipping issues in transparent windows.
  */
 
-import React, { useEffect } from 'react';
-import { Mic, MicOff, ChevronDown, RefreshCw } from 'lucide-react';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import React, { useEffect, useRef, useCallback } from 'react';
+import { Mic, MicOff, ChevronDown } from 'lucide-react';
+import { Menu, MenuItem, PredefinedMenuItem, CheckMenuItem } from '@tauri-apps/api/menu';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { useAudioInputStore } from '@/stores/audioInputStore';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
 
@@ -19,8 +17,9 @@ interface MicrophonePopoverProps {
 }
 
 export const MicrophonePopover: React.FC<MicrophonePopoverProps> = ({ disabled = false }) => {
-  const { devices, loadDevices, isLoadingDevices } = useAudioInputStore();
+  const { devices, loadDevices } = useAudioInputStore();
   const { settings, updateVideoSettings } = useCaptureSettingsStore();
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const selectedDeviceIndex = settings.video.microphoneDeviceIndex;
   const isEnabled = selectedDeviceIndex !== null;
@@ -38,93 +37,86 @@ export const MicrophonePopover: React.FC<MicrophonePopoverProps> = ({ disabled =
     : 'Mic Muted';
 
   // Truncate display name for button
-  const truncatedName = displayName.length > 12 
-    ? displayName.substring(0, 12) + '…' 
+  const truncatedName = displayName.length > 12
+    ? displayName.substring(0, 12) + '…'
     : displayName;
 
-  const handleSelectDevice = (deviceIndex: number | null) => {
+  const handleSelectDevice = useCallback((deviceIndex: number | null) => {
     updateVideoSettings({ microphoneDeviceIndex: deviceIndex });
-  };
+  }, [updateVideoSettings]);
+
+  // Open native menu
+  const openMenu = useCallback(async () => {
+    if (disabled) return;
+
+    // Refresh devices in background (don't block menu)
+    loadDevices();
+
+    try {
+      const items = await Promise.all([
+        // Header
+        MenuItem.new({
+          id: 'header',
+          text: 'Microphone',
+          enabled: false
+        }),
+        PredefinedMenuItem.new({ item: 'Separator' }),
+        // Mute option
+        CheckMenuItem.new({
+          id: 'mute',
+          text: 'Mute Microphone',
+          checked: !isEnabled,
+          action: () => handleSelectDevice(null),
+        }),
+        PredefinedMenuItem.new({ item: 'Separator' }),
+        // Device list
+        ...devices.map((device) =>
+          CheckMenuItem.new({
+            id: `device-${device.index}`,
+            text: device.isDefault
+              ? `${device.name} ★`
+              : device.name,
+            checked: selectedDeviceIndex === device.index,
+            action: () => handleSelectDevice(device.index),
+          })
+        ),
+        // Refresh option
+        PredefinedMenuItem.new({ item: 'Separator' }),
+        MenuItem.new({
+          id: 'refresh',
+          text: 'Refresh Devices',
+          action: loadDevices,
+        }),
+      ]);
+
+      const menu = await Menu.new({ items });
+
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (rect) {
+        await menu.popup(new LogicalPosition(rect.left, rect.bottom + 4));
+      } else {
+        await menu.popup();
+      }
+    } catch (error) {
+      console.error('Failed to open microphone menu:', error);
+    }
+  }, [disabled, devices, isEnabled, selectedDeviceIndex, loadDevices, handleSelectDevice]);
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          className={`glass-device-btn ${isEnabled ? 'glass-device-btn--active' : ''}`}
-          disabled={disabled}
-        >
-          {isEnabled ? (
-            <Mic size={14} strokeWidth={1.5} />
-          ) : (
-            <MicOff size={14} strokeWidth={1.5} />
-          )}
-          <span className="glass-device-label">{truncatedName}</span>
-          <ChevronDown size={12} className="glass-device-chevron" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent 
-        side="bottom" 
-        sideOffset={8} 
-        align="start"
-        className="glass-popover-content w-64"
-      >
-        <div className="glass-popover-header">
-          <span>Microphone</span>
-          <button
-            onClick={() => loadDevices()}
-            disabled={isLoadingDevices}
-            className="glass-popover-refresh"
-            title="Refresh devices"
-          >
-            <RefreshCw size={12} className={isLoadingDevices ? 'animate-spin' : ''} />
-          </button>
-        </div>
-        <div className="glass-popover-body">
-          <div className="glass-popover-list">
-            {/* No microphone option */}
-            <button
-              onClick={() => handleSelectDevice(null)}
-              className={`glass-popover-option ${
-                !isEnabled ? 'glass-popover-option--selected' : ''
-              }`}
-            >
-              <MicOff size={14} />
-              <span className="glass-popover-option-label">Mute Microphone</span>
-              {!isEnabled && (
-                <span className="glass-popover-option-check">✓</span>
-              )}
-            </button>
-
-            {/* Device list */}
-            {devices.map((device) => (
-              <button
-                key={device.index}
-                onClick={() => handleSelectDevice(device.index)}
-                className={`glass-popover-option ${
-                  selectedDeviceIndex === device.index ? 'glass-popover-option--selected' : ''
-                }`}
-              >
-                <Mic size={14} />
-                <span className="glass-popover-option-label">
-                  {device.name}
-                  {device.isDefault && <span className="glass-popover-badge">★</span>}
-                </span>
-                {selectedDeviceIndex === device.index && (
-                  <span className="glass-popover-option-check">✓</span>
-                )}
-              </button>
-            ))}
-
-            {devices.length === 0 && !isLoadingDevices && (
-              <div className="glass-popover-empty">No microphones found</div>
-            )}
-            {isLoadingDevices && (
-              <div className="glass-popover-empty">Loading devices...</div>
-            )}
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+    <button
+      ref={buttonRef}
+      onClick={openMenu}
+      className={`glass-device-btn ${isEnabled ? 'glass-device-btn--active' : ''}`}
+      disabled={disabled}
+    >
+      {isEnabled ? (
+        <Mic size={14} strokeWidth={1.5} />
+      ) : (
+        <MicOff size={14} strokeWidth={1.5} />
+      )}
+      <span className="glass-device-label">{truncatedName}</span>
+      <ChevronDown size={12} className="glass-device-chevron" />
+    </button>
   );
 };
 

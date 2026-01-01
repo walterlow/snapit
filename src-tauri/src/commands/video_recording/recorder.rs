@@ -729,26 +729,21 @@ fn run_video_capture(
         // Start the capture service (owns webcam hardware, populates WEBCAM_BUFFER)
         match start_capture_service(webcam_device_index) {
             Ok(()) => {
-                eprintln!("[CAPTURE] Native webcam capture service started (device {})", webcam_device_index);
-                
                 // Wait briefly for first frame to be captured
                 std::thread::sleep(Duration::from_millis(200));
                 
                 // Start background encoder (runs in its own thread)
                 match BackgroundWebcamEncoder::start(webcam_path.clone()) {
-                    Ok(enc) => {
-                        eprintln!("[CAPTURE] Background webcam encoder started: {:?}", webcam_path);
-                        Some(enc)
-                    }
+                    Ok(enc) => Some(enc),
                     Err(e) => {
-                        eprintln!("[CAPTURE] Warning: Failed to start webcam encoder: {}", e);
+                        eprintln!("[CAPTURE] Webcam encoder failed: {}", e);
                         stop_capture_service();
                         None
                     }
                 }
             }
             Err(e) => {
-                eprintln!("[CAPTURE] Warning: Failed to start webcam capture: {}", e);
+                eprintln!("[CAPTURE] Webcam capture failed: {}", e);
                 None
             }
         }
@@ -1137,80 +1132,44 @@ fn run_video_capture(
         println!("[CAPTURE] WARNING: No video frames were captured!");
     }
 
-    // Check if recording was cancelled FIRST - before any encoder work
+    // Check if recording was cancelled
     let was_cancelled = progress.was_cancelled();
     
-    // === HANDLE WEBCAM ENCODER ===
-    // Must finish encoder BEFORE stopping capture service (encoder needs buffer data)
+    // Finish webcam encoder BEFORE stopping capture service (needs buffer data)
     if let Some(webcam_enc) = webcam_encoder {
         if was_cancelled {
-            // On cancel: just stop the encoder thread, don't save
-            eprintln!("[CAPTURE] Cancelling webcam encoder...");
-            let _ = webcam_enc.finish(); // This stops the thread
-            // Delete the partial webcam file
+            let _ = webcam_enc.finish();
             if let Some(ref path) = webcam_output_path {
-                if let Err(e) = std::fs::remove_file(path) {
-                    eprintln!("[CAPTURE] Failed to delete cancelled webcam file: {}", e);
-                } else {
-                    eprintln!("[CAPTURE] Deleted cancelled webcam file: {:?}", path);
-                }
+                let _ = std::fs::remove_file(path);
             }
-        } else {
-            // Normal finish: save the webcam file
-            eprintln!("[CAPTURE] Finishing webcam encoder (frame_count={})...", webcam_enc.frame_count());
-            if let Err(e) = webcam_enc.finish() {
-                eprintln!("[CAPTURE] Warning: Failed to finish webcam encoding: {}", e);
-            } else {
-                eprintln!("[CAPTURE] Webcam encoder finished successfully");
-            }
+        } else if let Err(e) = webcam_enc.finish() {
+            eprintln!("[CAPTURE] Webcam encoding failed: {}", e);
         }
     }
     
-    // === NOW STOP NATIVE WEBCAM CAPTURE ===
-    // Stop the webcam capture service (releases camera hardware and clears buffer)
+    // Stop capture services
     stop_capture_service();
-    eprintln!("[CAPTURE] Native webcam capture service stopped");
-
-    // Stop audio capture threads
     if let Some(mut manager) = audio_manager {
-        println!("[CAPTURE] Stopping audio capture...");
         manager.stop();
-        println!("[CAPTURE] Audio capture stopped");
     }
-
-    // Stop multi-track audio recording
-    if let Err(e) = multitrack_audio.stop() {
-        eprintln!("[CAPTURE] Warning: Failed to stop multi-track audio: {}", e);
-    } else {
-        eprintln!("[CAPTURE] Multi-track audio recording stopped");
-    }
-
-    // === STOP CURSOR EVENT CAPTURE ===
+    let _ = multitrack_audio.stop();
     let cursor_recording = cursor_event_capture.stop();
-    eprintln!("[CAPTURE] Cursor event capture stopped, collected {} events", cursor_recording.events.len());
 
-    // If cancelled, skip main encoder and return
+    // If cancelled, skip main encoder
     if was_cancelled {
-        println!("[CAPTURE] Recording was cancelled, skipping main encoder finish");
         drop(encoder);
         return Ok(());
     }
 
-    // === SAVE CURSOR DATA ===
+    // Save cursor data
     if !cursor_recording.events.is_empty() {
-        eprintln!("[CAPTURE] Saving cursor data to {:?}...", cursor_data_path);
         if let Err(e) = save_cursor_recording(&cursor_recording, &cursor_data_path) {
-            eprintln!("[CAPTURE] Warning: Failed to save cursor data: {}", e);
-            // Don't fail the whole recording for cursor data issues
-        } else {
-            eprintln!("[CAPTURE] Cursor data saved ({} events)", cursor_recording.events.len());
+            eprintln!("[CAPTURE] Cursor save failed: {}", e);
         }
     }
 
-    // Finish encoding (only for Stop, not Cancel)
-    println!("[CAPTURE] Finishing encoder...");
+    // Finish main video encoder
     encoder.finish().map_err(|e| format!("Failed to finish encoding: {:?}", e))?;
-    println!("[CAPTURE] Encoder finished successfully");
 
     Ok(())
 }
@@ -1401,24 +1360,22 @@ fn run_gif_capture(
 /// Stop the current recording.
 /// 
 /// This sends the stop command and returns immediately.
+/// The UI immediately transitions to "Processing" state (optimistic update).
 /// The actual completion is signaled via the 'recording-state-changed' event
 /// when the state becomes Completed or Error.
-pub async fn stop_recording(_app: AppHandle) -> Result<(), String> {
-    eprintln!("[STOP] stop_recording called");
-    println!("[STOP] stop_recording called");
-
+pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
     let controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
 
     if !controller.is_active() {
         return Err("No recording in progress".to_string());
     }
 
-    println!("[STOP] Sending Stop command...");
     controller.send_command(RecorderCommand::Stop)?;
-    println!("[STOP] Stop command sent successfully");
+    
+    // Immediately emit Processing state so UI feels responsive
+    // Timer stops, user sees "Saving..." or similar
+    emit_state_change(&app, &RecordingState::Processing { progress: 0.0 });
 
-    // Return immediately - don't wait for recording to finish
-    // The frontend will receive the completion via 'recording-state-changed' event
     Ok(())
 }
 

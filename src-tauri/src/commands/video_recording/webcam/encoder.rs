@@ -23,24 +23,15 @@ pub struct BackgroundWebcamEncoder {
 impl BackgroundWebcamEncoder {
     /// Start background encoder thread.
     pub fn start(output_path: PathBuf) -> Result<Self, String> {
-        eprintln!("[WEBCAM_ENC] === BackgroundWebcamEncoder::start() ===");
-
         // Get dimensions from buffer
         let (width, height) = WEBCAM_BUFFER.dimensions();
-        eprintln!("[WEBCAM_ENC] Buffer dimensions: {}x{}", width, height);
-        eprintln!(
-            "[WEBCAM_ENC] Buffer active: {}, frame_id: {}",
-            WEBCAM_BUFFER.is_active(),
-            WEBCAM_BUFFER.current_frame_id()
-        );
-
         let (width, height) = if width > 0 && height > 0 {
-            eprintln!("[WEBCAM_ENC] Using buffer resolution: {}x{}", width, height);
             (width, height)
         } else {
-            eprintln!("[WEBCAM_ENC] No dimensions available, using 1280x720");
-            (1280, 720)
+            (1280, 720) // Default fallback
         };
+
+        eprintln!("[WEBCAM_ENC] Starting encoder: {}x{}", width, height);
 
         let stop_flag = Arc::new(AtomicBool::new(false));
         let frame_count = Arc::new(AtomicU64::new(0));
@@ -79,15 +70,15 @@ impl BackgroundWebcamEncoder {
             handle.join().map_err(|_| "Thread panicked")?;
         }
 
-        eprintln!(
-            "[WEBCAM_ENC] Finished ({} frames)",
-            self.frame_count.load(Ordering::Relaxed)
-        );
+        let frames = self.frame_count.load(Ordering::Relaxed);
+        if frames > 0 {
+            eprintln!("[WEBCAM_ENC] Encoded {} frames", frames);
+        }
         Ok(())
     }
 }
 
-/// Run FFmpeg with MJPEG passthrough (zero encode).
+/// Run FFmpeg encoder for webcam frames.
 fn run_ffmpeg_passthrough(
     output_path: &PathBuf,
     width: u32,
@@ -95,23 +86,7 @@ fn run_ffmpeg_passthrough(
     stop_flag: &AtomicBool,
     frame_count: &AtomicU64,
 ) -> Result<(), String> {
-    eprintln!("[WEBCAM_ENC] === ENCODER THREAD STARTED ===");
-    eprintln!(
-        "[WEBCAM_ENC] Output: {:?}, size: {}x{}",
-        output_path, width, height
-    );
-
-    // Check buffer state immediately
-    eprintln!(
-        "[WEBCAM_ENC] Initial buffer: active={}, frame_id={}, dims={:?}",
-        super::capture::WEBCAM_BUFFER.is_active(),
-        super::capture::WEBCAM_BUFFER.current_frame_id(),
-        super::capture::WEBCAM_BUFFER.dimensions()
-    );
-
-    // Get ffmpeg path
     let ffmpeg_path = crate::commands::storage::find_ffmpeg().ok_or("FFmpeg not found")?;
-    eprintln!("[WEBCAM_ENC] FFmpeg path: {:?}", ffmpeg_path);
 
     // Start FFmpeg process:
     // -f image2pipe: read JPEG images from stdin
@@ -148,31 +123,10 @@ fn run_ffmpeg_passthrough(
     let mut stdin = child.stdin.take().ok_or("Failed to get FFmpeg stdin")?;
     let stderr = child.stderr.take();
 
-    eprintln!("[WEBCAM_ENC] FFmpeg started, entering main loop...");
-
     let mut last_frame_id: u64 = 0;
-    let start = std::time::Instant::now();
-    let mut poll_count: u64 = 0;
-    let mut last_log_time = start;
 
     // Main loop: pipe JPEG frames to FFmpeg
     while !stop_flag.load(Ordering::Relaxed) {
-        poll_count += 1;
-
-        // Log first 5 polls, then every second
-        let now = std::time::Instant::now();
-        if poll_count <= 5 || now.duration_since(last_log_time).as_secs() >= 1 {
-            last_log_time = now;
-            eprintln!(
-                "[WEBCAM_ENC] Poll #{}: buffer_id={}, my_last_id={}, active={}, stop={}",
-                poll_count,
-                WEBCAM_BUFFER.current_frame_id(),
-                last_frame_id,
-                WEBCAM_BUFFER.is_active(),
-                stop_flag.load(Ordering::Relaxed)
-            );
-        }
-
         // Get frame if newer
         let frame = match WEBCAM_BUFFER.get_if_newer(last_frame_id) {
             Some(f) => f,
@@ -184,65 +138,40 @@ fn run_ffmpeg_passthrough(
 
         last_frame_id = frame.frame_id;
 
-        // Log first frame details
-        let count = frame_count.load(Ordering::Relaxed);
-        if count == 0 {
-            eprintln!(
-                "[WEBCAM_ENC] First frame received! id={}, jpeg_cache={} bytes, data={} bytes",
-                frame.frame_id,
-                frame.jpeg_cache.len(),
-                frame.data.len()
-            );
-        }
-
         // Use jpeg_cache (already JPEG, or encoded from BGRA)
         if frame.jpeg_cache.is_empty() {
-            eprintln!(
-                "[WEBCAM_ENC] WARNING: Empty jpeg_cache for frame {}",
-                frame.frame_id
-            );
             continue;
         }
 
-        // Write JPEG directly to FFmpeg (zero encode!)
-        if let Err(e) = stdin.write_all(&frame.jpeg_cache) {
-            eprintln!("[WEBCAM_ENC] Write error: {}", e);
-            break;
+        // Write JPEG to FFmpeg
+        if let Err(_) = stdin.write_all(&frame.jpeg_cache) {
+            break; // Pipe closed, stop
         }
 
-        let new_count = frame_count.fetch_add(1, Ordering::Relaxed) + 1;
-
-        if new_count == 1 || new_count % 60 == 0 {
-            eprintln!(
-                "[WEBCAM_ENC] Piped {} frames ({:.1}s)",
-                new_count,
-                start.elapsed().as_secs_f64()
-            );
-        }
+        frame_count.fetch_add(1, Ordering::Relaxed);
     }
 
     // Close stdin to signal EOF to FFmpeg
     drop(stdin);
 
     // Wait for FFmpeg to finish
-    eprintln!("[WEBCAM_ENC] Waiting for FFmpeg to finish...");
     let status = child
         .wait()
         .map_err(|e| format!("FFmpeg wait error: {}", e))?;
 
-    // Read stderr for debugging
-    if let Some(mut stderr_handle) = stderr {
-        use std::io::Read;
-        let mut stderr_output = String::new();
-        if stderr_handle.read_to_string(&mut stderr_output).is_ok() && !stderr_output.is_empty() {
-            eprintln!("[WEBCAM_ENC] FFmpeg stderr: {}", stderr_output.trim());
-        }
-    }
-
+    // Read stderr for error debugging only
     if !status.success() {
+        if let Some(mut stderr_handle) = stderr {
+            use std::io::Read;
+            let mut stderr_output = String::new();
+            let _ = stderr_handle.read_to_string(&mut stderr_output);
+            return Err(format!(
+                "FFmpeg failed: {}",
+                stderr_output.lines().last().unwrap_or("unknown error")
+            ));
+        }
         return Err(format!("FFmpeg exited with: {}", status));
     }
 
-    eprintln!("[WEBCAM_ENC] FFmpeg finished successfully");
     Ok(())
 }

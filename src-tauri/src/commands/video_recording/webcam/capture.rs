@@ -265,25 +265,13 @@ impl WebcamCaptureService {
 
                     // Process frame: produce data (for encoder) and jpeg_cache (for preview)
                     let (frame_data, jpeg_cache) = if is_mjpeg {
-                        // MJPEG: use raw for both (preview base64s, encoder decodes)
-                        if frame_count == 0 {
-                            eprintln!("[WEBCAM] First frame: MJPEG {} bytes", raw_data.len());
-                        }
+                        // MJPEG: use raw for both
                         let data = raw_data.to_vec();
                         (data.clone(), data)
                     } else {
                         // Raw pixel data - convert to BGRA, encode JPEG for preview cache
                         let expected_rgb = pixel_count * 3;
                         let expected_yuyv = pixel_count * 2;
-
-                        if frame_count == 0 {
-                            eprintln!(
-                                "[WEBCAM] First frame: raw {} bytes (rgb={}, yuyv={})",
-                                raw_data.len(),
-                                expected_rgb,
-                                expected_yuyv
-                            );
-                        }
 
                         let mut bgra = Vec::with_capacity(pixel_count * 4);
 
@@ -332,22 +320,9 @@ impl WebcamCaptureService {
                         (bgra, jpeg)
                     };
 
-                    // Log jpeg_cache size for debugging
-                    let jpeg_size = jpeg_cache.len();
-
                     // Store data + cached JPEG
                     WEBCAM_BUFFER.update(frame_data, jpeg_cache, width, height, is_mjpeg);
                     frame_count += 1;
-
-                    if frame_count == 1 {
-                        eprintln!("[WEBCAM] First frame captured: mjpeg={}, jpeg_cache={} bytes, buffer_frame_id={}",
-                            is_mjpeg, jpeg_size, WEBCAM_BUFFER.current_frame_id());
-                    } else if frame_count % 60 == 0 {
-                        eprintln!(
-                            "[WEBCAM] Frame {}: jpeg_cache={} bytes",
-                            frame_count, jpeg_size
-                        );
-                    }
                 }
                 Err(e) => {
                     eprintln!("[WEBCAM] Frame capture error: {}", e);
@@ -359,12 +334,7 @@ impl WebcamCaptureService {
         // Cleanup
         WEBCAM_BUFFER.set_active(false);
         WEBCAM_BUFFER.clear();
-
-        if let Err(e) = camera.stop_stream() {
-            eprintln!("[WEBCAM] Error stopping camera: {}", e);
-        }
-
-        eprintln!("[WEBCAM] Capture stopped, {} frames captured", frame_count);
+        let _ = camera.stop_stream();
         Ok(())
     }
 }
@@ -416,8 +386,6 @@ pub fn start_capture_service(device_index: usize) -> Result<(), String> {
 
     // Wait briefly for camera to initialize
     std::thread::sleep(std::time::Duration::from_millis(200));
-
-    eprintln!("[WEBCAM] Capture service started");
     Ok(())
 }
 
@@ -437,7 +405,6 @@ pub fn stop_capture_service() {
     }
 
     WEBCAM_BUFFER.clear();
-    eprintln!("[WEBCAM] Capture service stopped");
 }
 
 /// Check if capture service is running.

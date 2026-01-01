@@ -236,13 +236,13 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
           {/* Sliding indicator */}
           <div
             className="absolute top-0 bottom-0 w-1/2 bg-zinc-700 transition-transform duration-200"
-            style={{ transform: region.isAuto ? 'translateX(0)' : 'translateX(100%)' }}
+            style={{ transform: region.mode === 'auto' ? 'translateX(0)' : 'translateX(100%)' }}
           />
           <button
-            onClick={() => canUseAuto && onUpdate({ isAuto: true })}
+            onClick={() => canUseAuto && onUpdate({ mode: 'auto' })}
             disabled={!canUseAuto}
             className={`relative z-10 flex-1 py-2 text-xs font-medium transition-colors ${
-              region.isAuto
+              region.mode === 'auto'
                 ? 'text-zinc-100'
                 : canUseAuto
                   ? 'text-zinc-500 hover:text-zinc-300'
@@ -252,9 +252,9 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
             Auto
           </button>
           <button
-            onClick={() => onUpdate({ isAuto: false })}
+            onClick={() => onUpdate({ mode: 'manual' })}
             className={`relative z-10 flex-1 py-2 text-xs font-medium transition-colors ${
-              !region.isAuto
+              region.mode !== 'auto'
                 ? 'text-zinc-100'
                 : 'text-zinc-500 hover:text-zinc-300'
             }`}
@@ -270,7 +270,7 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
       </div>
 
       {/* Manual Mode: Video thumbnail with focus picker */}
-      {!region.isAuto && (
+      {region.mode !== 'auto' && (
         <div
           className="relative w-full cursor-crosshair"
           onMouseDown={handleMouseDown}

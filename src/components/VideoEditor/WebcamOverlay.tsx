@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useEffect } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { usePlaybackTime } from '../../hooks/usePlaybackEngine';
+import { usePreviewOrPlaybackTime } from '../../hooks/usePlaybackEngine';
 import type { WebcamConfig, VisibilitySegment } from '../../types';
 
 interface WebcamOverlayProps {
@@ -109,7 +109,7 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   containerHeight,
 }: WebcamOverlayProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const currentTimeMs = usePlaybackTime();
+  const currentTimeMs = usePreviewOrPlaybackTime();
   
   // Debug: log webcam config on mount
   useEffect(() => {

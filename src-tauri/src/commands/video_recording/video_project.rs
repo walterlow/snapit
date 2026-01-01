@@ -198,6 +198,24 @@ pub enum ZoomMode {
     Both,
 }
 
+/// Per-region zoom mode - controls whether a region follows the cursor or uses a fixed position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum ZoomRegionMode {
+    /// Follow cursor position during playback (like Cap's Auto mode).
+    /// The zoom center tracks the interpolated cursor position.
+    Auto,
+    /// Fixed position zoom (targetX/targetY determine the zoom center).
+    Manual,
+}
+
+impl Default for ZoomRegionMode {
+    fn default() -> Self {
+        ZoomRegionMode::Manual
+    }
+}
+
 /// A zoom region defining when and where to zoom.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -214,9 +232,14 @@ pub struct ZoomRegion {
     /// Zoom scale (1.0 = no zoom, 2.0 = 2x zoom).
     pub scale: f32,
     /// Target X position (normalized 0-1, where 0.5 = center).
+    /// Used as fallback when mode is Auto and no cursor data available.
     pub target_x: f32,
     /// Target Y position (normalized 0-1, where 0.5 = center).
+    /// Used as fallback when mode is Auto and no cursor data available.
     pub target_y: f32,
+    /// Zoom region mode - Auto follows cursor, Manual uses fixed position.
+    #[serde(default)]
+    pub mode: ZoomRegionMode,
     /// Whether this was auto-generated from a click event.
     pub is_auto: bool,
     /// Transition settings.
@@ -1308,6 +1331,7 @@ pub fn generate_auto_zoom_regions(
             scale: config.scale,
             target_x,
             target_y,
+            mode: ZoomRegionMode::Auto, // Auto-generated zooms follow cursor
             is_auto: true,
             transition: ZoomTransition {
                 duration_in_ms: config.transition_in_ms,
@@ -1403,6 +1427,7 @@ mod tests {
             scale: 2.0,
             target_x: 0.5,
             target_y: 0.5,
+            mode: ZoomRegionMode::Manual,
             is_auto: true,
             transition: ZoomTransition::default(),
         };

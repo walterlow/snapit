@@ -15,11 +15,13 @@ import type {
   ExportConfig,
   SceneSegment,
   TextSegment,
+  CursorRecording,
 } from '../types';
 
 interface VideoEditorState {
   // Project state
   project: VideoProject | null;
+  cursorRecording: CursorRecording | null;
   
   // GPU Editor instance state
   editorInstanceId: string | null;
@@ -60,6 +62,7 @@ interface VideoEditorState {
   
   // Actions
   setProject: (project: VideoProject | null) => void;
+  loadCursorData: (cursorDataPath: string) => Promise<void>;
   setCurrentTime: (timeMs: number) => void;
   togglePlayback: () => void;
   setIsPlaying: (playing: boolean) => void;
@@ -140,7 +143,8 @@ export const useVideoEditorStore = create<VideoEditorState>()(
     (set, get) => ({
       // Initial state
       project: null,
-      
+      cursorRecording: null,
+
       // GPU Editor instance state
       editorInstanceId: null,
       editorInfo: null,
@@ -173,13 +177,34 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       exportProgress: null,
 
       // Project actions
-      setProject: (project) => set({
-        project,
-        currentTimeMs: 0,
-        isPlaying: false,
-        selectedZoomRegionId: null,
-        selectedWebcamSegmentIndex: null,
-      }),
+      setProject: (project) => {
+        set({
+          project,
+          cursorRecording: null, // Reset cursor recording when project changes
+          currentTimeMs: 0,
+          isPlaying: false,
+          selectedZoomRegionId: null,
+          selectedWebcamSegmentIndex: null,
+        });
+
+        // Auto-load cursor data if available
+        if (project?.sources.cursorData) {
+          get().loadCursorData(project.sources.cursorData);
+        }
+      },
+
+      loadCursorData: async (cursorDataPath: string) => {
+        try {
+          const recording = await invoke<CursorRecording>('load_cursor_recording_cmd', {
+            path: cursorDataPath,
+          });
+          set({ cursorRecording: recording });
+          console.log('[CURSOR] Loaded cursor recording with', recording.events.length, 'events');
+        } catch (error) {
+          console.warn('[CURSOR] Failed to load cursor recording:', error);
+          // Don't fail - cursor data is optional for auto zoom
+        }
+      },
 
       // Playback actions
       setCurrentTime: (timeMs) => {

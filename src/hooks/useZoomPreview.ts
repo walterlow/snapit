@@ -1,12 +1,17 @@
 /**
  * useZoomPreview - Calculates CSS transforms for zoom preview.
- * 
+ *
  * Ports the Rust zoom interpolation logic to TypeScript for real-time
  * preview in the video player using CSS transforms.
+ *
+ * Supports two zoom modes:
+ * - Manual: Fixed zoom position (targetX/targetY)
+ * - Auto: Follows cursor position during playback (like Cap)
  */
 
 import { useMemo } from 'react';
-import type { ZoomRegion, EasingFunction } from '../types';
+import type { ZoomRegion, EasingFunction, CursorRecording } from '../types';
+import { useCursorInterpolation, type InterpolatedCursor } from './useCursorInterpolation';
 
 interface ZoomState {
   scale: number;
@@ -20,14 +25,37 @@ interface ZoomTransformStyle {
 }
 
 /**
+ * Get cursor position for a region, using interpolated cursor if in auto mode.
+ */
+function getCursorPosition(
+  region: ZoomRegion,
+  timestampMs: number,
+  getCursorAt: ((timeMs: number) => InterpolatedCursor) | null
+): { x: number; y: number } {
+  // If mode is 'auto' and we have cursor data, follow the cursor
+  if (region.mode === 'auto' && getCursorAt) {
+    const cursor = getCursorAt(timestampMs);
+    return { x: cursor.x, y: cursor.y };
+  }
+
+  // Otherwise use fixed position
+  return { x: region.targetX, y: region.targetY };
+}
+
+/**
  * Calculate the zoom state at a specific timestamp.
+ *
+ * @param regions - Zoom regions
+ * @param timestampMs - Current playback time
+ * @param getCursorAt - Optional cursor interpolation function for auto mode
  */
 export function getZoomStateAt(
   regions: ZoomRegion[],
-  timestampMs: number
+  timestampMs: number,
+  getCursorAt?: ((timeMs: number) => InterpolatedCursor) | null
 ): ZoomState {
   const identity: ZoomState = { scale: 1, centerX: 0.5, centerY: 0.5 };
-  
+
   if (!regions || regions.length === 0) {
     return identity;
   }
@@ -44,28 +72,28 @@ export function getZoomStateAt(
     if (timestampMs >= transitionInStart && timestampMs < region.startMs) {
       const progress = (timestampMs - transitionInStart) / region.transition.durationInMs;
       const eased = applyEasing(progress, region.transition.easing);
-      
+
       const prevState = i > 0 ? getRegionEndState(sorted[i - 1]) : identity;
-      const targetState = getRegionState(region);
-      
+      const targetState = getRegionState(region, timestampMs, getCursorAt);
+
       return interpolateZoom(prevState, targetState, eased);
     }
 
     // Active zoom phase
     if (timestampMs >= region.startMs && timestampMs <= region.endMs) {
-      return getRegionState(region);
+      return getRegionState(region, timestampMs, getCursorAt);
     }
 
     // Transition-out phase
     if (timestampMs > region.endMs && timestampMs <= transitionOutEnd) {
       const progress = (timestampMs - region.endMs) / region.transition.durationOutMs;
       const eased = applyEasing(progress, region.transition.easing);
-      
-      const currentState = getRegionState(region);
-      const nextState = (i + 1 < sorted.length) 
-        ? getRegionState(sorted[i + 1])
+
+      const currentState = getRegionState(region, region.endMs, getCursorAt);
+      const nextState = (i + 1 < sorted.length)
+        ? getRegionState(sorted[i + 1], timestampMs, getCursorAt)
         : identity;
-      
+
       return interpolateZoom(currentState, nextState, eased);
     }
   }
@@ -73,11 +101,16 @@ export function getZoomStateAt(
   return identity;
 }
 
-function getRegionState(region: ZoomRegion): ZoomState {
+function getRegionState(
+  region: ZoomRegion,
+  timestampMs: number,
+  getCursorAt?: ((timeMs: number) => InterpolatedCursor) | null
+): ZoomState {
+  const pos = getCursorPosition(region, timestampMs, getCursorAt ?? null);
   return {
     scale: region.scale,
-    centerX: region.targetX,
-    centerY: region.targetY,
+    centerX: pos.x,
+    centerY: pos.y,
   };
 }
 
@@ -162,19 +195,31 @@ export function zoomStateToTransform(state: ZoomState): ZoomTransformStyle {
 
 /**
  * Hook to get zoom transform style for the current timestamp.
+ *
+ * For auto-zoom mode, this reads cursor recording from the video editor store
+ * and uses spring-physics cursor interpolation for smooth following.
  */
 export function useZoomPreview(
   regions: ZoomRegion[] | undefined,
-  currentTimeMs: number
+  currentTimeMs: number,
+  cursorRecording?: CursorRecording | null
 ): ZoomTransformStyle {
+  // Use cursor interpolation for auto mode (with spring physics)
+  const { getCursorAt, hasCursorData } = useCursorInterpolation(cursorRecording);
+
   return useMemo(() => {
     if (!regions || regions.length === 0) {
       return { transform: 'none', transformOrigin: 'center center' };
     }
-    
-    const state = getZoomStateAt(regions, currentTimeMs);
+
+    // Pass cursor interpolation function for auto mode regions
+    const state = getZoomStateAt(
+      regions,
+      currentTimeMs,
+      hasCursorData ? getCursorAt : null
+    );
     return zoomStateToTransform(state);
-  }, [regions, currentTimeMs]);
+  }, [regions, currentTimeMs, getCursorAt, hasCursorData]);
 }
 
 /**

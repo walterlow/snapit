@@ -240,6 +240,7 @@ pub fn run() {
             // Video editor commands
             commands::video_recording::load_video_project,
             commands::video_recording::save_video_project,
+            commands::video_recording::load_cursor_recording_cmd,
             commands::video_recording::extract_frame,
             commands::video_recording::clear_video_frame_cache,
             commands::video_recording::extract_audio_waveform,

@@ -2,36 +2,40 @@ import { memo, useCallback, useRef, useEffect, useState, useMemo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Play } from 'lucide-react';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
-import { usePlaybackTime, usePlaybackControls, initPlaybackEngine } from '../../hooks/usePlaybackEngine';
+import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
 import { useSceneMode } from '../../hooks/useSceneMode';
 import { WebcamOverlay } from './WebcamOverlay';
-import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion } from '../../types';
+import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
 const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
 const selectPreviewTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.previewTimeMs;
+const selectCursorRecording = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.cursorRecording;
 
 /**
  * Memoized video element with zoom transform.
- * Re-renders at 60fps via usePlaybackTime, but only the transform changes.
+ * Re-renders at 60fps via usePreviewOrPlaybackTime, syncs with scrubbing.
+ * Supports auto-zoom mode that follows cursor position.
  */
 const VideoWithZoom = memo(function VideoWithZoom({
   videoRef,
   videoSrc,
   zoomRegions,
+  cursorRecording,
   onVideoClick,
   hidden,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string;
-  zoomRegions: Parameters<typeof useZoomPreview>[0];
+  zoomRegions: ZoomRegion[] | undefined;
+  cursorRecording: CursorRecording | null | undefined;
   onVideoClick: () => void;
   hidden?: boolean;
 }) {
-  const currentTimeMs = usePlaybackTime();
-  const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs);
+  const currentTimeMs = usePreviewOrPlaybackTime();
+  const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs, cursorRecording);
 
   return (
     <video
@@ -65,7 +69,7 @@ const FullscreenWebcam = memo(function FullscreenWebcam({
   onClick: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const currentTimeMs = usePlaybackTime();
+  const currentTimeMs = usePreviewOrPlaybackTime();
 
   const videoSrc = useMemo(() => convertFileSrc(webcamVideoPath), [webcamVideoPath]);
 
@@ -107,6 +111,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   videoRef,
   videoSrc,
   zoomRegions,
+  cursorRecording,
   webcamVideoPath,
   webcamConfig,
   sceneSegments,
@@ -118,6 +123,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string | null | undefined;
   zoomRegions: ZoomRegion[] | undefined;
+  cursorRecording: CursorRecording | null | undefined;
   webcamVideoPath: string | undefined;
   webcamConfig: WebcamConfig | undefined;
   sceneSegments: SceneSegment[] | undefined;
@@ -126,24 +132,12 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   containerHeight: number;
   onVideoClick: () => void;
 }) {
-  const currentTimeMs = usePlaybackTime();
+  const currentTimeMs = usePreviewOrPlaybackTime();
   const sceneMode = useSceneMode(sceneSegments, defaultSceneMode, currentTimeMs);
 
   const showScreen = sceneMode !== 'cameraOnly';
   const showWebcam = sceneMode !== 'screenOnly';
   const webcamFullscreen = sceneMode === 'cameraOnly';
-
-  // Debug logging for scene mode
-  useEffect(() => {
-    if (webcamFullscreen) {
-      console.log('[SCENE] cameraOnly mode active', {
-        webcamVideoPath,
-        hasWebcam: !!webcamVideoPath,
-        sceneMode,
-        currentTimeMs,
-      });
-    }
-  }, [webcamFullscreen, webcamVideoPath, sceneMode, currentTimeMs]);
 
   return (
     <>
@@ -153,6 +147,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           videoRef={videoRef}
           videoSrc={videoSrc}
           zoomRegions={zoomRegions}
+          cursorRecording={cursorRecording}
           onVideoClick={onVideoClick}
           hidden={!showScreen}
         />
@@ -194,6 +189,7 @@ export function GPUVideoPreview() {
   const project = useVideoEditorStore(selectProject);
   const isPlaying = useVideoEditorStore(selectIsPlaying);
   const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
+  const cursorRecording = useVideoEditorStore(selectCursorRecording);
   const controls = usePlaybackControls();
 
   // Track container size for webcam overlay positioning
@@ -344,6 +340,7 @@ export function GPUVideoPreview() {
             videoRef={videoRef}
             videoSrc={videoSrc ?? undefined}
             zoomRegions={project?.zoom?.regions}
+            cursorRecording={cursorRecording}
             webcamVideoPath={project?.sources.webcamVideo ?? undefined}
             webcamConfig={project?.webcam}
             sceneSegments={project?.scene?.segments}

@@ -39,6 +39,18 @@ export function usePlaybackTime(): number {
 }
 
 /**
+ * Hook that returns preview time when scrubbing, or playback time otherwise.
+ * Use this for video elements that should sync with timeline scrubbing.
+ */
+export function usePreviewOrPlaybackTime(): number {
+  const playbackTime = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const previewTimeMs = useVideoEditorStore((s) => s.previewTimeMs);
+
+  // Return preview time if scrubbing, otherwise playback time
+  return previewTimeMs !== null ? previewTimeMs : playbackTime;
+}
+
+/**
  * Hook for components that need playback controls.
  * Returns stable functions that don't cause re-renders.
  */

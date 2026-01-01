@@ -51,6 +51,7 @@ export type { AutoZoomConfig } from './AutoZoomConfig';
 export type { ZoomConfig } from './ZoomConfig';
 export type { ZoomMode } from './ZoomMode';
 export type { ZoomRegion } from './ZoomRegion';
+export type { ZoomRegionMode } from './ZoomRegionMode';
 export type { ZoomTransition } from './ZoomTransition';
 export type { EasingFunction } from './EasingFunction';
 

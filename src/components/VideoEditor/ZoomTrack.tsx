@@ -280,6 +280,7 @@ export const ZoomTrack = memo(function ZoomTrack({
       scale: 2.0,
       targetX: 0.5,
       targetY: 0.5,
+      mode: 'manual',
       isAuto: false,
       transition: defaultTransition,
     };

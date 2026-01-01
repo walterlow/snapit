@@ -209,6 +209,7 @@ mod tests {
                 scale: 2.0,
                 target_x: 0.5,
                 target_y: 0.5,
+                mode: crate::commands::video_recording::video_project::ZoomRegionMode::Manual,
                 is_auto: true,
                 transition: ZoomTransition {
                     duration_in_ms: 300,

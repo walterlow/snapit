@@ -1210,8 +1210,22 @@ pub async fn load_video_project(video_path: String) -> Result<VideoProject, Stri
 pub async fn save_video_project(project: VideoProject) -> Result<(), String> {
     let video_path = std::path::Path::new(&project.sources.screen_video);
     let project_path = video_path.with_extension("snapit");
-    
+
     project.save(&project_path)
+}
+
+/// Load cursor recording data from a JSON file.
+///
+/// This is used for auto-zoom cursor following and cursor interpolation.
+#[command]
+pub async fn load_cursor_recording_cmd(path: String) -> Result<CursorRecording, String> {
+    let cursor_path = std::path::Path::new(&path);
+
+    if !cursor_path.exists() {
+        return Err(format!("Cursor data file not found: {}", path));
+    }
+
+    cursor::load_cursor_recording(cursor_path)
 }
 
 /// Extract a video frame at the specified timestamp.

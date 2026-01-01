@@ -158,6 +158,12 @@ export function useSelectionEvents(): UseSelectionEventsReturn {
         selectionBoundsRef.current = bounds;
         setSelectionConfirmed(true);
 
+        // Pre-spawn FFmpeg for webcam so recording starts instantly
+        // This runs in parallel with repositioning - don't await
+        invoke('prepare_recording', { format: 'mp4' }).catch((e) => {
+          console.warn('Failed to prepare recording:', e);
+        });
+
         // Wait for React to re-render and resize hook to run, then reposition
         // This ensures the window size is updated AFTER DimensionSelect renders
         await new Promise(resolve => setTimeout(resolve, 200));

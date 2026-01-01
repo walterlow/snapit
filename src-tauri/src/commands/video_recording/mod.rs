@@ -296,6 +296,34 @@ pub fn list_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
 // Capture Pre-warming
 // ============================================================================
 
+use std::sync::Mutex as StdMutex;
+use std::sync::OnceLock;
+
+/// Pre-spawned webcam encoder pipe, ready to receive frames.
+/// Created during prewarm, used when recording starts.
+static PREPARED_WEBCAM_PIPE: OnceLock<StdMutex<Option<webcam::WebcamEncoderPipe>>> = OnceLock::new();
+
+/// Pre-generated output path for the next recording.
+static PREPARED_OUTPUT_PATH: OnceLock<StdMutex<Option<std::path::PathBuf>>> = OnceLock::new();
+
+fn get_prepared_webcam_pipe() -> &'static StdMutex<Option<webcam::WebcamEncoderPipe>> {
+    PREPARED_WEBCAM_PIPE.get_or_init(|| StdMutex::new(None))
+}
+
+fn get_prepared_output_path() -> &'static StdMutex<Option<std::path::PathBuf>> {
+    PREPARED_OUTPUT_PATH.get_or_init(|| StdMutex::new(None))
+}
+
+/// Take the pre-spawned webcam pipe if available.
+pub fn take_prepared_webcam_pipe() -> Option<webcam::WebcamEncoderPipe> {
+    get_prepared_webcam_pipe().lock().ok()?.take()
+}
+
+/// Take the pre-generated output path if available.
+pub fn take_prepared_output_path() -> Option<std::path::PathBuf> {
+    get_prepared_output_path().lock().ok()?.take()
+}
+
 /// Pre-warm capture resources when toolbar is shown.
 /// This initializes webcam and screen capture so recording starts instantly.
 #[command]
@@ -324,8 +352,7 @@ pub fn prewarm_capture() -> Result<(), String> {
         }
     }
     
-    // Pre-warm screen capture (DXGI) - just touch the API to load DLLs
-    // The actual capture session is created when recording starts
+    // Pre-warm screen capture (DXGI) - load DLLs in background
     log::info!("[PREWARM] Touching DXGI...");
     std::thread::spawn(|| {
         use windows_capture::monitor::Monitor;
@@ -336,12 +363,76 @@ pub fn prewarm_capture() -> Result<(), String> {
     Ok(())
 }
 
+/// Prepare recording resources when selection is confirmed.
+/// This spawns FFmpeg for webcam so recording starts instantly.
+/// Called from frontend when user finishes drawing selection (before clicking Record).
+#[command]
+pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
+    log::info!("[PREPARE] Preparing recording resources...");
+    
+    // Generate output path now (before record click)
+    let settings = RecordingSettings {
+        format,
+        ..Default::default()
+    };
+    let output_path = generate_output_path(&settings)?;
+    log::info!("[PREPARE] Output path: {:?}", output_path);
+    
+    // Store for later use
+    if let Ok(mut prepared) = get_prepared_output_path().lock() {
+        *prepared = Some(output_path.clone());
+    }
+    
+    // Pre-spawn FFmpeg for webcam if enabled
+    let webcam_enabled = WEBCAM_SETTINGS
+        .lock()
+        .map(|s| s.enabled)
+        .unwrap_or(false);
+    
+    if webcam_enabled {
+        // Create webcam output path
+        let mut webcam_path = output_path.clone();
+        let stem = webcam_path.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        webcam_path.set_file_name(format!("{}_webcam.mp4", stem));
+        
+        log::info!("[PREPARE] Spawning FFmpeg for webcam: {:?}", webcam_path);
+        
+        match webcam::WebcamEncoderPipe::new(webcam_path) {
+            Ok(pipe) => {
+                if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
+                    *prepared = Some(pipe);
+                }
+                log::info!("[PREPARE] FFmpeg spawned and ready");
+            }
+            Err(e) => {
+                log::warn!("[PREPARE] Failed to spawn FFmpeg: {}", e);
+            }
+        }
+    }
+    
+    log::info!("[PREPARE] Recording preparation complete");
+    Ok(())
+}
+
 /// Stop pre-warmed resources (called when toolbar closes without recording).
 #[command]
 pub fn stop_prewarm() {
     log::info!("[PREWARM] Stopping pre-warmed resources");
-    // Only stop webcam if it's running for pre-warm (not for preview window)
-    // The webcam preview window manages its own lifecycle
+    
+    // Cancel any prepared webcam pipe
+    if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
+        if let Some(pipe) = prepared.take() {
+            pipe.cancel();
+            log::info!("[PREWARM] Cancelled prepared webcam pipe");
+        }
+    }
+    
+    // Clear prepared output path
+    if let Ok(mut prepared) = get_prepared_output_path().lock() {
+        *prepared = None;
+    }
 }
 
 // ============================================================================
@@ -1026,8 +1117,14 @@ pub async fn start_recording(
         }
     }
     
-    // Generate output path
-    let output_path = generate_output_path(&settings)?;
+    // Use prepared output path if available (from prepare_recording), else generate new one
+    let output_path = take_prepared_output_path()
+        .unwrap_or_else(|| generate_output_path(&settings).unwrap_or_else(|_| {
+            // Fallback to temp dir if generation fails
+            std::env::temp_dir().join(format!("recording_{}.mp4", chrono::Local::now().format("%Y%m%d_%H%M%S")))
+        }));
+    
+    log::info!("[RECORDING] Using output path: {:?}", output_path);
     
     // Start recording via controller
     recorder::start_recording(app, settings.clone(), output_path).await?;

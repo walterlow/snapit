@@ -215,6 +215,7 @@ pub fn run() {
             commands::video_recording::is_webcam_preview_running,
             commands::video_recording::prewarm_capture,
             commands::video_recording::stop_prewarm,
+            commands::video_recording::prepare_recording,
             commands::video_recording::get_webcam_preview_frame,
             commands::video_recording::get_webcam_preview_dimensions,
             commands::video_recording::exclude_webcam_from_capture,

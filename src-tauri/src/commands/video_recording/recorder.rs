@@ -452,9 +452,14 @@ pub async fn start_recording(
                 controller.start_actual_recording();
             }
 
-            // NOTE: Recording state is emitted AFTER initialization inside the capture thread
-            // This ensures the border only shows when we're actually capturing
-            // Webcam preview stays visible (Screen Studio style)
+            // Emit recording state IMMEDIATELY for instant UI feedback (optimistic UI)
+            // Border shows right away, init happens in background
+            let started_at = chrono::Local::now().to_rfc3339();
+            emit_state_change(&app_clone, &RecordingState::Recording {
+                started_at: started_at.clone(),
+                elapsed_secs: 0.0,
+                frame_count: 0,
+            });
 
             // Start capture in background thread
             start_capture_thread(
@@ -463,13 +468,20 @@ pub async fn start_recording(
                 output_path_clone,
                 progress_clone,
                 command_rx_clone,
+                started_at,
             );
         });
     } else {
         // No countdown, start immediately
-        // NOTE: Recording state is emitted AFTER initialization inside the capture thread
-        // This ensures the border only shows when we're actually capturing
-        start_capture_thread(app, settings, output_path, progress, command_rx);
+        // Emit recording state IMMEDIATELY for instant UI feedback
+        let started_at = chrono::Local::now().to_rfc3339();
+        emit_state_change(&app, &RecordingState::Recording {
+            started_at: started_at.clone(),
+            elapsed_secs: 0.0,
+            frame_count: 0,
+        });
+
+        start_capture_thread(app, settings, output_path, progress, command_rx, started_at);
     }
 
     Ok(())
@@ -482,6 +494,7 @@ fn start_capture_thread(
     output_path: PathBuf,
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
+    started_at: String,
 ) {
     println!("[START] About to spawn capture thread...");
     let app_clone = app.clone();
@@ -502,10 +515,10 @@ fn start_capture_thread(
 
         let result = match settings.format {
             RecordingFormat::Mp4 => {
-                run_video_capture(&app, &settings, &output_path, progress.clone(), command_rx)
+                run_video_capture(&app, &settings, &output_path, progress.clone(), command_rx, &started_at)
             }
             RecordingFormat::Gif => {
-                run_gif_capture(&app, &settings, &output_path, progress.clone(), command_rx)
+                run_gif_capture(&app, &settings, &output_path, progress.clone(), command_rx, &started_at)
             }
         };
 
@@ -620,6 +633,7 @@ fn run_video_capture(
     output_path: &PathBuf,
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
+    started_at: &str,
 ) -> Result<f64, String> {
     log::debug!("[CAPTURE] Starting video capture, mode={:?}", settings.mode);
 
@@ -696,9 +710,6 @@ fn run_video_capture(
         let dxgi = DxgiDuplicationApi::new(monitor)
             .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
 
-        // Small delay to let DXGI stabilize
-        std::thread::sleep(Duration::from_millis(50));
-
         CaptureBackend::Dxgi(dxgi)
     };
 
@@ -746,29 +757,38 @@ fn run_video_capture(
     };
 
     // === WEBCAM ENCODER SETUP ===
-    // Webcam was pre-warmed during countdown, should already be producing frames.
-    // Just spawn FFmpeg and start piping frames.
-    let mut webcam_pipe: Option<WebcamEncoderPipe> = if let Some(ref webcam_path) = webcam_output_path {
+    // Try to use pre-spawned FFmpeg pipe (from prepare_recording).
+    // Falls back to spawning new one if not available.
+    let mut webcam_pipe: Option<WebcamEncoderPipe> = if webcam_output_path.is_some() {
         use super::webcam::WEBCAM_BUFFER;
+        use super::take_prepared_webcam_pipe;
         
         // Quick check if webcam is ready (should be, since we pre-warmed)
         if WEBCAM_BUFFER.current_frame_id() == 0 {
-            // Not ready yet, brief wait (shouldn't happen if pre-warmed correctly)
             eprintln!("[WEBCAM] Waiting for first frame...");
-            let deadline = Instant::now() + Duration::from_millis(500);
+            let deadline = Instant::now() + Duration::from_millis(100);
             while Instant::now() < deadline && WEBCAM_BUFFER.current_frame_id() == 0 {
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
         
-        // Spawn FFmpeg
-        match WebcamEncoderPipe::new(webcam_path.clone()) {
-            Ok(pipe) => Some(pipe),
-            Err(e) => {
-                log::warn!("Webcam encoder failed: {}", e);
-                stop_capture_service();
-                None
+        // Try to use pre-spawned pipe first (instant!)
+        if let Some(pipe) = take_prepared_webcam_pipe() {
+            eprintln!("[WEBCAM] Using pre-spawned FFmpeg pipe (instant start)");
+            Some(pipe)
+        } else if let Some(ref webcam_path) = webcam_output_path {
+            // Fallback: spawn new FFmpeg (slower)
+            eprintln!("[WEBCAM] No prepared pipe, spawning FFmpeg now...");
+            match WebcamEncoderPipe::new(webcam_path.clone()) {
+                Ok(pipe) => Some(pipe),
+                Err(e) => {
+                    log::warn!("Webcam encoder failed: {}", e);
+                    stop_capture_service();
+                    None
+                }
             }
+        } else {
+            None
         }
     } else {
         None
@@ -841,15 +861,8 @@ fn run_video_capture(
     let mut pause_start: Option<Instant> = None;
 
     // === START RECORDING ===
-    // All initialization is complete. NOW we emit Recording state so UI shows border.
-    // This ensures user sees border only when we're actually ready to capture.
-    let started_at = chrono::Local::now().to_rfc3339();
-    emit_state_change(app, &RecordingState::Recording {
-        started_at: started_at.clone(),
-        elapsed_secs: 0.0,
-        frame_count: 0,
-    });
-
+    // Recording state was already emitted before thread started (optimistic UI)
+    // Now we just start capturing frames
     eprintln!("[TIMING] === RECORDING STARTING ===");
     eprintln!("[TIMING] Start time: {:?}", std::time::SystemTime::now());
     eprintln!("[TIMING] Target FPS: {}", settings.fps);
@@ -1264,6 +1277,7 @@ fn run_gif_capture(
     output_path: &PathBuf,
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
+    started_at: &str,
 ) -> Result<f64, String> {
 
     // Check if this is Window mode (native window capture via WGC)
@@ -1313,14 +1327,7 @@ fn run_gif_capture(
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
     let frame_timeout_ms = (frame_duration.as_millis() as u64).max(50);
     
-    // All initialization complete. NOW emit Recording state so UI shows border.
-    let started_at = chrono::Local::now().to_rfc3339();
-    emit_state_change(app, &RecordingState::Recording {
-        started_at: started_at.clone(),
-        elapsed_secs: 0.0,
-        frame_count: 0,
-    });
-
+    // Recording state was already emitted before thread started (optimistic UI)
     let start_time = Instant::now();
     let mut last_frame_time = start_time;
 

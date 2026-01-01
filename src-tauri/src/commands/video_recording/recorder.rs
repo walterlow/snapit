@@ -69,7 +69,7 @@ use super::cursor::{composite_cursor, CursorCapture, CursorEventCapture, save_cu
 use super::desktop_icons::{hide_desktop_icons, show_desktop_icons};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
-use super::webcam::{start_capture_service, stop_capture_service, BackgroundWebcamEncoder};
+use super::webcam::{start_capture_service, stop_capture_service, WebcamEncoderPipe};
 use super::wgc_capture::WgcVideoCapture;
 use super::{emit_state_change, get_webcam_settings, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
@@ -386,15 +386,15 @@ pub async fn start_recording(
     settings: RecordingSettings,
     output_path: PathBuf,
 ) -> Result<(), String> {
-    // Use eprintln for immediate output (stderr is unbuffered)
     eprintln!("[START] start_recording called, format={:?}, countdown={}", settings.format, settings.countdown_secs);
-    println!("[START] start_recording called, format={:?}", settings.format);
 
     let (progress, command_rx) = {
         let mut controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
         controller.start(settings.clone(), output_path.clone())?
     };
-    println!("[START] Controller started, countdown_secs={}", settings.countdown_secs);
+
+    // Note: Webcam and screen capture are pre-warmed when toolbar appears.
+    // See prewarm_capture() in mod.rs
 
     // Handle countdown
     if settings.countdown_secs > 0 {
@@ -452,15 +452,9 @@ pub async fn start_recording(
                 controller.start_actual_recording();
             }
 
-            emit_state_change(&app_clone, &RecordingState::Recording {
-                started_at: chrono::Local::now().to_rfc3339(),
-                elapsed_secs: 0.0,
-                frame_count: 0,
-            });
-
-            // NOTE: Webcam preview stays visible for user reference during recording.
-            // The webcam is recorded to a separate file and composited in post-production.
-            // Screen Studio style: preview is visible but final webcam position is set in editor.
+            // NOTE: Recording state is emitted AFTER initialization inside the capture thread
+            // This ensures the border only shows when we're actually capturing
+            // Webcam preview stays visible (Screen Studio style)
 
             // Start capture in background thread
             start_capture_thread(
@@ -473,13 +467,8 @@ pub async fn start_recording(
         });
     } else {
         // No countdown, start immediately
-        emit_state_change(&app, &RecordingState::Recording {
-            started_at: chrono::Local::now().to_rfc3339(),
-            elapsed_secs: 0.0,
-            frame_count: 0,
-        });
-
-        // NOTE: Webcam preview stays visible (Screen Studio style)
+        // NOTE: Recording state is emitted AFTER initialization inside the capture thread
+        // This ensures the border only shows when we're actually capturing
         start_capture_thread(app, settings, output_path, progress, command_rx);
     }
 
@@ -544,8 +533,8 @@ fn start_capture_thread(
 
         // Handle result
         match result {
-            Ok(()) => {
-                println!("[THREAD] Recording OK, checking file at: {:?}", output_path_clone);
+            Ok(recording_duration) => {
+                println!("[THREAD] Recording OK, duration={:.3}s, checking file at: {:?}", recording_duration, output_path_clone);
 
                 // Validate the video file to ensure it's not corrupted
                 // This catches issues like missing moov atom from improper shutdown
@@ -570,17 +559,12 @@ fn start_capture_thread(
                     .map(|m| m.len())
                     .unwrap_or(0);
                 println!("[THREAD] File size: {} bytes", file_size);
-
-                let duration = RECORDING_CONTROLLER
-                    .lock()
-                    .map(|c| c.get_elapsed_secs())
-                    .unwrap_or(0.0);
-                println!("[THREAD] Duration: {} secs", duration);
+                println!("[THREAD] Actual recording duration: {:.3} secs", recording_duration);
 
                 if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
                     controller.complete(
                         output_path_clone.to_string_lossy().to_string(),
-                        duration,
+                        recording_duration,
                         file_size,
                     );
                 }
@@ -588,7 +572,7 @@ fn start_capture_thread(
                 println!("[THREAD] Emitting Completed state");
                 emit_state_change(&app_clone, &RecordingState::Completed {
                     output_path: output_path_clone.to_string_lossy().to_string(),
-                    duration_secs: duration,
+                    duration_secs: recording_duration,
                     file_size_bytes: file_size,
                 });
             }
@@ -629,23 +613,24 @@ fn start_capture_thread(
 }
 
 /// Run video (MP4) capture using DXGI Duplication API.
+/// Returns the actual recording duration in seconds.
 fn run_video_capture(
     app: &AppHandle,
     settings: &RecordingSettings,
     output_path: &PathBuf,
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
-) -> Result<(), String> {
+) -> Result<f64, String> {
     log::debug!("[CAPTURE] Starting video capture, mode={:?}", settings.mode);
 
-    // === NATIVE WEBCAM RECORDING ===
-    // Prepare webcam output path for native capture (MP4 via windows-capture encoder)
+    // === WEBCAM OUTPUT PATH ===
+    // Webcam capture service is already running (pre-warmed during countdown).
+    // Just set up the output path here.
     let webcam_enabled = get_webcam_settings()
         .map(|s| s.enabled)
         .unwrap_or(false);
     
     let webcam_output_path: Option<PathBuf> = if webcam_enabled {
-        // Generate webcam output path (.mp4 for native encoder)
         let mut path = output_path.clone();
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         path.set_file_name(format!("{}_webcam.mp4", stem));
@@ -749,15 +734,9 @@ fn run_video_capture(
         output_path,
     ).map_err(|e| format!("Failed to create encoder: {:?}", e))?;
 
-    // === AUDIO CAPTURE SETUP ===
-    // Create shared control flags for audio threads
+    // === SHARED CONTROL FLAGS ===
     let should_stop = Arc::new(AtomicBool::new(false));
     let is_paused = Arc::new(AtomicBool::new(false));
-    let start_time = Instant::now();
-
-    // NOTE: AudioCaptureManager removed - was used to send audio to VideoEncoder,
-    // which caused jitter. MultiTrackAudioRecorder handles all audio capture now,
-    // with FFmpeg muxing post-recording.
 
     // Cursor capture manager (for include_cursor option)
     let mut cursor_capture = if settings.include_cursor {
@@ -766,33 +745,28 @@ fn run_video_capture(
         None
     };
 
-    // === NATIVE WEBCAM CAPTURE & ENCODING ===
-    // Start native webcam capture service and background encoder.
-    // Both run in their own threads - no blocking in main recording loop.
-    let webcam_encoder: Option<BackgroundWebcamEncoder> = if let Some(ref webcam_path) = webcam_output_path {
-        // Get webcam device index from settings (default to 0)
-        let webcam_device_index = get_webcam_settings()
-            .map(|s| s.device_index)
-            .unwrap_or(0);
+    // === WEBCAM ENCODER SETUP ===
+    // Webcam was pre-warmed during countdown, should already be producing frames.
+    // Just spawn FFmpeg and start piping frames.
+    let mut webcam_pipe: Option<WebcamEncoderPipe> = if let Some(ref webcam_path) = webcam_output_path {
+        use super::webcam::WEBCAM_BUFFER;
         
-        // Start the capture service (owns webcam hardware, populates WEBCAM_BUFFER)
-        match start_capture_service(webcam_device_index) {
-            Ok(()) => {
-                // Wait briefly for first frame to be captured
-                std::thread::sleep(Duration::from_millis(200));
-                
-                // Start background encoder (runs in its own thread)
-                match BackgroundWebcamEncoder::start(webcam_path.clone()) {
-                    Ok(enc) => Some(enc),
-                    Err(e) => {
-                        log::warn!("Webcam encoder failed: {}", e);
-                        stop_capture_service();
-                        None
-                    }
-                }
+        // Quick check if webcam is ready (should be, since we pre-warmed)
+        if WEBCAM_BUFFER.current_frame_id() == 0 {
+            // Not ready yet, brief wait (shouldn't happen if pre-warmed correctly)
+            eprintln!("[WEBCAM] Waiting for first frame...");
+            let deadline = Instant::now() + Duration::from_millis(500);
+            while Instant::now() < deadline && WEBCAM_BUFFER.current_frame_id() == 0 {
+                std::thread::sleep(Duration::from_millis(5));
             }
+        }
+        
+        // Spawn FFmpeg
+        match WebcamEncoderPipe::new(webcam_path.clone()) {
+            Ok(pipe) => Some(pipe),
             Err(e) => {
-                log::warn!("Webcam capture failed: {}", e);
+                log::warn!("Webcam encoder failed: {}", e);
+                stop_capture_service();
                 None
             }
         }
@@ -859,16 +833,30 @@ fn run_video_capture(
     // Pre-allocate frame buffers to avoid per-frame allocations
     let mut buffer_pool = FrameBufferPool::new(width, height);
 
-    // Recording loop
+    // Recording loop variables
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
-    let mut last_frame_time = Instant::now();
     let mut frame_count: u64 = 0;
     let mut paused = false;
     let mut pause_time = Duration::ZERO;
     let mut pause_start: Option<Instant> = None;
 
-    // Native webcam capture service is already running (started above)
-    // Webcam frames will be pulled from WEBCAM_BUFFER in the recording loop
+    // === START RECORDING ===
+    // All initialization is complete. NOW we emit Recording state so UI shows border.
+    // This ensures user sees border only when we're actually ready to capture.
+    let started_at = chrono::Local::now().to_rfc3339();
+    emit_state_change(app, &RecordingState::Recording {
+        started_at: started_at.clone(),
+        elapsed_secs: 0.0,
+        frame_count: 0,
+    });
+
+    eprintln!("[TIMING] === RECORDING STARTING ===");
+    eprintln!("[TIMING] Start time: {:?}", std::time::SystemTime::now());
+    eprintln!("[TIMING] Target FPS: {}", settings.fps);
+    eprintln!("[TIMING] Frame duration: {:?}", frame_duration);
+    eprintln!("[TIMING] Webcam enabled: {}", webcam_pipe.is_some());
+    let start_time = Instant::now();
+    let mut last_frame_time = start_time;
 
     loop {
         // Check for commands
@@ -1095,7 +1083,11 @@ fn run_video_capture(
         // Audio is NOT sent to encoder - see comment at audio_settings creation.
         // MultiTrackAudioRecorder handles WAV capture, FFmpeg muxes post-recording.
 
-        // Webcam encoding happens in background thread - no action needed here
+        // === WEBCAM FRAME (synchronized with screen frame) ===
+        // Write webcam frame for each screen frame - ensures 1:1 correspondence
+        if let Some(ref mut pipe) = webcam_pipe {
+            pipe.write_frame();
+        }
 
         frame_count += 1;
         progress.increment_frame();
@@ -1103,24 +1095,39 @@ fn run_video_capture(
         // Emit progress periodically
         if frame_count % 30 == 0 {
             emit_state_change(app, &RecordingState::Recording {
-                started_at: chrono::Local::now().to_rfc3339(),
+                started_at: started_at.to_string(),
                 elapsed_secs: actual_elapsed.as_secs_f64(),
                 frame_count,
             });
         }
     }
 
+    // === TIMING DEBUG LOGS ===
+    let total_elapsed = start_time.elapsed();
+    let recording_duration = total_elapsed - pause_time;
+    let webcam_frames = webcam_pipe.as_ref().map(|p| p.frames_written()).unwrap_or(0);
+    eprintln!("[TIMING] === RECORDING ENDED ===");
+    eprintln!("[TIMING] Total wall clock: {:.3}s", total_elapsed.as_secs_f64());
+    eprintln!("[TIMING] Pause time: {:.3}s", pause_time.as_secs_f64());
+    eprintln!("[TIMING] Actual recording duration: {:.3}s", recording_duration.as_secs_f64());
+    eprintln!("[TIMING] Screen frames captured: {}", frame_count);
+    eprintln!("[TIMING] Screen FPS achieved: {:.2}", frame_count as f64 / recording_duration.as_secs_f64());
+    eprintln!("[TIMING] Webcam frames written: {}", webcam_frames);
+    eprintln!("[TIMING] Webcam FPS achieved: {:.2}", webcam_frames as f64 / recording_duration.as_secs_f64());
+    eprintln!("[TIMING] Frame difference (screen - webcam): {}", frame_count as i64 - webcam_frames as i64);
+
     // Check if recording was cancelled
     let was_cancelled = progress.was_cancelled();
     
-    // Finish webcam encoder BEFORE stopping capture service (needs buffer data)
-    if let Some(webcam_enc) = webcam_encoder {
+    // Finish webcam encoder BEFORE stopping capture service
+    // Pass the actual recording duration so webcam syncs perfectly with screen
+    if let Some(pipe) = webcam_pipe {
         if was_cancelled {
-            let _ = webcam_enc.finish();
+            pipe.cancel();
             if let Some(ref path) = webcam_output_path {
                 let _ = std::fs::remove_file(path);
             }
-        } else if let Err(e) = webcam_enc.finish() {
+        } else if let Err(e) = pipe.finish_with_duration(recording_duration.as_secs_f64()) {
             log::warn!("Webcam encoding failed: {}", e);
         }
     }
@@ -1133,7 +1140,7 @@ fn run_video_capture(
     // If cancelled, skip main encoder
     if was_cancelled {
         drop(encoder);
-        return Ok(());
+        return Ok(recording_duration.as_secs_f64());
     }
 
     // Save cursor data
@@ -1153,18 +1160,111 @@ fn run_video_capture(
         log::warn!("Audio muxing failed: {}", e);
     }
 
+    // NOTE: Webcam sync is now handled in finish_with_duration() above.
+    // The webcam encoder remuxes with correct FPS to match screen duration.
+
+    Ok(recording_duration.as_secs_f64())
+}
+
+/// Sync webcam video duration to match screen video duration.
+/// Uses FFmpeg to stretch or pad the webcam video.
+fn sync_webcam_to_screen_duration(screen_path: &PathBuf, webcam_path: &PathBuf) -> Result<(), String> {
+    let ffprobe_path = crate::commands::storage::find_ffprobe()
+        .ok_or("ffprobe not found")?;
+    let ffmpeg_path = crate::commands::storage::find_ffmpeg()
+        .ok_or("ffmpeg not found")?;
+
+    // Get screen video duration
+    let screen_duration = get_video_duration(&ffprobe_path, screen_path)?;
+    let webcam_duration = get_video_duration(&ffprobe_path, webcam_path)?;
+
+    eprintln!(
+        "[SYNC] Screen: {:.3}s, Webcam: {:.3}s, diff: {:.3}s",
+        screen_duration,
+        webcam_duration,
+        screen_duration - webcam_duration
+    );
+
+    // If webcam is within 100ms of screen, no sync needed
+    let diff = (screen_duration - webcam_duration).abs();
+    if diff < 0.1 {
+        eprintln!("[SYNC] Videos already synced (diff < 100ms)");
+        return Ok(());
+    }
+
+    // Create temp file for synced webcam
+    let synced_path = webcam_path.with_extension("synced.mp4");
+
+    // Use setpts filter to stretch/compress webcam to match screen duration
+    // PTS * (target_duration / current_duration) adjusts playback speed
+    let speed_factor = webcam_duration / screen_duration;
+    let pts_filter = format!("setpts={}*PTS", speed_factor);
+
+    eprintln!("[SYNC] Applying speed factor: {:.4}", speed_factor);
+
+    let output = std::process::Command::new(&ffmpeg_path)
+        .args([
+            "-y",
+            "-i", &webcam_path.to_string_lossy(),
+            "-vf", &pts_filter,
+            "-an", // No audio in webcam
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "18",
+        ])
+        .arg(&synced_path)
+        .output()
+        .map_err(|e| format!("FFmpeg failed: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg sync failed: {}", stderr));
+    }
+
+    // Replace original webcam with synced version
+    std::fs::remove_file(webcam_path)
+        .map_err(|e| format!("Failed to remove original webcam: {}", e))?;
+    std::fs::rename(&synced_path, webcam_path)
+        .map_err(|e| format!("Failed to rename synced webcam: {}", e))?;
+
+    eprintln!("[SYNC] Webcam synced successfully");
     Ok(())
+}
+
+/// Get video duration in seconds using ffprobe.
+fn get_video_duration(ffprobe_path: &PathBuf, video_path: &PathBuf) -> Result<f64, String> {
+    let output = std::process::Command::new(ffprobe_path)
+        .args([
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(video_path)
+        .output()
+        .map_err(|e| format!("ffprobe failed: {}", e))?;
+
+    if !output.status.success() {
+        return Err("ffprobe failed to get duration".to_string());
+    }
+
+    let duration_str = String::from_utf8_lossy(&output.stdout);
+    duration_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| "Failed to parse duration".to_string())
 }
 
 /// Run GIF capture using WGC (Windows Graphics Capture).
 /// Fast async capture at 30+ FPS for smooth GIFs.
+/// Run GIF capture using WGC.
+/// Returns the actual recording duration in seconds.
 fn run_gif_capture(
     app: &AppHandle,
     settings: &RecordingSettings,
     output_path: &PathBuf,
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
-) -> Result<(), String> {
+) -> Result<f64, String> {
 
     // Check if this is Window mode (native window capture via WGC)
     let window_id = is_window_mode(&settings.mode);
@@ -1212,6 +1312,15 @@ fn run_gif_capture(
     // Recording loop - consume frames from WGC as they arrive
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
     let frame_timeout_ms = (frame_duration.as_millis() as u64).max(50);
+    
+    // All initialization complete. NOW emit Recording state so UI shows border.
+    let started_at = chrono::Local::now().to_rfc3339();
+    emit_state_change(app, &RecordingState::Recording {
+        started_at: started_at.clone(),
+        elapsed_secs: 0.0,
+        frame_count: 0,
+    });
+
     let start_time = Instant::now();
     let mut last_frame_time = start_time;
 
@@ -1288,7 +1397,7 @@ fn run_gif_capture(
         let frame_count = progress.get_frame_count();
         if frame_count % 30 == 0 {
             emit_state_change(app, &RecordingState::Recording {
-                started_at: chrono::Local::now().to_rfc3339(),
+                started_at: started_at.to_string(),
                 elapsed_secs: elapsed.as_secs_f64(),
                 frame_count,
             });
@@ -1298,9 +1407,12 @@ fn run_gif_capture(
     // Stop WGC capture
     wgc.stop();
 
+    // Capture duration before any post-processing
+    let recording_duration = start_time.elapsed().as_secs_f64();
+
     // Check if cancelled
     if progress.was_cancelled() {
-        return Err("Recording cancelled".to_string());
+        return Ok(recording_duration);  // Return duration even if cancelled
     }
 
     // Encode GIF
@@ -1327,7 +1439,7 @@ fn run_gif_capture(
         })
         .map_err(|e| format!("Failed to encode GIF: {}", e))?;
 
-    Ok(())
+    Ok(recording_duration)
 }
 
 /// Stop the current recording.

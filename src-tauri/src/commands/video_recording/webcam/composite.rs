@@ -3,7 +3,7 @@
 //! Alpha blends the webcam frame onto the captured screen frame
 //! with support for circular and rectangular shapes.
 
-use super::{WebcamFrame, WebcamSettings, WebcamShape, compute_webcam_rect};
+use super::{compute_webcam_rect, WebcamFrame, WebcamSettings, WebcamShape};
 
 /// Composite webcam frame onto the recording frame buffer.
 ///
@@ -246,10 +246,10 @@ fn composite_rectangle(
 fn is_in_rounded_corner(x: f32, y: f32, width: f32, height: f32, radius: f32) -> Option<f32> {
     // Check each corner
     let corners = [
-        (radius, radius),                         // Top-left
-        (width - radius, radius),                 // Top-right
-        (radius, height - radius),                // Bottom-left
-        (width - radius, height - radius),        // Bottom-right
+        (radius, radius),                  // Top-left
+        (width - radius, radius),          // Top-right
+        (radius, height - radius),         // Bottom-left
+        (width - radius, height - radius), // Bottom-right
     ];
 
     for (cx, cy) in corners {
@@ -257,7 +257,7 @@ fn is_in_rounded_corner(x: f32, y: f32, width: f32, height: f32, radius: f32) ->
         let in_corner = (x < radius && y < radius)                              // Top-left
             || (x > width - radius && y < radius)                               // Top-right
             || (x < radius && y > height - radius)                              // Bottom-left
-            || (x > width - radius && y > height - radius);                     // Bottom-right
+            || (x > width - radius && y > height - radius); // Bottom-right
 
         if in_corner {
             // Calculate distance from corner center
@@ -278,7 +278,7 @@ fn is_in_rounded_corner(x: f32, y: f32, width: f32, height: f32, radius: f32) ->
 fn blend_pixel(frame: &mut [u8], idx: usize, src: &[u8; 4], alpha: f32) {
     if alpha >= 1.0 {
         // Fully opaque - direct copy
-        frame[idx] = src[0];     // B
+        frame[idx] = src[0]; // B
         frame[idx + 1] = src[1]; // G
         frame[idx + 2] = src[2]; // R
     } else if alpha > 0.0 {

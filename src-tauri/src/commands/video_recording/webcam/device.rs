@@ -21,11 +21,9 @@ pub fn get_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
     use nokhwa::native_api_backend;
     use nokhwa::query;
 
-    let backend = native_api_backend()
-        .ok_or_else(|| "No camera backend available".to_string())?;
+    let backend = native_api_backend().ok_or_else(|| "No camera backend available".to_string())?;
 
-    let devices = query(backend)
-        .map_err(|e| format!("Failed to query webcam devices: {}", e))?;
+    let devices = query(backend).map_err(|e| format!("Failed to query webcam devices: {}", e))?;
 
     let result: Vec<WebcamDevice> = devices
         .iter()
@@ -33,7 +31,10 @@ pub fn get_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
         .map(|(idx, info)| WebcamDevice {
             index: idx,
             name: info.human_name().to_string(),
-            description: Some(format!("Index: {}", info.index().as_index().unwrap_or(idx as u32))),
+            description: Some(format!(
+                "Index: {}",
+                info.index().as_index().unwrap_or(idx as u32)
+            )),
         })
         .collect();
 

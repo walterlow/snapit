@@ -384,8 +384,8 @@ pub fn start_capture_service(device_index: usize) -> Result<(), String> {
 
     *CAPTURE_THREAD.lock() = Some(handle);
 
-    // Wait briefly for camera to initialize
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Brief delay to let camera thread start - sync is handled by encoder
+    std::thread::sleep(std::time::Duration::from_millis(50));
     Ok(())
 }
 

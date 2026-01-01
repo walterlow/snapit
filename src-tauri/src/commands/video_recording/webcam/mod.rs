@@ -13,12 +13,12 @@ mod device;
 mod encoder;
 
 pub use capture::{
-    enumerate_devices as enumerate_webcam_devices, is_capture_running,
-    start_capture_service, stop_capture_service, SharedFrame, WEBCAM_BUFFER,
+    enumerate_devices as enumerate_webcam_devices, is_capture_running, start_capture_service,
+    stop_capture_service, SharedFrame, WEBCAM_BUFFER,
 };
 pub use composite::composite_webcam;
 pub use device::{get_webcam_devices, WebcamDevice};
-pub use encoder::BackgroundWebcamEncoder;
+pub use encoder::WebcamEncoderPipe;
 
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
@@ -63,7 +63,10 @@ pub enum WebcamPosition {
     BottomLeft,
     BottomRight,
     /// Custom position (x, y from top-left of recording).
-    Custom { x: i32, y: i32 },
+    Custom {
+        x: i32,
+        y: i32,
+    },
 }
 
 impl Default for WebcamPosition {
@@ -193,12 +196,12 @@ pub fn is_preview_running() -> bool {
 /// JPEG is pre-cached in capture thread - no encoding here.
 pub fn get_preview_frame_jpeg(_quality: u8) -> Option<String> {
     let frame = WEBCAM_BUFFER.get()?;
-    
+
     // Use cached JPEG (pre-encoded in capture thread)
     if frame.jpeg_cache.is_empty() {
         return None;
     }
-    
+
     Some(base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         frame.jpeg_cache.as_ref(),

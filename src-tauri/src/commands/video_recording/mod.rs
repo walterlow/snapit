@@ -293,6 +293,58 @@ pub fn list_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
 }
 
 // ============================================================================
+// Capture Pre-warming
+// ============================================================================
+
+/// Pre-warm capture resources when toolbar is shown.
+/// This initializes webcam and screen capture so recording starts instantly.
+#[command]
+pub fn prewarm_capture() -> Result<(), String> {
+    log::info!("[PREWARM] Pre-warming capture resources...");
+    
+    // Pre-warm webcam if enabled
+    let webcam_enabled = WEBCAM_SETTINGS
+        .lock()
+        .map(|s| s.enabled)
+        .unwrap_or(false);
+    
+    if webcam_enabled {
+        let device_index = WEBCAM_SETTINGS
+            .lock()
+            .map(|s| s.device_index)
+            .unwrap_or(0);
+        
+        if !webcam::is_capture_running() {
+            log::info!("[PREWARM] Starting webcam capture (device {})", device_index);
+            if let Err(e) = webcam::start_capture_service(device_index) {
+                log::warn!("[PREWARM] Webcam pre-warm failed: {}", e);
+            }
+        } else {
+            log::info!("[PREWARM] Webcam already running");
+        }
+    }
+    
+    // Pre-warm screen capture (DXGI) - just touch the API to load DLLs
+    // The actual capture session is created when recording starts
+    log::info!("[PREWARM] Touching DXGI...");
+    std::thread::spawn(|| {
+        use windows_capture::monitor::Monitor;
+        let _ = Monitor::enumerate(); // Loads DirectX DLLs
+    });
+    
+    log::info!("[PREWARM] Pre-warm complete");
+    Ok(())
+}
+
+/// Stop pre-warmed resources (called when toolbar closes without recording).
+#[command]
+pub fn stop_prewarm() {
+    log::info!("[PREWARM] Stopping pre-warmed resources");
+    // Only stop webcam if it's running for pre-warm (not for preview window)
+    // The webcam preview window manages its own lifecycle
+}
+
+// ============================================================================
 // Native Webcam Preview Commands
 // ============================================================================
 

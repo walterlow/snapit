@@ -49,6 +49,9 @@ export function useRecordingEvents(): UseRecordingEventsReturn {
   const modeRef = useRef<ToolbarMode>('selection');
   const recordingInitiatedRef = useRef(false);
   const isRecordingActiveRef = useRef(false);
+  
+  // Track the last backend sync for accurate time calculation
+  const lastBackendSyncRef = useRef<{ backendTime: number; localTime: number } | null>(null);
 
   // Wrapper to update both state and ref
   const setMode = useCallback((newMode: ToolbarMode) => {
@@ -57,10 +60,33 @@ export function useRecordingEvents(): UseRecordingEventsReturn {
   }, []);
 
   // Timer for elapsed time during recording
+  // Uses hybrid approach: backend sync + local interpolation for smooth display
   useEffect(() => {
     if (mode !== 'recording') return;
-    const interval = setInterval(() => setElapsedTime(t => t + 0.1), 100);
-    return () => clearInterval(interval);
+    
+    // Initialize sync point when timer starts
+    if (!lastBackendSyncRef.current) {
+      lastBackendSyncRef.current = { backendTime: 0, localTime: Date.now() };
+    }
+    const startTime = Date.now();
+    console.log('[TIMER] Frontend timer STARTED at', new Date().toISOString());
+    
+    const interval = setInterval(() => {
+      const sync = lastBackendSyncRef.current;
+      if (sync) {
+        // Calculate: backend_elapsed + local_delta since last sync
+        const localDelta = (Date.now() - sync.localTime) / 1000;
+        setElapsedTime(sync.backendTime + localDelta);
+      }
+    }, 100);
+    
+    return () => {
+      clearInterval(interval);
+      const finalTime = lastBackendSyncRef.current?.backendTime ?? 0;
+      const localDuration = (Date.now() - startTime) / 1000;
+      console.log('[TIMER] Frontend timer STOPPED. Backend sync:', finalTime.toFixed(3), 's, Local:', localDuration.toFixed(3), 's');
+      // Don't null the ref - preserves last value for debugging
+    };
   }, [mode]);
 
   // Listen for recording state changes
@@ -99,10 +125,15 @@ export function useRecordingEvents(): UseRecordingEventsReturn {
             break;
 
           case 'recording':
+            console.log('[TIMER] Received recording state, backend elapsedSecs:', state.elapsedSecs);
             if (!isRecordingActiveRef.current) {
               isRecordingActiveRef.current = true;
-              setElapsedTime(state.elapsedSecs);
+              console.log('[TIMER] Recording mode ACTIVATED, initial elapsedSecs:', state.elapsedSecs);
             }
+            // Sync with backend elapsed time - store for hybrid timer calculation
+            // Timer will interpolate between backend updates for smooth display
+            lastBackendSyncRef.current = { backendTime: state.elapsedSecs, localTime: Date.now() };
+            setElapsedTime(state.elapsedSecs);
             setMode('recording');
             break;
 
@@ -112,11 +143,36 @@ export function useRecordingEvents(): UseRecordingEventsReturn {
             break;
 
           case 'processing':
+            console.log('[TIMER] Received processing state - timer should stop now');
             setMode('processing');
             setProgress(state.progress);
             break;
 
           case 'completed':
+            console.log('[TIMER] Recording COMPLETED. Backend duration:', state.durationSecs, 's, file:', state.outputPath);
+            isRecordingActiveRef.current = false;
+            setMode('selection');
+            setElapsedTime(0);
+            setProgress(0);
+            Promise.all([
+              invoke('hide_recording_border').catch(
+                createErrorHandler({ operation: 'hide recording border', silent: true })
+              ),
+              invoke('hide_countdown_window').catch(
+                createErrorHandler({ operation: 'hide countdown window', silent: true })
+              ),
+              invoke('restore_main_window').catch(
+                createErrorHandler({ operation: 'restore main window', silent: true })
+              ),
+              closeWebcamPreview().catch(
+                createErrorHandler({ operation: 'close webcam preview', silent: true })
+              ),
+            ]).finally(() => {
+              currentWindow.close().catch(
+                createErrorHandler({ operation: 'close toolbar window', silent: true })
+              );
+            });
+            break;
           case 'idle':
             isRecordingActiveRef.current = false;
             setMode('selection');

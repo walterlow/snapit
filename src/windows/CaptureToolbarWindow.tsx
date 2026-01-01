@@ -63,6 +63,14 @@ const CaptureToolbarWindow: React.FC = () => {
     }
   }, [isInitialized, loadSettings]);
 
+  // Pre-warm capture resources when toolbar appears
+  // This initializes webcam and screen capture so recording starts instantly
+  useEffect(() => {
+    invoke('prewarm_capture').catch((e) => {
+      console.warn('Failed to pre-warm capture:', e);
+    });
+  }, []);
+
   // --- Hooks for window management ---
 
   // Webcam coordination (errors, preview lifecycle)

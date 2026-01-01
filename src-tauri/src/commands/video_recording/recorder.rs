@@ -296,12 +296,11 @@ fn switch_to_wgc(
     monitor_index: usize,
     include_cursor: bool,
 ) -> Result<CaptureBackend, String> {
-    println!("[CAPTURE] GPU device lost - attempting to switch to WGC capture...");
+    log::warn!("[CAPTURE] GPU device lost, switching to WGC fallback");
 
     let wgc = WgcVideoCapture::new(monitor_index, include_cursor)
         .map_err(|e| format!("Failed to create WGC capture: {}", e))?;
 
-    println!("[CAPTURE] Successfully switched to WGC capture backend");
     Ok(CaptureBackend::Wgc(wgc))
 }
 
@@ -386,7 +385,7 @@ pub async fn start_recording(
     settings: RecordingSettings,
     output_path: PathBuf,
 ) -> Result<(), String> {
-    eprintln!("[START] start_recording called, format={:?}, countdown={}", settings.format, settings.countdown_secs);
+    log::debug!("[RECORDING] Starting: format={:?}, countdown={}", settings.format, settings.countdown_secs);
 
     let (progress, command_rx) = {
         let mut controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
@@ -496,14 +495,10 @@ fn start_capture_thread(
     command_rx: Receiver<RecorderCommand>,
     started_at: String,
 ) {
-    println!("[START] About to spawn capture thread...");
     let app_clone = app.clone();
     let output_path_clone = output_path.clone();
-    let _format_for_log = settings.format;
 
-    let handle = std::thread::spawn(move || {
-        println!("[THREAD] Capture thread started, format={:?}", settings.format);
-
+    let _handle = std::thread::spawn(move || {
         // Hide desktop icons if enabled (will be restored when recording ends)
         hide_desktop_icons();
 
@@ -521,8 +516,6 @@ fn start_capture_thread(
                 run_gif_capture(&app, &settings, &output_path, progress.clone(), command_rx, &started_at)
             }
         };
-
-        println!("[THREAD] Capture finished, result={:?}", result.is_ok());
 
         // Check if recording was cancelled
         let was_cancelled = RECORDING_CONTROLLER
@@ -547,18 +540,12 @@ fn start_capture_thread(
         // Handle result
         match result {
             Ok(recording_duration) => {
-                println!("[THREAD] Recording OK, duration={:.3}s, checking file at: {:?}", recording_duration, output_path_clone);
-
                 // Validate the video file to ensure it's not corrupted
                 // This catches issues like missing moov atom from improper shutdown
                 if let Err(validation_error) = validate_video_file(&output_path_clone) {
-                    println!("[THREAD] Video validation FAILED: {}", validation_error);
+                    log::error!("[RECORDING] Video validation failed: {}", validation_error);
                     // Delete the corrupted file
-                    if let Err(e) = std::fs::remove_file(&output_path_clone) {
-                        println!("[THREAD] Failed to delete corrupted file: {}", e);
-                    } else {
-                        println!("[THREAD] Deleted corrupted file: {:?}", output_path_clone);
-                    }
+                    let _ = std::fs::remove_file(&output_path_clone);
                     // Emit error state
                     let error_msg = format!("Recording failed: {}", validation_error);
                     if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
@@ -571,8 +558,6 @@ fn start_capture_thread(
                 let file_size = std::fs::metadata(&output_path_clone)
                     .map(|m| m.len())
                     .unwrap_or(0);
-                println!("[THREAD] File size: {} bytes", file_size);
-                println!("[THREAD] Actual recording duration: {:.3} secs", recording_duration);
 
                 if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
                     controller.complete(
@@ -582,7 +567,6 @@ fn start_capture_thread(
                     );
                 }
 
-                println!("[THREAD] Emitting Completed state");
                 emit_state_change(&app_clone, &RecordingState::Completed {
                     output_path: output_path_clone.to_string_lossy().to_string(),
                     duration_secs: recording_duration,
@@ -590,7 +574,7 @@ fn start_capture_thread(
                 });
             }
             Err(e) => {
-                println!("[THREAD] Recording FAILED: {}", e);
+                log::error!("[RECORDING] Failed: {}", e);
                 // Also try to clean up any partial file on error
                 let _ = std::fs::remove_file(&output_path_clone);
                 if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
@@ -610,7 +594,7 @@ fn start_capture_thread(
             } else {
                 "Unknown panic".to_string()
             };
-            println!("[THREAD] PANIC in capture thread: {}", panic_msg);
+            log::error!("[RECORDING] Capture thread panicked: {}", panic_msg);
             if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
                 controller.set_error(format!("Capture thread panicked: {}", panic_msg));
             }
@@ -688,10 +672,15 @@ fn run_video_capture(
     };
 
     // Create capture backend based on mode
-    let mut capture = if let Some(wid) = window_id {
+    // For WGC window capture, we need to wait for the first frame to get accurate dimensions
+    // (window rect may differ from actual capture due to DPI scaling on multi-monitor setups)
+    let (mut capture, first_wgc_frame) = if let Some(wid) = window_id {
         let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
             .map_err(|e| format!("Failed to create WGC window capture: {}", e))?;
-        CaptureBackend::Wgc(wgc)
+        
+        // Wait for first frame to get actual dimensions (important for DPI scaling)
+        let first_frame = wgc.wait_for_first_frame(1000);
+        (CaptureBackend::Wgc(wgc), first_frame)
     } else {
         // Monitor/Region mode: use DXGI with WGC fallback
         let monitor = match &settings.mode {
@@ -710,12 +699,15 @@ fn run_video_capture(
         let dxgi = DxgiDuplicationApi::new(monitor)
             .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
 
-        CaptureBackend::Dxgi(dxgi)
+        (CaptureBackend::Dxgi(dxgi), None)
     };
 
-    // Get capture dimensions
+    // Get capture dimensions - for WGC window capture, use actual frame dimensions
     let (width, height) = if let Some((_, _, w, h)) = crop_region {
         (w, h)
+    } else if let Some((w, h, _)) = &first_wgc_frame {
+        // Use actual frame dimensions from WGC (handles DPI scaling correctly)
+        (*w, *h)
     } else {
         (capture.width(), capture.height())
     };
@@ -765,7 +757,6 @@ fn run_video_capture(
         
         // Quick check if webcam is ready (should be, since we pre-warmed)
         if WEBCAM_BUFFER.current_frame_id() == 0 {
-            eprintln!("[WEBCAM] Waiting for first frame...");
             let deadline = Instant::now() + Duration::from_millis(100);
             while Instant::now() < deadline && WEBCAM_BUFFER.current_frame_id() == 0 {
                 std::thread::sleep(Duration::from_millis(5));
@@ -774,11 +765,10 @@ fn run_video_capture(
         
         // Try to use pre-spawned pipe first (instant!)
         if let Some(pipe) = take_prepared_webcam_pipe() {
-            eprintln!("[WEBCAM] Using pre-spawned FFmpeg pipe (instant start)");
             Some(pipe)
         } else if let Some(ref webcam_path) = webcam_output_path {
             // Fallback: spawn new FFmpeg (slower)
-            eprintln!("[WEBCAM] No prepared pipe, spawning FFmpeg now...");
+            log::debug!("[WEBCAM] No prepared pipe, spawning FFmpeg now");
             match WebcamEncoderPipe::new(webcam_path.clone()) {
                 Ok(pipe) => Some(pipe),
                 Err(e) => {
@@ -862,14 +852,15 @@ fn run_video_capture(
 
     // === START RECORDING ===
     // Recording state was already emitted before thread started (optimistic UI)
-    // Now we just start capturing frames
-    eprintln!("[TIMING] === RECORDING STARTING ===");
-    eprintln!("[TIMING] Start time: {:?}", std::time::SystemTime::now());
-    eprintln!("[TIMING] Target FPS: {}", settings.fps);
-    eprintln!("[TIMING] Frame duration: {:?}", frame_duration);
-    eprintln!("[TIMING] Webcam enabled: {}", webcam_pipe.is_some());
+    log::debug!(
+        "[RECORDING] Capture loop starting: {}x{} @ {}fps, webcam={}",
+        width, height, settings.fps, webcam_pipe.is_some()
+    );
     let start_time = Instant::now();
     let mut last_frame_time = start_time;
+
+    // If we captured a first frame for dimension detection, use it as the first recorded frame
+    let mut pending_first_frame: Option<Vec<u8>> = first_wgc_frame.map(|(_, _, f)| f.data);
 
     loop {
         // Check for commands
@@ -1035,11 +1026,17 @@ fn run_video_capture(
                 }
             }
             CaptureBackend::Wgc(wgc) => {
-                // WGC frame acquisition - copy into pooled buffer
-                match wgc.get_frame(100) {
-                    Some(frame) => {
-                        let len = frame.data.len().min(buffer_pool.frame_size);
-                        buffer_pool.frame_buffer[..len].copy_from_slice(&frame.data[..len]);
+                // WGC frame acquisition - use pending first frame if available, else get new one
+                let frame_data = if let Some(data) = pending_first_frame.take() {
+                    Some(data)
+                } else {
+                    wgc.get_frame(100).map(|f| f.data)
+                };
+                
+                match frame_data {
+                    Some(data) => {
+                        let len = data.len().min(buffer_pool.frame_size);
+                        buffer_pool.frame_buffer[..len].copy_from_slice(&data[..len]);
                         true
                     }
                     None => false, // Timeout or no frame
@@ -1115,19 +1112,17 @@ fn run_video_capture(
         }
     }
 
-    // === TIMING DEBUG LOGS ===
+    // Calculate recording stats
     let total_elapsed = start_time.elapsed();
     let recording_duration = total_elapsed - pause_time;
     let webcam_frames = webcam_pipe.as_ref().map(|p| p.frames_written()).unwrap_or(0);
-    eprintln!("[TIMING] === RECORDING ENDED ===");
-    eprintln!("[TIMING] Total wall clock: {:.3}s", total_elapsed.as_secs_f64());
-    eprintln!("[TIMING] Pause time: {:.3}s", pause_time.as_secs_f64());
-    eprintln!("[TIMING] Actual recording duration: {:.3}s", recording_duration.as_secs_f64());
-    eprintln!("[TIMING] Screen frames captured: {}", frame_count);
-    eprintln!("[TIMING] Screen FPS achieved: {:.2}", frame_count as f64 / recording_duration.as_secs_f64());
-    eprintln!("[TIMING] Webcam frames written: {}", webcam_frames);
-    eprintln!("[TIMING] Webcam FPS achieved: {:.2}", webcam_frames as f64 / recording_duration.as_secs_f64());
-    eprintln!("[TIMING] Frame difference (screen - webcam): {}", frame_count as i64 - webcam_frames as i64);
+    log::debug!(
+        "[RECORDING] Complete: {:.2}s, {} frames ({:.1} fps), webcam: {} frames",
+        recording_duration.as_secs_f64(),
+        frame_count,
+        frame_count as f64 / recording_duration.as_secs_f64(),
+        webcam_frames
+    );
 
     // Check if recording was cancelled
     let was_cancelled = progress.was_cancelled();
@@ -1191,19 +1186,16 @@ fn sync_webcam_to_screen_duration(screen_path: &PathBuf, webcam_path: &PathBuf) 
     let screen_duration = get_video_duration(&ffprobe_path, screen_path)?;
     let webcam_duration = get_video_duration(&ffprobe_path, webcam_path)?;
 
-    eprintln!(
-        "[SYNC] Screen: {:.3}s, Webcam: {:.3}s, diff: {:.3}s",
-        screen_duration,
-        webcam_duration,
-        screen_duration - webcam_duration
-    );
-
     // If webcam is within 100ms of screen, no sync needed
     let diff = (screen_duration - webcam_duration).abs();
     if diff < 0.1 {
-        eprintln!("[SYNC] Videos already synced (diff < 100ms)");
         return Ok(());
     }
+
+    log::debug!(
+        "[SYNC] Adjusting webcam: {:.3}s -> {:.3}s",
+        webcam_duration, screen_duration
+    );
 
     // Create temp file for synced webcam
     let synced_path = webcam_path.with_extension("synced.mp4");
@@ -1212,8 +1204,6 @@ fn sync_webcam_to_screen_duration(screen_path: &PathBuf, webcam_path: &PathBuf) 
     // PTS * (target_duration / current_duration) adjusts playback speed
     let speed_factor = webcam_duration / screen_duration;
     let pts_filter = format!("setpts={}*PTS", speed_factor);
-
-    eprintln!("[SYNC] Applying speed factor: {:.4}", speed_factor);
 
     let output = std::process::Command::new(&ffmpeg_path)
         .args([
@@ -1240,7 +1230,6 @@ fn sync_webcam_to_screen_duration(screen_path: &PathBuf, webcam_path: &PathBuf) 
     std::fs::rename(&synced_path, webcam_path)
         .map_err(|e| format!("Failed to rename synced webcam: {}", e))?;
 
-    eprintln!("[SYNC] Webcam synced successfully");
     Ok(())
 }
 
@@ -1428,10 +1417,12 @@ fn run_gif_capture(
     let total_duration = start_time.elapsed();
     let recorder_guard = recorder.lock().map_err(|_| "Failed to lock recorder")?;
     let frame_count = recorder_guard.frame_count();
-    let expected_frames = (total_duration.as_secs_f64() * settings.fps as f64) as usize;
 
-    eprintln!("[GIF] Capture complete: {} frames in {:.2}s (expected ~{} at {} FPS)",
-        frame_count, total_duration.as_secs_f64(), expected_frames, settings.fps);
+    log::debug!(
+        "[GIF] Capture complete: {} frames in {:.2}s ({:.1} fps)",
+        frame_count, total_duration.as_secs_f64(),
+        frame_count as f64 / total_duration.as_secs_f64()
+    );
 
     if frame_count == 0 {
         return Err("No frames captured".to_string());
@@ -1473,8 +1464,6 @@ pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
 
 /// Cancel the current recording.
 pub async fn cancel_recording(_app: AppHandle) -> Result<(), String> {
-    println!("[CANCEL] cancel_recording called");
-
     let controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
 
     if !controller.is_active() {

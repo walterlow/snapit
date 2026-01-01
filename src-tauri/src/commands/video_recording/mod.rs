@@ -366,11 +366,12 @@ pub fn prewarm_capture() -> Result<(), String> {
 /// Prepare recording resources when selection is confirmed.
 /// This spawns FFmpeg for webcam so recording starts instantly.
 /// Called from frontend when user finishes drawing selection (before clicking Record).
+/// Runs heavy work in background thread to avoid blocking UI.
 #[command]
 pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
-    log::info!("[PREPARE] Preparing recording resources...");
+    log::info!("[PREPARE] Preparing recording resources (background)...");
     
-    // Generate output path now (before record click)
+    // Generate output path now (before record click) - this is fast
     let settings = RecordingSettings {
         format,
         ..Default::default()
@@ -383,7 +384,7 @@ pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
         *prepared = Some(output_path.clone());
     }
     
-    // Pre-spawn FFmpeg for webcam if enabled
+    // Check webcam settings (fast)
     let webcam_enabled = WEBCAM_SETTINGS
         .lock()
         .map(|s| s.enabled)
@@ -397,22 +398,25 @@ pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
             .unwrap_or_default();
         webcam_path.set_file_name(format!("{}_webcam.mp4", stem));
         
-        log::info!("[PREPARE] Spawning FFmpeg for webcam: {:?}", webcam_path);
-        
-        match webcam::WebcamEncoderPipe::new(webcam_path) {
-            Ok(pipe) => {
-                if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
-                    *prepared = Some(pipe);
+        // Spawn FFmpeg in background thread - this is the slow part
+        std::thread::spawn(move || {
+            log::info!("[PREPARE] Spawning FFmpeg for webcam: {:?}", webcam_path);
+            
+            match webcam::WebcamEncoderPipe::new(webcam_path) {
+                Ok(pipe) => {
+                    if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
+                        *prepared = Some(pipe);
+                    }
+                    log::info!("[PREPARE] FFmpeg spawned and ready");
                 }
-                log::info!("[PREPARE] FFmpeg spawned and ready");
+                Err(e) => {
+                    log::warn!("[PREPARE] Failed to spawn FFmpeg: {}", e);
+                }
             }
-            Err(e) => {
-                log::warn!("[PREPARE] Failed to spawn FFmpeg: {}", e);
-            }
-        }
+        });
     }
     
-    log::info!("[PREPARE] Recording preparation complete");
+    log::info!("[PREPARE] Recording preparation initiated");
     Ok(())
 }
 

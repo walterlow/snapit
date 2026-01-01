@@ -1,16 +1,24 @@
 //! Webcam capture and compositing for video recording.
 //!
-//! Provides Picture-in-Picture (PiP) webcam overlay functionality.
-//! Preview and recording now handled by browser getUserMedia + MediaRecorder.
+//! Architecture:
+//! - Single capture thread owns the camera hardware
+//! - Shared frame buffer (Arc) allows zero-copy access by:
+//!   - Recording encoder
+//!   - Preview window (via Tauri command)
+//! - This avoids "only one app can use camera" conflicts
 
+mod capture;
 mod composite;
 mod device;
-// Note: encoder module kept for reference but WebcamEncoder is no longer used
-// (browser MediaRecorder handles webcam recording now)
 mod encoder;
 
+pub use capture::{
+    enumerate_devices as enumerate_webcam_devices, is_capture_running,
+    start_capture_service, stop_capture_service, SharedFrame, WEBCAM_BUFFER,
+};
 pub use composite::composite_webcam;
 pub use device::{get_webcam_devices, WebcamDevice};
+pub use encoder::WebcamEncoder;
 
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
@@ -167,15 +175,42 @@ pub fn compute_webcam_rect(
     (x, y, diameter)
 }
 
-// === STUB FUNCTIONS FOR REMOVED CRABCAMERA/NATIVE PREVIEW ===
-// These are called by frontend for cleanup but are now no-ops
+// === PREVIEW SERVICE FUNCTIONS ===
+// Now using native capture with shared frame buffer
 
-/// Stub - preview service no longer used (browser handles it)
+/// Stop the webcam preview/capture service.
 pub fn stop_preview_service() {
-    // No-op: browser getUserMedia handles preview now
+    stop_capture_service();
 }
 
-/// Stub - preview service no longer used
+/// Check if the webcam capture service is running.
 pub fn is_preview_running() -> bool {
-    false
+    is_capture_running()
+}
+
+/// Get the latest webcam frame as base64 JPEG for browser preview.
+/// Returns None if no frame available.
+/// JPEG is pre-cached in capture thread - no encoding here.
+pub fn get_preview_frame_jpeg(_quality: u8) -> Option<String> {
+    let frame = WEBCAM_BUFFER.get()?;
+    
+    // Use cached JPEG (pre-encoded in capture thread)
+    if frame.jpeg_cache.is_empty() {
+        return None;
+    }
+    
+    Some(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        frame.jpeg_cache.as_ref(),
+    ))
+}
+
+/// Get preview frame dimensions.
+pub fn get_preview_dimensions() -> Option<(u32, u32)> {
+    let (w, h) = WEBCAM_BUFFER.dimensions();
+    if w > 0 && h > 0 {
+        Some((w, h))
+    } else {
+        None
+    }
 }

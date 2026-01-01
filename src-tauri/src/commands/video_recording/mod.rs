@@ -292,6 +292,56 @@ pub fn list_webcam_devices() -> Result<Vec<WebcamDevice>, String> {
     get_webcam_devices()
 }
 
+// ============================================================================
+// Native Webcam Preview Commands
+// ============================================================================
+
+/// Start native webcam capture service for preview.
+/// Call this before showing the preview window.
+#[command]
+pub fn start_webcam_preview(device_index: usize) -> Result<(), String> {
+    log::debug!("[WEBCAM] start_webcam_preview(device_index={})", device_index);
+    webcam::start_capture_service(device_index)
+}
+
+/// Stop native webcam capture service.
+/// Call this when closing the preview window.
+#[command]
+pub fn stop_webcam_preview() {
+    log::debug!("[WEBCAM] stop_webcam_preview()");
+    webcam::stop_capture_service();
+}
+
+/// Get the latest webcam preview frame as base64 JPEG.
+/// Returns None if no frame available yet.
+#[command]
+pub fn get_webcam_preview_frame(quality: Option<u8>) -> Option<String> {
+    let q = quality.unwrap_or(80);
+    let result = webcam::get_preview_frame_jpeg(q);
+    if result.is_none() {
+        // Log occasionally to debug
+        static CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let count = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 30 == 0 {
+            eprintln!("[WEBCAM] get_webcam_preview_frame: no frame available (call #{})", count);
+        }
+    }
+    result
+}
+
+/// Get webcam preview frame dimensions.
+/// Returns None if camera not yet capturing.
+#[command]
+pub fn get_webcam_preview_dimensions() -> Option<(u32, u32)> {
+    webcam::get_preview_dimensions()
+}
+
+/// Check if native webcam capture is running.
+#[command]
+pub fn is_webcam_preview_running() -> bool {
+    webcam::is_preview_running()
+}
+
 /// Get available audio input devices (microphones).
 /// Uses wasapi to get full friendly names (e.g., "Headset (WH-1000XM3 Hands-Free AG Audio)")
 #[command]
@@ -489,34 +539,13 @@ pub async fn clamp_webcam_to_selection(
 }
 
 // ============================================================================
-// Webcam Preview Service (DEPRECATED - browser handles preview now)
+// Webcam Preview Service (Native capture via nokhwa)
 // ============================================================================
-// Preview is now handled by browser getUserMedia in WebcamPreviewWindow.tsx
-// These commands are kept as no-ops for backwards compatibility with frontend cleanup calls.
-
-/// Start the webcam preview service.
-/// DEPRECATED: Browser now handles preview via getUserMedia. This is a no-op.
-#[command]
-pub async fn start_webcam_preview(_app: tauri::AppHandle) -> Result<(), String> {
-    // No-op: browser getUserMedia handles preview now
-    log::debug!("[WEBCAM] start_webcam_preview called (no-op, browser handles preview)");
-    Ok(())
-}
-
-/// Stop the webcam preview service.
-/// DEPRECATED: Browser handles preview. This is a no-op for cleanup compatibility.
-#[command]
-pub fn stop_webcam_preview() {
-    // No-op: browser handles preview
-    log::debug!("[WEBCAM] stop_webcam_preview called (no-op)");
-}
-
-/// Check if the webcam preview service is running.
-/// DEPRECATED: Always returns false, browser handles preview.
-#[command]
-pub fn is_webcam_preview_running() -> bool {
-    false
-}
+// Preview is now handled natively via WebcamCaptureService with shared WEBCAM_BUFFER.
+// The browser polls for JPEG frames via get_webcam_preview_frame command.
+// NOTE: start_webcam_preview, stop_webcam_preview, is_webcam_preview_running,
+//       get_webcam_preview_frame, get_webcam_preview_dimensions are defined above
+//       in the "Native Webcam Preview Commands" section.
 
 /// Exclude the webcam preview window from screen capture.
 /// Uses Windows SetWindowDisplayAffinity API to make the window invisible to capture.

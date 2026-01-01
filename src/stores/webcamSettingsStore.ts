@@ -67,36 +67,14 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
   loadDevices: async () => {
     set({ isLoadingDevices: true, devicesError: null });
     try {
-      // Use browser's MediaDevices API to enumerate webcams
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        throw new Error('MediaDevices API not supported');
-      }
-
-      // Request camera permission first (needed to get device labels)
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        // Stop the stream immediately - we just needed permission
-        stream.getTracks().forEach(track => track.stop());
-      } catch (permError) {
-        console.warn('[WebcamStore] Camera permission denied or unavailable:', permError);
-        // Continue anyway - we might still get device IDs without labels
-      }
-
-      const allDevices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = allDevices
-        .filter(device => device.kind === 'videoinput')
-        .map((device, index): WebcamDevice => ({
-          index,
-          name: device.label || `Camera ${index + 1}`,
-          description: device.deviceId ? `ID: ${device.deviceId.substring(0, 8)}...` : null,
-        }));
-
-      console.log('[WebcamStore] Found webcam devices:', videoDevices);
+      // Use native Rust device enumeration (no browser getUserMedia needed)
+      const videoDevices = await invoke<WebcamDevice[]>('list_webcam_devices');
+      console.log('[WebcamStore] Found webcam devices (native):', videoDevices);
       set({ devices: videoDevices, isLoadingDevices: false });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ devicesError: message, isLoadingDevices: false });
-      console.error('Failed to load webcam devices:', error);
+      console.error('[WebcamStore] Failed to load webcam devices:', error);
     }
   },
 
@@ -232,8 +210,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Create WebView-based preview window
-      // The window component handles both browser getUserMedia (for preview)
-      // and Rust crabcamera service (for recording)
+      // The window polls JPEG frames from native Rust webcam capture service
       try {
         const size = PREVIEW_SIZES[settings.size];
         const win = new WebviewWindow('webcam-preview', {

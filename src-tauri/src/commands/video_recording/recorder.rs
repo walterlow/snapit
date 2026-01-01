@@ -57,7 +57,7 @@ impl FrameBufferPool {
 }
 
 use crossbeam_channel::{Receiver, TryRecvError};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::AppHandle;
 use windows_capture::{
     dxgi_duplication_api::DxgiDuplicationApi,
     encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder, VideoSettingsSubType},
@@ -70,7 +70,7 @@ use super::cursor::{composite_cursor, CursorCapture, CursorEventCapture, save_cu
 use super::desktop_icons::{hide_desktop_icons, show_desktop_icons};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
-use super::webcam::stop_preview_service;
+use super::webcam::{start_capture_service, stop_capture_service, WebcamEncoder};
 use super::wgc_capture::WgcVideoCapture;
 use super::{emit_state_change, get_webcam_settings, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
@@ -546,18 +546,18 @@ fn run_video_capture(
 ) -> Result<(), String> {
     println!("[CAPTURE] run_video_capture starting, mode={:?}", settings.mode);
 
-    // === BROWSER-BASED WEBCAM RECORDING ===
-    // Prepare webcam output path (emit will happen right before capture loop)
+    // === NATIVE WEBCAM RECORDING ===
+    // Prepare webcam output path for native capture (MP4 via windows-capture encoder)
     let webcam_enabled = get_webcam_settings()
         .map(|s| s.enabled)
         .unwrap_or(false);
     
-    let webcam_output_path = if webcam_enabled {
-        // Generate webcam output path (.webm for browser MediaRecorder)
+    let webcam_output_path: Option<PathBuf> = if webcam_enabled {
+        // Generate webcam output path (.mp4 for native encoder)
         let mut path = output_path.clone();
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        path.set_file_name(format!("{}_webcam.webm", stem));
-        Some(path.to_string_lossy().to_string())
+        path.set_file_name(format!("{}_webcam.mp4", stem));
+        Some(path)
     } else {
         None
     };
@@ -717,11 +717,45 @@ fn run_video_capture(
         None
     };
 
-    // === WEBCAM SEPARATE RECORDING ===
-    // Webcam recording is now handled by browser MediaRecorder.
-    // The browser captures via getUserMedia and sends chunks to Rust for file writing.
-    // See: webcam-recording-start/stop events emitted above, and webcam_recording_chunk command.
-    // The old Rust-based WebcamEncoder has been removed.
+    // === NATIVE WEBCAM CAPTURE & ENCODING ===
+    // Start native webcam capture service and create encoder.
+    // The capture service runs in a background thread and shares frames via WEBCAM_BUFFER.
+    // The encoder reads from this buffer in the recording loop.
+    let mut webcam_encoder: Option<WebcamEncoder> = if let Some(ref webcam_path) = webcam_output_path {
+        // Get webcam device index from settings (default to 0)
+        let webcam_device_index = get_webcam_settings()
+            .map(|s| s.device_index)
+            .unwrap_or(0);
+        
+        // Start the capture service (owns webcam hardware, populates WEBCAM_BUFFER)
+        match start_capture_service(webcam_device_index) {
+            Ok(()) => {
+                eprintln!("[CAPTURE] Native webcam capture service started (device {})", webcam_device_index);
+                
+                // Wait briefly for first frame to be captured
+                std::thread::sleep(Duration::from_millis(100));
+                
+                // Create encoder that pulls from WEBCAM_BUFFER
+                match WebcamEncoder::new_auto(webcam_path) {
+                    Ok(enc) => {
+                        eprintln!("[CAPTURE] Native webcam encoder created: {:?}", webcam_path);
+                        Some(enc)
+                    }
+                    Err(e) => {
+                        eprintln!("[CAPTURE] Warning: Failed to create webcam encoder: {}", e);
+                        stop_capture_service();
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[CAPTURE] Warning: Failed to start webcam capture: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // === MULTI-TRACK AUDIO RECORDING ===
     // Record system audio and microphone to separate WAV files for later mixing.
@@ -802,14 +836,8 @@ fn run_video_capture(
     let mut pause_time = Duration::ZERO;
     let mut pause_start: Option<Instant> = None;
 
-    // === START WEBCAM RECORDING (synced with capture loop) ===
-    if let Some(ref path_str) = webcam_output_path {
-        if let Err(e) = app.emit("webcam-recording-start", serde_json::json!({ "outputPath": path_str })) {
-            eprintln!("[CAPTURE] Failed to emit webcam-recording-start: {}", e);
-        } else {
-            eprintln!("[CAPTURE] Emitted webcam-recording-start, path: {}", path_str);
-        }
-    }
+    // Native webcam capture service is already running (started above)
+    // Webcam frames will be pulled from WEBCAM_BUFFER in the recording loop
 
     let mut loop_count: u64 = 0;
     loop {
@@ -1086,7 +1114,15 @@ fn run_video_capture(
             }
         }
 
-        // Webcam recording is now handled by browser MediaRecorder (no Rust processing)
+        // Process webcam frame (pull from WEBCAM_BUFFER and encode)
+        if let Some(ref mut webcam_enc) = webcam_encoder {
+            if let Err(e) = webcam_enc.process_frame() {
+                // Only log errors occasionally to avoid spam
+                if frame_count % 300 == 0 {
+                    eprintln!("[CAPTURE] Webcam frame processing error: {}", e);
+                }
+            }
+        }
 
         frame_count += 1;
         progress.increment_frame();
@@ -1110,15 +1146,10 @@ fn run_video_capture(
         println!("[CAPTURE] WARNING: No video frames were captured!");
     }
 
-    // === STOP BROWSER-BASED WEBCAM RECORDING ===
-    // Emit event to frontend to stop MediaRecorder
-    if webcam_output_path.is_some() {
-        if let Err(e) = app.emit("webcam-recording-stop", ()) {
-            eprintln!("[CAPTURE] Failed to emit webcam-recording-stop: {}", e);
-        } else {
-            eprintln!("[CAPTURE] Emitted webcam-recording-stop");
-        }
-    }
+    // === STOP NATIVE WEBCAM CAPTURE ===
+    // Stop the webcam capture service first (releases camera hardware)
+    stop_capture_service();
+    eprintln!("[CAPTURE] Native webcam capture service stopped");
 
     // Stop audio capture threads
     if let Some(mut manager) = audio_manager {
@@ -1134,10 +1165,7 @@ fn run_video_capture(
         eprintln!("[CAPTURE] Multi-track audio recording stopped");
     }
 
-    // Stop webcam preview service to release hardware
-    // This frees the camera for other applications after recording
-    stop_preview_service();
-    eprintln!("[CAPTURE] Webcam preview service stopped");
+    // Webcam capture service was already stopped above
 
     // === STOP CURSOR EVENT CAPTURE ===
     let cursor_recording = cursor_event_capture.stop();
@@ -1146,20 +1174,30 @@ fn run_video_capture(
     // Check if recording was cancelled - if so, skip encoding and let the file be deleted
     if progress.was_cancelled() {
         println!("[CAPTURE] Recording was cancelled, skipping encoder finish");
-        // Drop the encoder without finishing to avoid saving the file
+        // Drop the encoders without finishing to avoid saving files
         drop(encoder);
-        // Delete browser-based webcam recording file if it exists
+        drop(webcam_encoder);
+        // Delete native webcam recording file if it exists
         if let Some(ref path) = webcam_output_path {
             if let Err(e) = std::fs::remove_file(path) {
                 eprintln!("[CAPTURE] Failed to delete cancelled webcam file: {}", e);
             } else {
-                eprintln!("[CAPTURE] Deleted cancelled webcam file: {}", path);
+                eprintln!("[CAPTURE] Deleted cancelled webcam file: {:?}", path);
             }
         }
         return Ok(());
     }
 
-    // Webcam recording finish is handled by browser MediaRecorder (webcam_recording_stop command)
+    // Finish webcam encoder (save to file)
+    if let Some(webcam_enc) = webcam_encoder {
+        eprintln!("[CAPTURE] Finishing webcam encoder...");
+        if let Err(e) = webcam_enc.finish() {
+            eprintln!("[CAPTURE] Warning: Failed to finish webcam encoding: {}", e);
+            // Don't fail the whole recording for webcam issues
+        } else {
+            eprintln!("[CAPTURE] Webcam encoder finished successfully");
+        }
+    }
 
     // === SAVE CURSOR DATA ===
     if !cursor_recording.events.is_empty() {

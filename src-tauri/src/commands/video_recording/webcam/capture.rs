@@ -18,13 +18,13 @@ use lazy_static::lazy_static;
 fn decode_mjpeg_to_bgra(data: &[u8], _width: u32, _height: u32) -> Option<Vec<u8>> {
     let img = image::load_from_memory_with_format(data, image::ImageFormat::Jpeg).ok()?;
     let rgb = img.to_rgb8();
-    
+
     let mut bgra = Vec::with_capacity(rgb.len() / 3 * 4);
     for pixel in rgb.pixels() {
         bgra.push(pixel[2]); // B
         bgra.push(pixel[1]); // G
         bgra.push(pixel[0]); // R
-        bgra.push(255);      // A
+        bgra.push(255); // A
     }
     Some(bgra)
 }
@@ -32,7 +32,7 @@ fn decode_mjpeg_to_bgra(data: &[u8], _width: u32, _height: u32) -> Option<Vec<u8
 /// Encode BGRA to JPEG bytes.
 fn encode_bgra_to_jpeg(bgra: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
     use image::{ImageBuffer, Rgb};
-    
+
     // Convert BGRA to RGB
     let mut rgb_data = Vec::with_capacity((width * height * 3) as usize);
     for pixel in bgra.chunks_exact(4) {
@@ -40,13 +40,13 @@ fn encode_bgra_to_jpeg(bgra: &[u8], width: u32, height: u32, quality: u8) -> Opt
         rgb_data.push(pixel[1]); // G
         rgb_data.push(pixel[0]); // B
     }
-    
+
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(width, height, rgb_data)?;
-    
+
     let mut jpeg_buffer = Vec::new();
     let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buffer, quality);
     encoder.encode_image(&img).ok()?;
-    
+
     Some(jpeg_buffer)
 }
 
@@ -76,17 +76,17 @@ impl SharedFrame {
             // Already BGRA
             return Some(self.data.as_ref().clone());
         }
-        
+
         // Decode MJPEG to RGB, then convert to BGRA
         let img = image::load_from_memory_with_format(&self.data, image::ImageFormat::Jpeg).ok()?;
         let rgb = img.to_rgb8();
-        
+
         let mut bgra = Vec::with_capacity((self.width * self.height * 4) as usize);
         for pixel in rgb.pixels() {
             bgra.push(pixel[2]); // B
             bgra.push(pixel[1]); // G
             bgra.push(pixel[0]); // R
-            bgra.push(255);      // A
+            bgra.push(255); // A
         }
         Some(bgra)
     }
@@ -116,9 +116,16 @@ impl WebcamFrameBuffer {
 
     /// Update the latest frame (called by capture thread).
     /// `data` is BGRA pixels, `jpeg_cache` is pre-encoded JPEG for preview.
-    pub fn update(&self, data: Vec<u8>, jpeg_cache: Vec<u8>, width: u32, height: u32, is_mjpeg: bool) {
+    pub fn update(
+        &self,
+        data: Vec<u8>,
+        jpeg_cache: Vec<u8>,
+        width: u32,
+        height: u32,
+        is_mjpeg: bool,
+    ) {
         let frame_id = self.frame_id.fetch_add(1, Ordering::SeqCst) + 1;
-        
+
         let frame = SharedFrame {
             data: Arc::new(data),
             jpeg_cache: Arc::new(jpeg_cache),
@@ -202,16 +209,15 @@ impl WebcamCaptureService {
     /// Run the capture loop (blocking - call from a thread).
     pub fn run(self) -> Result<(), String> {
         use nokhwa::pixel_format::RgbFormat;
-        use nokhwa::utils::{CameraIndex, CameraFormat, RequestedFormat, RequestedFormatType, Resolution, FrameFormat};
+        use nokhwa::utils::{
+            CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
+            Resolution,
+        };
         use nokhwa::Camera;
 
-        // Request MJPEG format at 640x480 - avoids CPU encoding for preview
+        // Request MJPEG format at 720p for quality recording
         // Using with_formats to prefer MJPEG, falling back to YUYV
-        let target_format = CameraFormat::new(
-            Resolution::new(640, 480),
-            FrameFormat::MJPEG,
-            30,
-        );
+        let target_format = CameraFormat::new(Resolution::new(1280, 720), FrameFormat::MJPEG, 30);
         let requested = RequestedFormat::with_formats(
             RequestedFormatType::Closest(target_format),
             &[FrameFormat::MJPEG, FrameFormat::YUYV],
@@ -219,8 +225,8 @@ impl WebcamCaptureService {
 
         let index = CameraIndex::Index(self.device_index as u32);
 
-        let mut camera = Camera::new(index, requested)
-            .map_err(|e| format!("Failed to open webcam: {}", e))?;
+        let mut camera =
+            Camera::new(index, requested).map_err(|e| format!("Failed to open webcam: {}", e))?;
 
         camera
             .open_stream()
@@ -252,12 +258,11 @@ impl WebcamCaptureService {
                 Ok(buffer) => {
                     let raw_data = buffer.buffer();
                     let pixel_count = (width * height) as usize;
-                    
+
                     // Detect format by checking JPEG magic bytes (0xFF 0xD8)
-                    let is_mjpeg = raw_data.len() >= 2 
-                        && raw_data[0] == 0xFF 
-                        && raw_data[1] == 0xD8;
-                    
+                    let is_mjpeg =
+                        raw_data.len() >= 2 && raw_data[0] == 0xFF && raw_data[1] == 0xD8;
+
                     // Process frame: produce data (for encoder) and jpeg_cache (for preview)
                     let (frame_data, jpeg_cache) = if is_mjpeg {
                         // MJPEG: use raw for both (preview base64s, encoder decodes)
@@ -270,20 +275,24 @@ impl WebcamCaptureService {
                         // Raw pixel data - convert to BGRA, encode JPEG for preview cache
                         let expected_rgb = pixel_count * 3;
                         let expected_yuyv = pixel_count * 2;
-                        
+
                         if frame_count == 0 {
-                            eprintln!("[WEBCAM] First frame: raw {} bytes (rgb={}, yuyv={})",
-                                raw_data.len(), expected_rgb, expected_yuyv);
+                            eprintln!(
+                                "[WEBCAM] First frame: raw {} bytes (rgb={}, yuyv={})",
+                                raw_data.len(),
+                                expected_rgb,
+                                expected_yuyv
+                            );
                         }
-                        
+
                         let mut bgra = Vec::with_capacity(pixel_count * 4);
-                        
+
                         if raw_data.len() >= expected_rgb {
                             for pixel in raw_data[..expected_rgb].chunks_exact(3) {
                                 bgra.push(pixel[2]); // B
                                 bgra.push(pixel[1]); // G
                                 bgra.push(pixel[0]); // R
-                                bgra.push(255);      // A
+                                bgra.push(255); // A
                             }
                         } else if raw_data.len() >= expected_yuyv {
                             for chunk in raw_data[..expected_yuyv].chunks_exact(4) {
@@ -291,17 +300,23 @@ impl WebcamCaptureService {
                                 let u = chunk[1] as f32 - 128.0;
                                 let y1 = chunk[2] as f32;
                                 let v = chunk[3] as f32 - 128.0;
-                                
+
                                 let r0 = (y0 + 1.402 * v).clamp(0.0, 255.0) as u8;
                                 let g0 = (y0 - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
                                 let b0 = (y0 + 1.772 * u).clamp(0.0, 255.0) as u8;
-                                
+
                                 let r1 = (y1 + 1.402 * v).clamp(0.0, 255.0) as u8;
                                 let g1 = (y1 - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
                                 let b1 = (y1 + 1.772 * u).clamp(0.0, 255.0) as u8;
-                                
-                                bgra.push(b0); bgra.push(g0); bgra.push(r0); bgra.push(255);
-                                bgra.push(b1); bgra.push(g1); bgra.push(r1); bgra.push(255);
+
+                                bgra.push(b0);
+                                bgra.push(g0);
+                                bgra.push(r0);
+                                bgra.push(255);
+                                bgra.push(b1);
+                                bgra.push(g1);
+                                bgra.push(r1);
+                                bgra.push(255);
                             }
                         } else {
                             if frame_count == 0 {
@@ -309,20 +324,29 @@ impl WebcamCaptureService {
                             }
                             continue;
                         }
-                        
+
                         // Encode JPEG for preview (cached, not per-poll)
-                        let jpeg = encode_bgra_to_jpeg(&bgra, width, height, 75)
-                            .unwrap_or_default();
-                        
+                        let jpeg =
+                            encode_bgra_to_jpeg(&bgra, width, height, 75).unwrap_or_default();
+
                         (bgra, jpeg)
                     };
+
+                    // Log jpeg_cache size for debugging
+                    let jpeg_size = jpeg_cache.len();
 
                     // Store data + cached JPEG
                     WEBCAM_BUFFER.update(frame_data, jpeg_cache, width, height, is_mjpeg);
                     frame_count += 1;
 
                     if frame_count == 1 {
-                        eprintln!("[WEBCAM] First frame captured and stored (mjpeg={})", is_mjpeg);
+                        eprintln!("[WEBCAM] First frame captured: mjpeg={}, jpeg_cache={} bytes, buffer_frame_id={}",
+                            is_mjpeg, jpeg_size, WEBCAM_BUFFER.current_frame_id());
+                    } else if frame_count % 60 == 0 {
+                        eprintln!(
+                            "[WEBCAM] Frame {}: jpeg_cache={} bytes",
+                            frame_count, jpeg_size
+                        );
                     }
                 }
                 Err(e) => {
@@ -346,9 +370,12 @@ impl WebcamCaptureService {
 }
 
 /// Global capture thread handle.
-static CAPTURE_STOP_FLAG: parking_lot::RwLock<Option<Arc<AtomicBool>>> = parking_lot::RwLock::new(None);
-static CAPTURE_THREAD: parking_lot::Mutex<Option<std::thread::JoinHandle<()>>> = parking_lot::Mutex::new(None);
-static CAPTURE_DEVICE_INDEX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
+static CAPTURE_STOP_FLAG: parking_lot::RwLock<Option<Arc<AtomicBool>>> =
+    parking_lot::RwLock::new(None);
+static CAPTURE_THREAD: parking_lot::Mutex<Option<std::thread::JoinHandle<()>>> =
+    parking_lot::Mutex::new(None);
+static CAPTURE_DEVICE_INDEX: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
 
 /// Start the global webcam capture service.
 /// If already running with the same device, this is a no-op.
@@ -356,7 +383,10 @@ pub fn start_capture_service(device_index: usize) -> Result<(), String> {
     // Check if already running with same device
     let current_device = CAPTURE_DEVICE_INDEX.load(Ordering::SeqCst);
     if current_device == device_index && is_capture_running() {
-        eprintln!("[WEBCAM] Capture already running for device {}, skipping start", device_index);
+        eprintln!(
+            "[WEBCAM] Capture already running for device {}, skipping start",
+            device_index
+        );
         return Ok(());
     }
 
@@ -420,11 +450,9 @@ pub fn enumerate_devices() -> Result<Vec<(usize, String)>, String> {
     use nokhwa::native_api_backend;
     use nokhwa::query;
 
-    let backend = native_api_backend()
-        .ok_or_else(|| "No camera backend available".to_string())?;
+    let backend = native_api_backend().ok_or_else(|| "No camera backend available".to_string())?;
 
-    let devices = query(backend)
-        .map_err(|e| format!("Failed to query devices: {}", e))?;
+    let devices = query(backend).map_err(|e| format!("Failed to query devices: {}", e))?;
 
     let result: Vec<(usize, String)> = devices
         .iter()
@@ -442,18 +470,24 @@ mod tests {
     #[test]
     fn test_frame_buffer() {
         let buffer = WebcamFrameBuffer::new();
-        
+
         // Initially empty
         assert!(buffer.get().is_none());
         assert_eq!(buffer.current_frame_id(), 0);
 
-        // Add a frame
-        buffer.update(vec![0u8; 100], 10, 10);
+        // Add a frame (data, jpeg_cache, width, height, is_mjpeg)
+        buffer.update(vec![0u8; 400], vec![0u8; 100], 10, 10, false);
         assert!(buffer.get().is_some());
         assert_eq!(buffer.current_frame_id(), 1);
 
         // Get if newer
         assert!(buffer.get_if_newer(0).is_some());
         assert!(buffer.get_if_newer(1).is_none());
+
+        // Verify frame contents
+        let frame = buffer.get().unwrap();
+        assert_eq!(frame.width, 10);
+        assert_eq!(frame.height, 10);
+        assert_eq!(frame.jpeg_cache.len(), 100);
     }
 }

@@ -18,7 +18,7 @@ pub use capture::{
 };
 pub use composite::composite_webcam;
 pub use device::{get_webcam_devices, WebcamDevice};
-pub use encoder::WebcamEncoder;
+pub use encoder::BackgroundWebcamEncoder;
 
 use serde::{Deserialize, Serialize};
 use std::time::Instant;

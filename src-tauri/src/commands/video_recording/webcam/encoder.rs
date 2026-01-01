@@ -1,300 +1,248 @@
-//! Webcam video encoder for separate webcam recording.
+//! Webcam video encoder - zero-encode MJPEG passthrough using FFmpeg.
 //!
-//! Encodes webcam frames to a separate video file for post-editing.
-//! The webcam video can be toggled on/off in the video editor.
-//!
-//! IMPORTANT: This encoder pulls frames from the shared WEBCAM_BUFFER
-//! which is populated by the capture service. This ensures:
-//! 1. No hardware conflicts (webcam opened only once)
-//! 2. Zero-copy frame access via Arc
-//! 3. Same frames shown in preview are encoded
-//! 4. Real-time playback via wall-clock timestamps
+//! If camera outputs MJPEG, we pipe directly to FFmpeg which muxes
+//! into a container WITHOUT re-encoding. This is extremely fast.
 
+use std::io::Write;
 use std::path::PathBuf;
-use std::time::Instant;
-
-use windows_capture::encoder::{
-    AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
-};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
 
 use super::capture::WEBCAM_BUFFER;
 
-/// Webcam video encoder for recording webcam to a separate file.
-///
-/// This encoder pulls frames from the shared WEBCAM_BUFFER
-/// rather than opening its own capture. This ensures:
-/// 1. No hardware conflicts (webcam opened only once)
-/// 2. Consistent frame timing with the preview
-/// 3. Same frames shown in preview are encoded
-/// 4. Real-time playback via wall-clock timestamps
-pub struct WebcamEncoder {
-    /// The video encoder.
-    encoder: VideoEncoder,
-    /// Output video dimensions.
-    width: u32,
-    height: u32,
-    /// Frame buffer for resizing (when source != encoder dimensions).
-    resize_buffer: Vec<u8>,
-    /// Frame buffer for vertical flip.
-    flip_buffer: Vec<u8>,
-    /// When recording started (for wall-clock timestamp calculation).
-    recording_start: Instant,
-    /// Frame count for stats/logging.
-    frame_count: u64,
-    /// Last processed frame ID (to avoid encoding duplicates).
-    last_frame_id: u64,
+/// Background webcam encoder using FFmpeg MJPEG passthrough.
+/// Zero encoding - just muxes JPEG frames into a container.
+pub struct BackgroundWebcamEncoder {
+    stop_flag: Arc<AtomicBool>,
+    thread_handle: Option<JoinHandle<()>>,
+    frame_count: Arc<AtomicU64>,
 }
 
-/// Default FPS for webcam video container (actual frame timing uses wall-clock).
-/// 30fps is standard for webcams and sufficient for PiP overlay.
-const WEBCAM_VIDEO_FPS: u32 = 30;
+impl BackgroundWebcamEncoder {
+    /// Start background encoder thread.
+    pub fn start(output_path: PathBuf) -> Result<Self, String> {
+        eprintln!("[WEBCAM_ENC] === BackgroundWebcamEncoder::start() ===");
 
-impl WebcamEncoder {
-    /// Create a new webcam encoder.
-    ///
-    /// # Arguments
-    /// * `output_path` - Path to save the webcam video.
-    /// * `width` - Video width (should match camera resolution).
-    /// * `height` - Video height (should match camera resolution).
-    ///
-    /// Note: The encoder pulls frames from the shared WEBCAM_BUFFER,
-    /// so the capture service must be started before recording begins.
-    /// Use `new_auto()` to auto-detect resolution from the buffer.
-    pub fn new(output_path: &PathBuf, width: u32, height: u32) -> Result<Self, String> {
-        // Calculate bitrate based on resolution (higher res = higher bitrate)
-        // 1080p: ~8 Mbps, 720p: ~4 Mbps, 480p: ~2 Mbps
-        let bitrate = match (width, height) {
-            (w, h) if w >= 1920 || h >= 1080 => 8_000_000,
-            (w, h) if w >= 1280 || h >= 720 => 4_000_000,
-            _ => 2_000_000,
-        };
-
-        // Create encoder with no audio
-        // FPS is nominal - actual timing comes from wall-clock timestamps
-        let video_settings = VideoSettingsBuilder::new(width, height)
-            .bitrate(bitrate)
-            .frame_rate(WEBCAM_VIDEO_FPS);
-
-        let audio_settings = AudioSettingsBuilder::default().disabled(true);
-
-        let encoder = VideoEncoder::new(
-            video_settings,
-            audio_settings,
-            ContainerSettingsBuilder::default(),
-            output_path,
-        )
-        .map_err(|e| format!("Failed to create webcam encoder: {:?}", e))?;
-
-        let frame_size = (width * height * 4) as usize;
-
+        // Get dimensions from buffer
+        let (width, height) = WEBCAM_BUFFER.dimensions();
+        eprintln!("[WEBCAM_ENC] Buffer dimensions: {}x{}", width, height);
         eprintln!(
-            "[WEBCAM_ENC] Created webcam encoder ({}x{}, {} Mbps)",
-            width, height, bitrate / 1_000_000
+            "[WEBCAM_ENC] Buffer active: {}, frame_id: {}",
+            WEBCAM_BUFFER.is_active(),
+            WEBCAM_BUFFER.current_frame_id()
         );
 
-        Ok(Self {
-            encoder,
-            width,
-            height,
-            resize_buffer: Vec::new(), // Allocated on demand if resizing needed
-            flip_buffer: vec![0u8; frame_size],
-            recording_start: Instant::now(),
-            frame_count: 0,
-            last_frame_id: 0, // Start at 0 so first frame (id=1) is always newer
-        })
-    }
-
-    /// Create a new webcam encoder with auto-detected resolution.
-    ///
-    /// Queries the WEBCAM_BUFFER for the current camera resolution.
-    /// Falls back to 1280x720 if dimensions not available yet.
-    pub fn new_auto(output_path: &PathBuf) -> Result<Self, String> {
-        // Try to get dimensions from the shared buffer
-        let (width, height) = WEBCAM_BUFFER.dimensions();
-        
         let (width, height) = if width > 0 && height > 0 {
-            eprintln!("[WEBCAM_ENC] Auto-detected resolution: {}x{}", width, height);
+            eprintln!("[WEBCAM_ENC] Using buffer resolution: {}x{}", width, height);
             (width, height)
-        } else if let Some(frame) = WEBCAM_BUFFER.get() {
-            eprintln!(
-                "[WEBCAM_ENC] Got resolution from frame: {}x{}",
-                frame.width, frame.height
-            );
-            (frame.width, frame.height)
         } else {
-            // Last resort fallback to 720p
-            eprintln!("[WEBCAM_ENC] No dimensions available, using 1280x720 fallback");
+            eprintln!("[WEBCAM_ENC] No dimensions available, using 1280x720");
             (1280, 720)
         };
 
-        Self::new(output_path, width, height)
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let frame_count = Arc::new(AtomicU64::new(0));
+
+        let stop_clone = Arc::clone(&stop_flag);
+        let count_clone = Arc::clone(&frame_count);
+
+        let handle = thread::Builder::new()
+            .name("webcam-encoder".to_string())
+            .spawn(move || {
+                if let Err(e) =
+                    run_ffmpeg_passthrough(&output_path, width, height, &stop_clone, &count_clone)
+                {
+                    eprintln!("[WEBCAM_ENC] Error: {}", e);
+                }
+            })
+            .map_err(|e| format!("Failed to spawn thread: {}", e))?;
+
+        Ok(Self {
+            stop_flag,
+            thread_handle: Some(handle),
+            frame_count,
+        })
     }
 
-    /// Process one frame - get from shared buffer, resize if needed, encode.
-    /// Call this in the main recording loop.
-    ///
-    /// Returns true if a NEW frame was processed, false if no new frame available.
-    /// Skips duplicate frames (same frame_id) to avoid encoding the same frame twice.
-    pub fn process_frame(&mut self) -> Result<bool, String> {
-        // Get latest webcam frame from shared buffer (zero-copy via Arc)
-        let frame = match WEBCAM_BUFFER.get_if_newer(self.last_frame_id) {
-            Some(f) => f,
-            None => return Ok(false),
-        };
-
-        self.last_frame_id = frame.frame_id;
-
-        // Calculate timestamp from wall-clock time for real-time playback
-        let elapsed = frame.captured_at.duration_since(self.recording_start);
-        let timestamp_100ns = (elapsed.as_nanos() / 100) as i64;
-        
-        // Log periodically to debug frame production
-        if self.frame_count == 0 || self.frame_count % 60 == 0 {
-            eprintln!(
-                "[WEBCAM_ENC] Encoding frame {} (id={}, ts={:.2}s, mjpeg={})", 
-                self.frame_count, frame.frame_id, elapsed.as_secs_f64(), frame.is_mjpeg
-            );
-        }
-        self.frame_count += 1;
-
-        // Get BGRA frame data (decode MJPEG if needed)
-        let bgra_data = match frame.to_bgra() {
-            Some(data) => data,
-            None => {
-                eprintln!("[WEBCAM_ENC] Failed to decode frame to BGRA");
-                return Ok(false);
-            }
-        };
-
-        // Resize frame to encoder dimensions if needed
-        let final_data: &[u8] = if frame.width == self.width && frame.height == self.height {
-            &bgra_data
-        } else {
-            // Simple nearest-neighbor resize (rare case)
-            self.resize_buffer = resize_bgra(
-                &bgra_data,
-                frame.width,
-                frame.height,
-                self.width,
-                self.height,
-            );
-            &self.resize_buffer
-        };
-
-        // Flip vertically (encoder expects bottom-up)
-        let flipped = flip_vertical_bgra(final_data, self.width, self.height, &mut self.flip_buffer);
-
-        // Send to encoder
-        if let Err(e) = self.encoder.send_frame_buffer(flipped, timestamp_100ns) {
-            eprintln!("[WEBCAM_ENC] Failed to encode frame: {:?}", e);
-        }
-
-        Ok(true)
+    /// Get frame count.
+    pub fn frame_count(&self) -> u64 {
+        self.frame_count.load(Ordering::Relaxed)
     }
 
-    /// Finalize encoding and save the video file.
-    pub fn finish(self) -> Result<(), String> {
+    /// Stop and wait for completion.
+    pub fn finish(mut self) -> Result<(), String> {
+        self.stop_flag.store(true, Ordering::SeqCst);
+
+        if let Some(handle) = self.thread_handle.take() {
+            handle.join().map_err(|_| "Thread panicked")?;
+        }
+
         eprintln!(
-            "[WEBCAM_ENC] Finishing webcam encoder ({} frames)",
-            self.frame_count
+            "[WEBCAM_ENC] Finished ({} frames)",
+            self.frame_count.load(Ordering::Relaxed)
         );
-
-        // Finish encoding
-        self.encoder
-            .finish()
-            .map_err(|e| format!("Failed to finish webcam encoding: {:?}", e))?;
-
-        eprintln!("[WEBCAM_ENC] Webcam encoding finished");
         Ok(())
     }
-
-    /// Get the number of frames encoded so far.
-    pub fn frame_count(&self) -> u64 {
-        self.frame_count
-    }
 }
 
-/// Simple nearest-neighbor resize for BGRA image.
-fn resize_bgra(src: &[u8], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Vec<u8> {
-    let mut dst = vec![0u8; (dst_w * dst_h * 4) as usize];
+/// Run FFmpeg with MJPEG passthrough (zero encode).
+fn run_ffmpeg_passthrough(
+    output_path: &PathBuf,
+    width: u32,
+    height: u32,
+    stop_flag: &AtomicBool,
+    frame_count: &AtomicU64,
+) -> Result<(), String> {
+    eprintln!("[WEBCAM_ENC] === ENCODER THREAD STARTED ===");
+    eprintln!(
+        "[WEBCAM_ENC] Output: {:?}, size: {}x{}",
+        output_path, width, height
+    );
 
-    let x_ratio = src_w as f32 / dst_w as f32;
-    let y_ratio = src_h as f32 / dst_h as f32;
+    // Check buffer state immediately
+    eprintln!(
+        "[WEBCAM_ENC] Initial buffer: active={}, frame_id={}, dims={:?}",
+        super::capture::WEBCAM_BUFFER.is_active(),
+        super::capture::WEBCAM_BUFFER.current_frame_id(),
+        super::capture::WEBCAM_BUFFER.dimensions()
+    );
 
-    for y in 0..dst_h {
-        for x in 0..dst_w {
-            let src_x = (x as f32 * x_ratio) as u32;
-            let src_y = (y as f32 * y_ratio) as u32;
+    // Get ffmpeg path
+    let ffmpeg_path = crate::commands::storage::find_ffmpeg().ok_or("FFmpeg not found")?;
+    eprintln!("[WEBCAM_ENC] FFmpeg path: {:?}", ffmpeg_path);
 
-            let src_idx = ((src_y * src_w + src_x) * 4) as usize;
-            let dst_idx = ((y * dst_w + x) * 4) as usize;
+    // Start FFmpeg process:
+    // -f image2pipe: read JPEG images from stdin
+    // -c:v libx264: encode to H.264 (good compression, widely compatible)
+    // -preset ultrafast: fast encoding for real-time
+    // -crf 18: high quality (0-51, lower=better, 18 is visually lossless)
+    let mut child = Command::new(&ffmpeg_path)
+        .args([
+            "-y", // Overwrite output
+            "-f",
+            "image2pipe", // Input: pipe of images
+            "-framerate",
+            "30", // Input framerate
+            "-i",
+            "pipe:0", // Read from stdin
+            "-c:v",
+            "libx264", // Output codec: H.264
+            "-preset",
+            "ultrafast", // Fast encoding
+            "-crf",
+            "18", // High quality
+            "-pix_fmt",
+            "yuv420p", // Compatible pixel format
+            "-movflags",
+            "+faststart", // Optimize for playback
+        ])
+        .arg(output_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to start FFmpeg: {}", e))?;
 
-            if src_idx + 3 < src.len() && dst_idx + 3 < dst.len() {
-                dst[dst_idx] = src[src_idx];
-                dst[dst_idx + 1] = src[src_idx + 1];
-                dst[dst_idx + 2] = src[src_idx + 2];
-                dst[dst_idx + 3] = src[src_idx + 3];
+    let mut stdin = child.stdin.take().ok_or("Failed to get FFmpeg stdin")?;
+    let stderr = child.stderr.take();
+
+    eprintln!("[WEBCAM_ENC] FFmpeg started, entering main loop...");
+
+    let mut last_frame_id: u64 = 0;
+    let start = std::time::Instant::now();
+    let mut poll_count: u64 = 0;
+    let mut last_log_time = start;
+
+    // Main loop: pipe JPEG frames to FFmpeg
+    while !stop_flag.load(Ordering::Relaxed) {
+        poll_count += 1;
+
+        // Log first 5 polls, then every second
+        let now = std::time::Instant::now();
+        if poll_count <= 5 || now.duration_since(last_log_time).as_secs() >= 1 {
+            last_log_time = now;
+            eprintln!(
+                "[WEBCAM_ENC] Poll #{}: buffer_id={}, my_last_id={}, active={}, stop={}",
+                poll_count,
+                WEBCAM_BUFFER.current_frame_id(),
+                last_frame_id,
+                WEBCAM_BUFFER.is_active(),
+                stop_flag.load(Ordering::Relaxed)
+            );
+        }
+
+        // Get frame if newer
+        let frame = match WEBCAM_BUFFER.get_if_newer(last_frame_id) {
+            Some(f) => f,
+            None => {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
             }
+        };
+
+        last_frame_id = frame.frame_id;
+
+        // Log first frame details
+        let count = frame_count.load(Ordering::Relaxed);
+        if count == 0 {
+            eprintln!(
+                "[WEBCAM_ENC] First frame received! id={}, jpeg_cache={} bytes, data={} bytes",
+                frame.frame_id,
+                frame.jpeg_cache.len(),
+                frame.data.len()
+            );
+        }
+
+        // Use jpeg_cache (already JPEG, or encoded from BGRA)
+        if frame.jpeg_cache.is_empty() {
+            eprintln!(
+                "[WEBCAM_ENC] WARNING: Empty jpeg_cache for frame {}",
+                frame.frame_id
+            );
+            continue;
+        }
+
+        // Write JPEG directly to FFmpeg (zero encode!)
+        if let Err(e) = stdin.write_all(&frame.jpeg_cache) {
+            eprintln!("[WEBCAM_ENC] Write error: {}", e);
+            break;
+        }
+
+        let new_count = frame_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+        if new_count == 1 || new_count % 60 == 0 {
+            eprintln!(
+                "[WEBCAM_ENC] Piped {} frames ({:.1}s)",
+                new_count,
+                start.elapsed().as_secs_f64()
+            );
         }
     }
 
-    dst
-}
+    // Close stdin to signal EOF to FFmpeg
+    drop(stdin);
 
-/// Flip BGRA image vertically into provided buffer.
-fn flip_vertical_bgra<'a>(src: &[u8], width: u32, height: u32, dst: &'a mut Vec<u8>) -> &'a [u8] {
-    let row_size = (width * 4) as usize;
-    let total_size = row_size * height as usize;
+    // Wait for FFmpeg to finish
+    eprintln!("[WEBCAM_ENC] Waiting for FFmpeg to finish...");
+    let status = child
+        .wait()
+        .map_err(|e| format!("FFmpeg wait error: {}", e))?;
 
-    // Ensure dst is large enough
-    if dst.len() < total_size {
-        dst.resize(total_size, 0);
-    }
-
-    for (i, row) in src[..total_size.min(src.len())].chunks_exact(row_size).enumerate() {
-        let dest_row = height as usize - 1 - i;
-        let dest_start = dest_row * row_size;
-        if dest_start + row_size <= dst.len() {
-            dst[dest_start..dest_start + row_size].copy_from_slice(row);
+    // Read stderr for debugging
+    if let Some(mut stderr_handle) = stderr {
+        use std::io::Read;
+        let mut stderr_output = String::new();
+        if stderr_handle.read_to_string(&mut stderr_output).is_ok() && !stderr_output.is_empty() {
+            eprintln!("[WEBCAM_ENC] FFmpeg stderr: {}", stderr_output.trim());
         }
     }
 
-    &dst[..total_size]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_resize_bgra() {
-        // 2x2 source image (R, G, B, W pixels)
-        let src = vec![
-            255, 0, 0, 255,   // Red
-            0, 255, 0, 255,   // Green
-            0, 0, 255, 255,   // Blue
-            255, 255, 255, 255, // White
-        ];
-
-        // Resize to 4x4 (should duplicate each pixel)
-        let dst = resize_bgra(&src, 2, 2, 4, 4);
-        assert_eq!(dst.len(), 64); // 4x4x4
+    if !status.success() {
+        return Err(format!("FFmpeg exited with: {}", status));
     }
 
-    #[test]
-    fn test_flip_vertical() {
-        // 2x2 image (4 pixels = 16 bytes)
-        let src = vec![
-            1, 2, 3, 4,   5, 6, 7, 8,     // Row 0 (2 pixels)
-            9, 10, 11, 12, 13, 14, 15, 16, // Row 1 (2 pixels)
-        ];
-        let mut dst = vec![0u8; 16];
-
-        flip_vertical_bgra(&src, 2, 2, &mut dst);
-
-        // Row 1 should become Row 0
-        assert_eq!(dst[0..8], [9, 10, 11, 12, 13, 14, 15, 16]);
-        // Row 0 should become Row 1
-        assert_eq!(dst[8..16], [1, 2, 3, 4, 5, 6, 7, 8]);
-    }
+    eprintln!("[WEBCAM_ENC] FFmpeg finished successfully");
+    Ok(())
 }

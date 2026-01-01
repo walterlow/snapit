@@ -70,7 +70,7 @@ use super::cursor::{composite_cursor, CursorCapture, CursorEventCapture, save_cu
 use super::desktop_icons::{hide_desktop_icons, show_desktop_icons};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
-use super::webcam::{start_capture_service, stop_capture_service, WebcamEncoder};
+use super::webcam::{start_capture_service, stop_capture_service, BackgroundWebcamEncoder};
 use super::wgc_capture::WgcVideoCapture;
 use super::{emit_state_change, get_webcam_settings, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
@@ -718,10 +718,9 @@ fn run_video_capture(
     };
 
     // === NATIVE WEBCAM CAPTURE & ENCODING ===
-    // Start native webcam capture service and create encoder.
-    // The capture service runs in a background thread and shares frames via WEBCAM_BUFFER.
-    // The encoder reads from this buffer in the recording loop.
-    let mut webcam_encoder: Option<WebcamEncoder> = if let Some(ref webcam_path) = webcam_output_path {
+    // Start native webcam capture service and background encoder.
+    // Both run in their own threads - no blocking in main recording loop.
+    let webcam_encoder: Option<BackgroundWebcamEncoder> = if let Some(ref webcam_path) = webcam_output_path {
         // Get webcam device index from settings (default to 0)
         let webcam_device_index = get_webcam_settings()
             .map(|s| s.device_index)
@@ -733,16 +732,16 @@ fn run_video_capture(
                 eprintln!("[CAPTURE] Native webcam capture service started (device {})", webcam_device_index);
                 
                 // Wait briefly for first frame to be captured
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(200));
                 
-                // Create encoder that pulls from WEBCAM_BUFFER
-                match WebcamEncoder::new_auto(webcam_path) {
+                // Start background encoder (runs in its own thread)
+                match BackgroundWebcamEncoder::start(webcam_path.clone()) {
                     Ok(enc) => {
-                        eprintln!("[CAPTURE] Native webcam encoder created: {:?}", webcam_path);
+                        eprintln!("[CAPTURE] Background webcam encoder started: {:?}", webcam_path);
                         Some(enc)
                     }
                     Err(e) => {
-                        eprintln!("[CAPTURE] Warning: Failed to create webcam encoder: {}", e);
+                        eprintln!("[CAPTURE] Warning: Failed to start webcam encoder: {}", e);
                         stop_capture_service();
                         None
                     }
@@ -1114,15 +1113,7 @@ fn run_video_capture(
             }
         }
 
-        // Process webcam frame (pull from WEBCAM_BUFFER and encode)
-        if let Some(ref mut webcam_enc) = webcam_encoder {
-            if let Err(e) = webcam_enc.process_frame() {
-                // Only log errors occasionally to avoid spam
-                if frame_count % 300 == 0 {
-                    eprintln!("[CAPTURE] Webcam frame processing error: {}", e);
-                }
-            }
-        }
+        // Webcam encoding happens in background thread - no action needed here
 
         frame_count += 1;
         progress.increment_frame();
@@ -1146,8 +1137,37 @@ fn run_video_capture(
         println!("[CAPTURE] WARNING: No video frames were captured!");
     }
 
-    // === STOP NATIVE WEBCAM CAPTURE ===
-    // Stop the webcam capture service first (releases camera hardware)
+    // Check if recording was cancelled FIRST - before any encoder work
+    let was_cancelled = progress.was_cancelled();
+    
+    // === HANDLE WEBCAM ENCODER ===
+    // Must finish encoder BEFORE stopping capture service (encoder needs buffer data)
+    if let Some(webcam_enc) = webcam_encoder {
+        if was_cancelled {
+            // On cancel: just stop the encoder thread, don't save
+            eprintln!("[CAPTURE] Cancelling webcam encoder...");
+            let _ = webcam_enc.finish(); // This stops the thread
+            // Delete the partial webcam file
+            if let Some(ref path) = webcam_output_path {
+                if let Err(e) = std::fs::remove_file(path) {
+                    eprintln!("[CAPTURE] Failed to delete cancelled webcam file: {}", e);
+                } else {
+                    eprintln!("[CAPTURE] Deleted cancelled webcam file: {:?}", path);
+                }
+            }
+        } else {
+            // Normal finish: save the webcam file
+            eprintln!("[CAPTURE] Finishing webcam encoder (frame_count={})...", webcam_enc.frame_count());
+            if let Err(e) = webcam_enc.finish() {
+                eprintln!("[CAPTURE] Warning: Failed to finish webcam encoding: {}", e);
+            } else {
+                eprintln!("[CAPTURE] Webcam encoder finished successfully");
+            }
+        }
+    }
+    
+    // === NOW STOP NATIVE WEBCAM CAPTURE ===
+    // Stop the webcam capture service (releases camera hardware and clears buffer)
     stop_capture_service();
     eprintln!("[CAPTURE] Native webcam capture service stopped");
 
@@ -1165,38 +1185,15 @@ fn run_video_capture(
         eprintln!("[CAPTURE] Multi-track audio recording stopped");
     }
 
-    // Webcam capture service was already stopped above
-
     // === STOP CURSOR EVENT CAPTURE ===
     let cursor_recording = cursor_event_capture.stop();
     eprintln!("[CAPTURE] Cursor event capture stopped, collected {} events", cursor_recording.events.len());
 
-    // Check if recording was cancelled - if so, skip encoding and let the file be deleted
-    if progress.was_cancelled() {
-        println!("[CAPTURE] Recording was cancelled, skipping encoder finish");
-        // Drop the encoders without finishing to avoid saving files
+    // If cancelled, skip main encoder and return
+    if was_cancelled {
+        println!("[CAPTURE] Recording was cancelled, skipping main encoder finish");
         drop(encoder);
-        drop(webcam_encoder);
-        // Delete native webcam recording file if it exists
-        if let Some(ref path) = webcam_output_path {
-            if let Err(e) = std::fs::remove_file(path) {
-                eprintln!("[CAPTURE] Failed to delete cancelled webcam file: {}", e);
-            } else {
-                eprintln!("[CAPTURE] Deleted cancelled webcam file: {:?}", path);
-            }
-        }
         return Ok(());
-    }
-
-    // Finish webcam encoder (save to file)
-    if let Some(webcam_enc) = webcam_encoder {
-        eprintln!("[CAPTURE] Finishing webcam encoder...");
-        if let Err(e) = webcam_enc.finish() {
-            eprintln!("[CAPTURE] Warning: Failed to finish webcam encoding: {}", e);
-            // Don't fail the whole recording for webcam issues
-        } else {
-            eprintln!("[CAPTURE] Webcam encoder finished successfully");
-        }
     }
 
     // === SAVE CURSOR DATA ===

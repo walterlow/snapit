@@ -11,6 +11,7 @@ import type {
   EditorInstanceInfo,
   PlaybackEvent,
   RenderedFrame,
+  WebcamConfig,
 } from '../types';
 
 interface VideoEditorState {
@@ -74,6 +75,9 @@ interface VideoEditorState {
   updateWebcamSegment: (index: number, updates: Partial<VisibilitySegment>) => void;
   deleteWebcamSegment: (index: number) => void;
   toggleWebcamAtTime: (timeMs: number) => void;
+
+  // Webcam config actions
+  updateWebcamConfig: (updates: Partial<WebcamConfig>) => void;
   
   // Timeline view actions
   setTimelineZoom: (zoom: number) => void;
@@ -322,6 +326,22 @@ export const useVideoEditorStore = create<VideoEditorState>()(
             },
           });
         }
+      },
+
+      // Webcam config actions
+      updateWebcamConfig: (updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            webcam: {
+              ...project.webcam,
+              ...updates,
+            },
+          },
+        });
       },
 
       // Timeline view actions

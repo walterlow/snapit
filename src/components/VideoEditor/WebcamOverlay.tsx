@@ -25,16 +25,19 @@ function isWebcamVisibleAt(segments: VisibilitySegment[], timestampMs: number): 
 
 /**
  * Get position style based on position preset.
+ * Handles corner presets and custom positions with proper centering.
  */
 function getPositionStyle(
   position: WebcamConfig['position'],
   customX: number,
   customY: number,
   containerWidth: number,
-  containerHeight: number
+  containerHeight: number,
+  webcamWidth: number,
+  webcamHeight: number
 ): React.CSSProperties {
   const margin = 16;
-  
+
   switch (position) {
     case 'topLeft':
       return { top: margin, left: margin };
@@ -44,11 +47,35 @@ function getPositionStyle(
       return { bottom: margin, left: margin };
     case 'bottomRight':
       return { bottom: margin, right: margin };
-    case 'custom':
-      return {
-        top: customY * containerHeight,
-        left: customX * containerWidth,
-      };
+    case 'custom': {
+      // Calculate position with centering support
+      // customX/Y of 0.5 means centered on that axis
+      // customX/Y near 0 or 1 means edge-aligned with margin
+      let left: number;
+      let top: number;
+
+      // Horizontal positioning
+      if (customX <= 0.1) {
+        left = margin;
+      } else if (customX >= 0.9) {
+        left = containerWidth - webcamWidth - margin;
+      } else {
+        // Center the webcam at the specified X position
+        left = customX * containerWidth - webcamWidth / 2;
+      }
+
+      // Vertical positioning
+      if (customY <= 0.1) {
+        top = margin;
+      } else if (customY >= 0.9) {
+        top = containerHeight - webcamHeight - margin;
+      } else {
+        // Center the webcam at the specified Y position
+        top = customY * containerHeight - webcamHeight / 2;
+      }
+
+      return { top, left };
+    }
     default:
       return { bottom: margin, right: margin };
   }
@@ -56,13 +83,15 @@ function getPositionStyle(
 
 /**
  * Get shape style based on shape preset.
+ * Uses larger radius for roundedRectangle (squircle effect like Cap).
  */
 function getShapeStyle(shape: WebcamConfig['shape']): React.CSSProperties {
   switch (shape) {
     case 'circle':
       return { borderRadius: '50%' };
     case 'roundedRectangle':
-      return { borderRadius: '12px' };
+      // Squircle-style radius like Cap uses (rounded-3xl = 24px)
+      return { borderRadius: '24px' };
     case 'rectangle':
       return { borderRadius: '0' };
     default:
@@ -111,20 +140,26 @@ export const WebcamOverlay = memo(function WebcamOverlay({
     return src;
   }, [webcamVideoPath]);
   
-  // Calculate size
-  const webcamWidth = containerWidth * config.size;
-  const webcamHeight = webcamWidth * (9 / 16); // Assume 16:9 webcam
+  // Calculate size - height stays consistent, rectangle extends width
+  const baseSize = containerWidth * config.size;
+  const isRectangle = config.shape === 'rectangle';
+  // For rectangle: extend width to 16:9 while keeping same height
+  // For circle/squircle: keep it square
+  const webcamWidth = isRectangle ? baseSize * (16 / 9) : baseSize;
+  const webcamHeight = baseSize;
   
   // Position style
-  const positionStyle = useMemo(() => 
+  const positionStyle = useMemo(() =>
     getPositionStyle(
       config.position,
       config.customX,
       config.customY,
       containerWidth,
-      containerHeight
+      containerHeight,
+      webcamWidth,
+      webcamHeight
     ),
-    [config.position, config.customX, config.customY, containerWidth, containerHeight]
+    [config.position, config.customX, config.customY, containerWidth, containerHeight, webcamWidth, webcamHeight]
   );
   
   // Shape style

@@ -10,7 +10,7 @@
 
 import { useCallback, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Wand2, Loader2, X } from 'lucide-react';
+import { Wand2, Loader2, X, Circle, Square, RectangleHorizontal } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useCaptureStore } from '../stores/captureStore';
@@ -19,7 +19,96 @@ import { GPUVideoPreview } from '../components/VideoEditor/GPUVideoPreview';
 import { VideoTimeline } from '../components/VideoEditor/VideoTimeline';
 import { PlaybackControls } from '../components/VideoEditor/PlaybackControls';
 import { Button } from '../components/ui/button';
-import type { ExportProgress } from '../types';
+import { Slider } from '../components/ui/slider';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
+import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition } from '../types';
+
+/**
+ * Position grid for 9-point webcam anchor selection.
+ * Maps to corner presets or custom positions for edges/center.
+ */
+interface PositionGridProps {
+  position: WebcamOverlayPosition;
+  customX: number;
+  customY: number;
+  onChange: (position: WebcamOverlayPosition, customX: number, customY: number) => void;
+}
+
+// Grid positions: [row][col] -> { position, customX, customY }
+const GRID_POSITIONS: Array<{
+  position: WebcamOverlayPosition;
+  customX: number;
+  customY: number;
+  label: string;
+}> = [
+  // Top row
+  { position: 'topLeft', customX: 0, customY: 0, label: 'Top Left' },
+  { position: 'custom', customX: 0.5, customY: 0.02, label: 'Top Center' },
+  { position: 'topRight', customX: 1, customY: 0, label: 'Top Right' },
+  // Middle row
+  { position: 'custom', customX: 0.02, customY: 0.5, label: 'Middle Left' },
+  { position: 'custom', customX: 0.5, customY: 0.5, label: 'Center' },
+  { position: 'custom', customX: 0.98, customY: 0.5, label: 'Middle Right' },
+  // Bottom row
+  { position: 'bottomLeft', customX: 0, customY: 1, label: 'Bottom Left' },
+  { position: 'custom', customX: 0.5, customY: 0.98, label: 'Bottom Center' },
+  { position: 'bottomRight', customX: 1, customY: 1, label: 'Bottom Right' },
+];
+
+function PositionGrid({ position, customX, customY, onChange }: PositionGridProps) {
+  // Determine which grid cell is active
+  const getActiveIndex = () => {
+    // Check corner presets first
+    if (position === 'topLeft') return 0;
+    if (position === 'topRight') return 2;
+    if (position === 'bottomLeft') return 6;
+    if (position === 'bottomRight') return 8;
+
+    // For custom, find closest grid position
+    if (position === 'custom') {
+      // Top center
+      if (customY < 0.25 && customX > 0.25 && customX < 0.75) return 1;
+      // Middle left
+      if (customX < 0.25 && customY > 0.25 && customY < 0.75) return 3;
+      // Center
+      if (customX > 0.25 && customX < 0.75 && customY > 0.25 && customY < 0.75) return 4;
+      // Middle right
+      if (customX > 0.75 && customY > 0.25 && customY < 0.75) return 5;
+      // Bottom center
+      if (customY > 0.75 && customX > 0.25 && customX < 0.75) return 7;
+    }
+
+    return -1; // No match
+  };
+
+  const activeIndex = getActiveIndex();
+
+  return (
+    <div className="w-full p-3 rounded-lg border border-zinc-700 bg-zinc-800/50 flex flex-col gap-2">
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="flex justify-between">
+          {[0, 1, 2].map((col) => {
+            const index = row * 3 + col;
+            const pos = GRID_POSITIONS[index];
+            return (
+              <button
+                key={index}
+                type="button"
+                title={pos.label}
+                onClick={() => onChange(pos.position, pos.customX, pos.customY)}
+                className={`w-6 h-6 rounded transition-colors ${
+                  activeIndex === index
+                    ? 'bg-indigo-500'
+                    : 'bg-zinc-700 hover:bg-zinc-600'
+                }`}
+              />
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Imperative API exposed by VideoEditorView
@@ -36,9 +125,9 @@ export interface VideoEditorViewRef {
  */
 export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEditorView(_props, ref) {
   const { setView } = useCaptureStore();
-  const { 
-    project, 
-    togglePlayback, 
+  const {
+    project,
+    togglePlayback,
     setCurrentTime,
     clearEditor,
     generateAutoZoom,
@@ -48,6 +137,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     exportVideo,
     setExportProgress,
     cancelExport,
+    updateWebcamConfig,
   } = useVideoEditorStore();
 
   // Listen for export progress events from Rust backend
@@ -231,6 +321,82 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                       {project.webcam.visibilitySegments.length} segment{project.webcam.visibilitySegments.length !== 1 ? 's' : ''}
                     </p>
                   </div>
+
+                  {/* Webcam Settings Section */}
+                  {project.sources.webcamVideo && (
+                    <div className="pt-4 border-t border-zinc-800 space-y-4">
+                      <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Webcam Settings</label>
+
+                      {/* Size Slider */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-zinc-400">Size</span>
+                          <span className="text-xs text-zinc-300 font-mono">
+                            {Math.round(project.webcam.size * 100)}%
+                          </span>
+                        </div>
+                        <Slider
+                          value={[project.webcam.size * 100]}
+                          onValueChange={(values) => {
+                            updateWebcamConfig({ size: values[0] / 100 });
+                          }}
+                          min={10}
+                          max={50}
+                          step={1}
+                        />
+                      </div>
+
+                      {/* Shape Toggle */}
+                      <div>
+                        <span className="text-xs text-zinc-400 block mb-2">Shape</span>
+                        <ToggleGroup
+                          type="single"
+                          value={project.webcam.shape}
+                          onValueChange={(value) => {
+                            if (value) {
+                              updateWebcamConfig({ shape: value as WebcamOverlayShape });
+                            }
+                          }}
+                          className="justify-start"
+                        >
+                          <ToggleGroupItem
+                            value="circle"
+                            aria-label="Circle"
+                            className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700"
+                          >
+                            <Circle className="h-4 w-4" />
+                          </ToggleGroupItem>
+                          <ToggleGroupItem
+                            value="roundedRectangle"
+                            aria-label="Squircle"
+                            className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700"
+                          >
+                            <Square className="h-4 w-4" />
+                          </ToggleGroupItem>
+                          <ToggleGroupItem
+                            value="rectangle"
+                            aria-label="Rectangle"
+                            className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700"
+                          >
+                            <RectangleHorizontal className="h-4 w-4" />
+                          </ToggleGroupItem>
+                        </ToggleGroup>
+                      </div>
+
+                      {/* Position Grid */}
+                      <div>
+                        <span className="text-xs text-zinc-400 block mb-2">Position</span>
+                        <PositionGrid
+                          position={project.webcam.position}
+                          customX={project.webcam.customX}
+                          customY={project.webcam.customY}
+                          onChange={(pos, x, y) => {
+                            updateWebcamConfig({ position: pos, customX: x, customY: y });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>

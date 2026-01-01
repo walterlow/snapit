@@ -1,6 +1,24 @@
-import { memo, useCallback, useRef, useMemo } from 'react';
-import { Film, Plus } from 'lucide-react';
-import { useVideoEditorStore, generateZoomRegionId } from '../../stores/videoEditorStore';
+import { memo, useCallback, useRef, useState, useEffect } from 'react';
+import {
+  Film,
+  Plus,
+  ArrowLeft,
+  Download,
+  ZoomIn,
+  ZoomOut,
+  SkipBack,
+  SkipForward,
+  Play,
+  Pause,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { useVideoEditorStore, generateZoomRegionId, formatTimeSimple } from '../../stores/videoEditorStore';
 import { usePlaybackTime, usePlaybackControls, getPlaybackState } from '../../hooks/usePlaybackEngine';
 import { TimelineRuler } from './TimelineRuler';
 import { ZoomTrack } from './ZoomTrack';
@@ -11,6 +29,63 @@ import type { ZoomRegion, ZoomTransition } from '../../types';
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
 const selectTimelineZoom = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.timelineZoom;
 const selectIsDraggingPlayhead = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isDraggingPlayhead;
+const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
+
+/**
+ * Preview scrubber - ghost playhead that follows mouse when not playing.
+ */
+const PreviewScrubber = memo(function PreviewScrubber({
+  previewTimeMs,
+  timelineZoom,
+  trackLabelWidth,
+}: {
+  previewTimeMs: number;
+  timelineZoom: number;
+  trackLabelWidth: number;
+}) {
+  const position = previewTimeMs * timelineZoom + trackLabelWidth;
+
+  return (
+    <div
+      className="absolute top-0 bottom-0 w-0.5 z-20 pointer-events-none bg-gradient-to-b from-zinc-400 to-transparent"
+      style={{ left: `${position}px` }}
+    >
+      {/* Scrubber handle */}
+      <div
+        className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-4 rounded-b-sm bg-zinc-400"
+        style={{
+          clipPath: 'polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%)',
+        }}
+      />
+      {/* Time tooltip */}
+      <div
+        className="absolute top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-zinc-800 border border-zinc-600 rounded text-[10px] font-mono text-zinc-300 whitespace-nowrap shadow-lg"
+      >
+        {formatTimeSimple(previewTimeMs)}
+      </div>
+    </div>
+  );
+});
+
+interface VideoTimelineProps {
+  onBack: () => void;
+  onExport: () => void;
+}
+
+/**
+ * Time display component - uses usePlaybackTime for smooth updates.
+ */
+const TimeDisplay = memo(function TimeDisplay({ durationMs }: { durationMs: number }) {
+  const currentTimeMs = usePlaybackTime();
+
+  return (
+    <div className="px-2 py-0.5 bg-zinc-800/60 rounded text-xs font-mono text-zinc-300 tabular-nums">
+      {formatTimeSimple(currentTimeMs)}
+      <span className="text-zinc-500 mx-1">/</span>
+      <span className="text-zinc-500">{formatTimeSimple(durationMs)}</span>
+    </div>
+  );
+});
 
 /**
  * Memoized playhead component - only re-renders when position changes.
@@ -89,27 +164,20 @@ const PlayheadTimeIndicator = memo(function PlayheadTimeIndicator() {
  * Memoized video track with thumbnails.
  */
 const VideoTrack = memo(function VideoTrack({
-  timelineWidth,
-  trackLabelWidth,
+  durationMs,
   timelineZoom,
+  width,
 }: {
-  timelineWidth: number;
-  trackLabelWidth: number;
+  durationMs: number;
   timelineZoom: number;
+  width: number;
 }) {
-  // Video preview thumbnails (placeholder - would be generated from video frames)
-  const thumbnails = useMemo(() => {
-    const count = Math.ceil(timelineWidth / 100);
-    return Array.from({ length: count }, (_, i) => ({
-      x: i * 100,
-      timeMs: (i * 100) / timelineZoom,
-    }));
-  }, [timelineWidth, timelineZoom]);
+  const clipWidth = durationMs * timelineZoom;
 
   return (
-    <div 
-      className="relative h-16 bg-zinc-800/40 border-b border-zinc-700/30"
-      style={{ width: `${timelineWidth + trackLabelWidth}px` }}
+    <div
+      className="relative h-12 bg-zinc-800/30"
+      style={{ width: `${width}px` }}
     >
       {/* Track label */}
       <div className="absolute left-0 top-0 bottom-0 w-20 bg-zinc-900/80 border-r border-zinc-700/50 flex items-center justify-center z-10">
@@ -119,29 +187,35 @@ const VideoTrack = memo(function VideoTrack({
         </div>
       </div>
 
-      {/* Thumbnail strip placeholder */}
-      <div 
-        className="absolute left-20 top-1 bottom-1 right-0 flex"
-        style={{
-          background: `
-            repeating-linear-gradient(
-              90deg,
-              rgba(39, 39, 42, 0.5) 0px,
-              rgba(39, 39, 42, 0.5) 99px,
-              rgba(63, 63, 70, 0.3) 99px,
-              rgba(63, 63, 70, 0.3) 100px
-            )
-          `,
-        }}
-      >
-        {thumbnails.map((thumb, i) => (
-          <div
-            key={i}
-            className="flex-shrink-0 w-[100px] h-full border-r border-zinc-700/20 flex items-center justify-center text-[10px] text-zinc-600"
-          >
-            {Math.floor(thumb.timeMs / 1000)}s
+      {/* Video clip item */}
+      <div className="absolute left-20 top-0 bottom-0 right-0">
+        <div
+          className="absolute top-1 bottom-1 rounded-md bg-indigo-500/30 border border-indigo-500/50"
+          style={{ left: 0, width: `${clipWidth}px` }}
+        >
+          {/* Clip content - thumbnail placeholders */}
+          <div className="absolute inset-0 flex items-center overflow-hidden rounded-md">
+            <div
+              className="h-full flex"
+              style={{
+                background: `repeating-linear-gradient(
+                  90deg,
+                  rgba(99, 102, 241, 0.15) 0px,
+                  rgba(99, 102, 241, 0.15) 59px,
+                  rgba(99, 102, 241, 0.25) 59px,
+                  rgba(99, 102, 241, 0.25) 60px
+                )`,
+                width: `${clipWidth}px`,
+              }}
+            />
           </div>
-        ))}
+          {/* Clip label */}
+          <div className="absolute inset-0 flex items-center px-2 pointer-events-none">
+            <span className="text-[10px] text-indigo-300/80 font-medium truncate">
+              Recording
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -151,14 +225,17 @@ const VideoTrack = memo(function VideoTrack({
  * VideoTimeline - Main timeline component with ruler, tracks, and playhead.
  * Optimized to prevent re-renders during playback.
  */
-export function VideoTimeline() {
+export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
   const project = useVideoEditorStore(selectProject);
   const timelineZoom = useVideoEditorStore(selectTimelineZoom);
   const isDraggingPlayhead = useVideoEditorStore(selectIsDraggingPlayhead);
-  
+  const isPlaying = useVideoEditorStore(selectIsPlaying);
+
   const {
     setTimelineScrollLeft,
     setDraggingPlayhead,
+    setTimelineZoom,
+    togglePlayback,
     addZoomRegion,
     selectZoomRegion,
     selectWebcamSegment,
@@ -167,11 +244,31 @@ export function VideoTimeline() {
   const controls = usePlaybackControls();
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [previewTimeMs, setPreviewTimeMs] = useState<number | null>(null);
 
-  // Calculate timeline dimensions
+  // Measure container width
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+
+    observer.observe(container);
+    setContainerWidth(container.clientWidth);
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Calculate timeline dimensions - extend to fill container width at minimum
   const durationMs = project?.timeline.durationMs ?? 60000;
-  const timelineWidth = durationMs * timelineZoom;
   const trackLabelWidth = 80;
+  const durationWidth = durationMs * timelineZoom;
+  const timelineWidth = Math.max(durationWidth, containerWidth - trackLabelWidth);
 
   // Handle clicking on timeline to seek
   const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -180,11 +277,33 @@ export function VideoTimeline() {
     const x = e.clientX - rect.left + scrollLeft - trackLabelWidth;
     const newTimeMs = Math.max(0, Math.min(durationMs, x / timelineZoom));
     controls.seek(newTimeMs);
-    
+
     // Deselect any selected regions
     selectZoomRegion(null);
     selectWebcamSegment(null);
   }, [durationMs, timelineZoom, controls, selectZoomRegion, selectWebcamSegment]);
+
+  // Handle mouse move for preview scrubber
+  const handleTimelineMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (isPlaying) {
+      setPreviewTimeMs(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
+    const x = e.clientX - rect.left + scrollLeft - trackLabelWidth;
+    if (x < 0) {
+      setPreviewTimeMs(null);
+      return;
+    }
+    const timeMs = Math.max(0, Math.min(durationMs, x / timelineZoom));
+    setPreviewTimeMs(timeMs);
+  }, [isPlaying, durationMs, timelineZoom]);
+
+  // Clear preview on mouse leave
+  const handleTimelineMouseLeave = useCallback(() => {
+    setPreviewTimeMs(null);
+  }, []);
 
   // Handle playhead dragging
   const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {
@@ -223,13 +342,13 @@ export function VideoTimeline() {
     const { currentTimeMs } = getPlaybackState();
     const defaultDuration = 3000;
     const endMs = Math.min(currentTimeMs + defaultDuration, durationMs);
-    
+
     const defaultTransition: ZoomTransition = {
       durationInMs: 300,
       durationOutMs: 300,
       easing: 'easeInOut',
     };
-    
+
     const newRegion: ZoomRegion = {
       id: generateZoomRegionId(),
       startMs: currentTimeMs,
@@ -240,43 +359,220 @@ export function VideoTimeline() {
       isAuto: false,
       transition: defaultTransition,
     };
-    
+
     addZoomRegion(newRegion);
   }, [durationMs, addZoomRegion]);
 
+  // Playback controls
+  const handleGoToStart = useCallback(() => {
+    controls.seek(0);
+  }, [controls]);
+
+  const handleGoToEnd = useCallback(() => {
+    controls.seek(durationMs);
+  }, [controls, durationMs]);
+
+  const handleSkipBack = useCallback(() => {
+    const { currentTimeMs } = getPlaybackState();
+    controls.seek(Math.max(0, currentTimeMs - 5000));
+  }, [controls]);
+
+  const handleSkipForward = useCallback(() => {
+    const { currentTimeMs } = getPlaybackState();
+    controls.seek(Math.min(durationMs, currentTimeMs + 5000));
+  }, [controls, durationMs]);
+
+  // Timeline zoom controls
+  const handleZoomIn = useCallback(() => {
+    setTimelineZoom(timelineZoom * 1.5);
+  }, [timelineZoom, setTimelineZoom]);
+
+  const handleZoomOut = useCallback(() => {
+    setTimelineZoom(timelineZoom / 1.5);
+  }, [timelineZoom, setTimelineZoom]);
+
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="flex flex-col bg-zinc-900 border-t border-zinc-700/50 select-none"
+      className="h-full flex flex-col bg-zinc-900 border-t border-zinc-700/50 select-none"
     >
-      {/* Timeline Header with Add Buttons */}
-      <div className="flex items-center justify-between h-10 px-4 bg-zinc-900/80 border-b border-zinc-700/30">
-        <div className="flex items-center gap-2">
-          <Film className="w-4 h-4 text-zinc-400" />
-          <span className="text-sm font-medium text-zinc-300">Timeline</span>
+      {/* Timeline Header with Controls */}
+      <TooltipProvider delayDuration={200}>
+        <div className="flex items-center h-11 px-3 bg-zinc-900/80 border-b border-zinc-700/30">
+          {/* Left Section */}
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button onClick={onBack} className="glass-btn h-8 w-8">
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="text-xs">Back to Library</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <div className="w-px h-5 bg-zinc-700/50" />
+
+            {/* Timeline Zoom Controls */}
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleZoomOut} className="glass-btn h-7 w-7">
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">Zoom Out Timeline</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <span className="text-[10px] text-zinc-500 font-mono w-12 text-center">
+                {Math.round(timelineZoom * 1000)}px/s
+              </span>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleZoomIn} className="glass-btn h-7 w-7">
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">Zoom In Timeline</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+
+          {/* Center Section - Playback Controls */}
+          <div className="flex-1 flex items-center justify-center gap-1">
+            <div className="flex items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleGoToStart} className="glass-btn h-8 w-8">
+                    <SkipBack className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs">Go to Start</span>
+                    <kbd className="kbd text-[10px] px-1.5 py-0.5">Home</kbd>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleSkipBack} className="glass-btn h-8 w-8">
+                    <SkipBack className="w-3 h-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs">Skip Back 5s</span>
+                    <kbd className="kbd text-[10px] px-1.5 py-0.5">←</kbd>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={togglePlayback}
+                    className="tool-button h-9 w-9 active"
+                  >
+                    {isPlaying ? (
+                      <Pause className="w-4 h-4 relative z-10" />
+                    ) : (
+                      <Play className="w-4 h-4 ml-0.5 relative z-10" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs">{isPlaying ? 'Pause' : 'Play'}</span>
+                    <kbd className="kbd text-[10px] px-1.5 py-0.5">Space</kbd>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleSkipForward} className="glass-btn h-8 w-8">
+                    <SkipForward className="w-3 h-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs">Skip Forward 5s</span>
+                    <kbd className="kbd text-[10px] px-1.5 py-0.5">→</kbd>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleGoToEnd} className="glass-btn h-8 w-8">
+                    <SkipForward className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs">Go to End</span>
+                    <kbd className="kbd text-[10px] px-1.5 py-0.5">End</kbd>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <TimeDisplay durationMs={durationMs} />
+          </div>
+
+          {/* Right Section */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAddZoomRegion}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 rounded transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Zoom
+            </button>
+
+            <div className="w-px h-5 bg-zinc-700/50" />
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onExport}
+                  className="btn-coral h-8 px-3 rounded-md flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="text-xs font-medium">Export</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs">Export Video</span>
+                  <kbd className="kbd text-[10px] px-1.5 py-0.5">Ctrl+E</kbd>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleAddZoomRegion}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 rounded-md transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Zoom
-          </button>
-        </div>
-      </div>
+      </TooltipProvider>
 
       {/* Scrollable Timeline Content */}
-      <div 
+      <div
         ref={scrollRef}
-        className="overflow-x-auto overflow-y-hidden"
+        className="flex-1 overflow-x-auto overflow-y-auto"
         onScroll={handleScroll}
       >
-        <div 
+        <div
           className="relative"
           style={{ width: `${timelineWidth + trackLabelWidth}px` }}
           onClick={handleTimelineClick}
+          onMouseMove={handleTimelineMouseMove}
+          onMouseLeave={handleTimelineMouseLeave}
         >
           {/* Time Ruler */}
           <div className="sticky left-0" style={{ marginLeft: `${trackLabelWidth}px` }}>
@@ -287,11 +583,11 @@ export function VideoTimeline() {
             />
           </div>
 
-          {/* Video Preview Track */}
+          {/* Video Track */}
           <VideoTrack
-            timelineWidth={timelineWidth}
-            trackLabelWidth={trackLabelWidth}
+            durationMs={durationMs}
             timelineZoom={timelineZoom}
+            width={timelineWidth + trackLabelWidth}
           />
 
           {/* Zoom Track */}
@@ -312,6 +608,15 @@ export function VideoTimeline() {
               timelineZoom={timelineZoom}
               width={timelineWidth + trackLabelWidth}
               enabled={project.webcam.enabled}
+            />
+          )}
+
+          {/* Preview Scrubber - only when not playing */}
+          {!isPlaying && previewTimeMs !== null && (
+            <PreviewScrubber
+              previewTimeMs={previewTimeMs}
+              timelineZoom={timelineZoom}
+              trackLabelWidth={trackLabelWidth}
             />
           )}
 

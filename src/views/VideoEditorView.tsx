@@ -17,7 +17,6 @@ import { useCaptureStore } from '../stores/captureStore';
 import { useVideoEditorStore } from '../stores/videoEditorStore';
 import { GPUVideoPreview } from '../components/VideoEditor/GPUVideoPreview';
 import { VideoTimeline } from '../components/VideoEditor/VideoTimeline';
-import { PlaybackControls } from '../components/VideoEditor/PlaybackControls';
 import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
@@ -404,13 +403,10 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
         </div>
       </div>
 
-      {/* Timeline */}
-      <div className="h-48 min-h-[12rem] max-h-[16rem]">
-        <VideoTimeline />
+      {/* Timeline with integrated controls */}
+      <div className="min-h-[14rem]">
+        <VideoTimeline onBack={handleBack} onExport={handleExport} />
       </div>
-
-      {/* Playback Controls Toolbar */}
-      <PlaybackControls onBack={handleBack} onExport={handleExport} />
 
       {/* Export Progress Overlay */}
       {isExporting && (

@@ -39,6 +39,7 @@ interface VideoEditorState {
   isDraggingPlayhead: boolean;
   isDraggingZoomRegion: boolean;
   draggedZoomEdge: 'start' | 'end' | 'move' | null;
+  previewTimeMs: number | null; // Hover preview time for scrubbing
   
   // View state
   timelineZoom: number; // pixels per millisecond
@@ -86,6 +87,7 @@ interface VideoEditorState {
   // Drag state actions
   setDraggingPlayhead: (dragging: boolean) => void;
   setDraggingZoomRegion: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
+  setPreviewTime: (timeMs: number | null) => void;
   
   // Editor actions
   clearEditor: () => void;
@@ -126,6 +128,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       isDraggingPlayhead: false,
       isDraggingZoomRegion: false,
       draggedZoomEdge: null,
+      previewTimeMs: null,
       timelineZoom: DEFAULT_TIMELINE_ZOOM,
       timelineScrollLeft: 0,
       isGeneratingAutoZoom: false,
@@ -351,7 +354,8 @@ export const useVideoEditorStore = create<VideoEditorState>()(
 
       // Drag state actions
       setDraggingPlayhead: (dragging) => set({ isDraggingPlayhead: dragging }),
-      
+      setPreviewTime: (timeMs) => set({ previewTimeMs: timeMs }),
+
       setDraggingZoomRegion: (dragging, edge) => set({
         isDraggingZoomRegion: dragging,
         draggedZoomEdge: dragging ? edge ?? null : null,
@@ -479,6 +483,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           isDraggingPlayhead: false,
           isDraggingZoomRegion: false,
           draggedZoomEdge: null,
+          previewTimeMs: null,
           timelineZoom: DEFAULT_TIMELINE_ZOOM,
           timelineScrollLeft: 0,
           isGeneratingAutoZoom: false,

@@ -9,6 +9,7 @@ import { WebcamOverlay } from './WebcamOverlay';
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
 const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
+const selectPreviewTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.previewTimeMs;
 
 /**
  * Memoized video element with zoom transform.
@@ -58,6 +59,7 @@ export function GPUVideoPreview() {
   // Use selectors for stable subscriptions
   const project = useVideoEditorStore(selectProject);
   const isPlaying = useVideoEditorStore(selectIsPlaying);
+  const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
   const controls = usePlaybackControls();
 
   // Track container size for webcam overlay positioning
@@ -126,6 +128,10 @@ export function GPUVideoPreview() {
     if (!video) return;
 
     const onTimeUpdate = () => {
+      // Skip sync when previewing (scrubbing) - don't move the red playhead
+      const currentPreviewTime = useVideoEditorStore.getState().previewTimeMs;
+      if (currentPreviewTime !== null) return;
+
       // Sync time from video element to playback engine
       controls.syncFromVideo(video.currentTime * 1000);
     };
@@ -172,6 +178,21 @@ export function GPUVideoPreview() {
       video.pause();
     }
   }, [isPlaying, controls]);
+
+  // Seek video when preview time changes (for timeline scrubbing)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || isPlaying) return;
+
+    if (previewTimeMs !== null) {
+      // Seek to preview time
+      video.currentTime = previewTimeMs / 1000;
+    } else {
+      // Preview ended - restore to actual playhead position
+      const { currentTimeMs } = useVideoEditorStore.getState();
+      video.currentTime = currentTimeMs / 1000;
+    }
+  }, [previewTimeMs, isPlaying]);
 
   const handleVideoClick = useCallback(() => {
     controls.toggle();

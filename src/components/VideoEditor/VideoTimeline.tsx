@@ -30,6 +30,7 @@ const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.
 const selectTimelineZoom = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.timelineZoom;
 const selectIsDraggingPlayhead = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isDraggingPlayhead;
 const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
+const selectPreviewTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.previewTimeMs;
 
 /**
  * Preview scrubber - ghost playhead that follows mouse when not playing.
@@ -230,11 +231,13 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
   const timelineZoom = useVideoEditorStore(selectTimelineZoom);
   const isDraggingPlayhead = useVideoEditorStore(selectIsDraggingPlayhead);
   const isPlaying = useVideoEditorStore(selectIsPlaying);
+  const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
 
   const {
     setTimelineScrollLeft,
     setDraggingPlayhead,
     setTimelineZoom,
+    setPreviewTime,
     togglePlayback,
     addZoomRegion,
     selectZoomRegion,
@@ -245,7 +248,6 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
-  const [previewTimeMs, setPreviewTimeMs] = useState<number | null>(null);
 
   // Measure container width
   useEffect(() => {
@@ -263,6 +265,13 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
 
     return () => observer.disconnect();
   }, []);
+
+  // Clear preview time when playback starts
+  useEffect(() => {
+    if (isPlaying) {
+      setPreviewTime(null);
+    }
+  }, [isPlaying, setPreviewTime]);
 
   // Calculate timeline dimensions - extend to fill container width at minimum
   const durationMs = project?.timeline.durationMs ?? 60000;
@@ -286,24 +295,24 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
   // Handle mouse move for preview scrubber
   const handleTimelineMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isPlaying) {
-      setPreviewTimeMs(null);
+      setPreviewTime(null);
       return;
     }
     const rect = e.currentTarget.getBoundingClientRect();
     const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
     const x = e.clientX - rect.left + scrollLeft - trackLabelWidth;
     if (x < 0) {
-      setPreviewTimeMs(null);
+      setPreviewTime(null);
       return;
     }
     const timeMs = Math.max(0, Math.min(durationMs, x / timelineZoom));
-    setPreviewTimeMs(timeMs);
-  }, [isPlaying, durationMs, timelineZoom]);
+    setPreviewTime(timeMs);
+  }, [isPlaying, durationMs, timelineZoom, setPreviewTime]);
 
   // Clear preview on mouse leave
   const handleTimelineMouseLeave = useCallback(() => {
-    setPreviewTimeMs(null);
-  }, []);
+    setPreviewTime(null);
+  }, [setPreviewTime]);
 
   // Handle playhead dragging
   const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {

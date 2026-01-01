@@ -1,7 +1,7 @@
-import { memo, useCallback } from 'react';
-import { ZoomIn, GripVertical } from 'lucide-react';
-import type { ZoomRegion } from '../../types';
-import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
+import { memo, useCallback, useMemo } from 'react';
+import { ZoomIn, GripVertical, Plus } from 'lucide-react';
+import type { ZoomRegion, ZoomTransition } from '../../types';
+import { useVideoEditorStore, formatTimeSimple, generateZoomRegionId } from '../../stores/videoEditorStore';
 
 interface ZoomTrackProps {
   regions: ZoomRegion[];
@@ -10,8 +10,40 @@ interface ZoomTrackProps {
   width: number;
 }
 
+// Default segment duration when adding new regions (3 seconds)
+const DEFAULT_REGION_DURATION_MS = 3000;
+
 // Selectors for atomic subscriptions
 const selectSelectedZoomRegionId = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.selectedZoomRegionId;
+
+/**
+ * Preview region shown when hovering over empty track space.
+ */
+const PreviewRegion = memo(function PreviewRegion({
+  startMs,
+  endMs,
+  timelineZoom,
+}: {
+  startMs: number;
+  endMs: number;
+  timelineZoom: number;
+}) {
+  const left = startMs * timelineZoom;
+  const width = (endMs - startMs) * timelineZoom;
+
+  return (
+    <div
+      className="absolute top-1 bottom-1 rounded-md border-2 border-dashed pointer-events-none
+        border-blue-400/50 bg-blue-500/20 opacity-60
+      "
+      style={{ left: `${left}px`, width: `${Math.max(width, 40)}px` }}
+    >
+      <div className="flex items-center justify-center h-full">
+        <Plus className="h-4 w-4 text-blue-400" />
+      </div>
+    </div>
+  );
+});
 
 /**
  * Memoized zoom region component.
@@ -49,7 +81,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     onSelect(region.id);
     onDragStart(true, edge);
 
@@ -60,7 +92,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaMs = deltaX / timelineZoom;
-      
+
       if (edge === 'start') {
         const newStartMs = Math.max(0, Math.min(region.endMs - 500, startTimeMs + deltaMs));
         onUpdate(region.id, { startMs: newStartMs });
@@ -70,7 +102,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
       } else {
         let newStartMs = startTimeMs + deltaMs;
         let newEndMs = newStartMs + regionDuration;
-        
+
         if (newStartMs < 0) {
           newStartMs = 0;
           newEndMs = regionDuration;
@@ -79,7 +111,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
           newEndMs = durationMs;
           newStartMs = durationMs - regionDuration;
         }
-        
+
         onUpdate(region.id, { startMs: newStartMs, endMs: newEndMs });
       }
     };
@@ -101,6 +133,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
 
   return (
     <div
+      data-region
       className={`
         absolute top-1 bottom-1 rounded-md cursor-pointer
         transition-all duration-100
@@ -155,7 +188,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
 
       {/* Tooltip showing time range */}
       {isSelected && (
-        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap">
+        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20">
           {formatTimeSimple(region.startMs)} - {formatTimeSimple(region.endMs)}
         </div>
       )}
@@ -167,25 +200,100 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
  * ZoomTrack - Displays and allows editing of zoom regions.
  * Memoized to prevent re-renders during playback.
  */
-export const ZoomTrack = memo(function ZoomTrack({ 
-  regions, 
-  durationMs, 
-  timelineZoom, 
-  width 
+export const ZoomTrack = memo(function ZoomTrack({
+  regions,
+  durationMs,
+  timelineZoom,
+  width
 }: ZoomTrackProps) {
   const selectedZoomRegionId = useVideoEditorStore(selectSelectedZoomRegionId);
-  
+  const previewTimeMs = useVideoEditorStore((s) => s.previewTimeMs);
+  const hoveredTrack = useVideoEditorStore((s) => s.hoveredTrack);
+  const setHoveredTrack = useVideoEditorStore((s) => s.setHoveredTrack);
+  const isPlaying = useVideoEditorStore((s) => s.isPlaying);
+
   const {
     selectZoomRegion,
     updateZoomRegion,
     deleteZoomRegion,
+    addZoomRegion,
     setDraggingZoomRegion,
   } = useVideoEditorStore();
 
+  // Calculate preview region details when hovering
+  const previewRegionDetails = useMemo(() => {
+    // Only show preview when hovering over this track and not playing
+    if (hoveredTrack !== 'zoom' || previewTimeMs === null || isPlaying) {
+      return null;
+    }
+
+    // Check if hovering over an existing region
+    const isOnRegion = regions.some(
+      (reg) => previewTimeMs >= reg.startMs && previewTimeMs <= reg.endMs
+    );
+
+    if (isOnRegion) {
+      return null;
+    }
+
+    // Calculate preview region bounds - left edge at playhead
+    const startMs = previewTimeMs;
+    const endMs = Math.min(durationMs, startMs + DEFAULT_REGION_DURATION_MS);
+
+    // Check for collisions with existing regions
+    for (const reg of regions) {
+      if (startMs < reg.endMs && endMs > reg.startMs) {
+        return null;
+      }
+    }
+
+    return { startMs, endMs };
+  }, [hoveredTrack, previewTimeMs, isPlaying, regions, durationMs]);
+
+  // Handle track hover
+  const handleMouseEnter = useCallback(() => {
+    setHoveredTrack('zoom');
+  }, [setHoveredTrack]);
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredTrack(null);
+  }, [setHoveredTrack]);
+
+  // Handle click to add region
+  const handleTrackClick = useCallback((e: React.MouseEvent) => {
+    // Only add if we have a valid preview region
+    if (!previewRegionDetails) return;
+
+    // Don't add if clicking on a region
+    if ((e.target as HTMLElement).closest('[data-region]')) return;
+
+    const defaultTransition: ZoomTransition = {
+      durationInMs: 300,
+      durationOutMs: 300,
+      easing: 'easeInOut',
+    };
+
+    const newRegion: ZoomRegion = {
+      id: generateZoomRegionId(),
+      startMs: previewRegionDetails.startMs,
+      endMs: previewRegionDetails.endMs,
+      scale: 2.0,
+      targetX: 0.5,
+      targetY: 0.5,
+      isAuto: false,
+      transition: defaultTransition,
+    };
+
+    addZoomRegion(newRegion);
+  }, [previewRegionDetails, addZoomRegion]);
+
   return (
-    <div 
+    <div
       className="relative h-10 bg-zinc-800/60"
       style={{ width: `${width}px` }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleTrackClick}
     >
       {/* Track label */}
       <div className="absolute left-0 top-0 bottom-0 w-20 bg-zinc-900/80 border-r border-zinc-700/50 flex items-center justify-center z-10">
@@ -196,7 +304,9 @@ export const ZoomTrack = memo(function ZoomTrack({
       </div>
 
       {/* Zoom regions */}
-      <div className="absolute left-20 top-0 bottom-0 right-0">
+      <div className={`absolute left-20 top-0 bottom-0 right-0 ${
+        hoveredTrack === 'zoom' && previewRegionDetails ? 'cursor-pointer' : ''
+      }`}>
         {regions.map((region) => (
           <ZoomRegionItem
             key={region.id}
@@ -210,6 +320,24 @@ export const ZoomTrack = memo(function ZoomTrack({
             onDragStart={setDraggingZoomRegion}
           />
         ))}
+
+        {/* Preview region (ghost) when hovering over empty space */}
+        {previewRegionDetails && (
+          <PreviewRegion
+            startMs={previewRegionDetails.startMs}
+            endMs={previewRegionDetails.endMs}
+            timelineZoom={timelineZoom}
+          />
+        )}
+
+        {/* Empty state hint */}
+        {regions.length === 0 && !previewRegionDetails && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="text-[10px] text-zinc-500">
+              Hover to add zoom regions
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

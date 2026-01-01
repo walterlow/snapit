@@ -8,19 +8,21 @@
  * - Timeline-based editing
  */
 
-import { useCallback, forwardRef, useImperativeHandle, useEffect } from 'react';
+import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { Wand2, Loader2, X, Circle, Square, RectangleHorizontal } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { useCaptureStore } from '../stores/captureStore';
 import { useVideoEditorStore } from '../stores/videoEditorStore';
+import { useVideoEditorShortcuts } from '../hooks/useVideoEditorShortcuts';
 import { GPUVideoPreview } from '../components/VideoEditor/GPUVideoPreview';
 import { VideoTimeline } from '../components/VideoEditor/VideoTimeline';
 import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
-import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition } from '../types';
+import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, VideoBackgroundType, SceneMode, ZoomRegion } from '../types';
 
 /**
  * Position grid for 9-point webcam anchor selection.
@@ -110,6 +112,202 @@ function PositionGrid({ position, customX, customY, onChange }: PositionGridProp
 }
 
 /**
+ * ZoomRegionConfig - Configuration panel for zoom regions following Cap's UI pattern.
+ * Shows video thumbnail with draggable focus point in manual mode.
+ */
+interface ZoomRegionConfigProps {
+  region: ZoomRegion;
+  videoSrc: string;
+  canUseAuto: boolean;
+  onUpdate: (updates: Partial<ZoomRegion>) => void;
+  onDelete: () => void;
+  onDone: () => void;
+}
+
+function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, onDone }: ZoomRegionConfigProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Load video frame at the region's start time
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.src = convertFileSrc(videoSrc);
+    video.preload = 'auto';
+
+    const handleLoadedData = () => {
+      // Seek to the region's start time
+      video.currentTime = region.startMs / 1000;
+    };
+
+    const handleSeeked = () => {
+      // Draw frame to canvas
+      const canvas = canvasRef.current;
+      if (!canvas || !video) return;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      setIsLoaded(true);
+    };
+
+    video.addEventListener('loadeddata', handleLoadedData);
+    video.addEventListener('seeked', handleSeeked);
+    video.load();
+
+    return () => {
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('seeked', handleSeeked);
+    };
+  }, [videoSrc, region.startMs]);
+
+  // Handle position drag on the thumbnail
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+
+    const updatePosition = (clientX: number, clientY: number) => {
+      const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+      onUpdate({ targetX: x, targetY: y });
+    };
+
+    updatePosition(e.clientX, e.clientY);
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      updatePosition(moveEvent.clientX, moveEvent.clientY);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  if (!region) return null;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onDone}
+            className="h-7 px-2.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-medium rounded-md transition-colors"
+          >
+            Done
+          </button>
+          <span className="text-xs text-zinc-500">Zoom region</span>
+        </div>
+        <button
+          onClick={onDelete}
+          className="h-7 px-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs rounded-md transition-colors"
+        >
+          Delete
+        </button>
+      </div>
+
+      {/* Zoom Amount */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs text-zinc-400">Zoom</span>
+          <span className="text-xs text-zinc-300 font-mono">{region.scale.toFixed(1)}x</span>
+        </div>
+        <Slider
+          value={[region.scale]}
+          min={1}
+          max={4}
+          step={0.1}
+          onValueChange={(values) => onUpdate({ scale: values[0] })}
+        />
+      </div>
+
+      {/* Zoom Mode Toggle */}
+      <div>
+        <span className="text-xs text-zinc-400 block mb-2">Zoom Mode</span>
+        <div className="relative flex rounded-lg border border-zinc-700 overflow-hidden">
+          {/* Sliding indicator */}
+          <div
+            className="absolute top-0 bottom-0 w-1/2 bg-zinc-700 transition-transform duration-200"
+            style={{ transform: region.isAuto ? 'translateX(0)' : 'translateX(100%)' }}
+          />
+          <button
+            onClick={() => canUseAuto && onUpdate({ isAuto: true })}
+            disabled={!canUseAuto}
+            className={`relative z-10 flex-1 py-2 text-xs font-medium transition-colors ${
+              region.isAuto
+                ? 'text-zinc-100'
+                : canUseAuto
+                  ? 'text-zinc-500 hover:text-zinc-300'
+                  : 'text-zinc-600 cursor-not-allowed'
+            }`}
+          >
+            Auto
+          </button>
+          <button
+            onClick={() => onUpdate({ isAuto: false })}
+            className={`relative z-10 flex-1 py-2 text-xs font-medium transition-colors ${
+              !region.isAuto
+                ? 'text-zinc-100'
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            Manual
+          </button>
+        </div>
+        {!canUseAuto && (
+          <p className="text-[10px] text-zinc-600 mt-1">
+            No cursor data for auto mode
+          </p>
+        )}
+      </div>
+
+      {/* Manual Mode: Video thumbnail with focus picker */}
+      {!region.isAuto && (
+        <div
+          className="relative w-full cursor-crosshair"
+          onMouseDown={handleMouseDown}
+        >
+          {/* Focus indicator circle */}
+          <div
+            className="absolute z-20 w-6 h-6 rounded-full border-2 border-zinc-300 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center bg-zinc-900/50"
+            style={{
+              left: `${region.targetX * 100}%`,
+              top: `${region.targetY * 100}%`,
+            }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-zinc-300" />
+          </div>
+
+          {/* Video thumbnail canvas */}
+          <div className="overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800">
+            <canvas
+              ref={canvasRef}
+              className={`w-full h-auto transition-opacity duration-200 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+            />
+            {!isLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center bg-zinc-800">
+                <span className="text-xs text-zinc-500">Loading preview...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Hidden video element for frame extraction */}
+          <video ref={videoRef} className="hidden" crossOrigin="anonymous" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Imperative API exposed by VideoEditorView
  */
 export interface VideoEditorViewRef {
@@ -137,7 +335,83 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     setExportProgress,
     cancelExport,
     updateWebcamConfig,
+    updateExportConfig,
+    splitMode,
+    setSplitMode,
+    splitZoomRegionAtPlayhead,
+    deleteSelectedZoomRegion,
+    selectZoomRegion,
+    timelineZoom,
+    setTimelineZoom,
+    // Zoom region
+    selectedZoomRegionId,
+    updateZoomRegion,
+    deleteZoomRegion,
+    // Scene segment
+    selectedSceneSegmentId,
+    selectSceneSegment,
+    updateSceneSegment,
+    deleteSceneSegment,
   } = useVideoEditorStore();
+
+  // Properties panel tab state
+  type PropertiesTab = 'project' | 'webcam' | 'export';
+  const [activeTab, setActiveTab] = useState<PropertiesTab>('project');
+
+  // Skip amount in milliseconds
+  const SKIP_AMOUNT_MS = 5000;
+
+  // Keyboard shortcut handlers
+  const handleSkipBack = useCallback(() => {
+    const store = useVideoEditorStore.getState();
+    const newTime = Math.max(0, store.currentTimeMs - SKIP_AMOUNT_MS);
+    setCurrentTime(newTime);
+  }, [setCurrentTime]);
+
+  const handleSkipForward = useCallback(() => {
+    const store = useVideoEditorStore.getState();
+    if (!store.project) return;
+    const newTime = Math.min(store.project.timeline.durationMs, store.currentTimeMs + SKIP_AMOUNT_MS);
+    setCurrentTime(newTime);
+  }, [setCurrentTime]);
+
+  const handleToggleSplitMode = useCallback(() => {
+    setSplitMode(!splitMode);
+    toast.info(splitMode ? 'Split mode off' : 'Split mode on (press C to cut)');
+  }, [splitMode, setSplitMode]);
+
+  const handleDeselect = useCallback(() => {
+    if (splitMode) {
+      setSplitMode(false);
+    } else {
+      selectZoomRegion(null);
+    }
+  }, [splitMode, setSplitMode, selectZoomRegion]);
+
+  const handleTimelineZoomIn = useCallback(() => {
+    setTimelineZoom(timelineZoom * 1.5);
+  }, [timelineZoom, setTimelineZoom]);
+
+  const handleTimelineZoomOut = useCallback(() => {
+    setTimelineZoom(timelineZoom / 1.5);
+  }, [timelineZoom, setTimelineZoom]);
+
+  // Use keyboard shortcuts
+  useVideoEditorShortcuts({
+    enabled: !!project && !isExporting,
+    onTogglePlayback: togglePlayback,
+    onSeekToStart: () => setCurrentTime(0),
+    onSeekToEnd: () => project && setCurrentTime(project.timeline.durationMs),
+    onSkipBack: handleSkipBack,
+    onSkipForward: handleSkipForward,
+    onSplitAtPlayhead: splitZoomRegionAtPlayhead,
+    onToggleSplitMode: handleToggleSplitMode,
+    onDeleteSelected: deleteSelectedZoomRegion,
+    onTimelineZoomIn: handleTimelineZoomIn,
+    onTimelineZoomOut: handleTimelineZoomOut,
+    onDeselect: handleDeselect,
+    onExport: () => {}, // Will be wired to handleExport after it's defined
+  });
 
   // Listen for export progress events from Rust backend
   useEffect(() => {
@@ -236,169 +510,337 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
           <GPUVideoPreview />
         </div>
 
-        {/* Right sidebar for properties (future: zoom settings, cursor config, etc.) */}
+        {/* Right sidebar with tabbed properties panel */}
         <div className="w-72 bg-zinc-900/50 border-l border-zinc-800 flex flex-col">
-          <div className="p-4 border-b border-zinc-800">
-            <h3 className="text-sm font-medium text-zinc-300">Properties</h3>
+          {/* Tab Bar */}
+          <div className="flex border-b border-zinc-800">
+            <button
+              onClick={() => setActiveTab('project')}
+              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                activeTab === 'project'
+                  ? 'text-zinc-200 border-b-2 border-blue-500 bg-zinc-800/30'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Project
+            </button>
+            {project?.sources.webcamVideo && (
+              <button
+                onClick={() => setActiveTab('webcam')}
+                className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                  activeTab === 'webcam'
+                    ? 'text-zinc-200 border-b-2 border-blue-500 bg-zinc-800/30'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                Webcam
+              </button>
+            )}
+            <button
+              onClick={() => setActiveTab('export')}
+              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                activeTab === 'export'
+                  ? 'text-zinc-200 border-b-2 border-blue-500 bg-zinc-800/30'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Export
+            </button>
           </div>
-          
-          <div className="flex-1 p-4 overflow-y-auto">
-            {/* Project Info */}
-            <div className="space-y-4">
-              <div>
-                <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Project</label>
-                <p className="text-sm text-zinc-300 mt-1 truncate">
-                  {project?.name ?? 'No project loaded'}
-                </p>
-              </div>
-              
-              {project && (
-                <>
-                  <div>
-                    <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Resolution</label>
-                    <p className="text-sm text-zinc-300 mt-1 font-mono">
-                      {project.sources.originalWidth} × {project.sources.originalHeight}
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Frame Rate</label>
-                    <p className="text-sm text-zinc-300 mt-1 font-mono">
-                      {project.sources.fps} fps
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Duration</label>
-                    <p className="text-sm text-zinc-300 mt-1 font-mono">
-                      {Math.floor(project.timeline.durationMs / 60000)}:{String(Math.floor((project.timeline.durationMs % 60000) / 1000)).padStart(2, '0')}
-                    </p>
-                  </div>
 
-                  {/* Auto-Zoom Section */}
-                  <div className="pt-4 border-t border-zinc-800">
-                    <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Auto-Zoom</label>
-                    <p className="text-sm text-zinc-400 mt-1 mb-3">
-                      Generate zoom regions from click events
-                    </p>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="w-full"
-                      disabled={!hasCursorData || isGeneratingAutoZoom}
-                      onClick={handleGenerateAutoZoom}
-                    >
-                      {isGeneratingAutoZoom ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <Wand2 className="h-4 w-4 mr-2" />
-                          Generate Auto-Zoom
-                        </>
-                      )}
-                    </Button>
-                    {!hasCursorData && (
-                      <p className="text-[11px] text-zinc-500 mt-2">
-                        No cursor data available for this recording
-                      </p>
-                    )}
-                  </div>
+          {/* Tab Content */}
+          <div className="flex-1 overflow-y-auto relative">
+            {/* Selection Overlay (shown when zoom region or scene segment is selected) */}
+            {(selectedZoomRegionId || selectedSceneSegmentId) && project && (
+              <div className="absolute inset-0 p-4 bg-zinc-900/95 z-10 animate-in slide-in-from-bottom-2 fade-in duration-200 overflow-y-auto">
+                {/* Zoom Region Properties */}
+                {selectedZoomRegionId && project.zoom.regions.find(r => r.id === selectedZoomRegionId) && (
+                  <ZoomRegionConfig
+                    region={project.zoom.regions.find(r => r.id === selectedZoomRegionId)!}
+                    videoSrc={project.sources.screenVideo}
+                    canUseAuto={project.sources.cursorData != null}
+                    onUpdate={(updates) => updateZoomRegion(selectedZoomRegionId, updates)}
+                    onDelete={() => {
+                      deleteZoomRegion(selectedZoomRegionId);
+                      selectZoomRegion(null);
+                    }}
+                    onDone={() => selectZoomRegion(null)}
+                  />
+                )}
 
-                  <div className="pt-4 border-t border-zinc-800">
-                    <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Zoom Regions</label>
-                    <p className="text-sm text-zinc-300 mt-1">
-                      {project.zoom.regions.length} region{project.zoom.regions.length !== 1 ? 's' : ''}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Webcam Segments</label>
-                    <p className="text-sm text-zinc-300 mt-1">
-                      {project.webcam.visibilitySegments.length} segment{project.webcam.visibilitySegments.length !== 1 ? 's' : ''}
-                    </p>
-                  </div>
-
-                  {/* Webcam Settings Section */}
-                  {project.sources.webcamVideo && (
-                    <div className="pt-4 border-t border-zinc-800 space-y-4">
-                      <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Webcam Settings</label>
-
-                      {/* Size Slider */}
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs text-zinc-400">Size</span>
-                          <span className="text-xs text-zinc-300 font-mono">
-                            {Math.round(project.webcam.size * 100)}%
-                          </span>
+                {/* Scene Segment Properties */}
+                {selectedSceneSegmentId && (() => {
+                  const segment = project.scene.segments.find(s => s.id === selectedSceneSegmentId);
+                  if (!segment) return null;
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => selectSceneSegment(null)}
+                            className="h-7 px-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-medium rounded-md transition-colors"
+                          >
+                            Done
+                          </button>
+                          <span className="text-xs text-zinc-500">Scene segment</span>
                         </div>
-                        <Slider
-                          value={[project.webcam.size * 100]}
-                          onValueChange={(values) => {
-                            updateWebcamConfig({ size: values[0] / 100 });
+                        <button
+                          onClick={() => {
+                            deleteSceneSegment(selectedSceneSegmentId);
+                            selectSceneSegment(null);
                           }}
-                          min={10}
-                          max={50}
-                          step={1}
-                        />
-                      </div>
-
-                      {/* Shape Toggle */}
-                      <div>
-                        <span className="text-xs text-zinc-400 block mb-2">Shape</span>
-                        <ToggleGroup
-                          type="single"
-                          value={project.webcam.shape}
-                          onValueChange={(value) => {
-                            if (value) {
-                              updateWebcamConfig({ shape: value as WebcamOverlayShape });
-                            }
-                          }}
-                          className="justify-start"
+                          className="h-7 px-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs rounded-md transition-colors"
                         >
-                          <ToggleGroupItem
-                            value="circle"
-                            aria-label="Circle"
-                            className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700"
-                          >
-                            <Circle className="h-4 w-4" />
-                          </ToggleGroupItem>
-                          <ToggleGroupItem
-                            value="roundedRectangle"
-                            aria-label="Squircle"
-                            className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700"
-                          >
-                            <Square className="h-4 w-4" />
-                          </ToggleGroupItem>
-                          <ToggleGroupItem
-                            value="rectangle"
-                            aria-label="Rectangle"
-                            className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700"
-                          >
-                            <RectangleHorizontal className="h-4 w-4" />
-                          </ToggleGroupItem>
-                        </ToggleGroup>
+                          Delete
+                        </button>
                       </div>
-
-                      {/* Position Grid */}
-                      <div>
-                        <span className="text-xs text-zinc-400 block mb-2">Position</span>
-                        <PositionGrid
-                          position={project.webcam.position}
-                          customX={project.webcam.customX}
-                          customY={project.webcam.customY}
-                          onChange={(pos, x, y) => {
-                            updateWebcamConfig({ position: pos, customX: x, customY: y });
-                          }}
-                        />
+                      <div className="space-y-3 pt-2">
+                        <div>
+                          <span className="text-xs text-zinc-400 block mb-2">Mode</span>
+                          <select
+                            value={segment.mode}
+                            onChange={(e) => updateSceneSegment(selectedSceneSegmentId, { mode: e.target.value as SceneMode })}
+                            className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 px-2"
+                          >
+                            <option value="default">Screen + Webcam</option>
+                            <option value="cameraOnly">Camera Only</option>
+                            <option value="screenOnly">Screen Only</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
-                  )}
-                </>
-              )}
-            </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Project Tab */}
+            {activeTab === 'project' && (
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Project</label>
+                  <p className="text-sm text-zinc-300 mt-1 truncate">
+                    {project?.name ?? 'No project loaded'}
+                  </p>
+                </div>
+
+                {project && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] text-zinc-500 uppercase">Resolution</label>
+                        <p className="text-xs text-zinc-300 font-mono mt-0.5">
+                          {project.sources.originalWidth}×{project.sources.originalHeight}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-zinc-500 uppercase">Frame Rate</label>
+                        <p className="text-xs text-zinc-300 font-mono mt-0.5">
+                          {project.sources.fps} fps
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-zinc-500 uppercase">Duration</label>
+                        <p className="text-xs text-zinc-300 font-mono mt-0.5">
+                          {Math.floor(project.timeline.durationMs / 60000)}:{String(Math.floor((project.timeline.durationMs % 60000) / 1000)).padStart(2, '0')}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-zinc-500 uppercase">Zoom Regions</label>
+                        <p className="text-xs text-zinc-300 mt-0.5">
+                          {project.zoom.regions.length}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Auto-Zoom Section */}
+                    <div className="pt-3 border-t border-zinc-800">
+                      <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Auto-Zoom</label>
+                      <p className="text-[11px] text-zinc-500 mt-1 mb-2">
+                        Generate zoom from clicks
+                      </p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="w-full h-8"
+                        disabled={!hasCursorData || isGeneratingAutoZoom}
+                        onClick={handleGenerateAutoZoom}
+                      >
+                        {isGeneratingAutoZoom ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+                            Generate
+                          </>
+                        )}
+                      </Button>
+                      {!hasCursorData && (
+                        <p className="text-[10px] text-zinc-600 mt-1.5">
+                          No cursor data available
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Webcam Tab */}
+            {activeTab === 'webcam' && project?.sources.webcamVideo && (
+              <div className="p-4 space-y-4">
+                {/* Size Slider */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-400">Size</span>
+                    <span className="text-xs text-zinc-300 font-mono">
+                      {Math.round(project.webcam.size * 100)}%
+                    </span>
+                  </div>
+                  <Slider
+                    value={[project.webcam.size * 100]}
+                    onValueChange={(values) => updateWebcamConfig({ size: values[0] / 100 })}
+                    min={10}
+                    max={50}
+                    step={1}
+                  />
+                </div>
+
+                {/* Shape Toggle */}
+                <div>
+                  <span className="text-xs text-zinc-400 block mb-2">Shape</span>
+                  <ToggleGroup
+                    type="single"
+                    value={project.webcam.shape}
+                    onValueChange={(value) => {
+                      if (value) updateWebcamConfig({ shape: value as WebcamOverlayShape });
+                    }}
+                    className="justify-start"
+                  >
+                    <ToggleGroupItem value="circle" aria-label="Circle" className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700">
+                      <Circle className="h-4 w-4" />
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="roundedRectangle" aria-label="Squircle" className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700">
+                      <Square className="h-4 w-4" />
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="rectangle" aria-label="Rectangle" className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700">
+                      <RectangleHorizontal className="h-4 w-4" />
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+
+                {/* Position Grid */}
+                <div>
+                  <span className="text-xs text-zinc-400 block mb-2">Position</span>
+                  <PositionGrid
+                    position={project.webcam.position}
+                    customX={project.webcam.customX}
+                    customY={project.webcam.customY}
+                    onChange={(pos, x, y) => updateWebcamConfig({ position: pos, customX: x, customY: y })}
+                  />
+                </div>
+
+                {/* Segments count */}
+                <div className="pt-3 border-t border-zinc-800">
+                  <label className="text-[10px] text-zinc-500 uppercase">Visibility Segments</label>
+                  <p className="text-xs text-zinc-300 mt-0.5">
+                    {project.webcam.visibilitySegments.length} segment{project.webcam.visibilitySegments.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Export Tab */}
+            {activeTab === 'export' && project && (
+              <div className="p-4 space-y-4">
+                {/* Export Preset */}
+                <div>
+                  <span className="text-xs text-zinc-400 block mb-2">Preset</span>
+                  <select
+                    value={project.export.preset}
+                    onChange={(e) => updateExportConfig({ preset: e.target.value as ExportPreset })}
+                    className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 px-2"
+                  >
+                    <option value="draft">Draft (720p, 15fps)</option>
+                    <option value="standard">Standard (1080p, 30fps)</option>
+                    <option value="highQuality">High Quality (1080p, 60fps)</option>
+                    <option value="maximum">Maximum (Source)</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+
+                {/* Aspect Ratio */}
+                <div>
+                  <span className="text-xs text-zinc-400 block mb-2">Aspect Ratio</span>
+                  <select
+                    value={project.export.aspectRatio}
+                    onChange={(e) => updateExportConfig({ aspectRatio: e.target.value as AspectRatio })}
+                    className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 px-2"
+                  >
+                    <option value="auto">Auto (Source)</option>
+                    <option value="landscape16x9">16:9 Landscape</option>
+                    <option value="portrait9x16">9:16 Portrait</option>
+                    <option value="square1x1">1:1 Square</option>
+                    <option value="standard4x3">4:3 Standard</option>
+                  </select>
+                </div>
+
+                {/* Background (for letterboxing) */}
+                {project.export.aspectRatio !== 'auto' && (
+                  <div>
+                    <span className="text-xs text-zinc-400 block mb-2">Background</span>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={project.export.background.bgType}
+                        onChange={(e) => updateExportConfig({
+                          background: { ...project.export.background, bgType: e.target.value as VideoBackgroundType }
+                        })}
+                        className="flex-1 h-8 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 px-2"
+                      >
+                        <option value="solid">Solid</option>
+                        <option value="gradient">Gradient</option>
+                      </select>
+                      {project.export.background.bgType === 'solid' && (
+                        <input
+                          type="color"
+                          value={project.export.background.solidColor}
+                          onChange={(e) => updateExportConfig({
+                            background: { ...project.export.background, solidColor: e.target.value }
+                          })}
+                          className="w-8 h-8 rounded border border-zinc-700 cursor-pointer bg-transparent"
+                        />
+                      )}
+                    </div>
+                    {project.export.background.bgType === 'gradient' && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          type="color"
+                          value={project.export.background.gradientStart}
+                          onChange={(e) => updateExportConfig({
+                            background: { ...project.export.background, gradientStart: e.target.value }
+                          })}
+                          className="w-8 h-8 rounded border border-zinc-700 cursor-pointer bg-transparent"
+                        />
+                        <div className="flex-1 h-4 rounded" style={{
+                          background: `linear-gradient(90deg, ${project.export.background.gradientStart}, ${project.export.background.gradientEnd})`
+                        }} />
+                        <input
+                          type="color"
+                          value={project.export.background.gradientEnd}
+                          onChange={(e) => updateExportConfig({
+                            background: { ...project.export.background, gradientEnd: e.target.value }
+                          })}
+                          className="w-8 h-8 rounded border border-zinc-700 cursor-pointer bg-transparent"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

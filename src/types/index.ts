@@ -416,9 +416,21 @@ export type {
   ExportConfig,
   ExportFormat,
   ExportResolution,
+  ExportPreset,
+  AspectRatio,
+  BackgroundType as VideoBackgroundType,
+  BackgroundConfig,
   ExportProgress,
   ExportResult,
   ExportStage,
+  AudioTrackSettings,
+  AudioWaveform,
+  SceneMode,
+  SceneSegment,
+  SceneConfig,
+  TextAnimation,
+  TextSegment,
+  TextConfig,
 } from './generated';
 
 // GPU Video Editor types (wgpu-accelerated rendering)

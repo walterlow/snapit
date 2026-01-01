@@ -68,11 +68,26 @@ export type { VisibilitySegment } from './VisibilitySegment';
 
 // Video editor - Audio track types
 export type { AudioTrackSettings } from './AudioTrackSettings';
+export type { AudioWaveform } from './AudioWaveform';
+
+// Video editor - Scene mode types
+export type { SceneMode } from './SceneMode';
+export type { SceneSegment } from './SceneSegment';
+export type { SceneConfig } from './SceneConfig';
+
+// Video editor - Text overlay types
+export type { TextAnimation } from './TextAnimation';
+export type { TextSegment } from './TextSegment';
+export type { TextConfig } from './TextConfig';
 
 // Video editor - Export types
 export type { ExportConfig } from './ExportConfig';
 export type { ExportFormat } from './ExportFormat';
 export type { ExportResolution } from './ExportResolution';
+export type { ExportPreset } from './ExportPreset';
+export type { AspectRatio } from './AspectRatio';
+export type { BackgroundType } from './BackgroundType';
+export type { BackgroundConfig } from './BackgroundConfig';
 export type { ExportProgress } from './ExportProgress';
 export type { ExportResult } from './ExportResult';
 export type { ExportStage } from './ExportStage';

@@ -130,7 +130,7 @@ function applyEasing(t: number, easing: EasingFunction): number {
 
 /**
  * Convert zoom state to CSS transform properties.
- * 
+ *
  * The transform simulates zooming into the video at the target position.
  * - scale: How much to zoom (1 = no zoom, 2 = 2x zoom)
  * - centerX/Y: Where to zoom (0-1 normalized, 0.5 = center)
@@ -143,14 +143,20 @@ export function zoomStateToTransform(state: ZoomState): ZoomTransformStyle {
     };
   }
 
+  // Clamp center position to prevent showing empty areas at edges
+  // At scale S, visible area is 1/S, so center must be between 0.5/S and 1-0.5/S
+  const halfVisible = 0.5 / state.scale;
+  const clampedCenterX = Math.max(halfVisible, Math.min(1 - halfVisible, state.centerX));
+  const clampedCenterY = Math.max(halfVisible, Math.min(1 - halfVisible, state.centerY));
+
   // Calculate translation to keep the target point centered
   // When zoomed, we need to pan so the target (centerX, centerY) appears at screen center
-  const translateX = (0.5 - state.centerX) * 100 * (state.scale - 1) / state.scale;
-  const translateY = (0.5 - state.centerY) * 100 * (state.scale - 1) / state.scale;
+  const translateX = (0.5 - clampedCenterX) * 100 * (state.scale - 1) / state.scale;
+  const translateY = (0.5 - clampedCenterY) * 100 * (state.scale - 1) / state.scale;
 
   return {
     transform: `scale(${state.scale}) translate(${translateX}%, ${translateY}%)`,
-    transformOrigin: `${state.centerX * 100}% ${state.centerY * 100}%`,
+    transformOrigin: `${clampedCenterX * 100}% ${clampedCenterY * 100}%`,
   };
 }
 

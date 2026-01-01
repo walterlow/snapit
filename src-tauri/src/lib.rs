@@ -242,6 +242,7 @@ pub fn run() {
             commands::video_recording::save_video_project,
             commands::video_recording::extract_frame,
             commands::video_recording::clear_video_frame_cache,
+            commands::video_recording::extract_audio_waveform,
             commands::video_recording::generate_auto_zoom,
             commands::video_recording::export_video,
             // GPU-accelerated video editor commands

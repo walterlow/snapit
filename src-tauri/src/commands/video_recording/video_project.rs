@@ -43,6 +43,10 @@ pub struct VideoProject {
     pub audio: AudioTrackSettings,
     /// Export settings.
     pub export: ExportConfig,
+    /// Scene/camera mode configuration.
+    pub scene: SceneConfig,
+    /// Text overlay configuration.
+    pub text: TextConfig,
 }
 
 /// Source files for a video project.
@@ -458,6 +462,8 @@ pub struct VisibilitySegment {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct ExportConfig {
+    /// Export preset for quick selection.
+    pub preset: ExportPreset,
     /// Output format.
     pub format: ExportFormat,
     /// Output resolution.
@@ -466,15 +472,22 @@ pub struct ExportConfig {
     pub quality: u32,
     /// Frames per second.
     pub fps: u32,
+    /// Output aspect ratio (for letterboxing).
+    pub aspect_ratio: AspectRatio,
+    /// Background configuration for letterboxing/padding.
+    pub background: BackgroundConfig,
 }
 
 impl Default for ExportConfig {
     fn default() -> Self {
         Self {
+            preset: ExportPreset::Standard,
             format: ExportFormat::Mp4,
             resolution: ExportResolution::Original,
             quality: 80,
             fps: 30,
+            aspect_ratio: AspectRatio::Auto,
+            background: BackgroundConfig::default(),
         }
     }
 }
@@ -504,6 +517,209 @@ pub enum ExportResolution {
     Qhd1440,
     /// 3840x2160.
     Uhd4k,
+}
+
+
+/// Export preset for quick quality selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum ExportPreset {
+    /// Draft quality - fast encoding, lower quality (720p, 15fps).
+    Draft,
+    /// Standard quality - balanced (1080p, 30fps).
+    Standard,
+    /// High quality - for final output (1080p, 60fps).
+    HighQuality,
+    /// Maximum quality - uses source resolution and framerate.
+    Maximum,
+    /// Custom settings.
+    Custom,
+}
+
+/// Aspect ratio for output video.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum AspectRatio {
+    /// Use source aspect ratio (no letterboxing).
+    Auto,
+    /// 16:9 widescreen landscape.
+    Landscape16x9,
+    /// 9:16 portrait (social media vertical).
+    Portrait9x16,
+    /// 1:1 square.
+    Square1x1,
+    /// 4:3 standard/classic.
+    Standard4x3,
+}
+
+/// Background type for letterboxing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum BackgroundType {
+    /// Solid color background.
+    Solid,
+    /// Gradient background.
+    Gradient,
+}
+
+/// Background configuration for letterboxing/padding.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct BackgroundConfig {
+    /// Type of background.
+    pub bg_type: BackgroundType,
+    /// Solid color (hex format, e.g., "#000000").
+    pub solid_color: String,
+    /// Gradient start color (hex format).
+    pub gradient_start: String,
+    /// Gradient end color (hex format).
+    pub gradient_end: String,
+    /// Gradient angle in degrees (0-360).
+    pub gradient_angle: f32,
+}
+
+impl Default for BackgroundConfig {
+    fn default() -> Self {
+        Self {
+            bg_type: BackgroundType::Solid,
+            solid_color: "#000000".to_string(),
+            gradient_start: "#1a1a2e".to_string(),
+            gradient_end: "#16213e".to_string(),
+            gradient_angle: 135.0,
+        }
+    }
+}
+
+
+/// Audio waveform data for visualization.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct AudioWaveform {
+    /// Downsampled audio samples (normalized -1.0 to 1.0).
+    pub samples: Vec<f32>,
+    /// Duration of the audio in milliseconds.
+    #[ts(type = "number")]
+    pub duration_ms: u64,
+    /// Number of samples per second in this waveform data.
+    pub samples_per_second: u32,
+}
+
+
+/// Scene mode for different camera/screen configurations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum SceneMode {
+    /// Default mode - screen with webcam overlay.
+    Default,
+    /// Camera-only mode - fullscreen webcam.
+    CameraOnly,
+    /// Screen-only mode - hide webcam.
+    ScreenOnly,
+}
+
+/// A scene segment defining the mode for a time range.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct SceneSegment {
+    /// Unique identifier for this segment.
+    pub id: String,
+    /// Start time in milliseconds.
+    #[ts(type = "number")]
+    pub start_ms: u64,
+    /// End time in milliseconds.
+    #[ts(type = "number")]
+    pub end_ms: u64,
+    /// Scene mode for this segment.
+    pub mode: SceneMode,
+}
+
+/// Scene configuration for the video.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct SceneConfig {
+    /// Scene segments defining modes over time.
+    pub segments: Vec<SceneSegment>,
+    /// Default scene mode when no segment applies.
+    pub default_mode: SceneMode,
+}
+
+impl Default for SceneConfig {
+    fn default() -> Self {
+        Self {
+            segments: Vec::new(),
+            default_mode: SceneMode::Default,
+        }
+    }
+}
+
+
+/// Text animation style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum TextAnimation {
+    /// No animation.
+    None,
+    /// Fade in at start.
+    FadeIn,
+    /// Fade out at end.
+    FadeOut,
+    /// Fade in and out.
+    FadeInOut,
+}
+
+/// A text overlay segment.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct TextSegment {
+    /// Unique identifier.
+    pub id: String,
+    /// Start time in milliseconds.
+    #[ts(type = "number")]
+    pub start_ms: u64,
+    /// End time in milliseconds.
+    #[ts(type = "number")]
+    pub end_ms: u64,
+    /// Text content.
+    pub text: String,
+    /// X position (0-1, normalized).
+    pub x: f32,
+    /// Y position (0-1, normalized).
+    pub y: f32,
+    /// Font family.
+    pub font_family: String,
+    /// Font size in pixels.
+    pub font_size: u32,
+    /// Text color (hex format).
+    pub color: String,
+    /// Text animation style.
+    pub animation: TextAnimation,
+}
+
+/// Text overlay configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct TextConfig {
+    /// Text overlay segments.
+    pub segments: Vec<TextSegment>,
+}
+
+impl Default for TextConfig {
+    fn default() -> Self {
+        Self {
+            segments: Vec::new(),
+        }
+    }
 }
 
 // ============================================================================
@@ -555,6 +771,8 @@ impl VideoProject {
             webcam: WebcamConfig::default(),
             audio: AudioTrackSettings::default(),
             export: ExportConfig::default(),
+            scene: SceneConfig::default(),
+            text: TextConfig::default(),
         }
     }
 

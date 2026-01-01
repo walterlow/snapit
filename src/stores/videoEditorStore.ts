@@ -12,6 +12,9 @@ import type {
   PlaybackEvent,
   RenderedFrame,
   WebcamConfig,
+  ExportConfig,
+  SceneSegment,
+  TextSegment,
 } from '../types';
 
 interface VideoEditorState {
@@ -34,12 +37,18 @@ interface VideoEditorState {
   // Selection state
   selectedZoomRegionId: string | null;
   selectedWebcamSegmentIndex: number | null;
+  selectedSceneSegmentId: string | null;
+  selectedTextSegmentId: string | null;
   
   // Timeline interaction state
   isDraggingPlayhead: boolean;
   isDraggingZoomRegion: boolean;
   draggedZoomEdge: 'start' | 'end' | 'move' | null;
+  isDraggingSceneSegment: boolean;
+  draggedSceneEdge: 'start' | 'end' | 'move' | null;
   previewTimeMs: number | null; // Hover preview time for scrubbing
+  hoveredTrack: 'video' | 'zoom' | 'audio' | 'scene' | 'text' | 'webcam' | null; // Which track is hovered
+  splitMode: boolean; // Split mode for cutting regions at playhead
   
   // View state
   timelineZoom: number; // pixels per millisecond
@@ -70,6 +79,18 @@ interface VideoEditorState {
   updateZoomRegion: (id: string, updates: Partial<ZoomRegion>) => void;
   deleteZoomRegion: (id: string) => void;
   
+  // Text segment actions
+  selectTextSegment: (id: string | null) => void;
+  addTextSegment: (segment: TextSegment) => void;
+  updateTextSegment: (id: string, updates: Partial<TextSegment>) => void;
+  deleteTextSegment: (id: string) => void;
+
+  // Scene segment actions
+  selectSceneSegment: (id: string | null) => void;
+  addSceneSegment: (segment: SceneSegment) => void;
+  updateSceneSegment: (id: string, updates: Partial<SceneSegment>) => void;
+  deleteSceneSegment: (id: string) => void;
+
   // Webcam segment actions
   selectWebcamSegment: (index: number | null) => void;
   addWebcamSegment: (segment: VisibilitySegment) => void;
@@ -79,6 +100,9 @@ interface VideoEditorState {
 
   // Webcam config actions
   updateWebcamConfig: (updates: Partial<WebcamConfig>) => void;
+
+  // Export config actions
+  updateExportConfig: (updates: Partial<ExportConfig>) => void;
   
   // Timeline view actions
   setTimelineZoom: (zoom: number) => void;
@@ -87,8 +111,15 @@ interface VideoEditorState {
   // Drag state actions
   setDraggingPlayhead: (dragging: boolean) => void;
   setDraggingZoomRegion: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
+  setDraggingSceneSegment: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
   setPreviewTime: (timeMs: number | null) => void;
-  
+  setHoveredTrack: (track: VideoEditorState['hoveredTrack']) => void;
+
+  // Split mode actions
+  setSplitMode: (enabled: boolean) => void;
+  splitZoomRegionAtPlayhead: () => void;
+  deleteSelectedZoomRegion: () => void;
+
   // Editor actions
   clearEditor: () => void;
   
@@ -125,10 +156,16 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       
       selectedZoomRegionId: null,
       selectedWebcamSegmentIndex: null,
+      selectedSceneSegmentId: null,
+      selectedTextSegmentId: null,
       isDraggingPlayhead: false,
       isDraggingZoomRegion: false,
       draggedZoomEdge: null,
+      isDraggingSceneSegment: false,
+      draggedSceneEdge: null,
       previewTimeMs: null,
+      hoveredTrack: null,
+      splitMode: false,
       timelineZoom: DEFAULT_TIMELINE_ZOOM,
       timelineScrollLeft: 0,
       isGeneratingAutoZoom: false,
@@ -207,6 +244,118 @@ export const useVideoEditorStore = create<VideoEditorState>()(
             },
           },
           selectedZoomRegionId: selectedZoomRegionId === id ? null : selectedZoomRegionId,
+        });
+      },
+
+
+
+      // Text segment actions
+      selectTextSegment: (id) => set({ selectedTextSegmentId: id }),
+
+      addTextSegment: (segment) => {
+        const { project } = get();
+        if (!project) return;
+
+        const segments = [...project.text.segments, segment];
+        segments.sort((a, b) => a.startMs - b.startMs);
+
+        set({
+          project: {
+            ...project,
+            text: {
+              ...project.text,
+              segments,
+            },
+          },
+          selectedTextSegmentId: segment.id,
+        });
+      },
+
+      updateTextSegment: (id, updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            text: {
+              ...project.text,
+              segments: project.text.segments.map((s) =>
+                s.id === id ? { ...s, ...updates } : s
+              ),
+            },
+          },
+        });
+      },
+
+      deleteTextSegment: (id) => {
+        const { project, selectedTextSegmentId } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            text: {
+              ...project.text,
+              segments: project.text.segments.filter((s) => s.id !== id),
+            },
+          },
+          selectedTextSegmentId: selectedTextSegmentId === id ? null : selectedTextSegmentId,
+        });
+      },
+
+      // Scene segment actions
+      selectSceneSegment: (id) => set({ selectedSceneSegmentId: id }),
+
+      addSceneSegment: (segment) => {
+        const { project } = get();
+        if (!project) return;
+
+        const segments = [...project.scene.segments, segment];
+        segments.sort((a, b) => a.startMs - b.startMs);
+
+        set({
+          project: {
+            ...project,
+            scene: {
+              ...project.scene,
+              segments,
+            },
+          },
+          selectedSceneSegmentId: segment.id,
+        });
+      },
+
+      updateSceneSegment: (id, updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            scene: {
+              ...project.scene,
+              segments: project.scene.segments.map((s) =>
+                s.id === id ? { ...s, ...updates } : s
+              ),
+            },
+          },
+        });
+      },
+
+      deleteSceneSegment: (id) => {
+        const { project, selectedSceneSegmentId } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            scene: {
+              ...project.scene,
+              segments: project.scene.segments.filter((s) => s.id !== id),
+            },
+          },
+          selectedSceneSegmentId: selectedSceneSegmentId === id ? null : selectedSceneSegmentId,
         });
       },
 
@@ -347,6 +496,22 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         });
       },
 
+      // Export config actions
+      updateExportConfig: (updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            export: {
+              ...project.export,
+              ...updates,
+            },
+          },
+        });
+      },
+
       // Timeline view actions
       setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(0.01, Math.min(0.5, zoom)) }),
       
@@ -356,10 +521,86 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       setDraggingPlayhead: (dragging) => set({ isDraggingPlayhead: dragging }),
       setPreviewTime: (timeMs) => set({ previewTimeMs: timeMs }),
 
+      setHoveredTrack: (track) => set({ hoveredTrack: track }),
+
       setDraggingZoomRegion: (dragging, edge) => set({
         isDraggingZoomRegion: dragging,
         draggedZoomEdge: dragging ? edge ?? null : null,
       }),
+
+      setDraggingSceneSegment: (dragging, edge) => set({
+        isDraggingSceneSegment: dragging,
+        draggedSceneEdge: dragging ? edge ?? null : null,
+      }),
+
+      // Split mode actions
+      setSplitMode: (enabled) => set({ splitMode: enabled }),
+
+      splitZoomRegionAtPlayhead: () => {
+        const { project, currentTimeMs, selectedZoomRegionId } = get();
+        if (!project || !selectedZoomRegionId) return;
+
+        const region = project.zoom.regions.find((r) => r.id === selectedZoomRegionId);
+        if (!region) return;
+
+        // Check if playhead is within the region (with some margin)
+        const minDuration = 100; // Minimum 100ms per segment
+        if (
+          currentTimeMs <= region.startMs + minDuration ||
+          currentTimeMs >= region.endMs - minDuration
+        ) {
+          return; // Can't split at edges or if segments would be too small
+        }
+
+        // Create two new regions from the split
+        const id1 = `zoom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const id2 = `zoom_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`;
+
+        const region1: ZoomRegion = {
+          ...region,
+          id: id1,
+          endMs: currentTimeMs,
+        };
+
+        const region2: ZoomRegion = {
+          ...region,
+          id: id2,
+          startMs: currentTimeMs,
+        };
+
+        // Replace original with two new regions
+        const newRegions = project.zoom.regions
+          .filter((r) => r.id !== selectedZoomRegionId)
+          .concat([region1, region2])
+          .sort((a, b) => a.startMs - b.startMs);
+
+        set({
+          project: {
+            ...project,
+            zoom: {
+              ...project.zoom,
+              regions: newRegions,
+            },
+          },
+          selectedZoomRegionId: id1, // Select the first part
+        });
+      },
+
+      deleteSelectedZoomRegion: () => {
+        const { project, selectedZoomRegionId } = get();
+        if (!project || !selectedZoomRegionId) return;
+
+        set({
+          project: {
+            ...project,
+            zoom: {
+              ...project.zoom,
+              regions: project.zoom.regions.filter((r) => r.id !== selectedZoomRegionId),
+            },
+          },
+          selectedZoomRegionId: null,
+        });
+      },
 
       // GPU Editor actions
       initializeGPUEditor: async (project) => {
@@ -484,6 +725,8 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           isDraggingZoomRegion: false,
           draggedZoomEdge: null,
           previewTimeMs: null,
+          hoveredTrack: null,
+          splitMode: false,
           timelineZoom: DEFAULT_TIMELINE_ZOOM,
           timelineScrollLeft: 0,
           isGeneratingAutoZoom: false,

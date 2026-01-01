@@ -47,6 +47,7 @@ pub use cursor::{
     load_cursor_recording, save_cursor_recording,
 };
 pub use video_project::{
+    AudioWaveform,
     AudioTrackSettings, AutoZoomConfig, ClickHighlightConfig, ClickHighlightStyle, CursorConfig,
     EasingFunction, ExportConfig, ExportFormat, ExportResolution, TimelineState, VideoProject,
     VideoSources, VisibilitySegment, WebcamBorder, WebcamConfig,
@@ -1248,6 +1249,90 @@ pub async fn extract_frame(
 pub fn clear_video_frame_cache(video_path: Option<String>) {
     let path = video_path.as_ref().map(|p| std::path::Path::new(p));
     clear_frame_cache(path);
+}
+
+/// Extract audio waveform data for visualization.
+///
+/// Uses FFmpeg to downsample audio into a format suitable for waveform rendering.
+#[command]
+pub async fn extract_audio_waveform(
+    audio_path: String,
+    samples_per_second: Option<u32>,
+) -> Result<AudioWaveform, String> {
+    let path = std::path::Path::new(&audio_path);
+
+    if !path.exists() {
+        return Err(format!("Audio file not found: {}", audio_path));
+    }
+
+    let sps = samples_per_second.unwrap_or(100);
+
+    let ffmpeg_path = crate::commands::storage::find_ffmpeg()
+        .ok_or_else(|| "FFmpeg not found".to_string())?;
+
+    // Get audio duration via ffprobe
+    let ffprobe_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    let ffprobe_path = ffmpeg_path.with_file_name(ffprobe_name);
+
+    let probe_output = std::process::Command::new(&ffprobe_path)
+        .args(["-v", "quiet", "-print_format", "json", "-show_format"])
+        .arg(&path)
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+
+    let probe_json: serde_json::Value = serde_json::from_slice(&probe_output.stdout)
+        .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
+
+    let duration_secs = probe_json["format"]["duration"]
+        .as_str()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0);
+
+    let duration_ms = (duration_secs * 1000.0) as u64;
+
+    if duration_ms == 0 {
+        return Ok(AudioWaveform {
+            samples: Vec::new(),
+            duration_ms: 0,
+            samples_per_second: sps,
+        });
+    }
+
+    // Extract audio as raw PCM samples (mono, f32)
+    let output = std::process::Command::new(&ffmpeg_path)
+        .args([
+            "-i", &audio_path,
+            "-vn", "-ac", "1",
+            "-ar", &sps.to_string(),
+            "-f", "f32le",
+            "-acodec", "pcm_f32le",
+            "-",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run FFmpeg: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg failed: {}", stderr));
+    }
+
+    // Parse raw f32 samples
+    let bytes = output.stdout;
+    let num_samples = bytes.len() / 4;
+    let mut samples = Vec::with_capacity(num_samples);
+
+    for chunk in bytes.chunks_exact(4) {
+        let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        samples.push(sample.abs().min(1.0));
+    }
+
+    log::info!("[AUDIO_WAVEFORM] Extracted {} samples for {:.1}s audio", samples.len(), duration_secs);
+
+    Ok(AudioWaveform {
+        samples,
+        duration_ms,
+        samples_per_second: sps,
+    })
 }
 
 /// Generate auto-zoom regions from cursor data.

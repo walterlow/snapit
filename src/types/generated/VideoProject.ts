@@ -2,6 +2,8 @@
 import type { AudioTrackSettings } from "./AudioTrackSettings";
 import type { CursorConfig } from "./CursorConfig";
 import type { ExportConfig } from "./ExportConfig";
+import type { SceneConfig } from "./SceneConfig";
+import type { TextConfig } from "./TextConfig";
 import type { TimelineState } from "./TimelineState";
 import type { VideoSources } from "./VideoSources";
 import type { WebcamConfig } from "./WebcamConfig";
@@ -54,4 +56,12 @@ audio: AudioTrackSettings,
 /**
  * Export settings.
  */
-export: ExportConfig, };
+export: ExportConfig, 
+/**
+ * Scene/camera mode configuration.
+ */
+scene: SceneConfig, 
+/**
+ * Text overlay configuration.
+ */
+text: TextConfig, };

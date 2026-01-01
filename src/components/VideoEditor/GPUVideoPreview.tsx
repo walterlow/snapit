@@ -4,7 +4,9 @@ import { Play } from 'lucide-react';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { usePlaybackTime, usePlaybackControls, initPlaybackEngine } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
+import { useSceneMode } from '../../hooks/useSceneMode';
 import { WebcamOverlay } from './WebcamOverlay';
+import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
@@ -20,29 +22,161 @@ const VideoWithZoom = memo(function VideoWithZoom({
   videoSrc,
   zoomRegions,
   onVideoClick,
+  hidden,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string;
   zoomRegions: Parameters<typeof useZoomPreview>[0];
   onVideoClick: () => void;
+  hidden?: boolean;
 }) {
   const currentTimeMs = usePlaybackTime();
   const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs);
-  
+
   return (
     <video
       ref={videoRef}
       src={videoSrc}
       className="w-full h-full object-contain cursor-pointer bg-zinc-900"
-      style={{ 
-        minWidth: 320, 
+      style={{
+        minWidth: 320,
         minHeight: 180,
         ...zoomStyle,
+        opacity: hidden ? 0 : 1,
+        pointerEvents: hidden ? 'none' : 'auto',
       }}
       onClick={onVideoClick}
       playsInline
       preload="auto"
     />
+  );
+});
+
+/**
+ * Fullscreen webcam display for cameraOnly scene mode.
+ */
+const FullscreenWebcam = memo(function FullscreenWebcam({
+  webcamVideoPath,
+  mirror,
+  onClick,
+}: {
+  webcamVideoPath: string;
+  mirror?: boolean;
+  onClick: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const currentTimeMs = usePlaybackTime();
+
+  const videoSrc = useMemo(() => convertFileSrc(webcamVideoPath), [webcamVideoPath]);
+
+  // Sync webcam video time with main playback
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const targetTime = currentTimeMs / 1000;
+    const diff = Math.abs(video.currentTime - targetTime);
+
+    if (diff > 0.1) {
+      video.currentTime = targetTime;
+    }
+  }, [currentTimeMs]);
+
+  return (
+    <div className="absolute inset-0 z-10">
+      <video
+        ref={videoRef}
+        src={videoSrc}
+        className="w-full h-full object-cover cursor-pointer bg-zinc-800"
+        style={{
+          transform: mirror ? 'scaleX(-1)' : 'none',
+        }}
+        onClick={onClick}
+        muted
+        playsInline
+        preload="auto"
+      />
+    </div>
+  );
+});
+
+/**
+ * Scene mode aware renderer that shows/hides content based on current scene mode.
+ */
+const SceneModeRenderer = memo(function SceneModeRenderer({
+  videoRef,
+  videoSrc,
+  zoomRegions,
+  webcamVideoPath,
+  webcamConfig,
+  sceneSegments,
+  defaultSceneMode,
+  containerWidth,
+  containerHeight,
+  onVideoClick,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  videoSrc: string | null | undefined;
+  zoomRegions: ZoomRegion[] | undefined;
+  webcamVideoPath: string | undefined;
+  webcamConfig: WebcamConfig | undefined;
+  sceneSegments: SceneSegment[] | undefined;
+  defaultSceneMode: SceneMode;
+  containerWidth: number;
+  containerHeight: number;
+  onVideoClick: () => void;
+}) {
+  const currentTimeMs = usePlaybackTime();
+  const sceneMode = useSceneMode(sceneSegments, defaultSceneMode, currentTimeMs);
+
+  const showScreen = sceneMode !== 'cameraOnly';
+  const showWebcam = sceneMode !== 'screenOnly';
+  const webcamFullscreen = sceneMode === 'cameraOnly';
+
+  // Debug logging for scene mode
+  useEffect(() => {
+    if (webcamFullscreen) {
+      console.log('[SCENE] cameraOnly mode active', {
+        webcamVideoPath,
+        hasWebcam: !!webcamVideoPath,
+        sceneMode,
+        currentTimeMs,
+      });
+    }
+  }, [webcamFullscreen, webcamVideoPath, sceneMode, currentTimeMs]);
+
+  return (
+    <>
+      {/* Screen video - hidden when cameraOnly */}
+      {videoSrc && (
+        <VideoWithZoom
+          videoRef={videoRef}
+          videoSrc={videoSrc}
+          zoomRegions={zoomRegions}
+          onVideoClick={onVideoClick}
+          hidden={!showScreen}
+        />
+      )}
+
+      {/* Fullscreen webcam - shown when cameraOnly */}
+      {webcamFullscreen && webcamVideoPath && (
+        <FullscreenWebcam
+          webcamVideoPath={webcamVideoPath}
+          mirror={webcamConfig?.mirror}
+          onClick={onVideoClick}
+        />
+      )}
+
+      {/* Webcam overlay - shown when default mode (not screenOnly or cameraOnly) */}
+      {showWebcam && !webcamFullscreen && webcamVideoPath && webcamConfig && containerWidth > 0 && (
+        <WebcamOverlay
+          webcamVideoPath={webcamVideoPath}
+          config={webcamConfig}
+          containerWidth={containerWidth}
+          containerHeight={containerHeight}
+        />
+      )}
+    </>
   );
 });
 
@@ -205,27 +339,23 @@ export function GPUVideoPreview() {
         className="relative bg-black rounded-md overflow-hidden"
         style={containerStyle}
       >
-        {videoSrc ? (
-          <VideoWithZoom
+        {videoSrc || project?.sources.webcamVideo ? (
+          <SceneModeRenderer
             videoRef={videoRef}
-            videoSrc={videoSrc}
+            videoSrc={videoSrc ?? undefined}
             zoomRegions={project?.zoom?.regions}
+            webcamVideoPath={project?.sources.webcamVideo ?? undefined}
+            webcamConfig={project?.webcam}
+            sceneSegments={project?.scene?.segments}
+            defaultSceneMode={project?.scene?.defaultMode ?? 'default'}
+            containerWidth={containerSize.width}
+            containerHeight={containerSize.height}
             onVideoClick={handleVideoClick}
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="text-zinc-500">No video loaded</span>
           </div>
-        )}
-
-        {/* Webcam overlay */}
-        {project?.sources.webcamVideo && project.webcam && containerSize.width > 0 && (
-          <WebcamOverlay
-            webcamVideoPath={project.sources.webcamVideo}
-            config={project.webcam}
-            containerWidth={containerSize.width}
-            containerHeight={containerSize.height}
-          />
         )}
 
         {/* Error overlay */}

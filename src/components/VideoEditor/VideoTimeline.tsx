@@ -1,7 +1,6 @@
 import { memo, useCallback, useRef, useState, useEffect } from 'react';
 import {
   Film,
-  Plus,
   ArrowLeft,
   Download,
   ZoomIn,
@@ -10,7 +9,10 @@ import {
   SkipForward,
   Play,
   Pause,
+  Video,
+  VideoOff,
 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -18,12 +20,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useVideoEditorStore, generateZoomRegionId, formatTimeSimple } from '../../stores/videoEditorStore';
+import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
 import { usePlaybackTime, usePlaybackControls, getPlaybackState } from '../../hooks/usePlaybackEngine';
 import { TimelineRuler } from './TimelineRuler';
 import { ZoomTrack } from './ZoomTrack';
-import { WebcamTrack } from './WebcamTrack';
-import type { ZoomRegion, ZoomTransition } from '../../types';
+import { SceneTrack } from './SceneTrack';
+import type { AudioWaveform } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
@@ -162,16 +164,144 @@ const PlayheadTimeIndicator = memo(function PlayheadTimeIndicator() {
 });
 
 /**
- * Memoized video track with thumbnails.
+ * WaveformCanvas - Renders audio waveform on canvas.
+ * Samples are normalized linear values (-1.0 to 1.0).
+ */
+const WaveformCanvas = memo(function WaveformCanvas({
+  audioPath,
+  width,
+  height,
+}: {
+  audioPath: string;
+  width: number;
+  height: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [waveform, setWaveform] = useState<AudioWaveform | null>(null);
+
+  // Fetch waveform data
+  useEffect(() => {
+    if (!audioPath) return;
+
+    let cancelled = false;
+
+    async function loadWaveform() {
+      try {
+        const data = await invoke<AudioWaveform>('extract_audio_waveform', {
+          audioPath,
+          samplesPerSecond: 100,
+        });
+
+        if (!cancelled) {
+          setWaveform(data);
+          console.log('[WaveformCanvas] Loaded waveform:', {
+            samples: data.samples.length,
+            duration: data.durationMs,
+            sampleRange: [Math.min(...data.samples.slice(0, 100)), Math.max(...data.samples.slice(0, 100))],
+          });
+        }
+      } catch (err) {
+        console.error('[WaveformCanvas] Failed to load waveform:', err);
+      }
+    }
+
+    loadWaveform();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [audioPath]);
+
+  // Render waveform to canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !waveform || waveform.samples.length === 0) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+
+    const { samples } = waveform;
+    const centerY = height / 2;
+    const maxAmplitude = height / 2 - 2;
+
+    // Find the peak amplitude for normalization
+    let peakAmplitude = 0;
+    for (const sample of samples) {
+      const abs = Math.abs(sample);
+      if (abs > peakAmplitude) peakAmplitude = abs;
+    }
+
+    // Visual boost - normalize to peak and add minimum visibility
+    // If peak is very low, boost more; if peak is high, boost less
+    const visualGain = peakAmplitude > 0.01 ? Math.min(1 / peakAmplitude, 10) : 10;
+
+    // Calculate samples per pixel
+    const samplesPerPixel = samples.length / width;
+
+    // Create gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, 'rgba(129, 140, 248, 0.8)'); // indigo-400
+    gradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.6)'); // indigo-500
+    gradient.addColorStop(1, 'rgba(129, 140, 248, 0.8)');
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(0, centerY);
+
+    // Draw top half - apply visual gain and clamp to max amplitude
+    for (let x = 0; x < width; x++) {
+      const sampleIndex = Math.floor(x * samplesPerPixel);
+      const sample = samples[Math.min(sampleIndex, samples.length - 1)];
+      const amplitude = Math.min(Math.abs(sample) * visualGain, 1) * maxAmplitude;
+      ctx.lineTo(x, centerY - amplitude);
+    }
+
+    // Draw bottom half (mirror)
+    for (let x = width - 1; x >= 0; x--) {
+      const sampleIndex = Math.floor(x * samplesPerPixel);
+      const sample = samples[Math.min(sampleIndex, samples.length - 1)];
+      const amplitude = Math.min(Math.abs(sample) * visualGain, 1) * maxAmplitude;
+      ctx.lineTo(x, centerY + amplitude);
+    }
+
+    ctx.closePath();
+    ctx.fill();
+  }, [waveform, width, height]);
+
+  if (!waveform) {
+    return null;
+  }
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 pointer-events-none"
+      style={{ width, height }}
+    />
+  );
+});
+
+/**
+ * Memoized video track with thumbnails and waveform.
  */
 const VideoTrack = memo(function VideoTrack({
   durationMs,
   timelineZoom,
   width,
+  audioPath,
 }: {
   durationMs: number;
   timelineZoom: number;
   width: number;
+  audioPath?: string;
 }) {
   const clipWidth = durationMs * timelineZoom;
 
@@ -191,28 +321,21 @@ const VideoTrack = memo(function VideoTrack({
       {/* Video clip item */}
       <div className="absolute left-20 top-0 bottom-0 right-0">
         <div
-          className="absolute top-1 bottom-1 rounded-md bg-indigo-500/30 border border-indigo-500/50"
+          className="absolute top-1 bottom-1 rounded-md bg-indigo-500/20 border border-indigo-500/40 overflow-hidden"
           style={{ left: 0, width: `${clipWidth}px` }}
         >
-          {/* Clip content - thumbnail placeholders */}
-          <div className="absolute inset-0 flex items-center overflow-hidden rounded-md">
-            <div
-              className="h-full flex"
-              style={{
-                background: `repeating-linear-gradient(
-                  90deg,
-                  rgba(99, 102, 241, 0.15) 0px,
-                  rgba(99, 102, 241, 0.15) 59px,
-                  rgba(99, 102, 241, 0.25) 59px,
-                  rgba(99, 102, 241, 0.25) 60px
-                )`,
-                width: `${clipWidth}px`,
-              }}
+          {/* Waveform overlay */}
+          {audioPath && clipWidth > 0 && (
+            <WaveformCanvas
+              audioPath={audioPath}
+              width={clipWidth}
+              height={40}
             />
-          </div>
+          )}
+
           {/* Clip label */}
-          <div className="absolute inset-0 flex items-center px-2 pointer-events-none">
-            <span className="text-[10px] text-indigo-300/80 font-medium truncate">
+          <div className="absolute top-0 left-0 right-0 flex items-center px-2 h-full pointer-events-none">
+            <span className="text-[10px] text-indigo-300/80 font-medium truncate drop-shadow-sm">
               Recording
             </span>
           </div>
@@ -239,9 +362,9 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
     setTimelineZoom,
     setPreviewTime,
     togglePlayback,
-    addZoomRegion,
     selectZoomRegion,
     selectWebcamSegment,
+    updateWebcamConfig,
   } = useVideoEditorStore();
 
   const controls = usePlaybackControls();
@@ -345,32 +468,6 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     setTimelineScrollLeft(e.currentTarget.scrollLeft);
   }, [setTimelineScrollLeft]);
-
-  // Add zoom region at current time
-  const handleAddZoomRegion = useCallback(() => {
-    const { currentTimeMs } = getPlaybackState();
-    const defaultDuration = 3000;
-    const endMs = Math.min(currentTimeMs + defaultDuration, durationMs);
-
-    const defaultTransition: ZoomTransition = {
-      durationInMs: 300,
-      durationOutMs: 300,
-      easing: 'easeInOut',
-    };
-
-    const newRegion: ZoomRegion = {
-      id: generateZoomRegionId(),
-      startMs: currentTimeMs,
-      endMs,
-      scale: 2.0,
-      targetX: 0.5,
-      targetY: 0.5,
-      isAuto: false,
-      transition: defaultTransition,
-    };
-
-    addZoomRegion(newRegion);
-  }, [durationMs, addZoomRegion]);
 
   // Playback controls
   const handleGoToStart = useCallback(() => {
@@ -539,13 +636,31 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
 
           {/* Right Section */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleAddZoomRegion}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 rounded transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Zoom
-            </button>
+            {/* Webcam Toggle - only show if webcam video exists */}
+            {project?.sources.webcamVideo && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => updateWebcamConfig({ enabled: !project.webcam.enabled })}
+                    className={`flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors ${
+                      project.webcam.enabled
+                        ? 'text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30'
+                        : 'text-zinc-400 bg-zinc-700/50 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {project.webcam.enabled ? (
+                      <Video className="w-3.5 h-3.5" />
+                    ) : (
+                      <VideoOff className="w-3.5 h-3.5" />
+                    )}
+                    Webcam
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">{project.webcam.enabled ? 'Hide webcam overlay' : 'Show webcam overlay'}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             <div className="w-px h-5 bg-zinc-700/50" />
 
@@ -597,6 +712,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
             durationMs={durationMs}
             timelineZoom={timelineZoom}
             width={timelineWidth + trackLabelWidth}
+            audioPath={project?.sources.screenVideo ?? project?.sources.systemAudio ?? project?.sources.microphoneAudio ?? undefined}
           />
 
           {/* Zoom Track */}
@@ -609,15 +725,16 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
             />
           )}
 
-          {/* Webcam Track */}
-          {project && (
-            <WebcamTrack
-              segments={project.webcam.visibilitySegments}
-              durationMs={durationMs}
-              timelineZoom={timelineZoom}
-              width={timelineWidth + trackLabelWidth}
-              enabled={project.webcam.enabled}
-            />
+          {/* Scene Track */}
+          {project && project.sources.webcamVideo && (
+            <div className="h-10 border-b border-zinc-800/50">
+              <SceneTrack
+                segments={project.scene.segments}
+                defaultMode={project.scene.defaultMode}
+                durationMs={durationMs}
+                timelineZoom={timelineZoom}
+              />
+            </div>
           )}
 
           {/* Preview Scrubber - only when not playing */}

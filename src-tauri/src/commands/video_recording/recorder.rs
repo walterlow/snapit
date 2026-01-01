@@ -65,7 +65,6 @@ use windows_capture::{
 };
 
 use super::audio_multitrack::MultiTrackAudioRecorder;
-use super::audio_sync::AudioCaptureManager;
 use super::cursor::{composite_cursor, CursorCapture, CursorEventCapture, save_cursor_recording};
 use super::desktop_icons::{hide_desktop_icons, show_desktop_icons};
 use super::gif_encoder::GifRecorder;
@@ -133,20 +132,114 @@ fn validate_video_file(path: &PathBuf) -> Result<(), String> {
 // Audio Helpers
 // ============================================================================
 
-/// Convert f32 audio samples to 16-bit PCM bytes (little-endian).
+/// Mux audio WAV file(s) with video MP4 using FFmpeg.
 ///
-/// The encoder expects interleaved 16-bit PCM data.
-/// WASAPI provides f32 samples in the range [-1.0, 1.0].
-fn f32_to_i16_pcm(samples: &[f32]) -> Vec<u8> {
-    let mut pcm_bytes = Vec::with_capacity(samples.len() * 2);
-    for &sample in samples {
-        // Clamp to [-1.0, 1.0] and convert to i16
-        let clamped = sample.clamp(-1.0, 1.0);
-        let i16_sample = (clamped * 32767.0) as i16;
-        // Little-endian bytes
-        pcm_bytes.extend_from_slice(&i16_sample.to_le_bytes());
+/// This is called post-recording to combine the video-only MP4 (from windows-capture)
+/// with the perfect WAV audio files (from MultiTrackAudioRecorder).
+///
+/// The windows-capture encoder introduces audio jitter, so we bypass it entirely
+/// and use FFmpeg for audio encoding (AAC) which produces clean, jitter-free audio.
+///
+/// # Arguments
+/// * `video_path` - Path to the video-only MP4 file (will be replaced with muxed version)
+/// * `system_audio_path` - Path to system audio WAV file (optional)
+/// * `mic_audio_path` - Path to microphone WAV file (optional)
+///
+/// # Returns
+/// Ok(()) if muxing succeeded, Err with message if failed.
+fn mux_audio_to_video(
+    video_path: &PathBuf,
+    system_audio_path: Option<&PathBuf>,
+    mic_audio_path: Option<&PathBuf>,
+) -> Result<(), String> {
+    let has_system = system_audio_path.map(|p| p.exists()).unwrap_or(false);
+    let has_mic = mic_audio_path.map(|p| p.exists()).unwrap_or(false);
+    
+    if !has_system && !has_mic {
+        return Ok(());
     }
-    pcm_bytes
+
+    let ffmpeg_path = crate::commands::storage::find_ffmpeg()
+        .ok_or_else(|| "FFmpeg not found - cannot mux audio".to_string())?;
+
+    let temp_video_path = video_path.with_extension("video_only.mp4");
+    
+    std::fs::rename(video_path, &temp_video_path)
+        .map_err(|e| format!("Failed to rename video for muxing: {}", e))?;
+
+    let result = if has_system && has_mic {
+        let system_path = system_audio_path.unwrap();
+        let mic_path = mic_audio_path.unwrap();
+        
+        std::process::Command::new(&ffmpeg_path)
+            .args([
+                "-y",
+                "-i", &temp_video_path.to_string_lossy(),
+                "-i", &system_path.to_string_lossy(),
+                "-i", &mic_path.to_string_lossy(),
+                "-filter_complex", "[1:a][2:a]amix=inputs=2:duration=longest[aout]",
+                "-map", "0:v",
+                "-map", "[aout]",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                &video_path.to_string_lossy(),
+            ])
+            .output()
+    } else if has_system {
+        let system_path = system_audio_path.unwrap();
+        
+        std::process::Command::new(&ffmpeg_path)
+            .args([
+                "-y",
+                "-i", &temp_video_path.to_string_lossy(),
+                "-i", &system_path.to_string_lossy(),
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                &video_path.to_string_lossy(),
+            ])
+            .output()
+    } else {
+        let mic_path = mic_audio_path.unwrap();
+        
+        std::process::Command::new(&ffmpeg_path)
+            .args([
+                "-y",
+                "-i", &temp_video_path.to_string_lossy(),
+                "-i", &mic_path.to_string_lossy(),
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                &video_path.to_string_lossy(),
+            ])
+            .output()
+    };
+
+    match result {
+        Ok(output) => {
+            if output.status.success() {
+                let _ = std::fs::remove_file(&temp_video_path);
+                if let Some(path) = system_audio_path {
+                    let _ = std::fs::remove_file(path);
+                }
+                if let Some(path) = mic_audio_path {
+                    let _ = std::fs::remove_file(path);
+                }
+                Ok(())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                log::error!("[MUX] FFmpeg failed: {}", stderr);
+                let _ = std::fs::rename(&temp_video_path, video_path);
+                Err(format!("FFmpeg muxing failed: {}", stderr))
+            }
+        }
+        Err(e) => {
+            log::error!("[MUX] Failed to run FFmpeg: {}", e);
+            let _ = std::fs::rename(&temp_video_path, video_path);
+            Err(format!("Failed to run FFmpeg: {}", e))
+        }
+    }
 }
 
 // ============================================================================
@@ -533,7 +626,6 @@ fn start_capture_thread(
         show_desktop_icons();
     });
     
-    println!("[START] Capture thread spawned successfully, handle: {:?}", handle.thread().id());
 }
 
 /// Run video (MP4) capture using DXGI Duplication API.
@@ -544,7 +636,7 @@ fn run_video_capture(
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
 ) -> Result<(), String> {
-    println!("[CAPTURE] run_video_capture starting, mode={:?}", settings.mode);
+    log::debug!("[CAPTURE] Starting video capture, mode={:?}", settings.mode);
 
     // === NATIVE WEBCAM RECORDING ===
     // Prepare webcam output path for native capture (MP4 via windows-capture encoder)
@@ -585,7 +677,6 @@ fn run_video_capture(
                     let mh = m.height().unwrap_or(0) as i32;
                     if *x >= mx && *x < mx + mw && *y >= my && *y < my + mh {
                         found_idx = idx;
-                        eprintln!("[CAPTURE] Region ({}, {}) is on monitor {} at ({}, {})", x, y, idx, mx, my);
                         break;
                     }
                 }
@@ -599,15 +690,11 @@ fn run_video_capture(
 
     // Create capture backend based on mode
     let mut capture = if let Some(wid) = window_id {
-        // Window mode: use native WGC window capture
-        eprintln!("[CAPTURE] Using native WGC window capture for window {}", wid);
         let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
             .map_err(|e| format!("Failed to create WGC window capture: {}", e))?;
         CaptureBackend::Wgc(wgc)
     } else {
         // Monitor/Region mode: use DXGI with WGC fallback
-        eprintln!("[CAPTURE] Detected monitor index for WGC fallback: {}", monitor_index);
-
         let monitor = match &settings.mode {
             RecordingMode::Monitor { monitor_index } => {
                 let monitors = Monitor::enumerate()
@@ -619,8 +706,6 @@ fn run_video_capture(
             }
             _ => Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?,
         };
-
-        println!("[CAPTURE] Using monitor: {:?}", monitor.name());
 
         // Create DXGI duplication session (will fallback to WGC if needed)
         let dxgi = DxgiDuplicationApi::new(monitor)
@@ -639,12 +724,8 @@ fn run_video_capture(
         (capture.width(), capture.height())
     };
 
-    println!("[CAPTURE] Dimensions: {}x{}, crop: {:?}, fps: {}", width, height, crop_region, settings.fps);
-    eprintln!("[CAPTURE] include_cursor: {}, quality: {}", settings.include_cursor, settings.quality);
-
     let bitrate = settings.calculate_bitrate(width, height);
     let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
-    println!("[CAPTURE] Bitrate: {}, max_duration: {:?}", bitrate, max_duration);
 
     // Determine if we need audio
     let capture_audio = settings.audio.capture_system_audio || settings.audio.microphone_device_index.is_some();
@@ -656,11 +737,10 @@ fn run_video_capture(
         .bitrate(bitrate)
         .frame_rate(settings.fps);
 
-    let audio_settings = if capture_audio {
-        AudioSettingsBuilder::default()
-    } else {
-        AudioSettingsBuilder::default().disabled(true)
-    };
+    // ALWAYS disable audio in VideoEncoder - windows-capture's MediaTranscoder
+    // introduces audio jitter. Instead, we use MultiTrackAudioRecorder to capture
+    // perfect WAV files, then mux with FFmpeg post-recording.
+    let audio_settings = AudioSettingsBuilder::default().disabled(true);
 
     let mut encoder = VideoEncoder::new(
         video_settings,
@@ -669,46 +749,15 @@ fn run_video_capture(
         output_path,
     ).map_err(|e| format!("Failed to create encoder: {:?}", e))?;
 
-    println!("[CAPTURE] Encoder created successfully");
-
     // === AUDIO CAPTURE SETUP ===
     // Create shared control flags for audio threads
     let should_stop = Arc::new(AtomicBool::new(false));
     let is_paused = Arc::new(AtomicBool::new(false));
     let start_time = Instant::now();
 
-    // Create audio capture manager
-    let mut audio_manager = if capture_audio {
-        let mut manager = AudioCaptureManager::new(
-            Arc::clone(&should_stop),
-            Arc::clone(&is_paused),
-        );
-
-        // Start system audio capture (WASAPI loopback)
-        if settings.audio.capture_system_audio {
-            match manager.start_system_audio(start_time) {
-                Ok(()) => println!("[CAPTURE] System audio capture started"),
-                Err(e) => {
-                    // Log warning but continue without audio
-                    println!("[CAPTURE] Warning: Failed to start system audio: {}", e);
-                }
-            }
-        }
-
-        // Start microphone capture with selected device
-        if let Some(device_index) = settings.audio.microphone_device_index {
-            match manager.start_microphone(device_index, start_time) {
-                Ok(()) => println!("[CAPTURE] Microphone capture started on device {}", device_index),
-                Err(e) => {
-                    println!("[CAPTURE] Warning: Failed to start microphone: {}", e);
-                }
-            }
-        }
-
-        Some(manager)
-    } else {
-        None
-    };
+    // NOTE: AudioCaptureManager removed - was used to send audio to VideoEncoder,
+    // which caused jitter. MultiTrackAudioRecorder handles all audio capture now,
+    // with FFmpeg muxing post-recording.
 
     // Cursor capture manager (for include_cursor option)
     let mut cursor_capture = if settings.include_cursor {
@@ -736,14 +785,14 @@ fn run_video_capture(
                 match BackgroundWebcamEncoder::start(webcam_path.clone()) {
                     Ok(enc) => Some(enc),
                     Err(e) => {
-                        eprintln!("[CAPTURE] Webcam encoder failed: {}", e);
+                        log::warn!("Webcam encoder failed: {}", e);
                         stop_capture_service();
                         None
                     }
                 }
             }
             Err(e) => {
-                eprintln!("[CAPTURE] Webcam capture failed: {}", e);
+                log::warn!("Webcam capture failed: {}", e);
                 None
             }
         }
@@ -782,18 +831,8 @@ fn run_video_capture(
     
     // Start multi-track audio recording
     if system_audio_path.is_some() || mic_audio_path.is_some() {
-        match multitrack_audio.start(system_audio_path.clone(), mic_audio_path.clone()) {
-            Ok((sys, mic)) => {
-                if let Some(ref p) = sys {
-                    eprintln!("[CAPTURE] Multi-track system audio: {:?}", p);
-                }
-                if let Some(ref p) = mic {
-                    eprintln!("[CAPTURE] Multi-track microphone: {:?}", p);
-                }
-            }
-            Err(e) => {
-                eprintln!("[CAPTURE] Warning: Failed to start multi-track audio: {}", e);
-            }
+        if let Err(e) = multitrack_audio.start(system_audio_path.clone(), mic_audio_path.clone()) {
+            log::warn!("Failed to start multi-track audio: {}", e);
         }
     }
 
@@ -814,9 +853,7 @@ fn run_video_capture(
     };
     
     if let Err(e) = cursor_event_capture.start(cursor_region) {
-        eprintln!("[CAPTURE] Warning: Failed to start cursor event capture: {}", e);
-    } else {
-        eprintln!("[CAPTURE] Cursor event capture started, will save to: {:?}", cursor_data_path);
+        log::warn!("Failed to start cursor event capture: {}", e);
     }
 
     // Pre-allocate frame buffers to avoid per-frame allocations
@@ -833,33 +870,19 @@ fn run_video_capture(
     // Native webcam capture service is already running (started above)
     // Webcam frames will be pulled from WEBCAM_BUFFER in the recording loop
 
-    let mut loop_count: u64 = 0;
     loop {
-        loop_count += 1;
-        
-        // Log every 100 loops to show we're alive
-        if loop_count % 100 == 0 {
-            eprintln!("[CAPTURE] Loop iteration {}, checking commands...", loop_count);
-        }
-        
         // Check for commands
         match command_rx.try_recv() {
             Ok(RecorderCommand::Stop) => {
-                eprintln!("[CAPTURE] Received Stop command!");
-                println!("[CAPTURE] Received Stop command");
                 should_stop.store(true, Ordering::SeqCst);
                 break;
             }
             Ok(RecorderCommand::Cancel) => {
-                eprintln!("[CAPTURE] Received Cancel command!");
-                println!("[CAPTURE] Received Cancel command");
                 should_stop.store(true, Ordering::SeqCst);
                 progress.mark_cancelled();
                 break;
             }
             Ok(RecorderCommand::Pause) => {
-                eprintln!("[CAPTURE] Received Pause command!");
-                println!("[CAPTURE] Received Pause command");
                 if !paused {
                     paused = true;
                     pause_start = Some(Instant::now());
@@ -868,8 +891,6 @@ fn run_video_capture(
                 }
             }
             Ok(RecorderCommand::Resume) => {
-                eprintln!("[CAPTURE] Received Resume command!");
-                println!("[CAPTURE] Received Resume command");
                 if paused {
                     if let Some(ps) = pause_start.take() {
                         pause_time += ps.elapsed();
@@ -881,20 +902,15 @@ fn run_video_capture(
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
-                eprintln!("[CAPTURE] Channel disconnected!");
-                println!("[CAPTURE] Channel disconnected");
                 should_stop.store(true, Ordering::SeqCst);
                 break;
             }
         }
 
-        // Skip frame capture while paused - use blocking receive instead of polling
+        // Skip frame capture while paused
         if paused {
-            // Block waiting for commands instead of busy-wait polling
-            // This uses near-zero CPU while paused and responds instantly to commands
             match command_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(RecorderCommand::Resume) => {
-                    eprintln!("[CAPTURE] Received Resume command while paused");
                     if let Some(ps) = pause_start.take() {
                         pause_time += ps.elapsed();
                     }
@@ -903,12 +919,10 @@ fn run_video_capture(
                     is_paused.store(false, Ordering::SeqCst);
                 }
                 Ok(RecorderCommand::Stop) => {
-                    eprintln!("[CAPTURE] Received Stop command while paused");
                     should_stop.store(true, Ordering::SeqCst);
                     break;
                 }
                 Ok(RecorderCommand::Cancel) => {
-                    eprintln!("[CAPTURE] Received Cancel command while paused");
                     should_stop.store(true, Ordering::SeqCst);
                     progress.mark_cancelled();
                     break;
@@ -916,7 +930,6 @@ fn run_video_capture(
                 Ok(RecorderCommand::Pause) => {} // Already paused, ignore
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {} // Normal timeout, continue loop
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                    eprintln!("[CAPTURE] Channel disconnected while paused");
                     should_stop.store(true, Ordering::SeqCst);
                     break;
                 }
@@ -928,7 +941,6 @@ fn run_video_capture(
         let actual_elapsed = start_time.elapsed() - pause_time;
         if let Some(max_dur) = max_duration {
             if actual_elapsed >= max_dur {
-                println!("[CAPTURE] Max duration reached");
                 should_stop.store(true, Ordering::SeqCst);
                 break;
             }
@@ -975,18 +987,16 @@ fn run_video_capture(
                                 let err_str = format!("{:?}", e);
                                 if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") || err_str.contains("suspended") {
                                     // GPU device lost - switch to WGC
-                                    println!("[CAPTURE] GPU device lost during buffer access, switching to WGC...");
                                     match switch_to_wgc(monitor_index, settings.include_cursor) {
                                         Ok(new_backend) => {
                                             capture = new_backend;
-                                            continue; // Retry with new backend
+                                            continue;
                                         }
                                         Err(e) => {
                                             return Err(format!("DXGI failed and WGC fallback also failed: {}", e));
                                         }
                                     }
                                 } else {
-                                    println!("[CAPTURE] Failed to get buffer: {:?}", e);
                                     false
                                 }
                             }
@@ -994,7 +1004,6 @@ fn run_video_capture(
                     }
                     Err(windows_capture::dxgi_duplication_api::Error::Timeout) => false,
                     Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
-                        println!("[CAPTURE] DXGI access lost, switching to WGC...");
                         match switch_to_wgc(monitor_index, settings.include_cursor) {
                             Ok(new_backend) => {
                                 capture = new_backend;
@@ -1008,7 +1017,6 @@ fn run_video_capture(
                     Err(e) => {
                         let err_str = format!("{:?}", e);
                         if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") {
-                            println!("[CAPTURE] GPU device error, switching to WGC...");
                             match switch_to_wgc(monitor_index, settings.include_cursor) {
                                 Ok(new_backend) => {
                                     capture = new_backend;
@@ -1019,7 +1027,6 @@ fn run_video_capture(
                                 }
                             }
                         } else {
-                            println!("[CAPTURE] DXGI error: {:?}, retrying...", e);
                             std::thread::sleep(Duration::from_millis(50));
                             false
                         }
@@ -1059,13 +1066,6 @@ fn run_video_capture(
                             .map(|(x, y, _, _)| (x, y))
                             .unwrap_or((0, 0));
 
-                        if frame_count == 0 {
-                            eprintln!("[CURSOR] Cursor visible at ({}, {}), size {}x{}, hotspot ({}, {})",
-                                cursor_state.screen_x, cursor_state.screen_y,
-                                cursor_state.width, cursor_state.height,
-                                cursor_state.hotspot_x, cursor_state.hotspot_y);
-                        }
-
                         composite_cursor(
                             frame_data,
                             width,
@@ -1076,11 +1076,7 @@ fn run_video_capture(
                         );
                     }
                 }
-                Err(e) => {
-                    if frame_count == 0 {
-                        eprintln!("[CURSOR] Failed to capture cursor: {}", e);
-                    }
-                }
+                Err(_) => {}
             }
         }
 
@@ -1094,28 +1090,15 @@ fn run_video_capture(
         let video_timestamp = (actual_elapsed.as_micros() * 10) as i64;
 
         // Send video frame to encoder
-        if let Err(e) = encoder.send_frame_buffer(flipped_data, video_timestamp) {
-            println!("[CAPTURE] Failed to send frame: {:?}", e);
-        }
+        let _ = encoder.send_frame_buffer(flipped_data, video_timestamp);
 
-        // Send audio to encoder
-        if let Some(ref mut manager) = audio_manager {
-            while let Some(audio_frame) = manager.collector().try_get_audio() {
-                let pcm_bytes = f32_to_i16_pcm(&audio_frame.samples);
-                if let Err(e) = encoder.send_audio_buffer(&pcm_bytes, audio_frame.timestamp_100ns) {
-                    println!("[CAPTURE] Failed to send audio: {:?}", e);
-                }
-            }
-        }
+        // Audio is NOT sent to encoder - see comment at audio_settings creation.
+        // MultiTrackAudioRecorder handles WAV capture, FFmpeg muxes post-recording.
 
         // Webcam encoding happens in background thread - no action needed here
 
         frame_count += 1;
         progress.increment_frame();
-
-        if frame_count == 1 {
-            println!("[CAPTURE] First frame captured using {} backend!", capture.name());
-        }
 
         // Emit progress periodically
         if frame_count % 30 == 0 {
@@ -1125,11 +1108,6 @@ fn run_video_capture(
                 frame_count,
             });
         }
-    }
-
-    // Check if we captured any frames
-    if frame_count == 0 {
-        println!("[CAPTURE] WARNING: No video frames were captured!");
     }
 
     // Check if recording was cancelled
@@ -1143,15 +1121,12 @@ fn run_video_capture(
                 let _ = std::fs::remove_file(path);
             }
         } else if let Err(e) = webcam_enc.finish() {
-            eprintln!("[CAPTURE] Webcam encoding failed: {}", e);
+            log::warn!("Webcam encoding failed: {}", e);
         }
     }
     
     // Stop capture services
     stop_capture_service();
-    if let Some(mut manager) = audio_manager {
-        manager.stop();
-    }
     let _ = multitrack_audio.stop();
     let cursor_recording = cursor_event_capture.stop();
 
@@ -1163,13 +1138,20 @@ fn run_video_capture(
 
     // Save cursor data
     if !cursor_recording.events.is_empty() {
-        if let Err(e) = save_cursor_recording(&cursor_recording, &cursor_data_path) {
-            eprintln!("[CAPTURE] Cursor save failed: {}", e);
-        }
+        let _ = save_cursor_recording(&cursor_recording, &cursor_data_path);
     }
 
-    // Finish main video encoder
+    // Finish main video encoder (video-only, no audio)
     encoder.finish().map_err(|e| format!("Failed to finish encoding: {:?}", e))?;
+
+    // Mux audio with video using FFmpeg (bypasses windows-capture audio jitter)
+    if let Err(e) = mux_audio_to_video(
+        output_path,
+        system_audio_path.as_ref(),
+        mic_audio_path.as_ref(),
+    ) {
+        log::warn!("Audio muxing failed: {}", e);
+    }
 
     Ok(())
 }
@@ -1183,7 +1165,6 @@ fn run_gif_capture(
     progress: Arc<RecordingProgress>,
     command_rx: Receiver<RecorderCommand>,
 ) -> Result<(), String> {
-    println!("[GIF] run_gif_capture starting with WGC");
 
     // Check if this is Window mode (native window capture via WGC)
     let window_id = is_window_mode(&settings.mode);
@@ -1196,8 +1177,6 @@ fn run_gif_capture(
 
     // Start WGC capture based on mode
     let wgc = if let Some(wid) = window_id {
-        // Window mode: use native WGC window capture
-        eprintln!("[GIF] Using native WGC window capture for window {}", wid);
         WgcVideoCapture::new_window(wid, settings.include_cursor)
             .map_err(|e| format!("Failed to start WGC window capture: {}", e))?
     } else {
@@ -1218,9 +1197,6 @@ fn run_gif_capture(
         (capture_width, capture_height)
     };
 
-    eprintln!("[GIF] WGC capture started: {}x{} (output: {}x{})",
-        capture_width, capture_height, width, height);
-
     let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
     let max_frames = settings.fps as usize * settings.max_duration_secs.unwrap_or(30) as usize;
 
@@ -1239,13 +1215,10 @@ fn run_gif_capture(
     let start_time = Instant::now();
     let mut last_frame_time = start_time;
 
-    eprintln!("[GIF] Starting WGC capture at {} FPS (frame_timeout={}ms)", settings.fps, frame_timeout_ms);
-
     loop {
         // Check for commands
         match command_rx.try_recv() {
             Ok(RecorderCommand::Stop) | Ok(RecorderCommand::Cancel) => {
-                println!("[GIF] Received stop/cancel command");
                 if matches!(command_rx.try_recv(), Ok(RecorderCommand::Cancel)) {
                     progress.mark_cancelled();
                 }

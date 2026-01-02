@@ -5,6 +5,7 @@ import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine, startPlaybackLoop, stopPlaybackLoop } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
 import { useSceneMode } from '../../hooks/useSceneMode';
+import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { WebcamOverlay } from './WebcamOverlay';
 import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording } from '../../types';
 
@@ -14,6 +15,110 @@ const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => 
 const selectPreviewTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.previewTimeMs;
 const selectCurrentTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.currentTimeMs;
 const selectCursorRecording = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.cursorRecording;
+
+/**
+ * WebCodecs-accelerated preview canvas for instant scrubbing.
+ * Shows pre-decoded frames during timeline scrubbing for zero-latency preview.
+ * Uses RAF polling instead of state-driven updates to avoid re-render overhead.
+ */
+const WebCodecsCanvas = memo(function WebCodecsCanvas({
+  videoPath,
+  zoomRegions,
+  cursorRecording,
+}: {
+  videoPath: string | null;
+  zoomRegions: ZoomRegion[] | undefined;
+  cursorRecording: CursorRecording | null | undefined;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastDrawnTimeRef = useRef<number | null>(null);
+  const rafIdRef = useRef<number>(0);
+  const [hasFrame, setHasFrame] = useState(false);
+  
+  const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
+  const isPlaying = useVideoEditorStore(selectIsPlaying);
+  const { getFrame, prefetchAround, isReady } = useWebCodecsPreview(videoPath);
+  
+  // Get zoom style for the current preview time
+  const zoomStyle = useZoomPreview(zoomRegions, previewTimeMs ?? 0, cursorRecording);
+
+  // Prefetch frames when preview position changes
+  useEffect(() => {
+    if (!isReady || isPlaying || previewTimeMs === null) return;
+    prefetchAround(previewTimeMs);
+  }, [isReady, isPlaying, previewTimeMs, prefetchAround]);
+
+  // RAF-based canvas drawing - polls for frames without causing React re-renders
+  useEffect(() => {
+    if (!isReady || isPlaying || previewTimeMs === null) {
+      setHasFrame(false);
+      return;
+    }
+
+    let active = true;
+    let attempts = 0;
+    const maxAttempts = 10; // Stop polling after ~500ms
+    
+    const tryDraw = () => {
+      if (!active) return;
+      
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const frame = getFrame(previewTimeMs);
+      
+      if (frame) {
+        // Only redraw if time changed
+        if (lastDrawnTimeRef.current !== previewTimeMs) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            if (canvas.width !== frame.width || canvas.height !== frame.height) {
+              canvas.width = frame.width;
+              canvas.height = frame.height;
+            }
+            ctx.drawImage(frame, 0, 0);
+            lastDrawnTimeRef.current = previewTimeMs;
+          }
+        }
+        setHasFrame(true);
+      } else {
+        // Frame not ready yet - poll a few more times
+        attempts++;
+        if (attempts < maxAttempts) {
+          rafIdRef.current = requestAnimationFrame(tryDraw);
+        } else {
+          setHasFrame(false);
+        }
+      }
+    };
+
+    // Try immediately
+    tryDraw();
+
+    return () => {
+      active = false;
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, [isReady, isPlaying, previewTimeMs, getFrame]);
+
+  // Only show canvas during scrubbing when we have a cached frame
+  const showCanvas = !isPlaying && previewTimeMs !== null && isReady && hasFrame;
+
+  if (!showCanvas) return null;
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+      style={{
+        ...zoomStyle,
+        zIndex: 5, // Above video but below controls
+      }}
+    />
+  );
+});
 
 /**
  * Memoized video element with zoom transform.
@@ -154,6 +259,9 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   const showWebcam = sceneMode !== 'screenOnly';
   const webcamFullscreen = sceneMode === 'cameraOnly';
 
+  // Get the original video path for WebCodecs (before convertFileSrc)
+  const originalVideoPath = useVideoEditorStore((s) => s.project?.sources.screenVideo ?? null);
+
   return (
     <>
       {/* Screen video - hidden when cameraOnly */}
@@ -165,6 +273,15 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           cursorRecording={cursorRecording}
           onVideoClick={onVideoClick}
           hidden={!showScreen}
+        />
+      )}
+
+      {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
+      {showScreen && originalVideoPath && (
+        <WebCodecsCanvas
+          videoPath={originalVideoPath}
+          zoomRegions={zoomRegions}
+          cursorRecording={cursorRecording}
         />
       )}
 

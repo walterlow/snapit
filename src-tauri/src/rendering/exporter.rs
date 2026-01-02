@@ -298,30 +298,69 @@ pub async fn export_video_gpu(
 }
 
 /// Build webcam overlay from frame and project settings.
+/// Positioning logic matches WebcamOverlay.tsx exactly for WYSIWYG export.
 fn build_webcam_overlay(
     project: &VideoProject,
     frame: DecodedFrame,
     out_w: u32,
     out_h: u32,
 ) -> WebcamOverlay {
-    // Log webcam frame dimensions (use eprintln to ensure it appears in terminal)
+    // Match preview exactly: 16px margin, square pixels
+    const MARGIN_PX: f32 = 16.0;
+    
+    // Webcam overlay is square in PIXELS (same as preview)
+    let webcam_size_px = out_w as f32 * project.webcam.size as f32;
+    
+    // Calculate position in PIXELS first (matching WebcamOverlay.tsx getPositionStyle)
+    let (left_px, top_px) = match project.webcam.position {
+        WebcamOverlayPosition::TopLeft => {
+            (MARGIN_PX, MARGIN_PX)
+        }
+        WebcamOverlayPosition::TopRight => {
+            (out_w as f32 - webcam_size_px - MARGIN_PX, MARGIN_PX)
+        }
+        WebcamOverlayPosition::BottomLeft => {
+            (MARGIN_PX, out_h as f32 - webcam_size_px - MARGIN_PX)
+        }
+        WebcamOverlayPosition::BottomRight => {
+            (out_w as f32 - webcam_size_px - MARGIN_PX, out_h as f32 - webcam_size_px - MARGIN_PX)
+        }
+        WebcamOverlayPosition::Custom => {
+            // Custom positioning matches preview logic
+            let custom_x = project.webcam.custom_x as f32;
+            let custom_y = project.webcam.custom_y as f32;
+            
+            let left = if custom_x <= 0.1 {
+                MARGIN_PX
+            } else if custom_x >= 0.9 {
+                out_w as f32 - webcam_size_px - MARGIN_PX
+            } else {
+                custom_x * out_w as f32 - webcam_size_px / 2.0
+            };
+            
+            let top = if custom_y <= 0.1 {
+                MARGIN_PX
+            } else if custom_y >= 0.9 {
+                out_h as f32 - webcam_size_px - MARGIN_PX
+            } else {
+                custom_y * out_h as f32 - webcam_size_px / 2.0
+            };
+            
+            (left, top)
+        }
+    };
+    
+    // Convert to normalized coordinates (0-1)
+    let x_norm = left_px / out_w as f32;
+    let y_norm = top_px / out_h as f32;
+    
+    // Log for debugging
     eprintln!(
-        "[EXPORT] Webcam frame: {}x{}, aspect={:.3}, overlay_size={:.2}",
+        "[EXPORT] Webcam: {}x{} aspect={:.3}, overlay={}px, pos=({:.0},{:.0})px norm=({:.3},{:.3})",
         frame.width, frame.height,
         frame.width as f32 / frame.height as f32,
-        project.webcam.size
+        webcam_size_px, left_px, top_px, x_norm, y_norm
     );
-    let size = project.webcam.size;
-    
-    // Calculate position
-    let padding = 0.02; // 2% padding from edge
-    let (x, y) = match project.webcam.position {
-        WebcamOverlayPosition::TopLeft => (padding, padding),
-        WebcamOverlayPosition::TopRight => (1.0 - size - padding, padding),
-        WebcamOverlayPosition::BottomLeft => (padding, 1.0 - size - padding),
-        WebcamOverlayPosition::BottomRight => (1.0 - size - padding, 1.0 - size - padding),
-        WebcamOverlayPosition::Custom => (project.webcam.custom_x, project.webcam.custom_y),
-    };
 
     let shape = match project.webcam.shape {
         WebcamOverlayShape::Circle => WebcamShape::Circle,
@@ -334,9 +373,9 @@ fn build_webcam_overlay(
 
     WebcamOverlay {
         frame,
-        x: x as f32,
-        y: y as f32,
-        size: size as f32,
+        x: x_norm,
+        y: y_norm,
+        size: project.webcam.size as f32,
         shape,
         border_width: if project.webcam.border.enabled { project.webcam.border.width as f32 } else { 0.0 },
         border_color,

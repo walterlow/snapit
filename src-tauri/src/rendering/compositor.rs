@@ -125,8 +125,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 border_dist = sdf_rounded_rect(input.uv, webcam_center, half_size + vec2<f32>(border_pixels), radius_norm);
             }
             
-            // Anti-aliased edge
-            let aa_width = 1.0 / uniforms.output_size.x;
+            // Anti-aliased edge using screen-space derivatives for smooth edges
+            // fwidth gives the rate of change across the pixel - adapts to resolution
+            let aa_width = fwidth(dist) * 3.0;  // 3 pixels of smooth transition
             
             // Border
             if (border_width > 0.0 && dist > 0.0 && border_dist <= 0.0) {
@@ -134,7 +135,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 color = mix(color, uniforms.webcam_border, border_alpha);
             }
             
-            // Webcam content
+            // Webcam content (sample when inside or within AA zone)
             if (dist <= aa_width) {
                 // Calculate UV within webcam overlay area
                 var webcam_uv = (input.uv - webcam_pos) / webcam_size;
@@ -419,14 +420,11 @@ impl Compositor {
                 let webcam_width_norm = webcam.size;
                 let webcam_height_norm = webcam.size * output_aspect;
 
-                // Adjust y position for the taller normalized height
-                // Original y was calculated assuming height_norm = size
-                // We need to shift y up by the extra height for bottom-aligned positions
-                let y_adjustment = webcam_height_norm - webcam.size;
-                let adjusted_y = (webcam.y - y_adjustment).max(0.0);
+                // Position is now calculated correctly in build_webcam_overlay (pixel-based, then normalized)
+                // No adjustment needed - x,y are already correct normalized positions
 
                 (
-                    [webcam.x, adjusted_y, webcam_width_norm, webcam_height_norm], // Square in pixels
+                    [webcam.x, webcam.y, webcam_width_norm, webcam_height_norm], // Square in pixels
                     [
                         shape,
                         webcam.border_width,

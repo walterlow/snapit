@@ -2,7 +2,7 @@ import { memo, useCallback, useRef, useEffect, useState, useMemo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Play } from 'lucide-react';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
-import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine } from '../../hooks/usePlaybackEngine';
+import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine, startPlaybackLoop, stopPlaybackLoop } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
 import { useSceneMode } from '../../hooks/useSceneMode';
 import { WebcamOverlay } from './WebcamOverlay';
@@ -12,6 +12,7 @@ import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
 const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
 const selectPreviewTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.previewTimeMs;
+const selectCurrentTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.currentTimeMs;
 const selectCursorRecording = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.cursorRecording;
 
 /**
@@ -203,6 +204,7 @@ export function GPUVideoPreview() {
   const project = useVideoEditorStore(selectProject);
   const isPlaying = useVideoEditorStore(selectIsPlaying);
   const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
+  const currentTimeMs = useVideoEditorStore(selectCurrentTimeMs);
   const cursorRecording = useVideoEditorStore(selectCursorRecording);
   const controls = usePlaybackControls();
 
@@ -313,33 +315,37 @@ export function GPUVideoPreview() {
     };
   }, [controls]);
 
-  // Sync play/pause state from store to video element
+  // Sync play/pause state from store to video element and RAF loop
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    if (isPlaying && video.paused) {
-      video.play().catch(e => {
-        console.error('Play failed:', e);
-        controls.pause();
-      });
-    } else if (!isPlaying && !video.paused) {
-      video.pause();
+    if (isPlaying) {
+      if (video.paused) {
+        video.play().catch(e => {
+          console.error('Play failed:', e);
+          controls.pause();
+        });
+      }
+      // Start RAF loop to update currentTimeMs in store
+      startPlaybackLoop();
+    } else {
+      if (!video.paused) {
+        video.pause();
+      }
+      stopPlaybackLoop();
     }
   }, [isPlaying, controls]);
 
-  // Seek video when preview time changes (for timeline scrubbing)
-  // Note: Don't seek based on isPlaying changes - pause() handles that directly
+  // Seek video when preview time or current time changes (for timeline scrubbing/clicking)
   useEffect(() => {
     const video = videoRef.current;
     if (!video || isPlaying) return;
 
-    // Only seek when previewTimeMs changes (scrubbing)
-    if (previewTimeMs !== null) {
-      video.currentTime = previewTimeMs / 1000;
-    }
-    // Don't seek on previewTimeMs becoming null - let the playback engine handle it
-  }, [previewTimeMs, isPlaying]);
+    // Use preview time when hovering, otherwise use current time (from clicking)
+    const targetTime = previewTimeMs !== null ? previewTimeMs : currentTimeMs;
+    video.currentTime = targetTime / 1000;
+  }, [previewTimeMs, currentTimeMs, isPlaying]);
 
   const handleVideoClick = useCallback(() => {
     controls.toggle();

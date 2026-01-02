@@ -85,16 +85,57 @@ function getPositionStyle(
 }
 
 /**
- * Get shape style based on shape preset.
- * Uses larger radius for roundedRectangle (squircle effect like Cap).
+ * Calculate border radius from rounding percentage like Cap.
+ * At 100%, radius = 50% of min dimension (perfect circle/squircle).
  */
-function getShapeStyle(shape: WebcamConfig['shape']): React.CSSProperties {
+function calculateRadius(rounding: number, width: number, height: number): number {
+  const minDim = Math.min(width, height);
+  return (rounding / 100) * 0.5 * minDim;
+}
+
+/**
+ * Generate CSS drop-shadow filter from shadow settings like Cap.
+ * Uses shadow strength as a multiplier for size, opacity, and blur.
+ */
+function getShadowFilter(
+  shadow: number,
+  shadowConfig: WebcamConfig['shadowConfig'],
+  width: number,
+  height: number
+): string {
+  if (shadow <= 0) return 'none';
+  
+  const minDim = Math.min(width, height);
+  const strength = shadow / 100;
+  
+  // Calculate shadow parameters like Cap
+  const size = strength * (shadowConfig.size / 100) * minDim * 0.3;
+  const opacity = strength * (shadowConfig.opacity / 100);
+  const blur = strength * (shadowConfig.blur / 100) * minDim * 0.5;
+  
+  // CSS drop-shadow: offset-x offset-y blur-radius color
+  return `drop-shadow(0 ${size}px ${blur}px rgba(0, 0, 0, ${opacity}))`;
+}
+
+/**
+ * Get shape style based on shape, rounding percentage, and corner style.
+ * Matches Cap's approach: percentage-based rounding with squircle/rounded option.
+ */
+function getShapeStyle(
+  shape: WebcamConfig['shape'],
+  rounding: number,
+  _cornerStyle: WebcamConfig['cornerStyle'],
+  width: number,
+  height: number
+): React.CSSProperties {
   switch (shape) {
     case 'circle':
       return { borderRadius: '50%' };
-    case 'roundedRectangle':
-      // Squircle-style radius like Cap uses (rounded-3xl = 24px)
-      return { borderRadius: '24px' };
+    case 'roundedRectangle': {
+      // Calculate radius from percentage like Cap
+      const radiusPx = calculateRadius(rounding, width, height);
+      return { borderRadius: `${radiusPx}px` };
+    }
     case 'rectangle':
       return { borderRadius: '0' };
     default:
@@ -166,8 +207,11 @@ export const WebcamOverlay = memo(function WebcamOverlay({
     [config.position, config.customX, config.customY, containerWidth, containerHeight, webcamWidth, webcamHeight]
   );
   
-  // Shape style
-  const shapeStyle = useMemo(() => getShapeStyle(config.shape), [config.shape]);
+  // Shape style - calculate radius from rounding percentage like Cap
+  const shapeStyle = useMemo(
+    () => getShapeStyle(config.shape, config.rounding, config.cornerStyle, webcamWidth, webcamHeight),
+    [config.shape, config.rounding, config.cornerStyle, webcamWidth, webcamHeight]
+  );
   
   // Border style
   const borderStyle = useMemo((): React.CSSProperties => {
@@ -176,6 +220,12 @@ export const WebcamOverlay = memo(function WebcamOverlay({
       border: `${config.border.width}px solid ${config.border.color}`,
     };
   }, [config.border]);
+  
+  // Shadow filter - calculated from shadow settings like Cap
+  const shadowFilter = useMemo(
+    () => getShadowFilter(config.shadow, config.shadowConfig, webcamWidth, webcamHeight),
+    [config.shadow, config.shadowConfig, webcamWidth, webcamHeight]
+  );
   
   // Sync webcam video play/pause state with main playback
   useEffect(() => {
@@ -218,7 +268,7 @@ export const WebcamOverlay = memo(function WebcamOverlay({
         ...positionStyle,
         ...shapeStyle,
         ...borderStyle,
-        filter: 'drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4))',
+        filter: shadowFilter,
       }}
     >
       <video
@@ -226,7 +276,9 @@ export const WebcamOverlay = memo(function WebcamOverlay({
         src={videoSrc}
         className="w-full h-full object-cover bg-zinc-800"
         style={{
-          transform: config.mirror ? 'scaleX(-1)' : 'none',
+          // Scale up 1.2x for squircle to fill corners (superellipse clips inside bounding box)
+          // Mirror flips horizontally
+          transform: `${config.shape === 'roundedRectangle' ? 'scale(1.2)' : ''} ${config.mirror ? 'scaleX(-1)' : ''}`.trim() || 'none',
         }}
         muted
         playsInline

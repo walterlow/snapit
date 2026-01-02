@@ -391,12 +391,32 @@ pub struct WebcamConfig {
     pub size: f32,
     /// Shape of webcam overlay.
     pub shape: WebcamOverlayShape,
+    /// Corner rounding percentage (0-100). At 100%, a square becomes a circle/squircle.
+    #[serde(default = "default_rounding")]
+    pub rounding: f32,
+    /// Corner style - Squircle (iOS-style) or Rounded (standard border-radius).
+    #[serde(default)]
+    pub corner_style: CornerStyle,
+    /// Shadow strength (0-100). 0 = no shadow.
+    #[serde(default = "default_shadow")]
+    pub shadow: f32,
+    /// Advanced shadow settings (size, opacity, blur).
+    #[serde(default)]
+    pub shadow_config: ShadowConfig,
     /// Mirror horizontally.
     pub mirror: bool,
     /// Border settings.
     pub border: WebcamBorder,
     /// Visibility segments (for toggling on/off during video).
     pub visibility_segments: Vec<VisibilitySegment>,
+}
+
+fn default_rounding() -> f32 {
+    100.0
+}
+
+fn default_shadow() -> f32 {
+    62.5
 }
 
 impl Default for WebcamConfig {
@@ -408,9 +428,36 @@ impl Default for WebcamConfig {
             custom_y: 0.95,
             size: 0.2, // 20% of video width
             shape: WebcamOverlayShape::Circle,
+            rounding: default_rounding(),
+            corner_style: CornerStyle::default(),
+            shadow: default_shadow(),
+            shadow_config: ShadowConfig::default(),
             mirror: false,
             border: WebcamBorder::default(),
             visibility_segments: Vec::new(),
+        }
+    }
+}
+
+/// Shadow configuration for webcam overlay.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct ShadowConfig {
+    /// Shadow size as percentage (0-100).
+    pub size: f32,
+    /// Shadow opacity (0-100).
+    pub opacity: f32,
+    /// Shadow blur amount (0-100).
+    pub blur: f32,
+}
+
+impl Default for ShadowConfig {
+    fn default() -> Self {
+        Self {
+            size: 33.9,
+            opacity: 44.2,
+            blur: 10.5,
         }
     }
 }
@@ -438,6 +485,18 @@ pub enum WebcamOverlayShape {
     RoundedRectangle,
 }
 
+/// Corner style for rounded shapes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum CornerStyle {
+    /// iOS-style superellipse corners.
+    #[default]
+    Squircle,
+    /// Standard circular border-radius corners.
+    Rounded,
+}
+
 /// Webcam border settings.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -454,7 +513,7 @@ pub struct WebcamBorder {
 impl Default for WebcamBorder {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             width: 3,
             color: "#FFFFFF".to_string(),
         }
@@ -542,7 +601,6 @@ pub enum ExportResolution {
     Uhd4k,
 }
 
-
 /// Export preset for quick quality selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -617,7 +675,6 @@ impl Default for BackgroundConfig {
     }
 }
 
-
 /// Audio waveform data for visualization.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -631,7 +688,6 @@ pub struct AudioWaveform {
     /// Number of samples per second in this waveform data.
     pub samples_per_second: u32,
 }
-
 
 /// Scene mode for different camera/screen configurations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -682,7 +738,6 @@ impl Default for SceneConfig {
         }
     }
 }
-
 
 /// Text animation style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -760,7 +815,11 @@ impl VideoProject {
     ) -> Self {
         let now = chrono::Utc::now().to_rfc3339();
         // Generate a simple unique ID using timestamp + random number
-        let id = format!("proj_{}_{:08x}", chrono::Utc::now().timestamp_millis(), rand::random::<u32>());
+        let id = format!(
+            "proj_{}_{:08x}",
+            chrono::Utc::now().timestamp_millis(),
+            rand::random::<u32>()
+        );
 
         Self {
             id,
@@ -834,8 +893,7 @@ impl VideoProject {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize project: {}", e))?;
 
-        std::fs::write(path, json)
-            .map_err(|e| format!("Failed to write project file: {}", e))?;
+        std::fs::write(path, json).map_err(|e| format!("Failed to write project file: {}", e))?;
 
         Ok(())
     }
@@ -845,8 +903,8 @@ impl VideoProject {
         let json = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read project file: {}", e))?;
 
-        let project: VideoProject = serde_json::from_str(&json)
-            .map_err(|e| format!("Failed to parse project: {}", e))?;
+        let project: VideoProject =
+            serde_json::from_str(&json).map_err(|e| format!("Failed to parse project: {}", e))?;
 
         Ok(project)
     }
@@ -873,11 +931,14 @@ impl VideoMetadata {
 
         let output = std::process::Command::new(&ffprobe_path)
             .args([
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_format",
                 "-show_streams",
-                "-select_streams", "v:0",
+                "-select_streams",
+                "v:0",
             ])
             .arg(video_path)
             .output()
@@ -917,7 +978,11 @@ impl VideoMetadata {
         let duration_secs = json["format"]["duration"]
             .as_str()
             .and_then(|s| s.parse::<f64>().ok())
-            .or_else(|| stream["duration"].as_str().and_then(|s| s.parse::<f64>().ok()))
+            .or_else(|| {
+                stream["duration"]
+                    .as_str()
+                    .and_then(|s| s.parse::<f64>().ok())
+            })
             .unwrap_or(0.0);
 
         let duration_ms = (duration_secs * 1000.0) as u64;
@@ -933,7 +998,11 @@ impl VideoMetadata {
 
 /// Find ffprobe binary (next to ffmpeg).
 fn find_ffprobe() -> Option<PathBuf> {
-    let binary_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    let binary_name = if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
 
     // Check bundled location (next to executable)
     if let Ok(exe_path) = std::env::current_exe() {
@@ -1053,7 +1122,7 @@ pub fn load_video_project_from_file(video_path: &std::path::Path) -> Result<Vide
 // Video Frame Extraction (FFmpeg)
 // ============================================================================
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 /// Extract a single frame from a video at the specified timestamp.
 ///
@@ -1083,12 +1152,18 @@ pub fn extract_video_frame(
 
     // Build FFmpeg command
     let mut args = vec![
-        "-ss".to_string(), timestamp,          // Seek to timestamp (before input for speed)
-        "-i".to_string(), video_path.to_string_lossy().to_string(),
-        "-frames:v".to_string(), "1".to_string(), // Extract only 1 frame
-        "-f".to_string(), "image2pipe".to_string(), // Output to pipe
-        "-c:v".to_string(), "mjpeg".to_string(),   // JPEG codec
-        "-q:v".to_string(), "5".to_string(),       // Quality (2-31, lower is better)
+        "-ss".to_string(),
+        timestamp, // Seek to timestamp (before input for speed)
+        "-i".to_string(),
+        video_path.to_string_lossy().to_string(),
+        "-frames:v".to_string(),
+        "1".to_string(), // Extract only 1 frame
+        "-f".to_string(),
+        "image2pipe".to_string(), // Output to pipe
+        "-c:v".to_string(),
+        "mjpeg".to_string(), // JPEG codec
+        "-q:v".to_string(),
+        "5".to_string(), // Quality (2-31, lower is better)
     ];
 
     // Add scale filter if max_width specified
@@ -1120,11 +1195,11 @@ pub fn extract_video_frame(
     Ok(base64_data)
 }
 
+use lazy_static::lazy_static;
 /// Frame cache for efficient scrubbing.
 /// Stores extracted frames in memory to avoid repeated FFmpeg calls.
 use std::collections::HashMap;
 use std::sync::Mutex;
-use lazy_static::lazy_static;
 
 /// Cache entry for a video frame
 #[derive(Clone)]
@@ -1205,7 +1280,9 @@ pub fn clear_frame_cache(video_path: Option<&std::path::Path>) {
 // Auto-Zoom Generation
 // ============================================================================
 
-use crate::commands::video_recording::cursor::{CursorEventType, CursorRecording, load_cursor_recording};
+use crate::commands::video_recording::cursor::{
+    load_cursor_recording, CursorEventType, CursorRecording,
+};
 
 /// Configuration for auto-zoom generation.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1267,44 +1344,42 @@ pub fn generate_auto_zoom_regions(
 ) -> Result<Vec<ZoomRegion>, String> {
     // Load cursor recording
     let recording = load_cursor_recording(cursor_data_path)?;
-    
+
     // Filter for click events
     let clicks: Vec<_> = recording
         .events
         .iter()
-        .filter(|e| {
-            match &e.event_type {
-                CursorEventType::LeftClick { pressed: true } => true,
-                CursorEventType::RightClick { pressed: true } if !config.left_clicks_only => true,
-                CursorEventType::MiddleClick { pressed: true } if !config.left_clicks_only => true,
-                _ => false,
-            }
+        .filter(|e| match &e.event_type {
+            CursorEventType::LeftClick { pressed: true } => true,
+            CursorEventType::RightClick { pressed: true } if !config.left_clicks_only => true,
+            CursorEventType::MiddleClick { pressed: true } if !config.left_clicks_only => true,
+            _ => false,
         })
         .collect();
-    
+
     if clicks.is_empty() {
         log::info!("[AUTO_ZOOM] No click events found in cursor recording");
         return Ok(Vec::new());
     }
-    
+
     log::info!("[AUTO_ZOOM] Found {} click events", clicks.len());
-    
+
     // Generate zoom regions
     let mut regions: Vec<ZoomRegion> = Vec::new();
-    
+
     for click in clicks {
         // Calculate region-relative coordinates
         let relative_x = click.x - recording.region_offset_x;
         let relative_y = click.y - recording.region_offset_y;
-        
+
         // Normalize to 0-1 range based on video dimensions
         let target_x = (relative_x as f32 / video_width as f32).clamp(0.0, 1.0);
         let target_y = (relative_y as f32 / video_height as f32).clamp(0.0, 1.0);
-        
+
         // Check if this click is too close to the previous one
         if let Some(last_region) = regions.last_mut() {
             let gap = click.timestamp_ms.saturating_sub(last_region.end_ms);
-            
+
             if gap < config.min_gap_ms as u64 {
                 // Extend the previous region instead of creating a new one
                 last_region.end_ms = click.timestamp_ms + config.hold_duration_ms as u64;
@@ -1316,14 +1391,14 @@ pub fn generate_auto_zoom_regions(
                 continue;
             }
         }
-        
+
         // Create new zoom region
         let region_id = format!(
             "auto_zoom_{}_{:08x}",
             click.timestamp_ms,
             rand::random::<u32>()
         );
-        
+
         let region = ZoomRegion {
             id: region_id,
             start_ms: click.timestamp_ms,
@@ -1339,19 +1414,19 @@ pub fn generate_auto_zoom_regions(
                 easing: config.easing,
             },
         };
-        
+
         log::debug!(
             "[AUTO_ZOOM] Created region at {}ms, target ({:.2}, {:.2})",
             region.start_ms,
             target_x,
             target_y
         );
-        
+
         regions.push(region);
     }
-    
+
     log::info!("[AUTO_ZOOM] Generated {} zoom regions", regions.len());
-    
+
     Ok(regions)
 }
 
@@ -1375,11 +1450,11 @@ pub fn apply_auto_zoom_to_project(
         Some(path) => std::path::Path::new(path),
         None => return Err("No cursor data available for this project".to_string()),
     };
-    
+
     if !cursor_path.exists() {
         return Err(format!("Cursor data file not found: {:?}", cursor_path));
     }
-    
+
     // Generate new auto-zoom regions
     let new_regions = generate_auto_zoom_regions(
         cursor_path,
@@ -1387,19 +1462,19 @@ pub fn apply_auto_zoom_to_project(
         project.sources.original_width,
         project.sources.original_height,
     )?;
-    
+
     // Remove existing auto-generated regions, keep manual ones
     project.zoom.regions.retain(|r| !r.is_auto);
-    
+
     // Add new auto-generated regions
     project.zoom.regions.extend(new_regions);
-    
+
     // Sort all regions by start time
     project.zoom.regions.sort_by_key(|r| r.start_ms);
-    
+
     // Update timestamp
     project.updated_at = chrono::Utc::now().to_rfc3339();
-    
+
     Ok(project)
 }
 
@@ -1440,12 +1515,12 @@ mod tests {
     #[test]
     fn test_auto_zoom_config_serialization() {
         let config = AutoZoomConfig::default();
-        
+
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("scale"));
         assert!(json.contains("holdDurationMs"));
         assert!(json.contains("minGapMs"));
-        
+
         let deserialized: AutoZoomConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.scale, 2.0);
         assert_eq!(deserialized.hold_duration_ms, 1500);

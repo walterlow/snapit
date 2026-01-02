@@ -66,6 +66,8 @@ export type { WebcamOverlayPosition } from './WebcamOverlayPosition';
 export type { WebcamOverlayShape } from './WebcamOverlayShape';
 export type { WebcamBorder } from './WebcamBorder';
 export type { VisibilitySegment } from './VisibilitySegment';
+export type { CornerStyle } from './CornerStyle';
+export type { ShadowConfig } from './ShadowConfig';
 
 // Video editor - Audio track types
 export type { AudioTrackSettings } from './AudioTrackSettings';

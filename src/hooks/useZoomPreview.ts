@@ -1,8 +1,11 @@
 /**
  * useZoomPreview - Calculates CSS transforms for zoom preview.
  *
- * Ports the Rust zoom interpolation logic to TypeScript for real-time
+ * Ports Cap's zoom interpolation logic to TypeScript for real-time
  * preview in the video player using CSS transforms.
+ *
+ * Uses Cap's bezier easing curves and bounds-based interpolation for
+ * smooth zoom transitions with a fixed 1-second duration.
  *
  * Supports two zoom modes:
  * - Manual: Fixed zoom position (targetX/targetY)
@@ -10,8 +13,237 @@
  */
 
 import { useMemo } from 'react';
-import type { ZoomRegion, EasingFunction, CursorRecording } from '../types';
+import type { ZoomRegion, CursorRecording } from '../types';
 import { useCursorInterpolation, type InterpolatedCursor } from './useCursorInterpolation';
+
+/** Fixed zoom transition duration in seconds (matches Cap) */
+const ZOOM_DURATION_S = 1.0;
+
+// ============================================================================
+// Bezier Easing (Cap's curves)
+// ============================================================================
+
+/**
+ * Cap's ease-in curve: bezier(0.1, 0.0, 0.3, 1.0)
+ * Starts slow, accelerates through middle, eases into end.
+ * 
+ * Attempt cubic bezier approximation - for exact bezier we'd need
+ * to solve the parametric equation, but this polynomial approximation
+ * captures the feel of the curve.
+ */
+function easeIn(t: number): number {
+  // Attempt bezier approximation for (0.1, 0.0, 0.3, 1.0)
+  // This curve has a slow start and smooth end
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const mt = 1 - t;
+  // Bezier formula: 3*mt²*t*y1 + 3*mt*t²*y2 + t³
+  // With y1=0, y2=1: simplified to 3*mt*t²*1 + t³
+  return 3 * mt * t2 + t3;
+}
+
+/**
+ * Cap's ease-out curve: bezier(0.5, 0.0, 0.5, 1.0)
+ * Symmetric S-curve, smooth start and end.
+ */
+function easeOut(t: number): number {
+  // Attempt bezier approximation for (0.5, 0.0, 0.5, 1.0)
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const mt = 1 - t;
+  // With y1=0, y2=1: 3*mt*t²*1 + t³
+  return 3 * mt * t2 + t3;
+}
+
+// ============================================================================
+// Bounds-based Zoom (Cap's approach)
+// ============================================================================
+
+interface XY {
+  x: number;
+  y: number;
+}
+
+interface SegmentBounds {
+  topLeft: XY;
+  bottomRight: XY;
+}
+
+function defaultBounds(): SegmentBounds {
+  return { topLeft: { x: 0, y: 0 }, bottomRight: { x: 1, y: 1 } };
+}
+
+/**
+ * Calculate bounds from a zoom region using Cap's formula.
+ */
+function boundsFromRegion(
+  region: ZoomRegion,
+  cursorPos: XY | null
+): SegmentBounds {
+  // Get position - either from cursor (Auto mode) or fixed target
+  const position = region.mode === 'auto' && cursorPos
+    ? cursorPos
+    : { x: region.targetX, y: region.targetY };
+
+  const amount = region.scale;
+
+  // Cap's calculation: scale the center, then offset to maintain position
+  const scaledCenter = { x: position.x * amount, y: position.y * amount };
+  const centerDiff = { x: scaledCenter.x - position.x, y: scaledCenter.y - position.y };
+
+  return {
+    topLeft: { x: 0 - centerDiff.x, y: 0 - centerDiff.y },
+    bottomRight: { x: amount - centerDiff.x, y: amount - centerDiff.y },
+  };
+}
+
+function lerpXY(a: XY, b: XY, t: number): XY {
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+  };
+}
+
+function lerpBounds(a: SegmentBounds, b: SegmentBounds, t: number): SegmentBounds {
+  return {
+    topLeft: lerpXY(a.topLeft, b.topLeft, t),
+    bottomRight: lerpXY(a.bottomRight, b.bottomRight, t),
+  };
+}
+
+function boundsWidth(bounds: SegmentBounds): number {
+  return bounds.bottomRight.x - bounds.topLeft.x;
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+// ============================================================================
+// Segments Cursor (tracks position in zoom timeline)
+// ============================================================================
+
+interface SegmentsCursor {
+  timeS: number;
+  segment: ZoomRegion | null;
+  prevSegment: ZoomRegion | null;
+  segments: ZoomRegion[];
+}
+
+function createCursor(timeS: number, segments: ZoomRegion[]): SegmentsCursor {
+  // Find active segment (time is within start..end)
+  const timeMs = timeS * 1000;
+  const activeIdx = segments.findIndex(s => timeMs > s.startMs && timeMs <= s.endMs);
+
+  if (activeIdx >= 0) {
+    return {
+      timeS,
+      segment: segments[activeIdx],
+      prevSegment: activeIdx > 0 ? segments[activeIdx - 1] : null,
+      segments,
+    };
+  }
+
+  // Not in a segment - find the most recent previous segment
+  let prevSegment: ZoomRegion | null = null;
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (segments[i].endMs / 1000 <= timeS) {
+      prevSegment = segments[i];
+      break;
+    }
+  }
+
+  return {
+    timeS,
+    segment: null,
+    prevSegment,
+    segments,
+  };
+}
+
+// ============================================================================
+// Interpolated Zoom (Cap's algorithm)
+// ============================================================================
+
+interface InterpolatedZoom {
+  t: number;
+  bounds: SegmentBounds;
+}
+
+function interpolateZoom(
+  cursor: SegmentsCursor,
+  cursorPos: XY | null
+): InterpolatedZoom {
+  const defaultB = defaultBounds();
+  const { prevSegment, segment, timeS, segments } = cursor;
+
+  // Case 1: After a segment, zooming out
+  if (prevSegment && !segment) {
+    const prevEndS = prevSegment.endMs / 1000;
+    const zoomT = easeOut(clamp01((timeS - prevEndS) / ZOOM_DURATION_S));
+    const prevBounds = boundsFromRegion(prevSegment, cursorPos);
+
+    return {
+      t: 1 - zoomT,
+      bounds: lerpBounds(prevBounds, defaultB, zoomT),
+    };
+  }
+
+  // Case 2: In first segment, zooming in
+  if (!prevSegment && segment) {
+    const startS = segment.startMs / 1000;
+    const t = easeIn(clamp01((timeS - startS) / ZOOM_DURATION_S));
+    const segmentBounds = boundsFromRegion(segment, cursorPos);
+
+    return {
+      t,
+      bounds: lerpBounds(defaultB, segmentBounds, t),
+    };
+  }
+
+  // Case 3: Transitioning between segments
+  if (prevSegment && segment) {
+    const prevBounds = boundsFromRegion(prevSegment, cursorPos);
+    const segmentBounds = boundsFromRegion(segment, cursorPos);
+    const segmentStartS = segment.startMs / 1000;
+    const prevEndS = prevSegment.endMs / 1000;
+
+    const zoomT = easeIn(clamp01((timeS - segmentStartS) / ZOOM_DURATION_S));
+
+    // No gap: direct transition between segments
+    if (Math.abs(segment.startMs - prevSegment.endMs) < 10) {
+      return {
+        t: 1,
+        bounds: lerpBounds(prevBounds, segmentBounds, zoomT),
+      };
+    }
+    // Small gap: interrupted zoom-out
+    else if (segmentStartS - prevEndS < ZOOM_DURATION_S) {
+      // Find where the zoom-out was interrupted
+      const minCursor = createCursor(segmentStartS, segments);
+      const min = interpolateZoom(minCursor, cursorPos);
+
+      return {
+        t: (min.t * (1 - zoomT)) + zoomT,
+        bounds: lerpBounds(min.bounds, segmentBounds, zoomT),
+      };
+    }
+    // Large gap: fully separate segments
+    else {
+      return {
+        t: zoomT,
+        bounds: lerpBounds(defaultB, segmentBounds, zoomT),
+      };
+    }
+  }
+
+  // No segments active
+  return { t: 0, bounds: defaultB };
+}
+
+// ============================================================================
+// Convert to ZoomState and CSS Transform
+// ============================================================================
 
 interface ZoomState {
   scale: number;
@@ -24,149 +256,53 @@ interface ZoomTransformStyle {
   transformOrigin: string;
 }
 
-/**
- * Get cursor position for a region, using interpolated cursor if in auto mode.
- */
-function getCursorPosition(
-  region: ZoomRegion,
-  timestampMs: number,
-  getCursorAt: ((timeMs: number) => InterpolatedCursor) | null
-): { x: number; y: number } {
-  // If mode is 'auto' and we have cursor data, follow the cursor
-  if (region.mode === 'auto' && getCursorAt) {
-    const cursor = getCursorAt(timestampMs);
-    return { x: cursor.x, y: cursor.y };
+function boundsToZoomState(interp: InterpolatedZoom): ZoomState {
+  const width = boundsWidth(interp.bounds);
+
+  // No zoom (width ~= 1.0)
+  if (Math.abs(width - 1) < 0.001) {
+    return { scale: 1, centerX: 0.5, centerY: 0.5 };
   }
 
-  // Otherwise use fixed position
-  return { x: region.targetX, y: region.targetY };
+  // Calculate scale and center from bounds
+  const scale = width;
+  const centerX = (interp.bounds.topLeft.x + interp.bounds.bottomRight.x) / 2;
+  const centerY = (interp.bounds.topLeft.y + interp.bounds.bottomRight.y) / 2;
+
+  return { scale, centerX, centerY };
 }
 
 /**
  * Calculate the zoom state at a specific timestamp.
- *
- * @param regions - Zoom regions
- * @param timestampMs - Current playback time
- * @param getCursorAt - Optional cursor interpolation function for auto mode
  */
 export function getZoomStateAt(
   regions: ZoomRegion[],
   timestampMs: number,
   getCursorAt?: ((timeMs: number) => InterpolatedCursor) | null
 ): ZoomState {
-  const identity: ZoomState = { scale: 1, centerX: 0.5, centerY: 0.5 };
-
   if (!regions || regions.length === 0) {
-    return identity;
+    return { scale: 1, centerX: 0.5, centerY: 0.5 };
   }
 
   // Sort regions by start time
   const sorted = [...regions].sort((a, b) => a.startMs - b.startMs);
+  const timeS = timestampMs / 1000;
 
-  for (let i = 0; i < sorted.length; i++) {
-    const region = sorted[i];
-    const transitionInStart = Math.max(0, region.startMs - region.transition.durationInMs);
-    const transitionOutEnd = region.endMs + region.transition.durationOutMs;
-
-    // Transition-in phase
-    if (timestampMs >= transitionInStart && timestampMs < region.startMs) {
-      const progress = (timestampMs - transitionInStart) / region.transition.durationInMs;
-      const eased = applyEasing(progress, region.transition.easing);
-
-      const prevState = i > 0 ? getRegionEndState(sorted[i - 1]) : identity;
-      const targetState = getRegionState(region, timestampMs, getCursorAt);
-
-      return interpolateZoom(prevState, targetState, eased);
-    }
-
-    // Active zoom phase
-    if (timestampMs >= region.startMs && timestampMs <= region.endMs) {
-      return getRegionState(region, timestampMs, getCursorAt);
-    }
-
-    // Transition-out phase
-    if (timestampMs > region.endMs && timestampMs <= transitionOutEnd) {
-      const progress = (timestampMs - region.endMs) / region.transition.durationOutMs;
-      const eased = applyEasing(progress, region.transition.easing);
-
-      const currentState = getRegionState(region, region.endMs, getCursorAt);
-      const nextState = (i + 1 < sorted.length)
-        ? getRegionState(sorted[i + 1], timestampMs, getCursorAt)
-        : identity;
-
-      return interpolateZoom(currentState, nextState, eased);
-    }
+  // Get cursor position for auto mode
+  let cursorPos: XY | null = null;
+  if (getCursorAt) {
+    const cursor = getCursorAt(timestampMs);
+    cursorPos = { x: cursor.x, y: cursor.y };
   }
 
-  return identity;
-}
+  const cursor = createCursor(timeS, sorted);
+  const interp = interpolateZoom(cursor, cursorPos);
 
-function getRegionState(
-  region: ZoomRegion,
-  timestampMs: number,
-  getCursorAt?: ((timeMs: number) => InterpolatedCursor) | null
-): ZoomState {
-  const pos = getCursorPosition(region, timestampMs, getCursorAt ?? null);
-  return {
-    scale: region.scale,
-    centerX: pos.x,
-    centerY: pos.y,
-  };
-}
-
-function getRegionEndState(_region: ZoomRegion): ZoomState {
-  // After a region ends (past transition-out), return to identity
-  // The region parameter is kept for potential future use (e.g., sticky zoom)
-  return { scale: 1, centerX: 0.5, centerY: 0.5 };
-}
-
-function interpolateZoom(from: ZoomState, to: ZoomState, t: number): ZoomState {
-  return {
-    scale: lerp(from.scale, to.scale, t),
-    centerX: lerp(from.centerX, to.centerX, t),
-    centerY: lerp(from.centerY, to.centerY, t),
-  };
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-function applyEasing(t: number, easing: EasingFunction): number {
-  switch (easing) {
-    case 'linear':
-      return t;
-    case 'easeIn':
-      return t * t * t;
-    case 'easeOut':
-      return 1 - Math.pow(1 - t, 3);
-    case 'easeInOut':
-      return t < 0.5
-        ? 4 * t * t * t
-        : 1 - Math.pow(-2 * t + 2, 3) / 2;
-    case 'smooth':
-      return t * t * (3 - 2 * t);
-    case 'snappy':
-      return 1 - (1 - t) * (1 - t);
-    case 'bouncy':
-      if (t < 0.7) {
-        const normalized = t / 0.7;
-        return 1.1 * normalized * normalized;
-      } else {
-        const normalized = (t - 0.7) / 0.3;
-        return 1.1 - 0.1 * (1 - Math.pow(1 - normalized, 2));
-      }
-    default:
-      return t;
-  }
+  return boundsToZoomState(interp);
 }
 
 /**
  * Convert zoom state to CSS transform properties.
- *
- * The transform simulates zooming into the video at the target position.
- * - scale: How much to zoom (1 = no zoom, 2 = 2x zoom)
- * - centerX/Y: Where to zoom (0-1 normalized, 0.5 = center)
  */
 export function zoomStateToTransform(state: ZoomState): ZoomTransformStyle {
   if (state.scale <= 1.001) {
@@ -177,13 +313,11 @@ export function zoomStateToTransform(state: ZoomState): ZoomTransformStyle {
   }
 
   // Clamp center position to prevent showing empty areas at edges
-  // At scale S, visible area is 1/S, so center must be between 0.5/S and 1-0.5/S
   const halfVisible = 0.5 / state.scale;
   const clampedCenterX = Math.max(halfVisible, Math.min(1 - halfVisible, state.centerX));
   const clampedCenterY = Math.max(halfVisible, Math.min(1 - halfVisible, state.centerY));
 
   // Calculate translation to keep the target point centered
-  // When zoomed, we need to pan so the target (centerX, centerY) appears at screen center
   const translateX = (0.5 - clampedCenterX) * 100 * (state.scale - 1) / state.scale;
   const translateY = (0.5 - clampedCenterY) * 100 * (state.scale - 1) / state.scale;
 
@@ -195,16 +329,12 @@ export function zoomStateToTransform(state: ZoomState): ZoomTransformStyle {
 
 /**
  * Hook to get zoom transform style for the current timestamp.
- *
- * For auto-zoom mode, this reads cursor recording from the video editor store
- * and uses spring-physics cursor interpolation for smooth following.
  */
 export function useZoomPreview(
   regions: ZoomRegion[] | undefined,
   currentTimeMs: number,
   cursorRecording?: CursorRecording | null
 ): ZoomTransformStyle {
-  // Use cursor interpolation for auto mode (with spring physics)
   const { getCursorAt, hasCursorData } = useCursorInterpolation(cursorRecording);
 
   return useMemo(() => {
@@ -212,7 +342,6 @@ export function useZoomPreview(
       return { transform: 'none', transformOrigin: 'center center' };
     }
 
-    // Pass cursor interpolation function for auto mode regions
     const state = getZoomStateAt(
       regions,
       currentTimeMs,

@@ -700,6 +700,94 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                   </ToggleGroup>
                 </div>
 
+                {/* Rounding (only for roundedRectangle) */}
+                {project.webcam.shape === 'roundedRectangle' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-zinc-400">Rounding</span>
+                      <span className="text-xs text-zinc-500">{Math.round(project.webcam.rounding)}%</span>
+                    </div>
+                    <Slider
+                      value={[project.webcam.rounding]}
+                      onValueChange={(values) => updateWebcamConfig({ rounding: values[0] })}
+                      min={0}
+                      max={100}
+                      step={1}
+                      className="w-full"
+                    />
+                  </div>
+                )}
+
+                {/* Shadow */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-400">Shadow</span>
+                    <span className="text-xs text-zinc-500">{Math.round(project.webcam.shadow)}%</span>
+                  </div>
+                  <Slider
+                    value={[project.webcam.shadow]}
+                    onValueChange={(values) => updateWebcamConfig({ shadow: values[0] })}
+                    min={0}
+                    max={100}
+                    step={1}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Advanced Shadow Settings (only when shadow > 0) */}
+                {project.webcam.shadow > 0 && (
+                  <div className="pl-3 border-l border-zinc-700 space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-zinc-500">Size</span>
+                        <span className="text-[11px] text-zinc-600">{Math.round(project.webcam.shadowConfig.size)}%</span>
+                      </div>
+                      <Slider
+                        value={[project.webcam.shadowConfig.size]}
+                        onValueChange={(values) => updateWebcamConfig({ 
+                          shadowConfig: { ...project.webcam.shadowConfig, size: values[0] } 
+                        })}
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-zinc-500">Opacity</span>
+                        <span className="text-[11px] text-zinc-600">{Math.round(project.webcam.shadowConfig.opacity)}%</span>
+                      </div>
+                      <Slider
+                        value={[project.webcam.shadowConfig.opacity]}
+                        onValueChange={(values) => updateWebcamConfig({ 
+                          shadowConfig: { ...project.webcam.shadowConfig, opacity: values[0] } 
+                        })}
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-zinc-500">Blur</span>
+                        <span className="text-[11px] text-zinc-600">{Math.round(project.webcam.shadowConfig.blur)}%</span>
+                      </div>
+                      <Slider
+                        value={[project.webcam.shadowConfig.blur]}
+                        onValueChange={(values) => updateWebcamConfig({ 
+                          shadowConfig: { ...project.webcam.shadowConfig, blur: values[0] } 
+                        })}
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Position Grid */}
                 <div>
                   <span className="text-xs text-zinc-400 block mb-2">Position</span>

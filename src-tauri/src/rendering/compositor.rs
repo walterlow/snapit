@@ -1,6 +1,7 @@
 //! Frame compositor using wgpu shaders.
 //!
-//! Composites video frames with zoom, webcam overlay (with circle mask), and effects.
+//! Composites video frames with zoom, webcam overlay (with circle/squircle mask and shadow).
+//! Shadow and squircle implementation based on Cap's rendering.
 
 use std::sync::Arc;
 use wgpu::{Device, Queue};
@@ -9,15 +10,16 @@ use super::renderer::Renderer;
 use super::types::{CompositorUniforms, DecodedFrame, RenderOptions, WebcamShape};
 
 /// WGSL shader for video compositing with zoom and webcam overlay.
+/// Supports circle, squircle (superellipse), and rounded rectangle shapes with drop shadow.
 const COMPOSITOR_SHADER: &str = r#"
 struct Uniforms {
-    video_size: vec4<f32>,    // width, height, 0, 0
-    output_size: vec4<f32>,   // width, height, 0, 0
-    zoom: vec4<f32>,          // scale, center_x, center_y, 0
-    time_flags: vec4<f32>,    // time_ms, flags, 0, 0
-    webcam_rect: vec4<f32>,   // x, y, width, height (normalized 0-1)
-    webcam_params: vec4<f32>, // shape(0=none,1=circle,2=rect,3=rounded), border_width, mirror, radius
-    webcam_border: vec4<f32>, // r, g, b, a
+    video_size: vec4<f32>,      // width, height, 0, 0
+    output_size: vec4<f32>,     // width, height, 0, 0
+    zoom: vec4<f32>,            // scale, center_x, center_y, 0
+    time_flags: vec4<f32>,      // time_ms, flags, 0, 0
+    webcam_rect: vec4<f32>,     // x, y, width, height (normalized 0-1)
+    webcam_params: vec4<f32>,   // shape(0=none,1=circle,2=squircle,3=rounded), shadow, mirror, radius
+    webcam_shadow: vec4<f32>,   // shadow_size, shadow_opacity, shadow_blur, 0
     webcam_tex_size: vec4<f32>, // texture width, height, aspect_ratio, 0
 }
 
@@ -51,18 +53,46 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     return output;
 }
 
-// Signed distance function for circle with aspect ratio correction
-fn sdf_circle(p: vec2<f32>, center: vec2<f32>, radius: f32, aspect: f32) -> f32 {
-    // Scale X by aspect ratio to make the circle round in pixel space
-    let scaled_p = vec2<f32>(p.x * aspect, p.y);
-    let scaled_center = vec2<f32>(center.x * aspect, center.y);
-    return length(scaled_p - scaled_center) - radius * aspect;
+// Superellipse norm for squircle (iOS-style rounded corners)
+// Power of 4.0 gives the classic squircle shape
+fn superellipse_norm(p: vec2<f32>, power: f32) -> f32 {
+    let x = pow(abs(p.x), power);
+    let y = pow(abs(p.y), power);
+    return pow(x + y, 1.0 / power);
+}
+
+// Signed distance function for circle
+fn sdf_circle(p: vec2<f32>, radius: f32) -> f32 {
+    return length(p) - radius;
+}
+
+// Signed distance function for squircle (superellipse)
+fn sdf_squircle(p: vec2<f32>, radius: f32) -> f32 {
+    return superellipse_norm(p, 4.0) * radius - radius;
 }
 
 // Signed distance function for rounded rectangle  
-fn sdf_rounded_rect(p: vec2<f32>, center: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
-    let d = abs(p - center) - half_size + vec2<f32>(radius);
+fn sdf_rounded_rect(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
+    let d = abs(p) - half_size + vec2<f32>(radius);
     return length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0) - radius;
+}
+
+// Calculate SDF based on shape type
+fn webcam_sdf(p: vec2<f32>, half_size: vec2<f32>, shape: f32, corner_radius: f32) -> f32 {
+    // Normalize to unit circle/square for consistent shape
+    let radius = min(half_size.x, half_size.y);
+    let normalized_p = p / radius;
+    
+    if (shape < 1.5) {
+        // Circle
+        return sdf_circle(normalized_p, 1.0) * radius;
+    } else if (shape < 2.5) {
+        // Squircle (iOS-style)
+        return sdf_squircle(normalized_p, 1.0) * radius;
+    } else {
+        // Rounded rectangle
+        return sdf_rounded_rect(p, half_size, corner_radius);
+    }
 }
 
 @fragment
@@ -85,88 +115,80 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (webcam_shape > 0.5) {
         let webcam_pos = uniforms.webcam_rect.xy;
         let webcam_size = uniforms.webcam_rect.zw;
-        let border_width = uniforms.webcam_params.y;
+        let shadow_strength = uniforms.webcam_params.y;
         let mirror = uniforms.webcam_params.z;
         let corner_radius = uniforms.webcam_params.w;
         
-        // Check if current pixel is within webcam area (including border)
-        let border_pixels = border_width / uniforms.output_size.x;
-        let expanded_pos = webcam_pos - vec2<f32>(border_pixels);
-        let expanded_size = webcam_size + vec2<f32>(border_pixels * 2.0);
+        // Shadow parameters
+        let shadow_size = uniforms.webcam_shadow.x;
+        let shadow_opacity = uniforms.webcam_shadow.y;
+        let shadow_blur = uniforms.webcam_shadow.z;
         
-        if (input.uv.x >= expanded_pos.x && input.uv.x <= expanded_pos.x + expanded_size.x &&
-            input.uv.y >= expanded_pos.y && input.uv.y <= expanded_pos.y + expanded_size.y) {
+        // Calculate webcam center and half size in output space
+        let webcam_center = webcam_pos + webcam_size * 0.5;
+        let half_size = webcam_size * 0.5;
+        
+        // Convert current UV to webcam-relative coordinates (centered)
+        let rel_pos = input.uv - webcam_center;
+        
+        // Convert to pixel space for proper aspect ratio handling
+        let pixel_pos = rel_pos * uniforms.output_size.xy;
+        let pixel_half_size = half_size * uniforms.output_size.xy;
+        let min_size = min(pixel_half_size.x, pixel_half_size.y);
+        
+        // Normalize for square shape (webcam is rendered in square pixel area)
+        let normalized_pos = pixel_pos / min_size;
+        let normalized_half = vec2<f32>(1.0, 1.0);
+        
+        // Calculate distance
+        let dist = webcam_sdf(normalized_pos, normalized_half, webcam_shape, corner_radius / min_size);
+        
+        // Shadow (rendered behind webcam)
+        if (shadow_strength > 0.0 && dist > 0.0) {
+            let shadow_spread = shadow_size * 0.5;  // Size of shadow spread
+            let blur_amount = shadow_blur * 0.5;    // Blur radius
             
-            // Calculate position within webcam area
-            let webcam_center = webcam_pos + webcam_size * 0.5;
-            let half_size = webcam_size * 0.5;
+            // Smooth shadow falloff
+            let shadow_dist = dist - shadow_spread;
+            let shadow_alpha = (1.0 - smoothstep(-blur_amount, blur_amount * 2.0, shadow_dist)) 
+                             * shadow_opacity * shadow_strength;
             
-            // Calculate distance for masking
-            var dist: f32;
-            var border_dist: f32;
+            if (shadow_alpha > 0.001) {
+                let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
+                color = mix(color, vec4<f32>(0.0, 0.0, 0.0, 1.0), shadow_alpha);
+            }
+        }
+        
+        // Anti-aliased edge
+        let aa_width = fwidth(dist) * 2.0;
+        
+        // Webcam content (sample when inside or within AA zone)
+        if (dist <= aa_width) {
+            // Calculate UV within webcam overlay area
+            var webcam_uv = (input.uv - webcam_pos) / webcam_size;
             
-            // Webcam rect aspect ratio for proper circle rendering
-            // webcam_rect is square in PIXELS, so we use its own aspect for correction
-            let webcam_rect_aspect = webcam_size.x / webcam_size.y;
-            
-            if (webcam_shape < 1.5) {
-                // Circle - use webcam rect aspect for correction (makes circle round in pixels)
-                let radius = half_size.x;  // Use x-radius as reference
-                dist = sdf_circle(input.uv, webcam_center, radius, 1.0 / webcam_rect_aspect);
-                border_dist = sdf_circle(input.uv, webcam_center, radius + border_pixels, 1.0 / webcam_rect_aspect);
-            } else if (webcam_shape < 2.5) {
-                // Rectangle
-                dist = sdf_rounded_rect(input.uv, webcam_center, half_size, 0.0);
-                border_dist = sdf_rounded_rect(input.uv, webcam_center, half_size + vec2<f32>(border_pixels), 0.0);
-            } else {
-                // Rounded rectangle
-                let radius_norm = corner_radius / uniforms.output_size.x;
-                dist = sdf_rounded_rect(input.uv, webcam_center, half_size, radius_norm);
-                border_dist = sdf_rounded_rect(input.uv, webcam_center, half_size + vec2<f32>(border_pixels), radius_norm);
+            // Mirror if enabled
+            if (mirror > 0.5) {
+                webcam_uv.x = 1.0 - webcam_uv.x;
             }
             
-            // Anti-aliased edge using screen-space derivatives for smooth edges
-            // fwidth gives the rate of change across the pixel - adapts to resolution
-            let aa_width = fwidth(dist) * 3.0;  // 3 pixels of smooth transition
-            
-            // Border
-            if (border_width > 0.0 && dist > 0.0 && border_dist <= 0.0) {
-                let border_alpha = 1.0 - smoothstep(-aa_width, aa_width, border_dist);
-                color = mix(color, uniforms.webcam_border, border_alpha);
+            // Crop webcam to square for circle/squircle display
+            let aspect = uniforms.webcam_tex_size.z;
+            if (aspect > 1.0) {
+                // Wide video: crop sides
+                let crop_amount = (1.0 - 1.0 / aspect) * 0.5;
+                webcam_uv.x = crop_amount + webcam_uv.x * (1.0 / aspect);
+            } else if (aspect < 1.0) {
+                // Tall video: crop top/bottom
+                let crop_amount = (1.0 - aspect) * 0.5;
+                webcam_uv.y = crop_amount + webcam_uv.y * aspect;
             }
             
-            // Webcam content (sample when inside or within AA zone)
-            if (dist <= aa_width) {
-                // Calculate UV within webcam overlay area
-                var webcam_uv = (input.uv - webcam_pos) / webcam_size;
-                
-                // Mirror if enabled
-                if (mirror > 0.5) {
-                    webcam_uv.x = 1.0 - webcam_uv.x;
-                }
-                
-                // Crop webcam to square for circle display
-                // Aspect > 1 means wide video (e.g., 16:9 = 1.78)
-                // We crop the sides to show center portion
-                let aspect = uniforms.webcam_tex_size.z;
-                if (aspect > 1.0) {
-                    // Wide video: crop sides, keep full height
-                    // Map UV from [0,1] to [crop_start, crop_end]
-                    let crop_amount = (1.0 - 1.0 / aspect) * 0.5;
-                    webcam_uv.x = crop_amount + webcam_uv.x * (1.0 / aspect);
-                } else if (aspect < 1.0) {
-                    // Tall video: crop top/bottom, keep full width
-                    let crop_amount = (1.0 - aspect) * 0.5;
-                    webcam_uv.y = crop_amount + webcam_uv.y * aspect;
-                }
-                
-                // Clamp to valid range
-                webcam_uv = clamp(webcam_uv, vec2<f32>(0.0), vec2<f32>(1.0));
-                
-                let webcam_color = textureSample(webcam_texture, webcam_sampler, webcam_uv);
-                let alpha = 1.0 - smoothstep(-aa_width, aa_width, dist);
-                color = mix(color, webcam_color, alpha * webcam_color.a);
-            }
+            webcam_uv = clamp(webcam_uv, vec2<f32>(0.0), vec2<f32>(1.0));
+            
+            let webcam_color = textureSample(webcam_texture, webcam_sampler, webcam_uv);
+            let alpha = 1.0 - smoothstep(-aa_width, aa_width, dist);
+            color = mix(color, webcam_color, alpha * webcam_color.a);
         }
     }
     
@@ -183,8 +205,8 @@ pub struct ExtendedUniforms {
     pub zoom: [f32; 4],
     pub time_flags: [f32; 4],
     pub webcam_rect: [f32; 4],
-    pub webcam_params: [f32; 4],
-    pub webcam_border: [f32; 4],
+    pub webcam_params: [f32; 4], // shape, shadow_strength, mirror, corner_radius
+    pub webcam_shadow: [f32; 4], // shadow_size, shadow_opacity, shadow_blur, 0
     pub webcam_tex_size: [f32; 4],
 }
 
@@ -391,7 +413,7 @@ impl Compositor {
 
         // Create webcam texture if present
         let webcam_texture_storage: Option<wgpu::Texture>;
-        let (webcam_rect, webcam_params, webcam_border, webcam_tex_size) =
+        let (webcam_rect, webcam_params, webcam_shadow, webcam_tex_size) =
             if let Some(ref webcam) = options.webcam {
                 webcam_texture_storage = Some(renderer.create_texture_from_rgba(
                     &webcam.frame.data,
@@ -400,9 +422,11 @@ impl Compositor {
                     "Webcam Frame",
                 ));
 
+                // Shape: 1=Circle, 2=Squircle, 3=RoundedRect
                 let shape = match webcam.shape {
                     WebcamShape::Circle => 1.0,
-                    WebcamShape::Rectangle => 2.0,
+                    WebcamShape::Squircle => 2.0,
+                    WebcamShape::Rectangle => 3.0, // Rectangle uses RoundedRect with radius=0
                     WebcamShape::RoundedRect { .. } => 3.0,
                 };
                 let radius = match webcam.shape {
@@ -414,24 +438,24 @@ impl Compositor {
                 let webcam_aspect = webcam.frame.width as f32 / webcam.frame.height as f32;
 
                 // Make webcam overlay square in PIXELS (not normalized coords)
-                // webcam.size is width as fraction of output width
-                // To get square pixels: height_norm = width_norm * (out_w / out_h)
                 let output_aspect = options.output_width as f32 / options.output_height as f32;
                 let webcam_width_norm = webcam.size;
                 let webcam_height_norm = webcam.size * output_aspect;
 
-                // Position is now calculated correctly in build_webcam_overlay (pixel-based, then normalized)
-                // No adjustment needed - x,y are already correct normalized positions
-
                 (
-                    [webcam.x, webcam.y, webcam_width_norm, webcam_height_norm], // Square in pixels
+                    [webcam.x, webcam.y, webcam_width_norm, webcam_height_norm],
                     [
                         shape,
-                        webcam.border_width,
+                        webcam.shadow, // shadow_strength
                         if webcam.mirror { 1.0 } else { 0.0 },
                         radius,
                     ],
-                    webcam.border_color,
+                    [
+                        webcam.shadow_size,
+                        webcam.shadow_opacity,
+                        webcam.shadow_blur,
+                        0.0,
+                    ],
                     [
                         webcam.frame.width as f32,
                         webcam.frame.height as f32,
@@ -444,7 +468,7 @@ impl Compositor {
                 (
                     [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 0.0], // shape=0 means no webcam
-                    [0.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 0.0], // no shadow
                     [1.0, 1.0, 1.0, 0.0], // Default 1:1 aspect
                 )
             };
@@ -480,7 +504,7 @@ impl Compositor {
             time_flags: [time_ms, 0.0, 0.0, 0.0],
             webcam_rect,
             webcam_params,
-            webcam_border,
+            webcam_shadow,
             webcam_tex_size,
         };
         self.queue

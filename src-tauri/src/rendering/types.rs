@@ -19,7 +19,13 @@ pub struct DecodedFrame {
 }
 
 impl DecodedFrame {
-    pub fn new(frame_number: u32, timestamp_ms: u64, data: Vec<u8>, width: u32, height: u32) -> Self {
+    pub fn new(
+        frame_number: u32,
+        timestamp_ms: u64,
+        data: Vec<u8>,
+        width: u32,
+        height: u32,
+    ) -> Self {
         Self {
             frame_number,
             timestamp_ms,
@@ -110,19 +116,28 @@ pub struct WebcamOverlay {
     pub size: f32,
     /// Shape of overlay.
     pub shape: WebcamShape,
-    /// Border width in pixels (0 = no border).
-    pub border_width: f32,
-    /// Border color (RGBA).
-    pub border_color: [f32; 4],
     /// Whether to mirror horizontally.
     pub mirror: bool,
+    /// Shadow strength (0.0 = no shadow, 1.0 = full shadow).
+    pub shadow: f32,
+    /// Shadow size as fraction of webcam size (0.0-1.0).
+    pub shadow_size: f32,
+    /// Shadow opacity (0.0-1.0).
+    pub shadow_opacity: f32,
+    /// Shadow blur amount (0.0-1.0).
+    pub shadow_blur: f32,
 }
 
 /// Shape of webcam overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebcamShape {
+    /// Perfect circle.
     Circle,
+    /// iOS-style squircle (superellipse with power 4).
+    Squircle,
+    /// Rectangle with no rounding.
     Rectangle,
+    /// Rectangle with rounded corners.
     RoundedRect { radius: u32 },
 }
 

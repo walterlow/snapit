@@ -1,9 +1,9 @@
 /**
  * usePlaybackEngine - High-performance playback engine using RAF.
- * 
+ *
  * Avoids React re-renders during playback by:
  * 1. Storing current time in a ref (not state)
- * 2. Using requestAnimationFrame for 60fps updates
+ * 2. Using requestAnimationFrame for 60fps updates during playback
  * 3. Only syncing to Zustand store when paused/seeking
  * 4. Providing callback-based subscriptions for components that need time
  */
@@ -15,7 +15,80 @@ import { useVideoEditorStore } from '../stores/videoEditorStore';
 let currentTimeMs = 0;
 let isPlaying = false;
 let durationMs = 0;
+let rafId: number | null = null;
+let videoElement: HTMLVideoElement | null = null;
+
+// For smooth time interpolation during playback
+let playbackStartWallTime = 0;  // performance.now() when play started
+let playbackStartVideoTime = 0; // video time (ms) when play started
+let lastVideoSyncTime = 0;      // Last time we synced with video.currentTime
+
 const subscribers = new Set<() => void>();
+
+/**
+ * RAF loop that interpolates time for smooth 60fps animation.
+ *
+ * Instead of polling video.currentTime (which only updates at video frame rate),
+ * we interpolate based on wall clock time since playback started.
+ * Periodically re-sync with video.currentTime to correct any drift.
+ */
+function rafLoop() {
+  if (!isPlaying) {
+    rafId = null;
+    return;
+  }
+
+  const now = performance.now();
+
+  // Interpolate time based on wall clock
+  const elapsed = now - playbackStartWallTime;
+  let interpolatedTimeMs = playbackStartVideoTime + elapsed;
+
+  // Clamp to duration
+  interpolatedTimeMs = Math.min(interpolatedTimeMs, durationMs);
+
+  // Periodically sync with actual video time to correct drift (every 500ms)
+  // Only if we have a video element to sync with
+  if (videoElement && now - lastVideoSyncTime > 500) {
+    const actualVideoTimeMs = videoElement.currentTime * 1000;
+    const drift = Math.abs(interpolatedTimeMs - actualVideoTimeMs);
+
+    // If drift is significant (>100ms), resync our reference point
+    if (drift > 100) {
+      playbackStartWallTime = now;
+      playbackStartVideoTime = actualVideoTimeMs;
+      interpolatedTimeMs = actualVideoTimeMs;
+    }
+    lastVideoSyncTime = now;
+  }
+
+  // Update current time
+  currentTimeMs = interpolatedTimeMs;
+  notifySubscribers();
+
+  // Continue loop
+  rafId = requestAnimationFrame(rafLoop);
+}
+
+function startRAFLoop() {
+  if (rafId !== null) return; // Already running
+
+  // Initialize interpolation reference points
+  playbackStartWallTime = performance.now();
+  playbackStartVideoTime = videoElement ? videoElement.currentTime * 1000 : currentTimeMs;
+  lastVideoSyncTime = playbackStartWallTime;
+
+  rafId = requestAnimationFrame(rafLoop);
+}
+
+function stopRAFLoop() {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+  // Keep currentTimeMs as-is (the interpolated value)
+  // Don't reset to video.currentTime which may lag behind
+}
 
 function subscribe(callback: () => void) {
   subscribers.add(callback);
@@ -56,26 +129,34 @@ export function usePreviewOrPlaybackTime(): number {
  */
 export function usePlaybackControls() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  
+
   const play = useCallback(() => {
     if (isPlaying) return;
     isPlaying = true;
-    
-    // Start video element - it becomes the source of truth
-    // Time updates come via syncFromVideo() from timeupdate events
+
+    // Start video element
     videoRef.current?.play();
-    
+
+    // Start RAF loop for 60fps time updates (instead of relying on ~4Hz timeupdate)
+    startRAFLoop();
+
     // Sync to store (for UI that shows play/pause state)
     useVideoEditorStore.getState().setIsPlaying(true);
   }, []);
-  
+
   const pause = useCallback(() => {
     if (!isPlaying) return;
     isPlaying = false;
-    
-    // Pause video element
-    videoRef.current?.pause();
-    
+
+    // Stop RAF loop (keeps currentTimeMs at interpolated value)
+    stopRAFLoop();
+
+    // Pause video element and sync it to our interpolated time
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = currentTimeMs / 1000;
+    }
+
     // Sync final time to store
     useVideoEditorStore.getState().setIsPlaying(false);
     useVideoEditorStore.getState().setCurrentTime(currentTimeMs);
@@ -113,11 +194,20 @@ export function usePlaybackControls() {
   
   const setVideoElement = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
+    videoElement = el; // Store for RAF loop access
   }, []);
   
   const syncFromVideo = useCallback((timeMs: number) => {
-    // Called from video timeupdate when we want to sync from video element
-    // Only use this when video is the source of truth (playing natively)
+    // During playback, we use interpolation for smooth animation.
+    // The RAF loop handles drift correction, so ignore timeupdate events.
+    if (isPlaying) return;
+
+    // During preview (hover scrubbing), don't update the red playhead position.
+    // The video seeks to show the preview, but the playhead should stay put.
+    const previewTimeMs = useVideoEditorStore.getState().previewTimeMs;
+    if (previewTimeMs !== null) return;
+
+    // When paused and not previewing, sync directly from video
     currentTimeMs = timeMs;
     notifySubscribers();
   }, []);
@@ -140,6 +230,7 @@ export function usePlaybackControls() {
  * Call this when project loads.
  */
 export function initPlaybackEngine(projectDurationMs: number, initialTimeMs = 0) {
+  stopRAFLoop(); // Stop any existing loop
   durationMs = projectDurationMs;
   currentTimeMs = initialTimeMs;
   isPlaying = false;
@@ -151,9 +242,11 @@ export function initPlaybackEngine(projectDurationMs: number, initialTimeMs = 0)
  * Call this when project unloads.
  */
 export function resetPlaybackEngine() {
+  stopRAFLoop();
   currentTimeMs = 0;
   isPlaying = false;
   durationMs = 0;
+  videoElement = null;
   notifySubscribers();
 }
 

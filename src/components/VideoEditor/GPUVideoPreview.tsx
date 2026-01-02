@@ -70,13 +70,27 @@ const FullscreenWebcam = memo(function FullscreenWebcam({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const currentTimeMs = usePreviewOrPlaybackTime();
+  const isPlaying = useVideoEditorStore(selectIsPlaying);
 
   const videoSrc = useMemo(() => convertFileSrc(webcamVideoPath), [webcamVideoPath]);
 
-  // Sync webcam video time with main playback
+  // Sync webcam video play/pause state with main playback
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+
+    if (isPlaying && video.paused) {
+      video.currentTime = currentTimeMs / 1000;
+      video.play().catch(() => {});
+    } else if (!isPlaying && !video.paused) {
+      video.pause();
+    }
+  }, [isPlaying, currentTimeMs]);
+
+  // Seek webcam video when scrubbing (not playing)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || isPlaying) return;
 
     const targetTime = currentTimeMs / 1000;
     const diff = Math.abs(video.currentTime - targetTime);
@@ -84,7 +98,7 @@ const FullscreenWebcam = memo(function FullscreenWebcam({
     if (diff > 0.1) {
       video.currentTime = targetTime;
     }
-  }, [currentTimeMs]);
+  }, [currentTimeMs, isPlaying]);
 
   return (
     <div className="absolute inset-0 z-10">
@@ -241,9 +255,21 @@ export function GPUVideoPreview() {
   }, [project?.timeline.durationMs]);
 
   // Register video element with playback engine
+  // Use layout effect to ensure video ref is set after child renders
   useEffect(() => {
-    controls.setVideoElement(videoRef.current);
-  }, [controls]);
+    // Check immediately
+    if (videoRef.current) {
+      controls.setVideoElement(videoRef.current);
+      return;
+    }
+    // If not available yet, check on next frame (after children render)
+    const id = requestAnimationFrame(() => {
+      if (videoRef.current) {
+        controls.setVideoElement(videoRef.current);
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [controls, videoSrc]);
 
   // Set duration when project loads
   useEffect(() => {
@@ -257,14 +283,9 @@ export function GPUVideoPreview() {
     const video = videoRef.current;
     if (!video) return;
 
-    const onTimeUpdate = () => {
-      // Skip sync when previewing (scrubbing) - don't move the red playhead
-      const currentPreviewTime = useVideoEditorStore.getState().previewTimeMs;
-      if (currentPreviewTime !== null) return;
-
-      // Sync time from video element to playback engine
-      controls.syncFromVideo(video.currentTime * 1000);
-    };
+    // Note: We don't use timeupdate for syncing time anymore.
+    // The playback engine uses interpolation for smooth 60fps updates.
+    // Syncing from timeupdate caused issues when preview ended (playhead jumped).
 
     const onEnded = () => {
       controls.pause();
@@ -281,13 +302,11 @@ export function GPUVideoPreview() {
       setVideoError(null);
     };
 
-    video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
     video.addEventListener('error', onError);
     video.addEventListener('loadeddata', onLoadedData);
 
     return () => {
-      video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('error', onError);
       video.removeEventListener('loadeddata', onLoadedData);
@@ -310,18 +329,16 @@ export function GPUVideoPreview() {
   }, [isPlaying, controls]);
 
   // Seek video when preview time changes (for timeline scrubbing)
+  // Note: Don't seek based on isPlaying changes - pause() handles that directly
   useEffect(() => {
     const video = videoRef.current;
     if (!video || isPlaying) return;
 
+    // Only seek when previewTimeMs changes (scrubbing)
     if (previewTimeMs !== null) {
-      // Seek to preview time
       video.currentTime = previewTimeMs / 1000;
-    } else {
-      // Preview ended - restore to actual playhead position
-      const { currentTimeMs } = useVideoEditorStore.getState();
-      video.currentTime = currentTimeMs / 1000;
     }
+    // Don't seek on previewTimeMs becoming null - let the playback engine handle it
   }, [previewTimeMs, isPlaying]);
 
   const handleVideoClick = useCallback(() => {

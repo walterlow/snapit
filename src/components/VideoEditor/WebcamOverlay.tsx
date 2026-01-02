@@ -1,7 +1,10 @@
 import { memo, useMemo, useRef, useEffect } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { usePreviewOrPlaybackTime } from '../../hooks/usePlaybackEngine';
+import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import type { WebcamConfig, VisibilitySegment } from '../../types';
+
+const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
 
 interface WebcamOverlayProps {
   webcamVideoPath: string;
@@ -110,6 +113,7 @@ export const WebcamOverlay = memo(function WebcamOverlay({
 }: WebcamOverlayProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const currentTimeMs = usePreviewOrPlaybackTime();
+  const isPlaying = useVideoEditorStore(selectIsPlaying);
   
   // Debug: log webcam config on mount
   useEffect(() => {
@@ -173,19 +177,33 @@ export const WebcamOverlay = memo(function WebcamOverlay({
     };
   }, [config.border]);
   
-  // Sync webcam video time with main playback
+  // Sync webcam video play/pause state with main playback
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    
+
+    if (isPlaying && video.paused) {
+      // Sync time before playing to ensure alignment
+      video.currentTime = currentTimeMs / 1000;
+      video.play().catch(() => {});
+    } else if (!isPlaying && !video.paused) {
+      video.pause();
+    }
+  }, [isPlaying, currentTimeMs]);
+
+  // Seek webcam video when scrubbing (not playing)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || isPlaying) return;
+
     const targetTime = currentTimeMs / 1000;
     const diff = Math.abs(video.currentTime - targetTime);
-    
+
     // Only seek if difference is significant
     if (diff > 0.1) {
       video.currentTime = targetTime;
     }
-  }, [currentTimeMs]);
+  }, [currentTimeMs, isPlaying]);
   
   if (!isVisible) {
     return null;

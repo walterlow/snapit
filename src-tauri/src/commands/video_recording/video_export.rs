@@ -7,9 +7,9 @@
 //! - Multiple output formats (MP4, WebM, GIF)
 //! - Progress reporting via Tauri events
 
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -102,9 +102,18 @@ impl VideoExporter {
 
         // Build the FFmpeg command
         let args = self.build_ffmpeg_args()?;
-        
-        log::info!("[EXPORT] FFmpeg command: {:?}", args);
-        self.emit_progress(app, 0.05, ExportStage::Preparing, "Starting encoder...");
+
+        // Log full command for debugging
+        let cmd_str = format!("ffmpeg {}", args.join(" "));
+        log::info!("[EXPORT] FFmpeg command:\n{}", cmd_str);
+
+        // Also emit as progress message so frontend can see it
+        self.emit_progress(
+            app,
+            0.05,
+            ExportStage::Preparing,
+            &format!("Starting FFmpeg..."),
+        );
 
         // Run FFmpeg with progress parsing
         let mut child = Command::new(&self.ffmpeg_path)
@@ -116,15 +125,23 @@ impl VideoExporter {
             .map_err(|e| format!("Failed to start FFmpeg: {}", e))?;
 
         // Parse progress from stderr (FFmpeg outputs progress info there)
-        let stderr = child.stderr.take()
+        let stderr = child
+            .stderr
+            .take()
             .ok_or_else(|| "Failed to capture FFmpeg stderr".to_string())?;
-        
+
         let duration_ms = self.project.timeline.out_point - self.project.timeline.in_point;
         let duration_secs = duration_ms as f64 / 1000.0;
-        
+
+        // Collect stderr lines for error reporting
+        let mut stderr_lines: Vec<String> = Vec::new();
+
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             if let Ok(line) = line {
+                // Store all lines for potential error reporting
+                stderr_lines.push(line.clone());
+
                 // Parse FFmpeg progress output
                 if let Some(progress) = self.parse_ffmpeg_progress(&line, duration_secs) {
                     let stage_progress = 0.1 + progress * 0.85; // 10%-95% for encoding
@@ -139,12 +156,32 @@ impl VideoExporter {
         }
 
         // Wait for FFmpeg to complete
-        let status = child.wait()
+        let status = child
+            .wait()
             .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
 
         if !status.success() {
             self.emit_progress(app, 1.0, ExportStage::Failed, "Export failed");
-            return Err(format!("FFmpeg exited with status: {}", status));
+
+            // Extract the last few lines that likely contain the error
+            let error_context: Vec<&str> = stderr_lines
+                .iter()
+                .rev()
+                .take(30)
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+
+            let error_msg = error_context.join("\n");
+            log::error!("[EXPORT] FFmpeg failed:\n{}", error_msg);
+            log::error!("[EXPORT] Command was: ffmpeg {}", args.join(" "));
+
+            return Err(format!(
+                "FFmpeg failed ({})\n\nFFmpeg output:\n{}",
+                status, error_msg
+            ));
         }
 
         self.emit_progress(app, 0.95, ExportStage::Finalizing, "Finalizing...");
@@ -217,11 +254,13 @@ impl VideoExporter {
 
         let has_mic_audio = self.project.sources.microphone_audio.is_some()
             && !self.project.audio.microphone_muted
-            && std::path::Path::new(self.project.sources.microphone_audio.as_ref().unwrap()).exists();
+            && std::path::Path::new(self.project.sources.microphone_audio.as_ref().unwrap())
+                .exists();
 
         let has_background_music = self.project.sources.background_music.is_some()
             && !self.project.audio.music_muted
-            && std::path::Path::new(self.project.sources.background_music.as_ref().unwrap()).exists();
+            && std::path::Path::new(self.project.sources.background_music.as_ref().unwrap())
+                .exists();
 
         // Input: System audio (if available)
         let system_audio_index = if has_system_audio {
@@ -250,7 +289,14 @@ impl VideoExporter {
             args.push("-t".to_string());
             args.push(format!("{:.3}", duration));
             args.push("-i".to_string());
-            args.push(self.project.sources.microphone_audio.as_ref().unwrap().clone());
+            args.push(
+                self.project
+                    .sources
+                    .microphone_audio
+                    .as_ref()
+                    .unwrap()
+                    .clone(),
+            );
             input_index += 1;
             Some(idx)
         } else {
@@ -264,7 +310,14 @@ impl VideoExporter {
             args.push("-t".to_string());
             args.push(format!("{:.3}", duration));
             args.push("-i".to_string());
-            args.push(self.project.sources.background_music.as_ref().unwrap().clone());
+            args.push(
+                self.project
+                    .sources
+                    .background_music
+                    .as_ref()
+                    .unwrap()
+                    .clone(),
+            );
             input_index += 1;
             Some(idx)
         } else {
@@ -278,12 +331,7 @@ impl VideoExporter {
 
         // Build audio filter graph (if separate audio tracks exist)
         let audio_filter = if has_separate_audio {
-            self.build_audio_filter(
-                system_audio_index,
-                mic_audio_index,
-                music_index,
-                duration,
-            )?
+            self.build_audio_filter(system_audio_index, mic_audio_index, music_index, duration)?
         } else {
             String::new()
         };
@@ -304,7 +352,7 @@ impl VideoExporter {
             args.push(combined_filter);
             args.push("-map".to_string());
             args.push("[vout]".to_string());
-            
+
             // Map audio
             if has_separate_audio {
                 args.push("-map".to_string());
@@ -408,16 +456,11 @@ impl VideoExporter {
             let fade_in = audio_settings.music_fade_in_secs;
             let fade_out = audio_settings.music_fade_out_secs;
             let fade_out_start = (duration - fade_out as f64).max(0.0);
-            
+
             // Apply volume and fades
             let music_filter = format!(
                 "[{}:a]volume={:.2},afade=t=in:st=0:d={:.2},afade=t=out:st={:.2}:d={:.2}[{}]",
-                idx,
-                audio_settings.music_volume,
-                fade_in,
-                fade_out_start,
-                fade_out,
-                label
+                idx, audio_settings.music_volume, fade_in, fade_out_start, fade_out, label
             );
             filters.push(music_filter);
             mix_inputs.push(format!("[{}]", label));
@@ -434,10 +477,7 @@ impl VideoExporter {
             // Single track - just pass through with optional normalization
             let input_label = &mix_inputs[0];
             if audio_settings.normalize_output {
-                format!(
-                    "{}loudnorm=I=-16:TP=-1.5:LRA=11[aout]",
-                    input_label
-                )
+                format!("{}loudnorm=I=-16:TP=-1.5:LRA=11[aout]", input_label)
             } else {
                 format!("{}anull[aout]", input_label)
             }
@@ -467,34 +507,38 @@ impl VideoExporter {
         let height = self.project.sources.original_height;
         let mut filters = Vec::new();
 
-        // Step 1: Process screen video (apply zoom if needed)
-        let zoom_filter = self.build_zoom_filter()?;
-        if zoom_filter.is_empty() {
-            filters.push("[0:v]null[screen]".to_string());
-        } else {
-            filters.push(format!("[0:v]{}[screen]", zoom_filter));
-        }
+        // Step 1: Process screen video
+        // NOTE: Zoom effects via zoompan are disabled due to FFmpeg expression parsing issues
+        // on Windows. The expressions with nested if() and between() get mangled by the
+        // command-line parser. Future improvement: render zoom on GPU like Cap does.
+        // For now, just pass through the video without zoom effects.
+        filters.push("[0:v]null[screen]".to_string());
 
         // Step 2: Process and overlay webcam if available
         if has_webcam {
             let webcam_filter = self.build_webcam_filter(width, height)?;
             filters.push(webcam_filter);
-            filters.push("[screen][webcam]overlay=x=overlay_x:y=overlay_y[composited]".to_string()
-                .replace("overlay_x", &self.get_webcam_x(width).to_string())
-                .replace("overlay_y", &self.get_webcam_y(height).to_string()));
+            filters.push(
+                "[screen][webcam]overlay=x=overlay_x:y=overlay_y[composited]"
+                    .to_string()
+                    .replace("overlay_x", &self.get_webcam_x(width).to_string())
+                    .replace("overlay_y", &self.get_webcam_y(height).to_string()),
+            );
 
-            // Final output
+            // Final output - ensure even dimensions for libx264 compatibility
+            // scale=trunc(iw/2)*2:trunc(ih/2)*2 rounds dimensions down to even numbers
             if self.project.export.format == ExportFormat::Gif {
                 filters.push("[composited]split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[vout]".to_string());
             } else {
-                filters.push("[composited]null[vout]".to_string());
+                filters.push("[composited]scale=trunc(iw/2)*2:trunc(ih/2)*2[vout]".to_string());
             }
         } else {
             // No webcam, just pass through
+            // Ensure even dimensions for libx264 compatibility
             if self.project.export.format == ExportFormat::Gif {
                 filters.push("[screen]split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[vout]".to_string());
             } else {
-                filters.push("[screen]null[vout]".to_string());
+                filters.push("[screen]scale=trunc(iw/2)*2:trunc(ih/2)*2[vout]".to_string());
             }
         }
 
@@ -504,31 +548,25 @@ impl VideoExporter {
     /// Build webcam processing filter (scale, crop to circle if needed).
     fn build_webcam_filter(&self, screen_width: u32, screen_height: u32) -> Result<String, String> {
         let webcam_cfg = &self.project.webcam;
-        
+
         // Calculate webcam size based on percentage of screen width
         let webcam_size = (screen_width as f32 * webcam_cfg.size) as u32;
-        
+
         let mut filter_parts = Vec::new();
-        
-        // Scale webcam to target size (square for circle, or rectangular)
+
+        // Scale webcam to target size
         filter_parts.push(format!("[1:v]scale={}:{}", webcam_size, webcam_size));
-        
-        // Apply circle mask if shape is Circle
-        if webcam_cfg.shape == WebcamOverlayShape::Circle {
-            // Use format=rgba and geq to create circular mask
-            // This makes pixels outside the circle transparent
-            filter_parts.push("format=rgba".to_string());
-            filter_parts.push(format!(
-                "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(pow(X-{0}/2,2)+pow(Y-{0}/2,2),pow({0}/2,2)),255,0)'",
-                webcam_size
-            ));
-        }
-        
+
+        // NOTE: Circle mask via geq filter is disabled due to FFmpeg expression parsing
+        // issues on Windows. The single quotes around geq expressions get mangled.
+        // Future improvement: render webcam overlay on GPU with proper masking.
+        // For now, webcam overlay is always square.
+
         // Mirror if enabled
         if webcam_cfg.mirror {
             filter_parts.push("hflip".to_string());
         }
-        
+
         Ok(format!("{}[webcam]", filter_parts.join(",")))
     }
 
@@ -537,7 +575,7 @@ impl VideoExporter {
         let webcam_cfg = &self.project.webcam;
         let webcam_size = (screen_width as f32 * webcam_cfg.size) as i32;
         let margin = 20;
-        
+
         match webcam_cfg.position {
             WebcamOverlayPosition::TopLeft | WebcamOverlayPosition::BottomLeft => margin,
             WebcamOverlayPosition::TopRight | WebcamOverlayPosition::BottomRight => {
@@ -555,7 +593,7 @@ impl VideoExporter {
         let screen_width = self.project.sources.original_width;
         let webcam_size = (screen_width as f32 * webcam_cfg.size) as i32;
         let margin = 20;
-        
+
         match webcam_cfg.position {
             WebcamOverlayPosition::TopLeft | WebcamOverlayPosition::TopRight => margin,
             WebcamOverlayPosition::BottomLeft | WebcamOverlayPosition::BottomRight => {
@@ -572,7 +610,7 @@ impl VideoExporter {
     /// Uses the zoompan filter with expressions that evaluate zoom state at each frame.
     fn build_zoom_filter(&self) -> Result<String, String> {
         let regions = &self.project.zoom.regions;
-        
+
         if regions.is_empty() {
             return Ok(String::new());
         }
@@ -585,7 +623,7 @@ impl VideoExporter {
         // Build zoom expression that evaluates at each frame
         // Format: if(condition, value, else_value)
         // We chain conditions for each zoom region
-        
+
         let zoom_expr = self.build_zoom_expression(regions, fps, in_point_ms);
         let x_expr = self.build_x_expression(regions, fps, in_point_ms, width);
         let y_expr = self.build_y_expression(regions, fps, in_point_ms, height);
@@ -595,193 +633,126 @@ impl VideoExporter {
         // x, y = top-left corner of the visible area
         // d = number of frames for zoompan (we use 1 to control per-frame)
         // s = output size
+        // NOTE: Don't use quotes around expressions - Rust's Command handles escaping
         let filter = format!(
-            "zoompan=z='{}':x='{}':y='{}':d=1:s={}x{}:fps={}",
-            zoom_expr,
-            x_expr,
-            y_expr,
-            width,
-            height,
-            fps
+            "zoompan=z={}:x={}:y={}:d=1:s={}x{}:fps={}",
+            zoom_expr, x_expr, y_expr, width, height, fps
         );
 
         Ok(filter)
     }
 
     /// Build the zoom level expression for FFmpeg.
+    ///
+    /// Creates a simple chain of if(between()) expressions.
+    /// Transitions are not implemented in the FFmpeg expression to keep it simple and reliable.
     fn build_zoom_expression(&self, regions: &[ZoomRegion], fps: u32, in_point_ms: u64) -> String {
         if regions.is_empty() {
             return "1".to_string();
         }
 
-        let mut expr = String::new();
-        
-        for (i, region) in regions.iter().enumerate() {
-            // Adjust times relative to in_point
+        // Build simple chain: if(in_r1, z1, if(in_r2, z2, 1))
+        let mut result = "1".to_string();
+
+        for region in regions.iter().rev() {
             let start_ms = region.start_ms.saturating_sub(in_point_ms);
             let end_ms = region.end_ms.saturating_sub(in_point_ms);
-            
+
             let start_frame = (start_ms as f64 * fps as f64 / 1000.0) as i64;
             let end_frame = (end_ms as f64 * fps as f64 / 1000.0) as i64;
-            
-            let trans_in_frames = (region.transition.duration_in_ms as f64 * fps as f64 / 1000.0) as i64;
-            let trans_out_frames = (region.transition.duration_out_ms as f64 * fps as f64 / 1000.0) as i64;
-            
-            let zoom = region.scale;
-            
-            // Build condition for this region
-            // Transition in: start_frame to start_frame + trans_in
-            // Hold: start_frame + trans_in to end_frame - trans_out
-            // Transition out: end_frame - trans_out to end_frame
-            
-            let trans_in_end = start_frame + trans_in_frames;
-            let trans_out_start = end_frame - trans_out_frames;
-            
-            // Transition in expression (interpolate from 1 to zoom)
-            let trans_in_expr = format!(
-                "if(between(n,{},{}),1+({})*((n-{})/{}),",
-                start_frame, trans_in_end,
-                zoom - 1.0,
-                start_frame,
-                trans_in_frames.max(1)
+
+            // Simple: if in region, use zoom level; otherwise fall through
+            result = format!(
+                "if(between(n,{},{}),{},{})",
+                start_frame, end_frame, region.scale, result
             );
-            
-            // Hold expression
-            let hold_expr = format!(
-                "if(between(n,{},{}),{},",
-                trans_in_end, trans_out_start.max(trans_in_end),
-                zoom
-            );
-            
-            // Transition out expression (interpolate from zoom to 1)
-            let trans_out_expr = format!(
-                "if(between(n,{},{}),{}-({})*(n-{})/{}",
-                trans_out_start.max(trans_in_end), end_frame,
-                zoom,
-                zoom - 1.0,
-                trans_out_start.max(trans_in_end),
-                trans_out_frames.max(1)
-            );
-            
-            expr.push_str(&trans_in_expr);
-            expr.push_str(&hold_expr);
-            expr.push_str(&trans_out_expr);
-            
-            // Close the if statements
-            if i == regions.len() - 1 {
-                // Last region - default to 1 (no zoom)
-                expr.push_str(",1");
-                // Close all nested ifs
-                for _ in 0..3 {
-                    expr.push(')');
-                }
-            } else {
-                expr.push(',');
-            }
         }
-        
-        // If expression is empty or only has regions, ensure we have a default
-        if expr.is_empty() {
-            return "1".to_string();
-        }
-        
-        expr
+
+        result
     }
 
     /// Build the X position expression for FFmpeg.
-    fn build_x_expression(&self, regions: &[ZoomRegion], fps: u32, in_point_ms: u64, width: u32) -> String {
+    ///
+    /// For each zoom region, calculates the X offset to center the view on target_x.
+    fn build_x_expression(
+        &self,
+        regions: &[ZoomRegion],
+        fps: u32,
+        in_point_ms: u64,
+        width: u32,
+    ) -> String {
         if regions.is_empty() {
             return "0".to_string();
         }
 
-        let mut expr = String::new();
-        
-        for (i, region) in regions.iter().enumerate() {
+        // Build chain: if(in_region1, x1, if(in_region2, x2, 0))
+        let mut result = "0".to_string();
+
+        for region in regions.iter().rev() {
             let start_ms = region.start_ms.saturating_sub(in_point_ms);
             let end_ms = region.end_ms.saturating_sub(in_point_ms);
-            
+
             let start_frame = (start_ms as f64 * fps as f64 / 1000.0) as i64;
             let end_frame = (end_ms as f64 * fps as f64 / 1000.0) as i64;
-            
+
             // Target X in pixels (target_x is normalized 0-1)
             // When zoomed, we need to offset so the target is centered
-            // x = target_x * width - (width/zoom)/2
-            // Simplified: x = width * (target_x - 0.5/zoom)
-            let target_x = region.target_x;
-            let zoom = region.scale;
-            
-            // Calculate the X offset to center on target
             // visible_width = width / zoom
             // x_offset = target_x * width - visible_width / 2
-            // x_offset = width * (target_x - 0.5/zoom)
+            let target_x = region.target_x;
+            let zoom = region.scale;
+
             let x_offset = (width as f32 * (target_x - 0.5 / zoom)).max(0.0);
             let max_x = width as f32 - (width as f32 / zoom);
             let x_clamped = x_offset.min(max_x).max(0.0) as i64;
-            
-            let cond = format!(
-                "if(between(n,{},{}),{}",
-                start_frame, end_frame,
-                x_clamped
+
+            result = format!(
+                "if(between(n,{},{}),{},{})",
+                start_frame, end_frame, x_clamped, result
             );
-            
-            expr.push_str(&cond);
-            
-            if i == regions.len() - 1 {
-                expr.push_str(",0)");
-            } else {
-                expr.push(',');
-            }
         }
-        
-        if expr.is_empty() {
-            return "0".to_string();
-        }
-        
-        expr
+
+        result
     }
 
     /// Build the Y position expression for FFmpeg.
-    fn build_y_expression(&self, regions: &[ZoomRegion], fps: u32, in_point_ms: u64, height: u32) -> String {
+    ///
+    /// For each zoom region, calculates the Y offset to center the view on target_y.
+    fn build_y_expression(
+        &self,
+        regions: &[ZoomRegion],
+        fps: u32,
+        in_point_ms: u64,
+        height: u32,
+    ) -> String {
         if regions.is_empty() {
             return "0".to_string();
         }
 
-        let mut expr = String::new();
-        
-        for (i, region) in regions.iter().enumerate() {
+        // Build chain: if(in_region1, y1, if(in_region2, y2, 0))
+        let mut result = "0".to_string();
+
+        for region in regions.iter().rev() {
             let start_ms = region.start_ms.saturating_sub(in_point_ms);
             let end_ms = region.end_ms.saturating_sub(in_point_ms);
-            
+
             let start_frame = (start_ms as f64 * fps as f64 / 1000.0) as i64;
             let end_frame = (end_ms as f64 * fps as f64 / 1000.0) as i64;
-            
+
             let target_y = region.target_y;
             let zoom = region.scale;
-            
+
             let y_offset = (height as f32 * (target_y - 0.5 / zoom)).max(0.0);
             let max_y = height as f32 - (height as f32 / zoom);
             let y_clamped = y_offset.min(max_y).max(0.0) as i64;
-            
-            let cond = format!(
-                "if(between(n,{},{}),{}",
-                start_frame, end_frame,
-                y_clamped
+
+            result = format!(
+                "if(between(n,{},{}),{},{})",
+                start_frame, end_frame, y_clamped, result
             );
-            
-            expr.push_str(&cond);
-            
-            if i == regions.len() - 1 {
-                expr.push_str(",0)");
-            } else {
-                expr.push(',');
-            }
         }
-        
-        if expr.is_empty() {
-            return "0".to_string();
-        }
-        
-        expr
+
+        result
     }
 
     /// Parse FFmpeg progress output.
@@ -901,7 +872,7 @@ mod tests {
             project: VideoProject::new("test.mp4", 1920, 1080, 60000, 30),
             output_path: PathBuf::new(),
         };
-        
+
         assert_eq!(exporter.parse_time_str("00:00:00.00"), Some(0.0));
         assert_eq!(exporter.parse_time_str("00:01:00.00"), Some(60.0));
         assert_eq!(exporter.parse_time_str("01:00:00.00"), Some(3600.0));

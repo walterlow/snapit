@@ -1383,6 +1383,9 @@ pub async fn generate_auto_zoom(
 /// Takes a VideoProject and exports it to the specified format with all
 /// configured zoom regions, applying smooth transitions.
 ///
+/// Uses GPU-accelerated rendering for smooth zoom effects, then pipes
+/// rendered frames to FFmpeg for encoding.
+///
 /// Progress is reported via `export-progress` events.
 ///
 /// # Arguments
@@ -1399,7 +1402,7 @@ pub async fn export_video(
     output_path: String,
 ) -> Result<ExportResult, String> {
     log::info!(
-        "[EXPORT] Starting export of '{}' to '{}'",
+        "[EXPORT] Starting GPU-accelerated export of '{}' to '{}'",
         project.name,
         output_path
     );
@@ -1412,14 +1415,8 @@ pub async fn export_video(
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
     }
     
-    let exporter = VideoExporter::new(project, path)?;
-    
-    // Run export in a blocking task to not block the async runtime
-    let result = tokio::task::spawn_blocking(move || {
-        exporter.export(&app)
-    })
-    .await
-    .map_err(|e| format!("Export task failed: {}", e))??;
+    // Use GPU-accelerated export pipeline (streaming decoders - 1 FFmpeg process each)
+    let result = crate::rendering::export_video_gpu(app.clone(), project, output_path).await?;
     
     log::info!(
         "[EXPORT] Export complete: {} bytes, {:.1}s",

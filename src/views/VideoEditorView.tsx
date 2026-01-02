@@ -10,7 +10,7 @@
 
 import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
-import { Wand2, Loader2, X, Circle, Square, RectangleHorizontal } from 'lucide-react';
+import { X, Circle, Square, RectangleHorizontal } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -327,8 +327,6 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     togglePlayback,
     setCurrentTime,
     clearEditor,
-    generateAutoZoom,
-    isGeneratingAutoZoom,
     isExporting,
     exportProgress,
     exportVideo,
@@ -451,7 +449,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
         return;
       }
 
-      // Start export
+      // Start export (store handles format inference from file extension)
       const result = await exportVideo(outputPath);
 
       // Show success toast with file info
@@ -460,6 +458,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
         description: `${sizeMB} MB • ${result.format.toUpperCase()}`,
       });
     } catch (error) {
+      console.error(`[EXPORT] Failed:`, error);
       const message = error instanceof Error ? error.message : 'Export failed';
       toast.error(message);
     }
@@ -476,22 +475,6 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
       setCurrentTime(project.timeline.durationMs);
     }
   }, [project, setCurrentTime]);
-
-  // Generate auto-zoom regions from cursor data
-  const handleGenerateAutoZoom = useCallback(async () => {
-    if (!project) return;
-    
-    try {
-      await generateAutoZoom();
-      toast.success('Generated auto-zoom regions from click events');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to generate auto-zoom';
-      toast.error(message);
-    }
-  }, [generateAutoZoom, project]);
-
-  // Check if cursor data is available
-  const hasCursorData = project?.sources.cursorData != null;
 
   // Expose imperative API
   useImperativeHandle(ref, () => ({
@@ -652,38 +635,6 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                         </p>
                       </div>
                     </div>
-
-                    {/* Auto-Zoom Section */}
-                    <div className="pt-3 border-t border-zinc-800">
-                      <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Auto-Zoom</label>
-                      <p className="text-[11px] text-zinc-500 mt-1 mb-2">
-                        Generate zoom from clicks
-                      </p>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="w-full h-8"
-                        disabled={!hasCursorData || isGeneratingAutoZoom}
-                        onClick={handleGenerateAutoZoom}
-                      >
-                        {isGeneratingAutoZoom ? (
-                          <>
-                            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                            Generating...
-                          </>
-                        ) : (
-                          <>
-                            <Wand2 className="h-3.5 w-3.5 mr-1.5" />
-                            Generate
-                          </>
-                        )}
-                      </Button>
-                      {!hasCursorData && (
-                        <p className="text-[10px] text-zinc-600 mt-1.5">
-                          No cursor data available
-                        </p>
-                      )}
-                    </div>
                   </>
                 )}
               </div>
@@ -692,6 +643,23 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
             {/* Webcam Tab */}
             {activeTab === 'webcam' && project?.sources.webcamVideo && (
               <div className="p-4 space-y-4">
+                {/* Show/Hide Toggle */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-400">Show Overlay</span>
+                  <button
+                    onClick={() => updateWebcamConfig({ enabled: !project.webcam.enabled })}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      project.webcam.enabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                        project.webcam.enabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
                 {/* Size Slider */}
                 <div>
                   <div className="flex items-center justify-between mb-2">

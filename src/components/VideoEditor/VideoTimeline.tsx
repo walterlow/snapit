@@ -9,8 +9,6 @@ import {
   SkipForward,
   Play,
   Pause,
-  Video,
-  VideoOff,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
@@ -364,7 +362,6 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
     togglePlayback,
     selectZoomRegion,
     selectWebcamSegment,
-    updateWebcamConfig,
   } = useVideoEditorStore();
 
   const controls = usePlaybackControls();
@@ -636,34 +633,6 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
 
           {/* Right Section */}
           <div className="flex items-center gap-2">
-            {/* Webcam Toggle - only show if webcam video exists */}
-            {project?.sources.webcamVideo && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => updateWebcamConfig({ enabled: !project.webcam.enabled })}
-                    className={`flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors ${
-                      project.webcam.enabled
-                        ? 'text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30'
-                        : 'text-zinc-400 bg-zinc-700/50 hover:bg-zinc-700'
-                    }`}
-                  >
-                    {project.webcam.enabled ? (
-                      <Video className="w-3.5 h-3.5" />
-                    ) : (
-                      <VideoOff className="w-3.5 h-3.5" />
-                    )}
-                    Webcam
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">{project.webcam.enabled ? 'Hide webcam overlay' : 'Show webcam overlay'}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-
-            <div className="w-px h-5 bg-zinc-700/50" />
-
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

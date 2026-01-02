@@ -795,17 +795,44 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           throw new Error('No project loaded');
         }
         
+        // Infer format from file extension to ensure consistency
+        const ext = outputPath.split('.').pop()?.toLowerCase();
+        const formatMap: Record<string, 'mp4' | 'webm' | 'gif'> = {
+          mp4: 'mp4',
+          webm: 'webm',
+          gif: 'gif',
+        };
+        const selectedFormat = formatMap[ext ?? 'mp4'] ?? 'mp4';
+        
+        // Create project with correct format for the chosen file extension
+        const projectWithFormat = selectedFormat !== project.export.format 
+          ? {
+              ...project,
+              export: {
+                ...project.export,
+                format: selectedFormat,
+              },
+            }
+          : project;
+        
+        console.log(`[EXPORT] Exporting to: ${outputPath}`);
+        console.log(`[EXPORT] Format: ${selectedFormat}, Quality: ${projectWithFormat.export.quality}, FPS: ${projectWithFormat.export.fps}`);
+        console.log(`[EXPORT] Scene config:`, projectWithFormat.scene);
+        console.log(`[EXPORT] Zoom config:`, projectWithFormat.zoom);
+        
         set({ isExporting: true, exportProgress: null });
         
         try {
           const result = await invoke<ExportResult>('export_video', {
-            project,
+            project: projectWithFormat,
             outputPath,
           });
           
+          console.log(`[EXPORT] Success:`, result);
           set({ isExporting: false, exportProgress: null });
           return result;
         } catch (error) {
+          console.error(`[EXPORT] Failed:`, error);
           set({ isExporting: false, exportProgress: null });
           throw error;
         }

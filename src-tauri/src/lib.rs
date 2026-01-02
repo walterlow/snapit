@@ -38,6 +38,15 @@ impl TrayState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize env_logger for Rust log::info!/log::debug! output
+    // Only in debug builds to avoid spamming production
+    #[cfg(debug_assertions)]
+    {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+            .format_timestamp_millis()
+            .init();
+    }
+
     // WebView2 GPU flags disabled - was causing capture artifacts
     // #[cfg(target_os = "windows")]
     // {

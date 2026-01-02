@@ -20,26 +20,72 @@ import { useCursorInterpolation, type InterpolatedCursor } from './useCursorInte
 const ZOOM_DURATION_S = 1.0;
 
 // ============================================================================
-// Bezier Easing (Cap's curves)
+// Bezier Easing (Cap's curves) - Proper cubic bezier implementation
 // ============================================================================
+
+/**
+ * Attempt to solve the cubic bezier curve for a given t value.
+ * For bezier(x1, y1, x2, y2), we need to:
+ * 1. Find the parametric t that gives us our input x
+ * 2. Return the y value at that t
+ * 
+ * Uses Newton-Raphson iteration for accuracy (same approach as bezier-easing crate).
+ */
+function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
+  // Sample the bezier X coordinate at parametric t
+  const sampleCurveX = (t: number): number => {
+    return ((1 - 3 * x2 + 3 * x1) * t + (3 * x2 - 6 * x1)) * t * t + 3 * x1 * t;
+  };
+  
+  // Sample the bezier Y coordinate at parametric t
+  const sampleCurveY = (t: number): number => {
+    return ((1 - 3 * y2 + 3 * y1) * t + (3 * y2 - 6 * y1)) * t * t + 3 * y1 * t;
+  };
+  
+  // Derivative of X with respect to t
+  const sampleCurveDerivativeX = (t: number): number => {
+    return (3 * (1 - 3 * x2 + 3 * x1) * t + 2 * (3 * x2 - 6 * x1)) * t + 3 * x1;
+  };
+  
+  // Newton-Raphson iteration to find t for given x
+  const solveCurveX = (x: number): number => {
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const xEstimate = sampleCurveX(t) - x;
+      if (Math.abs(xEstimate) < 1e-6) return t;
+      const derivative = sampleCurveDerivativeX(t);
+      if (Math.abs(derivative) < 1e-6) break;
+      t = t - xEstimate / derivative;
+    }
+    // Fallback: binary search
+    let lo = 0, hi = 1;
+    t = x;
+    while (lo < hi) {
+      const xEstimate = sampleCurveX(t);
+      if (Math.abs(xEstimate - x) < 1e-6) return t;
+      if (x > xEstimate) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return t;
+  };
+  
+  return (x: number): number => {
+    if (x === 0 || x === 1) return x;
+    return sampleCurveY(solveCurveX(x));
+  };
+}
+
+// Pre-create Cap's easing functions for performance
+const easeInCurve = cubicBezier(0.1, 0.0, 0.3, 1.0);
+const easeOutCurve = cubicBezier(0.5, 0.0, 0.5, 1.0);
 
 /**
  * Cap's ease-in curve: bezier(0.1, 0.0, 0.3, 1.0)
  * Starts slow, accelerates through middle, eases into end.
- * 
- * Attempt cubic bezier approximation - for exact bezier we'd need
- * to solve the parametric equation, but this polynomial approximation
- * captures the feel of the curve.
  */
 function easeIn(t: number): number {
-  // Attempt bezier approximation for (0.1, 0.0, 0.3, 1.0)
-  // This curve has a slow start and smooth end
-  const t2 = t * t;
-  const t3 = t2 * t;
-  const mt = 1 - t;
-  // Bezier formula: 3*mt²*t*y1 + 3*mt*t²*y2 + t³
-  // With y1=0, y2=1: simplified to 3*mt*t²*1 + t³
-  return 3 * mt * t2 + t3;
+  return easeInCurve(t);
 }
 
 /**
@@ -47,12 +93,7 @@ function easeIn(t: number): number {
  * Symmetric S-curve, smooth start and end.
  */
 function easeOut(t: number): number {
-  // Attempt bezier approximation for (0.5, 0.0, 0.5, 1.0)
-  const t2 = t * t;
-  const t3 = t2 * t;
-  const mt = 1 - t;
-  // With y1=0, y2=1: 3*mt*t²*1 + t³
-  return 3 * mt * t2 + t3;
+  return easeOutCurve(t);
 }
 
 // ============================================================================

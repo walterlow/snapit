@@ -4,7 +4,7 @@ import { Play } from 'lucide-react';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine, startPlaybackLoop, stopPlaybackLoop } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
-import { useSceneMode } from '../../hooks/useSceneMode';
+import { useInterpolatedScene, shouldRenderScreen, getCameraOnlyTransitionOpacity, getRegularCameraTransitionOpacity } from '../../hooks/useSceneMode';
 import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { WebcamOverlay } from './WebcamOverlay';
 import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording } from '../../types';
@@ -207,20 +207,18 @@ const FullscreenWebcam = memo(function FullscreenWebcam({
   }, [currentTimeMs, isPlaying]);
 
   return (
-    <div className="absolute inset-0 z-10">
-      <video
-        ref={videoRef}
-        src={videoSrc}
-        className="w-full h-full object-cover cursor-pointer bg-zinc-800"
-        style={{
-          transform: mirror ? 'scaleX(-1)' : 'none',
-        }}
-        onClick={onClick}
-        muted
-        playsInline
-        preload="auto"
-      />
-    </div>
+    <video
+      ref={videoRef}
+      src={videoSrc}
+      className="w-full h-full object-cover cursor-pointer bg-zinc-800"
+      style={{
+        transform: mirror ? 'scaleX(-1)' : 'none',
+      }}
+      onClick={onClick}
+      muted
+      playsInline
+      preload="auto"
+    />
   );
 });
 
@@ -253,55 +251,84 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   onVideoClick: () => void;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
-  const sceneMode = useSceneMode(sceneSegments, defaultSceneMode, currentTimeMs);
+  const scene = useInterpolatedScene(sceneSegments, defaultSceneMode, currentTimeMs);
 
-  const showScreen = sceneMode !== 'cameraOnly';
-  const showWebcam = sceneMode !== 'screenOnly';
-  const webcamFullscreen = sceneMode === 'cameraOnly';
+  // Use interpolated values for smooth transitions
+  const showScreen = shouldRenderScreen(scene);
+  const cameraOnlyOpacity = getCameraOnlyTransitionOpacity(scene);
+  // Regular webcam overlay opacity - fades at 1.5x speed during cameraOnly transitions
+  const regularCameraOpacity = getRegularCameraTransitionOpacity(scene);
 
   // Get the original video path for WebCodecs (before convertFileSrc)
   const originalVideoPath = useVideoEditorStore((s) => s.project?.sources.screenVideo ?? null);
 
+  // Calculate transition styles - no CSS transitions, JS interpolation handles smoothness
+  const screenStyle: React.CSSProperties = {
+    opacity: scene.screenOpacity,
+    filter: scene.screenBlur > 0.01 ? `blur(${scene.screenBlur * 20}px)` : undefined,
+  };
+
+  const webcamOverlayStyle: React.CSSProperties = {
+    opacity: regularCameraOpacity,
+  };
+
+  const fullscreenWebcamStyle: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 10,
+    opacity: cameraOnlyOpacity,
+    transform: `scale(${scene.cameraOnlyZoom})`,
+    filter: scene.cameraOnlyBlur > 0.01 ? `blur(${scene.cameraOnlyBlur * 10}px)` : undefined,
+  };
+
   return (
     <>
-      {/* Screen video - hidden when cameraOnly */}
-      {videoSrc && (
-        <VideoWithZoom
-          videoRef={videoRef}
-          videoSrc={videoSrc}
-          zoomRegions={zoomRegions}
-          cursorRecording={cursorRecording}
-          onVideoClick={onVideoClick}
-          hidden={!showScreen}
-        />
+      {/* Screen video - with smooth opacity/blur transitions */}
+      {videoSrc && showScreen && (
+        <div style={screenStyle}>
+          <VideoWithZoom
+            videoRef={videoRef}
+            videoSrc={videoSrc}
+            zoomRegions={zoomRegions}
+            cursorRecording={cursorRecording}
+            onVideoClick={onVideoClick}
+            hidden={false}
+          />
+        </div>
       )}
 
       {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
       {showScreen && originalVideoPath && (
-        <WebCodecsCanvas
-          videoPath={originalVideoPath}
-          zoomRegions={zoomRegions}
-          cursorRecording={cursorRecording}
-        />
+        <div style={screenStyle}>
+          <WebCodecsCanvas
+            videoPath={originalVideoPath}
+            zoomRegions={zoomRegions}
+            cursorRecording={cursorRecording}
+          />
+        </div>
       )}
 
-      {/* Fullscreen webcam - shown when cameraOnly */}
-      {webcamFullscreen && webcamVideoPath && (
-        <FullscreenWebcam
-          webcamVideoPath={webcamVideoPath}
-          mirror={webcamConfig?.mirror}
-          onClick={onVideoClick}
-        />
+      {/* Fullscreen webcam - shown when cameraOnly opacity > 0 (during transitions AND when fully in cameraOnly) */}
+      {cameraOnlyOpacity > 0.01 && webcamVideoPath && (
+        <div style={fullscreenWebcamStyle}>
+          <FullscreenWebcam
+            webcamVideoPath={webcamVideoPath}
+            mirror={webcamConfig?.mirror}
+            onClick={onVideoClick}
+          />
+        </div>
       )}
 
-      {/* Webcam overlay - shown when default mode (not screenOnly or cameraOnly) */}
-      {showWebcam && !webcamFullscreen && webcamVideoPath && webcamConfig && containerWidth > 0 && (
-        <WebcamOverlay
-          webcamVideoPath={webcamVideoPath}
-          config={webcamConfig}
-          containerWidth={containerWidth}
-          containerHeight={containerHeight}
-        />
+      {/* Webcam overlay - shown with regularCameraOpacity during transitions (both layers visible) */}
+      {regularCameraOpacity > 0.01 && webcamVideoPath && webcamConfig && containerWidth > 0 && (
+        <div style={webcamOverlayStyle}>
+          <WebcamOverlay
+            webcamVideoPath={webcamVideoPath}
+            config={webcamConfig}
+            containerWidth={containerWidth}
+            containerHeight={containerHeight}
+          />
+        </div>
       )}
     </>
   );

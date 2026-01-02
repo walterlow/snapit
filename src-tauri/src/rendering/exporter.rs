@@ -16,6 +16,7 @@ use crate::commands::video_recording::video_project::{
 };
 use crate::commands::video_recording::video_export::{ExportProgress, ExportStage, ExportResult};
 use super::zoom::ZoomInterpolator;
+use super::scene::SceneInterpolator;
 use super::stream_decoder::StreamDecoder;
 use super::renderer::Renderer;
 use super::compositor::Compositor;
@@ -139,6 +140,9 @@ pub async fn export_video_gpu(
 
     // Create zoom interpolator
     let zoom_interpolator = ZoomInterpolator::new(&project.zoom);
+    
+    // Create scene interpolator for smooth scene transitions
+    let scene_interpolator = SceneInterpolator::new(project.scene.segments.clone());
 
     emit_progress(&app, 0.08, ExportStage::Encoding, "Rendering frames...");
 
@@ -159,14 +163,14 @@ pub async fn export_video_gpu(
         
         // Scene segments and zoom regions use RELATIVE time (timeline position)
         let zoom_state = zoom_interpolator.get_zoom_at(relative_time_ms);
-        let scene_mode = get_scene_mode_at(&project, relative_time_ms);
+        let interpolated_scene = scene_interpolator.get_scene_at(relative_time_ms);
         let webcam_visible = is_webcam_visible_at(&project, relative_time_ms);
         
         // Log first few frames for debugging
         if frame_idx < 3 || (relative_time_ms >= 6000 && relative_time_ms <= 6200) {
             log::debug!(
-                "[EXPORT] Frame {}: relative={}ms, scene_mode={:?}",
-                frame_idx, relative_time_ms, scene_mode
+                "[EXPORT] Frame {}: relative={}ms, scene_mode={:?}, transition_progress={:.2}",
+                frame_idx, relative_time_ms, interpolated_scene.scene_mode, interpolated_scene.transition_progress
             );
         }
         
@@ -184,7 +188,8 @@ pub async fn export_video_gpu(
         };
 
         // Determine what to render based on scene mode
-        let (frame_to_render, webcam_overlay) = match scene_mode {
+        // Use interpolated scene for smooth transitions
+        let (frame_to_render, webcam_overlay) = match interpolated_scene.scene_mode {
             SceneMode::CameraOnly => {
                 // Fullscreen webcam - use webcam frame as main content, no overlay
                 if let Some(ref webcam_frame) = current_webcam_frame {
@@ -490,38 +495,50 @@ fn emit_progress(app: &AppHandle, progress: f32, stage: ExportStage, message: &s
     });
 }
 
-/// Scale a frame to fit within target dimensions (letterbox/pillarbox to maintain aspect ratio).
-/// Used for CameraOnly mode to show webcam fullscreen without cropping.
+/// Scale a frame to COVER target dimensions (crop to fill, like CSS object-fit: cover).
+/// Used for CameraOnly mode to show webcam fullscreen, matching Cap's approach.
+/// 
+/// Unlike FIT (contain), this crops the source to match the output aspect ratio,
+/// ensuring the entire output is filled with no black bars.
 fn scale_frame_to_fill(frame: &DecodedFrame, target_w: u32, target_h: u32) -> DecodedFrame {
-    let src_w = frame.width;
-    let src_h = frame.height;
+    let src_w = frame.width as f32;
+    let src_h = frame.height as f32;
+    let target_w_f = target_w as f32;
+    let target_h_f = target_h as f32;
     
-    // Calculate scaling to FIT (contain) within the target - no cropping
-    let scale_x = target_w as f32 / src_w as f32;
-    let scale_y = target_h as f32 / src_h as f32;
-    let scale = scale_x.min(scale_y); // Use smaller scale to fit entirely
+    let src_aspect = src_w / src_h;
+    let target_aspect = target_w_f / target_h_f;
     
-    let scaled_w = (src_w as f32 * scale) as u32;
-    let scaled_h = (src_h as f32 * scale) as u32;
+    // Calculate crop bounds to match target aspect ratio (like Cap's camera_only mode)
+    // This crops the minimum amount needed to fill the output
+    let (crop_x, crop_y, crop_w, crop_h) = if src_aspect > target_aspect {
+        // Source is wider than target - crop left and right
+        let visible_width = src_h * target_aspect;
+        let crop_x = (src_w - visible_width) / 2.0;
+        (crop_x, 0.0, visible_width, src_h)
+    } else {
+        // Source is taller than target - crop top and bottom
+        let visible_height = src_w / target_aspect;
+        let crop_y = (src_h - visible_height) / 2.0;
+        (0.0, crop_y, src_w, visible_height)
+    };
     
-    // Calculate offsets to center the scaled image
-    let offset_x = (target_w - scaled_w) / 2;
-    let offset_y = (target_h - scaled_h) / 2;
-    
-    // Create output buffer (black background)
+    // Create output buffer
     let mut output = vec![0u8; (target_w * target_h * 4) as usize];
     
-    // Simple nearest-neighbor scaling, centered
-    for y in 0..scaled_h {
-        for x in 0..scaled_w {
-            // Map scaled pixel to source pixel
-            let src_x = (x as f32 / scale) as u32;
-            let src_y = (y as f32 / scale) as u32;
+    // Scale from cropped region to target
+    let scale_x = target_w_f / crop_w;
+    let scale_y = target_h_f / crop_h;
+    
+    // Simple nearest-neighbor scaling from cropped region
+    for dst_y in 0..target_h {
+        for dst_x in 0..target_w {
+            // Map destination pixel to source pixel (within cropped region)
+            let src_x = (crop_x + (dst_x as f32 / scale_x)) as u32;
+            let src_y = (crop_y + (dst_y as f32 / scale_y)) as u32;
             
-            if src_x < src_w && src_y < src_h {
-                let src_idx = ((src_y * src_w + src_x) * 4) as usize;
-                let dst_x = x + offset_x;
-                let dst_y = y + offset_y;
+            if src_x < frame.width && src_y < frame.height {
+                let src_idx = ((src_y * frame.width + src_x) * 4) as usize;
                 let dst_idx = ((dst_y * target_w + dst_x) * 4) as usize;
                 
                 if src_idx + 3 < frame.data.len() && dst_idx + 3 < output.len() {
@@ -541,18 +558,6 @@ fn scale_frame_to_fill(frame: &DecodedFrame, target_w: u32, target_h: u32) -> De
         width: target_w,
         height: target_h,
     }
-}
-
-/// Get the scene mode at a specific timestamp.
-fn get_scene_mode_at(project: &VideoProject, timestamp_ms: u64) -> SceneMode {
-    // Check scene segments for a matching time range
-    for segment in &project.scene.segments {
-        if timestamp_ms >= segment.start_ms && timestamp_ms < segment.end_ms {
-            return segment.mode;
-        }
-    }
-    // Return default mode if no segment matches
-    project.scene.default_mode
 }
 
 /// Copy of SceneMode for matching (since we can't import from video_project in match)
@@ -924,14 +929,14 @@ mod tests {
     // 
     // Requires GPU - will be skipped in CI without GPU support.
     // 
-    // Outputs test images to: dev/test-output/
+    // Outputs test images to: src-tauri/src/tests/
 
     /// Save RGBA pixels to a PNG file for visual verification.
     fn save_test_image(pixels: &[u8], width: u32, height: u32, filename: &str) {
         use std::path::Path;
         
-        // Create dev/test-output directory
-        let output_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dev/test-output");
+        // Output to src-tauri/src/tests/
+        let output_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tests");
         if let Err(e) = std::fs::create_dir_all(&output_dir) {
             eprintln!("[WARN] Failed to create output dir: {}", e);
             return;

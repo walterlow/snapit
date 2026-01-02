@@ -89,6 +89,19 @@ import type { CanvasShape } from '@/types';
 - Prefix unused params with `_` (`_event`, `_unused`)
 - Use type guards for discriminated unions
 
+**No Hard-coded Values**: Extract magic numbers and strings to named constants in `src/constants/`.
+
+```typescript
+// WRONG
+if (history.length > 50) { ... }
+const delay = 300;
+
+// CORRECT
+import { STORAGE, TIMING } from '@/constants';
+if (history.length > STORAGE.HISTORY_LIMIT) { ... }
+const delay = TIMING.DEBOUNCE_MS;
+```
+
 **State Management**: Zustand with devtools middleware.
 
 ```typescript

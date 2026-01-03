@@ -86,7 +86,7 @@ function PositionGrid({ position, customX, customY, onChange }: PositionGridProp
   const activeIndex = getActiveIndex();
 
   return (
-    <div className="w-full p-3 rounded-lg border border-zinc-700 bg-zinc-800/50 flex flex-col gap-2">
+    <div className="w-full p-3 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-surface-dark)] flex flex-col gap-2">
       {[0, 1, 2].map((row) => (
         <div key={row} className="flex justify-between">
           {[0, 1, 2].map((col) => {
@@ -100,8 +100,8 @@ function PositionGrid({ position, customX, customY, onChange }: PositionGridProp
                 onClick={() => onChange(pos.position, pos.customX, pos.customY)}
                 className={`w-6 h-6 rounded transition-colors ${
                   activeIndex === index
-                    ? 'bg-indigo-500'
-                    : 'bg-zinc-700 hover:bg-zinc-600'
+                    ? 'bg-[var(--coral-400)]'
+                    : 'bg-[var(--polar-frost)] hover:bg-[var(--polar-steel)]'
                 }`}
               />
             );
@@ -201,15 +201,15 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
         <div className="flex items-center gap-2">
           <button
             onClick={onDone}
-            className="h-7 px-2.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-medium rounded-md transition-colors"
+            className="h-7 px-2.5 bg-[var(--coral-100)] hover:bg-[var(--coral-200)] text-[var(--coral-400)] text-xs font-medium rounded-md transition-colors"
           >
             Done
           </button>
-          <span className="text-xs text-zinc-500">Zoom region</span>
+          <span className="text-xs text-[var(--ink-subtle)]">Zoom region</span>
         </div>
         <button
           onClick={onDelete}
-          className="h-7 px-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs rounded-md transition-colors"
+          className="h-7 px-2.5 bg-[var(--error-light)] hover:bg-[rgba(239,68,68,0.2)] text-[var(--error)] text-xs rounded-md transition-colors"
         >
           Delete
         </button>
@@ -218,8 +218,8 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
       {/* Zoom Amount */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs text-zinc-400">Zoom</span>
-          <span className="text-xs text-zinc-300 font-mono">{region.scale.toFixed(1)}x</span>
+          <span className="text-xs text-[var(--ink-muted)]">Zoom</span>
+          <span className="text-xs text-[var(--ink-dark)] font-mono">{region.scale.toFixed(1)}x</span>
         </div>
         <Slider
           value={[region.scale]}
@@ -232,11 +232,11 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
 
       {/* Zoom Mode Toggle */}
       <div>
-        <span className="text-xs text-zinc-400 block mb-2">Zoom Mode</span>
-        <div className="relative flex rounded-lg border border-zinc-700 overflow-hidden">
+        <span className="text-xs text-[var(--ink-muted)] block mb-2">Zoom Mode</span>
+        <div className="relative flex rounded-lg border border-[var(--glass-border)] overflow-hidden">
           {/* Sliding indicator */}
           <div
-            className="absolute top-0 bottom-0 w-1/2 bg-zinc-700 transition-transform duration-200"
+            className="absolute top-0 bottom-0 w-1/2 bg-[var(--polar-frost)] transition-transform duration-200"
             style={{ transform: region.mode === 'auto' ? 'translateX(0)' : 'translateX(100%)' }}
           />
           <button
@@ -244,10 +244,10 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
             disabled={!canUseAuto}
             className={`relative z-10 flex-1 py-2 text-xs font-medium transition-colors ${
               region.mode === 'auto'
-                ? 'text-zinc-100'
+                ? 'text-[var(--ink-black)]'
                 : canUseAuto
-                  ? 'text-zinc-500 hover:text-zinc-300'
-                  : 'text-zinc-600 cursor-not-allowed'
+                  ? 'text-[var(--ink-subtle)] hover:text-[var(--ink-dark)]'
+                  : 'text-[var(--ink-faint)] cursor-not-allowed'
             }`}
           >
             Auto
@@ -256,15 +256,15 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
             onClick={() => onUpdate({ mode: 'manual' })}
             className={`relative z-10 flex-1 py-2 text-xs font-medium transition-colors ${
               region.mode !== 'auto'
-                ? 'text-zinc-100'
-                : 'text-zinc-500 hover:text-zinc-300'
+                ? 'text-[var(--ink-black)]'
+                : 'text-[var(--ink-subtle)] hover:text-[var(--ink-dark)]'
             }`}
           >
             Manual
           </button>
         </div>
         {!canUseAuto && (
-          <p className="text-[10px] text-zinc-600 mt-1">
+          <p className="text-[10px] text-[var(--ink-faint)] mt-1">
             No cursor data for auto mode
           </p>
         )}
@@ -278,24 +278,24 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
         >
           {/* Focus indicator circle */}
           <div
-            className="absolute z-20 w-6 h-6 rounded-full border-2 border-zinc-300 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center bg-zinc-900/50"
+            className="absolute z-20 w-6 h-6 rounded-full border-2 border-[var(--ink-dark)] -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center bg-[var(--glass-bg)]"
             style={{
               left: `${region.targetX * 100}%`,
               top: `${region.targetY * 100}%`,
             }}
           >
-            <div className="w-1.5 h-1.5 rounded-full bg-zinc-300" />
+            <div className="w-1.5 h-1.5 rounded-full bg-[var(--ink-dark)]" />
           </div>
 
           {/* Video thumbnail canvas */}
-          <div className="overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800">
+          <div className="overflow-hidden rounded-lg border border-[var(--glass-border)] bg-[var(--polar-mist)]">
             <canvas
               ref={canvasRef}
               className={`w-full h-auto transition-opacity duration-200 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
             />
             {!isLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center bg-zinc-800">
-                <span className="text-xs text-zinc-500">Loading preview...</span>
+              <div className="absolute inset-0 flex items-center justify-center bg-[var(--polar-mist)]">
+                <span className="text-xs text-[var(--ink-subtle)]">Loading preview...</span>
               </div>
             )}
           </div>
@@ -487,7 +487,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
   }), [togglePlayback, handleSeekToStart, handleSeekToEnd, handleExport]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-zinc-950">
+    <div className="flex-1 flex flex-col min-h-0 bg-[var(--polar-snow)]">
       {/* Main content area - Preview and Properties */}
       <div className="flex-1 flex min-h-0">
         {/* Video Preview */}
@@ -496,15 +496,15 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
         </div>
 
         {/* Right sidebar with tabbed properties panel */}
-        <div className="w-72 bg-zinc-900/50 border-l border-zinc-800 flex flex-col">
+        <div className="w-72 compositor-sidebar flex flex-col">
           {/* Tab Bar */}
-          <div className="flex border-b border-zinc-800">
+          <div className="flex border-b border-[var(--glass-border)]">
             <button
               onClick={() => setActiveTab('project')}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+              className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
                 activeTab === 'project'
-                  ? 'text-zinc-200 border-b-2 border-blue-500 bg-zinc-800/30'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'text-[var(--ink-black)] border-b-2 border-[var(--coral-400)] bg-[var(--coral-50)]'
+                  : 'text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--glass-highlight)]'
               }`}
             >
               Project
@@ -512,10 +512,10 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
             {project?.sources.cursorData && (
               <button
                 onClick={() => setActiveTab('cursor')}
-                className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
                   activeTab === 'cursor'
-                    ? 'text-zinc-200 border-b-2 border-blue-500 bg-zinc-800/30'
-                    : 'text-zinc-500 hover:text-zinc-300'
+                    ? 'text-[var(--ink-black)] border-b-2 border-[var(--coral-400)] bg-[var(--coral-50)]'
+                    : 'text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--glass-highlight)]'
                 }`}
               >
                 Cursor
@@ -524,10 +524,10 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
             {project?.sources.webcamVideo && (
               <button
                 onClick={() => setActiveTab('webcam')}
-                className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
                   activeTab === 'webcam'
-                    ? 'text-zinc-200 border-b-2 border-blue-500 bg-zinc-800/30'
-                    : 'text-zinc-500 hover:text-zinc-300'
+                    ? 'text-[var(--ink-black)] border-b-2 border-[var(--coral-400)] bg-[var(--coral-50)]'
+                    : 'text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--glass-highlight)]'
                 }`}
               >
                 Webcam
@@ -535,10 +535,10 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
             )}
             <button
               onClick={() => setActiveTab('export')}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+              className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
                 activeTab === 'export'
-                  ? 'text-zinc-200 border-b-2 border-blue-500 bg-zinc-800/30'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'text-[var(--ink-black)] border-b-2 border-[var(--coral-400)] bg-[var(--coral-50)]'
+                  : 'text-[var(--ink-muted)] hover:text-[var(--ink-dark)] hover:bg-[var(--glass-highlight)]'
               }`}
             >
               Export
@@ -549,7 +549,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
           <div className="flex-1 overflow-y-auto relative">
             {/* Selection Overlay (shown when zoom region or scene segment is selected) */}
             {(selectedZoomRegionId || selectedSceneSegmentId) && project && (
-              <div className="absolute inset-0 p-4 bg-zinc-900/95 z-10 animate-in slide-in-from-bottom-2 fade-in duration-200 overflow-y-auto">
+              <div className="absolute inset-0 p-4 bg-[var(--glass-surface-dark)] z-10 animate-in slide-in-from-bottom-2 fade-in duration-200 overflow-y-auto">
                 {/* Zoom Region Properties */}
                 {selectedZoomRegionId && project.zoom.regions.find(r => r.id === selectedZoomRegionId) && (
                   <ZoomRegionConfig
@@ -575,29 +575,29 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => selectSceneSegment(null)}
-                            className="h-7 px-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-medium rounded-md transition-colors"
+                            className="h-7 px-2.5 bg-[var(--coral-100)] hover:bg-[var(--coral-200)] text-[var(--coral-400)] text-xs font-medium rounded-md transition-colors"
                           >
                             Done
                           </button>
-                          <span className="text-xs text-zinc-500">Scene segment</span>
+                          <span className="text-xs text-[var(--ink-subtle)]">Scene segment</span>
                         </div>
                         <button
                           onClick={() => {
                             deleteSceneSegment(selectedSceneSegmentId);
                             selectSceneSegment(null);
                           }}
-                          className="h-7 px-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs rounded-md transition-colors"
+                          className="h-7 px-2.5 bg-[var(--error-light)] hover:bg-[rgba(239,68,68,0.2)] text-[var(--error)] text-xs rounded-md transition-colors"
                         >
                           Delete
                         </button>
                       </div>
                       <div className="space-y-3 pt-2">
                         <div>
-                          <span className="text-xs text-zinc-400 block mb-2">Mode</span>
+                          <span className="text-xs text-[var(--ink-muted)] block mb-2">Mode</span>
                           <select
                             value={segment.mode}
                             onChange={(e) => updateSceneSegment(selectedSceneSegmentId, { mode: e.target.value as SceneMode })}
-                            className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 px-2"
+                            className="w-full h-8 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2"
                           >
                             <option value="default">Screen + Webcam</option>
                             <option value="cameraOnly">Camera Only</option>
@@ -615,8 +615,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
             {activeTab === 'project' && (
               <div className="p-4 space-y-4">
                 <div>
-                  <label className="text-[11px] text-zinc-500 uppercase tracking-wide">Project</label>
-                  <p className="text-sm text-zinc-300 mt-1 truncate">
+                  <label className="text-[11px] text-[var(--ink-subtle)] uppercase tracking-wide">Project</label>
+                  <p className="text-sm text-[var(--ink-dark)] mt-1 truncate">
                     {project?.name ?? 'No project loaded'}
                   </p>
                 </div>
@@ -625,26 +625,26 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                   <>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] text-zinc-500 uppercase">Resolution</label>
-                        <p className="text-xs text-zinc-300 font-mono mt-0.5">
+                        <label className="text-[10px] text-[var(--ink-subtle)] uppercase">Resolution</label>
+                        <p className="text-xs text-[var(--ink-dark)] font-mono mt-0.5">
                           {project.sources.originalWidth}×{project.sources.originalHeight}
                         </p>
                       </div>
                       <div>
-                        <label className="text-[10px] text-zinc-500 uppercase">Frame Rate</label>
-                        <p className="text-xs text-zinc-300 font-mono mt-0.5">
+                        <label className="text-[10px] text-[var(--ink-subtle)] uppercase">Frame Rate</label>
+                        <p className="text-xs text-[var(--ink-dark)] font-mono mt-0.5">
                           {project.sources.fps} fps
                         </p>
                       </div>
                       <div>
-                        <label className="text-[10px] text-zinc-500 uppercase">Duration</label>
-                        <p className="text-xs text-zinc-300 font-mono mt-0.5">
+                        <label className="text-[10px] text-[var(--ink-subtle)] uppercase">Duration</label>
+                        <p className="text-xs text-[var(--ink-dark)] font-mono mt-0.5">
                           {Math.floor(project.timeline.durationMs / 60000)}:{String(Math.floor((project.timeline.durationMs % 60000) / 1000)).padStart(2, '0')}
                         </p>
                       </div>
                       <div>
-                        <label className="text-[10px] text-zinc-500 uppercase">Zoom Regions</label>
-                        <p className="text-xs text-zinc-300 mt-0.5">
+                        <label className="text-[10px] text-[var(--ink-subtle)] uppercase">Zoom Regions</label>
+                        <p className="text-xs text-[var(--ink-dark)] mt-0.5">
                           {project.zoom.regions.length}
                         </p>
                       </div>
@@ -659,11 +659,11 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
               <div className="p-4 space-y-4">
                 {/* Show/Hide Toggle */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-400">Show Cursor</span>
+                  <span className="text-xs text-[var(--ink-muted)]">Show Cursor</span>
                   <button
                     onClick={() => updateCursorConfig({ visible: !project.cursor.visible })}
                     className={`relative w-10 h-5 rounded-full transition-colors ${
-                      project.cursor.visible ? 'bg-emerald-500' : 'bg-zinc-700'
+                      project.cursor.visible ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
                     }`}
                   >
                     <span
@@ -676,7 +676,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Cursor Type */}
                 <div>
-                  <span className="text-[11px] text-zinc-500 block mb-2">Cursor Type</span>
+                  <span className="text-[11px] text-[var(--ink-subtle)] block mb-2">Cursor Type</span>
                   <ToggleGroup
                     type="single"
                     value={project.cursor.cursorType}
@@ -685,10 +685,10 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     }}
                     className="justify-start"
                   >
-                    <ToggleGroupItem value="auto" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                    <ToggleGroupItem value="auto" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                       Auto
                     </ToggleGroupItem>
-                    <ToggleGroupItem value="circle" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                    <ToggleGroupItem value="circle" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                       Circle
                     </ToggleGroupItem>
                   </ToggleGroup>
@@ -697,8 +697,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 {/* Size Slider */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-400">Size</span>
-                    <span className="text-xs text-zinc-300 font-mono">
+                    <span className="text-xs text-[var(--ink-muted)]">Size</span>
+                    <span className="text-xs text-[var(--ink-dark)] font-mono">
                       {Math.round(project.cursor.scale * 100)}%
                     </span>
                   </div>
@@ -713,11 +713,11 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Hide When Idle */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-400">Hide When Idle</span>
+                  <span className="text-xs text-[var(--ink-muted)]">Hide When Idle</span>
                   <button
                     onClick={() => updateCursorConfig({ hideWhenIdle: !project.cursor.hideWhenIdle })}
                     className={`relative w-10 h-5 rounded-full transition-colors ${
-                      project.cursor.hideWhenIdle ? 'bg-emerald-500' : 'bg-zinc-700'
+                      project.cursor.hideWhenIdle ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
                     }`}
                   >
                     <span
@@ -730,10 +730,10 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Idle Timeout (only when hideWhenIdle is enabled) */}
                 {project.cursor.hideWhenIdle && (
-                  <div className="pl-3 border-l border-zinc-700">
+                  <div className="pl-3 border-l border-[var(--glass-border)]">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] text-zinc-500">Inactivity Delay</span>
-                      <span className="text-[11px] text-zinc-400 font-mono">
+                      <span className="text-[11px] text-[var(--ink-subtle)]">Inactivity Delay</span>
+                      <span className="text-[11px] text-[var(--ink-muted)] font-mono">
                         {(project.cursor.idleTimeoutMs / 1000).toFixed(1)}s
                       </span>
                     </div>
@@ -749,11 +749,11 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Smooth Movement */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-400">Smooth Movement</span>
+                  <span className="text-xs text-[var(--ink-muted)]">Smooth Movement</span>
                   <button
                     onClick={() => updateCursorConfig({ smoothMovement: !project.cursor.smoothMovement })}
                     className={`relative w-10 h-5 rounded-full transition-colors ${
-                      project.cursor.smoothMovement ? 'bg-emerald-500' : 'bg-zinc-700'
+                      project.cursor.smoothMovement ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
                     }`}
                   >
                     <span
@@ -766,9 +766,9 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Animation Style (only when smoothMovement is enabled) */}
                 {project.cursor.smoothMovement && (
-                  <div className="pl-3 border-l border-zinc-700 space-y-3">
+                  <div className="pl-3 border-l border-[var(--glass-border)] space-y-3">
                     <div>
-                      <span className="text-[11px] text-zinc-500 block mb-2">Animation Style</span>
+                      <span className="text-[11px] text-[var(--ink-subtle)] block mb-2">Animation Style</span>
                       <ToggleGroup
                         type="single"
                         value={project.cursor.animationStyle}
@@ -790,16 +790,16 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                         }}
                         className="justify-start flex-wrap gap-1"
                       >
-                        <ToggleGroupItem value="slow" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                        <ToggleGroupItem value="slow" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                           Slow
                         </ToggleGroupItem>
-                        <ToggleGroupItem value="mellow" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                        <ToggleGroupItem value="mellow" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                           Mellow
                         </ToggleGroupItem>
-                        <ToggleGroupItem value="fast" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                        <ToggleGroupItem value="fast" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                           Fast
                         </ToggleGroupItem>
-                        <ToggleGroupItem value="custom" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                        <ToggleGroupItem value="custom" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                           Custom
                         </ToggleGroupItem>
                       </ToggleGroup>
@@ -811,8 +811,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                         {/* Tension */}
                         <div>
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] text-zinc-500">Tension</span>
-                            <span className="text-[11px] text-zinc-400 font-mono">{Math.round(project.cursor.tension)}</span>
+                            <span className="text-[11px] text-[var(--ink-subtle)]">Tension</span>
+                            <span className="text-[11px] text-[var(--ink-muted)] font-mono">{Math.round(project.cursor.tension)}</span>
                           </div>
                           <Slider
                             value={[project.cursor.tension]}
@@ -826,8 +826,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                         {/* Mass */}
                         <div>
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] text-zinc-500">Mass</span>
-                            <span className="text-[11px] text-zinc-400 font-mono">{project.cursor.mass.toFixed(1)}</span>
+                            <span className="text-[11px] text-[var(--ink-subtle)]">Mass</span>
+                            <span className="text-[11px] text-[var(--ink-muted)] font-mono">{project.cursor.mass.toFixed(1)}</span>
                           </div>
                           <Slider
                             value={[project.cursor.mass * 10]}
@@ -841,8 +841,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                         {/* Friction */}
                         <div>
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] text-zinc-500">Friction</span>
-                            <span className="text-[11px] text-zinc-400 font-mono">{Math.round(project.cursor.friction)}</span>
+                            <span className="text-[11px] text-[var(--ink-subtle)]">Friction</span>
+                            <span className="text-[11px] text-[var(--ink-muted)] font-mono">{Math.round(project.cursor.friction)}</span>
                           </div>
                           <Slider
                             value={[project.cursor.friction]}
@@ -860,8 +860,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 {/* Motion Blur */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-400">Motion Blur</span>
-                    <span className="text-xs text-zinc-300 font-mono">
+                    <span className="text-xs text-[var(--ink-muted)]">Motion Blur</span>
+                    <span className="text-xs text-[var(--ink-dark)] font-mono">
                       {Math.round(project.cursor.motionBlur * 100)}%
                     </span>
                   </div>
@@ -875,15 +875,15 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 </div>
 
                 {/* Click Highlight Section */}
-                <div className="pt-3 border-t border-zinc-800">
+                <div className="pt-3 border-t border-[var(--glass-border)]">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs text-zinc-400">Click Highlight</span>
+                    <span className="text-xs text-[var(--ink-muted)]">Click Highlight</span>
                     <button
                       onClick={() => updateCursorConfig({
                         clickHighlight: { ...project.cursor.clickHighlight, enabled: !project.cursor.clickHighlight.enabled }
                       })}
                       className={`relative w-10 h-5 rounded-full transition-colors ${
-                        project.cursor.clickHighlight.enabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                        project.cursor.clickHighlight.enabled ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
                       }`}
                     >
                       <span
@@ -898,7 +898,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     <div className="space-y-3">
                       {/* Highlight Style */}
                       <div>
-                        <span className="text-[11px] text-zinc-500 block mb-2">Style</span>
+                        <span className="text-[11px] text-[var(--ink-subtle)] block mb-2">Style</span>
                         <ToggleGroup
                           type="single"
                           value={project.cursor.clickHighlight.style}
@@ -909,13 +909,13 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                           }}
                           className="justify-start"
                         >
-                          <ToggleGroupItem value="ripple" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                          <ToggleGroupItem value="ripple" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                             Ripple
                           </ToggleGroupItem>
-                          <ToggleGroupItem value="spotlight" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                          <ToggleGroupItem value="spotlight" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                             Spotlight
                           </ToggleGroupItem>
-                          <ToggleGroupItem value="ring" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                          <ToggleGroupItem value="ring" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
                             Ring
                           </ToggleGroupItem>
                         </ToggleGroup>
@@ -923,22 +923,22 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                       {/* Highlight Color */}
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-zinc-500">Color</span>
+                        <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
                         <input
                           type="color"
                           value={project.cursor.clickHighlight.color}
                           onChange={(e) => updateCursorConfig({
                             clickHighlight: { ...project.cursor.clickHighlight, color: e.target.value }
                           })}
-                          className="w-8 h-6 rounded border border-zinc-700 cursor-pointer bg-transparent"
+                          className="w-8 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
                         />
                       </div>
 
                       {/* Highlight Radius */}
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[11px] text-zinc-500">Radius</span>
-                          <span className="text-[11px] text-zinc-400 font-mono">{project.cursor.clickHighlight.radius}px</span>
+                          <span className="text-[11px] text-[var(--ink-subtle)]">Radius</span>
+                          <span className="text-[11px] text-[var(--ink-muted)] font-mono">{project.cursor.clickHighlight.radius}px</span>
                         </div>
                         <Slider
                           value={[project.cursor.clickHighlight.radius]}
@@ -954,8 +954,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                       {/* Highlight Duration */}
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[11px] text-zinc-500">Duration</span>
-                          <span className="text-[11px] text-zinc-400 font-mono">{project.cursor.clickHighlight.durationMs}ms</span>
+                          <span className="text-[11px] text-[var(--ink-subtle)]">Duration</span>
+                          <span className="text-[11px] text-[var(--ink-muted)] font-mono">{project.cursor.clickHighlight.durationMs}ms</span>
                         </div>
                         <Slider
                           value={[project.cursor.clickHighlight.durationMs]}
@@ -978,11 +978,11 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
               <div className="p-4 space-y-4">
                 {/* Show/Hide Toggle */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-400">Show Overlay</span>
+                  <span className="text-xs text-[var(--ink-muted)]">Show Overlay</span>
                   <button
                     onClick={() => updateWebcamConfig({ enabled: !project.webcam.enabled })}
                     className={`relative w-10 h-5 rounded-full transition-colors ${
-                      project.webcam.enabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                      project.webcam.enabled ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
                     }`}
                   >
                     <span
@@ -996,8 +996,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 {/* Size Slider */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-400">Size</span>
-                    <span className="text-xs text-zinc-300 font-mono">
+                    <span className="text-xs text-[var(--ink-muted)]">Size</span>
+                    <span className="text-xs text-[var(--ink-dark)] font-mono">
                       {Math.round(project.webcam.size * 100)}%
                     </span>
                   </div>
@@ -1012,7 +1012,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Shape Toggle */}
                 <div>
-                  <span className="text-xs text-zinc-400 block mb-2">Shape</span>
+                  <span className="text-xs text-[var(--ink-muted)] block mb-2">Shape</span>
                   <ToggleGroup
                     type="single"
                     value={project.webcam.shape}
@@ -1021,13 +1021,13 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     }}
                     className="justify-start"
                   >
-                    <ToggleGroupItem value="circle" aria-label="Circle" className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700">
+                    <ToggleGroupItem value="circle" aria-label="Circle" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
                       <Circle className="h-4 w-4" />
                     </ToggleGroupItem>
-                    <ToggleGroupItem value="roundedRectangle" aria-label="Squircle" className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700">
+                    <ToggleGroupItem value="roundedRectangle" aria-label="Squircle" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
                       <Square className="h-4 w-4" />
                     </ToggleGroupItem>
-                    <ToggleGroupItem value="rectangle" aria-label="Rectangle" className="h-8 w-8 p-0 data-[state=on]:bg-zinc-700">
+                    <ToggleGroupItem value="rectangle" aria-label="Rectangle" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
                       <RectangleHorizontal className="h-4 w-4" />
                     </ToggleGroupItem>
                   </ToggleGroup>
@@ -1037,8 +1037,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 {project.webcam.shape === 'roundedRectangle' && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-zinc-400">Rounding</span>
-                      <span className="text-xs text-zinc-500">{Math.round(project.webcam.rounding)}%</span>
+                      <span className="text-xs text-[var(--ink-muted)]">Rounding</span>
+                      <span className="text-xs text-[var(--ink-subtle)]">{Math.round(project.webcam.rounding)}%</span>
                     </div>
                     <Slider
                       value={[project.webcam.rounding]}
@@ -1054,8 +1054,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 {/* Shadow */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-400">Shadow</span>
-                    <span className="text-xs text-zinc-500">{Math.round(project.webcam.shadow)}%</span>
+                    <span className="text-xs text-[var(--ink-muted)]">Shadow</span>
+                    <span className="text-xs text-[var(--ink-subtle)]">{Math.round(project.webcam.shadow)}%</span>
                   </div>
                   <Slider
                     value={[project.webcam.shadow]}
@@ -1069,11 +1069,11 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Advanced Shadow Settings (only when shadow > 0) */}
                 {project.webcam.shadow > 0 && (
-                  <div className="pl-3 border-l border-zinc-700 space-y-3">
+                  <div className="pl-3 border-l border-[var(--glass-border)] space-y-3">
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-zinc-500">Size</span>
-                        <span className="text-[11px] text-zinc-600">{Math.round(project.webcam.shadowConfig.size)}%</span>
+                        <span className="text-[11px] text-[var(--ink-subtle)]">Size</span>
+                        <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.webcam.shadowConfig.size)}%</span>
                       </div>
                       <Slider
                         value={[project.webcam.shadowConfig.size]}
@@ -1088,8 +1088,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-zinc-500">Opacity</span>
-                        <span className="text-[11px] text-zinc-600">{Math.round(project.webcam.shadowConfig.opacity)}%</span>
+                        <span className="text-[11px] text-[var(--ink-subtle)]">Opacity</span>
+                        <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.webcam.shadowConfig.opacity)}%</span>
                       </div>
                       <Slider
                         value={[project.webcam.shadowConfig.opacity]}
@@ -1104,8 +1104,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-zinc-500">Blur</span>
-                        <span className="text-[11px] text-zinc-600">{Math.round(project.webcam.shadowConfig.blur)}%</span>
+                        <span className="text-[11px] text-[var(--ink-subtle)]">Blur</span>
+                        <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.webcam.shadowConfig.blur)}%</span>
                       </div>
                       <Slider
                         value={[project.webcam.shadowConfig.blur]}
@@ -1123,7 +1123,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Position Grid */}
                 <div>
-                  <span className="text-xs text-zinc-400 block mb-2">Position</span>
+                  <span className="text-xs text-[var(--ink-muted)] block mb-2">Position</span>
                   <PositionGrid
                     position={project.webcam.position}
                     customX={project.webcam.customX}
@@ -1133,9 +1133,9 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 </div>
 
                 {/* Segments count */}
-                <div className="pt-3 border-t border-zinc-800">
-                  <label className="text-[10px] text-zinc-500 uppercase">Visibility Segments</label>
-                  <p className="text-xs text-zinc-300 mt-0.5">
+                <div className="pt-3 border-t border-[var(--glass-border)]">
+                  <label className="text-[10px] text-[var(--ink-subtle)] uppercase">Visibility Segments</label>
+                  <p className="text-xs text-[var(--ink-dark)] mt-0.5">
                     {project.webcam.visibilitySegments.length} segment{project.webcam.visibilitySegments.length !== 1 ? 's' : ''}
                   </p>
                 </div>
@@ -1147,11 +1147,11 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
               <div className="p-4 space-y-4">
                 {/* Export Preset */}
                 <div>
-                  <span className="text-xs text-zinc-400 block mb-2">Preset</span>
+                  <span className="text-xs text-[var(--ink-muted)] block mb-2">Preset</span>
                   <select
                     value={project.export.preset}
                     onChange={(e) => updateExportConfig({ preset: e.target.value as ExportPreset })}
-                    className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 px-2"
+                    className="w-full h-8 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2"
                   >
                     <option value="draft">Draft (720p, 15fps)</option>
                     <option value="standard">Standard (1080p, 30fps)</option>
@@ -1163,11 +1163,11 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
                 {/* Aspect Ratio */}
                 <div>
-                  <span className="text-xs text-zinc-400 block mb-2">Aspect Ratio</span>
+                  <span className="text-xs text-[var(--ink-muted)] block mb-2">Aspect Ratio</span>
                   <select
                     value={project.export.aspectRatio}
                     onChange={(e) => updateExportConfig({ aspectRatio: e.target.value as AspectRatio })}
-                    className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 px-2"
+                    className="w-full h-8 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2"
                   >
                     <option value="auto">Auto (Source)</option>
                     <option value="landscape16x9">16:9 Landscape</option>
@@ -1180,14 +1180,14 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 {/* Background (for letterboxing) */}
                 {project.export.aspectRatio !== 'auto' && (
                   <div>
-                    <span className="text-xs text-zinc-400 block mb-2">Background</span>
+                    <span className="text-xs text-[var(--ink-muted)] block mb-2">Background</span>
                     <div className="flex items-center gap-2">
                       <select
                         value={project.export.background.bgType}
                         onChange={(e) => updateExportConfig({
                           background: { ...project.export.background, bgType: e.target.value as VideoBackgroundType }
                         })}
-                        className="flex-1 h-8 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 px-2"
+                        className="flex-1 h-8 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2"
                       >
                         <option value="solid">Solid</option>
                         <option value="gradient">Gradient</option>
@@ -1199,7 +1199,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                           onChange={(e) => updateExportConfig({
                             background: { ...project.export.background, solidColor: e.target.value }
                           })}
-                          className="w-8 h-8 rounded border border-zinc-700 cursor-pointer bg-transparent"
+                          className="w-8 h-8 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
                         />
                       )}
                     </div>
@@ -1211,7 +1211,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                           onChange={(e) => updateExportConfig({
                             background: { ...project.export.background, gradientStart: e.target.value }
                           })}
-                          className="w-8 h-8 rounded border border-zinc-700 cursor-pointer bg-transparent"
+                          className="w-8 h-8 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
                         />
                         <div className="flex-1 h-4 rounded" style={{
                           background: `linear-gradient(90deg, ${project.export.background.gradientStart}, ${project.export.background.gradientEnd})`
@@ -1222,7 +1222,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                           onChange={(e) => updateExportConfig({
                             background: { ...project.export.background, gradientEnd: e.target.value }
                           })}
-                          className="w-8 h-8 rounded border border-zinc-700 cursor-pointer bg-transparent"
+                          className="w-8 h-8 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
                         />
                       </div>
                     )}
@@ -1242,9 +1242,9 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
       {/* Export Progress Overlay */}
       {isExporting && (
         <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 rounded-lg p-6 w-80 shadow-xl border border-zinc-800">
+          <div className="bg-[var(--polar-ice)] rounded-lg p-6 w-80 shadow-xl border border-[var(--glass-border)]">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-zinc-200">Exporting Video</h3>
+              <h3 className="text-sm font-medium text-[var(--ink-dark)]">Exporting Video</h3>
               <Button
                 variant="ghost"
                 size="sm"
@@ -1256,22 +1256,22 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
             </div>
             
             {/* Progress bar */}
-            <div className="h-2 bg-zinc-800 rounded-full overflow-hidden mb-2">
+            <div className="h-2 bg-[var(--polar-mist)] rounded-full overflow-hidden mb-2">
               <div
-                className="h-full bg-indigo-500 transition-all duration-300"
+                className="h-full bg-[var(--coral-400)] transition-all duration-300"
                 style={{ width: `${(exportProgress?.progress ?? 0) * 100}%` }}
               />
             </div>
             
             {/* Progress info */}
-            <div className="flex items-center justify-between text-xs text-zinc-400">
+            <div className="flex items-center justify-between text-xs text-[var(--ink-muted)]">
               <span className="capitalize">{exportProgress?.stage ?? 'preparing'}</span>
               <span>{Math.round((exportProgress?.progress ?? 0) * 100)}%</span>
             </div>
             
             {/* Status message */}
             {exportProgress?.message && (
-              <p className="text-xs text-zinc-500 mt-2 truncate">
+              <p className="text-xs text-[var(--ink-subtle)] mt-2 truncate">
                 {exportProgress.message}
               </p>
             )}

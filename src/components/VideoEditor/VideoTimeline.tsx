@@ -49,19 +49,19 @@ const PreviewScrubber = memo(function PreviewScrubber({
 
   return (
     <div
-      className="absolute top-0 bottom-0 w-0.5 z-20 pointer-events-none bg-gradient-to-b from-zinc-400 to-transparent"
+      className="absolute top-0 bottom-0 w-0.5 z-20 pointer-events-none bg-gradient-to-b from-[var(--ink-muted)] to-transparent"
       style={{ left: `${position}px` }}
     >
       {/* Scrubber handle */}
       <div
-        className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-4 rounded-b-sm bg-zinc-400"
+        className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-4 rounded-b-sm bg-[var(--ink-muted)]"
         style={{
           clipPath: 'polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%)',
         }}
       />
       {/* Time tooltip */}
       <div
-        className="absolute top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-zinc-800 border border-zinc-600 rounded text-[10px] font-mono text-zinc-300 whitespace-nowrap shadow-lg"
+        className="absolute top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[var(--glass-bg-solid)] border border-[var(--glass-border)] rounded text-[10px] font-mono text-[var(--ink-dark)] whitespace-nowrap shadow-lg"
       >
         {formatTimeSimple(previewTimeMs)}
       </div>
@@ -81,10 +81,10 @@ const TimeDisplay = memo(function TimeDisplay({ durationMs }: { durationMs: numb
   const currentTimeMs = usePlaybackTime();
 
   return (
-    <div className="px-2 py-0.5 bg-zinc-800/60 rounded text-xs font-mono text-zinc-300 tabular-nums">
+    <div className="px-2 py-0.5 bg-[var(--polar-mist)]/60 rounded text-xs font-mono text-[var(--ink-dark)] tabular-nums">
       {formatTimeSimple(currentTimeMs)}
-      <span className="text-zinc-500 mx-1">/</span>
-      <span className="text-zinc-500">{formatTimeSimple(durationMs)}</span>
+      <span className="text-[var(--ink-subtle)] mx-1">/</span>
+      <span className="text-[var(--ink-subtle)]">{formatTimeSimple(durationMs)}</span>
     </div>
   );
 });
@@ -150,7 +150,7 @@ const PlayheadTimeIndicator = memo(function PlayheadTimeIndicator() {
   
   return (
     <div 
-      className="absolute top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-zinc-900 rounded text-[10px] font-mono whitespace-nowrap shadow-lg"
+      className="absolute top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[var(--polar-ice)] rounded text-[10px] font-mono whitespace-nowrap shadow-lg"
       style={{ 
         borderColor: 'rgba(249, 112, 102, 0.5)',
         borderWidth: '1px',
@@ -247,9 +247,9 @@ const WaveformCanvas = memo(function WaveformCanvas({
 
     // Create gradient
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, 'rgba(129, 140, 248, 0.8)'); // indigo-400
-    gradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.6)'); // indigo-500
-    gradient.addColorStop(1, 'rgba(129, 140, 248, 0.8)');
+    gradient.addColorStop(0, 'rgba(249, 112, 102, 0.7)'); // coral-400
+    gradient.addColorStop(0.5, 'rgba(240, 68, 56, 0.5)'); // coral-500
+    gradient.addColorStop(1, 'rgba(249, 112, 102, 0.7)');
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
@@ -306,12 +306,12 @@ const VideoTrack = memo(function VideoTrack({
 
   return (
     <div
-      className="relative h-12 bg-zinc-800/30"
+      className="relative h-12 bg-[var(--polar-mist)]/30"
       style={{ width: `${width}px` }}
     >
       {/* Track label */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-zinc-900/80 border-r border-zinc-700/50 flex items-center justify-center z-10">
-        <div className="flex items-center gap-1.5 text-zinc-400">
+      <div className="absolute left-0 top-0 bottom-0 w-20 bg-[var(--polar-ice)]/80 border-r border-[var(--glass-border)]/50 flex items-center justify-center z-10">
+        <div className="flex items-center gap-1.5 text-[var(--ink-muted)]">
           <Film className="w-3.5 h-3.5" />
           <span className="text-[11px] font-medium">Video</span>
         </div>
@@ -320,7 +320,7 @@ const VideoTrack = memo(function VideoTrack({
       {/* Video clip item */}
       <div className="absolute left-20 top-0 bottom-0 right-0">
         <div
-          className="absolute top-1 bottom-1 rounded-md bg-indigo-500/20 border border-indigo-500/40 overflow-hidden"
+          className="absolute top-1 bottom-1 rounded-md bg-[var(--coral-50)] border border-[var(--coral-100)] overflow-hidden"
           style={{ left: 0, width: `${clipWidth}px` }}
         >
           {/* Waveform overlay */}
@@ -334,7 +334,7 @@ const VideoTrack = memo(function VideoTrack({
 
           {/* Clip label */}
           <div className="absolute top-0 left-0 right-0 flex items-center px-2 h-full pointer-events-none">
-            <span className="text-[10px] text-indigo-300/80 font-medium truncate drop-shadow-sm">
+            <span className="text-[10px] text-[var(--coral-300)]/80 font-medium truncate drop-shadow-sm">
               Recording
             </span>
           </div>
@@ -498,11 +498,11 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
   return (
     <div
       ref={containerRef}
-      className="h-full flex flex-col bg-zinc-900 border-t border-zinc-700/50 select-none"
+      className="h-full flex flex-col bg-[var(--polar-ice)] border-t border-[var(--glass-border)]/50 select-none"
     >
       {/* Timeline Header with Controls */}
       <TooltipProvider delayDuration={200}>
-        <div className="flex items-center h-11 px-3 bg-zinc-900/80 border-b border-zinc-700/30">
+        <div className="flex items-center h-11 px-3 bg-[var(--glass-surface-dark)] border-b border-[var(--glass-border)]">
           {/* Left Section */}
           <div className="flex items-center gap-2">
             <Tooltip>
@@ -516,7 +516,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
               </TooltipContent>
             </Tooltip>
 
-            <div className="w-px h-5 bg-zinc-700/50" />
+            <div className="w-px h-5 bg-[var(--glass-border)]" />
 
             {/* Timeline Zoom Controls */}
             <div className="flex items-center gap-1">
@@ -531,7 +531,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
                 </TooltipContent>
               </Tooltip>
 
-              <span className="text-[10px] text-zinc-500 font-mono w-12 text-center">
+              <span className="text-[10px] text-[var(--ink-subtle)] font-mono w-12 text-center">
                 {Math.round(timelineZoom * 1000)}px/s
               </span>
 
@@ -697,7 +697,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
 
           {/* Scene Track */}
           {project && project.sources.webcamVideo && (
-            <div className="h-10 border-b border-zinc-800/50">
+            <div className="h-10 border-b border-[var(--glass-border)]">
               <SceneTrack
                 segments={project.scene.segments}
                 defaultMode={project.scene.defaultMode}

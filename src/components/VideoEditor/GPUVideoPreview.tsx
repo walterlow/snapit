@@ -149,7 +149,7 @@ const VideoWithZoom = memo(function VideoWithZoom({
     <video
       ref={videoRef}
       src={videoSrc}
-      className="w-full h-full object-contain cursor-pointer bg-zinc-900"
+      className="w-full h-full object-contain cursor-pointer bg-[var(--polar-ice)]"
       style={{
         minWidth: 320,
         minHeight: 180,
@@ -213,7 +213,7 @@ const FullscreenWebcam = memo(function FullscreenWebcam({
     <video
       ref={videoRef}
       src={videoSrc}
-      className="w-full h-full object-cover cursor-pointer bg-zinc-800"
+      className="w-full h-full object-cover cursor-pointer bg-[var(--polar-mist)]"
       style={{
         transform: mirror ? 'scaleX(-1)' : 'none',
       }}
@@ -515,7 +515,7 @@ export function GPUVideoPreview() {
   }, [controls]);
 
   return (
-    <div className="flex items-center justify-center h-full bg-zinc-950 rounded-lg overflow-hidden">
+    <div className="flex items-center justify-center h-full bg-[var(--polar-snow)] rounded-lg overflow-hidden">
       <div
         ref={containerRef}
         className="relative bg-black rounded-md overflow-hidden"
@@ -538,16 +538,16 @@ export function GPUVideoPreview() {
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-zinc-500">No video loaded</span>
+            <span className="text-[var(--ink-subtle)]">No video loaded</span>
           </div>
         )}
 
         {/* Error overlay */}
         {videoError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
-            <span className="text-red-400 text-sm mb-2">Video Error</span>
-            <span className="text-zinc-500 text-xs">{videoError}</span>
-            <span className="text-zinc-600 text-xs mt-2 max-w-xs text-center break-all">
+            <span className="text-[var(--error)] text-sm mb-2">Video Error</span>
+            <span className="text-[var(--ink-subtle)] text-xs">{videoError}</span>
+            <span className="text-[var(--ink-faint)] text-xs mt-2 max-w-xs text-center break-all">
               {videoSrc}
             </span>
           </div>

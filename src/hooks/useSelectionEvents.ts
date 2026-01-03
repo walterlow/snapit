@@ -11,6 +11,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { availableMonitors, type Monitor } from '@tauri-apps/api/window';
+import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
 
 export interface SelectionBounds {
   x: number;
@@ -160,7 +161,11 @@ export function useSelectionEvents(): UseSelectionEventsReturn {
 
         // Pre-spawn FFmpeg for webcam so recording starts instantly
         // This runs in parallel with repositioning - don't await
-        invoke('prepare_recording', { format: 'mp4' }).catch((e) => {
+        // Use actual capture format (gif or mp4) to generate correct output path
+        // Get current state inside callback to avoid stale closure
+        const currentMode = useCaptureSettingsStore.getState().activeMode;
+        const format = currentMode === 'gif' ? 'gif' : 'mp4';
+        invoke('prepare_recording', { format }).catch((e) => {
           console.warn('Failed to prepare recording:', e);
         });
 

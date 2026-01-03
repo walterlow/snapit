@@ -44,7 +44,13 @@ pub struct GifRecorder {
 
 impl GifRecorder {
     /// Create a new GIF recorder.
-    pub fn new(width: u32, height: u32, fps: u32, preset: GifQualityPreset, max_frames: usize) -> Self {
+    pub fn new(
+        width: u32,
+        height: u32,
+        fps: u32,
+        preset: GifQualityPreset,
+        max_frames: usize,
+    ) -> Self {
         Self {
             frames: Vec::with_capacity(max_frames.min(1000)),
             width,
@@ -54,13 +60,13 @@ impl GifRecorder {
             max_frames,
         }
     }
-    
+
     /// Add a frame to the buffer.
     pub fn add_frame(&mut self, rgba_data: Vec<u8>, width: u32, height: u32, timestamp: f64) {
         if self.frames.len() >= self.max_frames {
             return;
         }
-        
+
         self.frames.push(GifFrame {
             rgba_data,
             width,
@@ -68,30 +74,26 @@ impl GifRecorder {
             timestamp,
         });
     }
-    
+
     /// Get the number of buffered frames.
     pub fn frame_count(&self) -> usize {
         self.frames.len()
     }
-    
+
     /// Get the total duration of buffered frames.
     pub fn duration(&self) -> f64 {
         self.frames.last().map(|f| f.timestamp).unwrap_or(0.0)
     }
-    
+
     /// Take ownership of the frames (for encoding in another thread).
     pub fn take_frames(&mut self) -> Vec<GifFrame> {
         std::mem::take(&mut self.frames)
     }
-    
+
     /// Encode buffered frames to a GIF file using FFmpeg.
     ///
     /// Returns the file size in bytes.
-    pub fn encode_to_file<P, F>(
-        &self,
-        output_path: P,
-        progress_callback: F,
-    ) -> Result<u64, String>
+    pub fn encode_to_file<P, F>(&self, output_path: P, progress_callback: F) -> Result<u64, String>
     where
         P: AsRef<Path>,
         F: Fn(f32) + Send + Sync + 'static,
@@ -118,17 +120,6 @@ impl GifRecorder {
             self.fps as f64
         };
 
-        eprintln!("[GIF ENCODER] ========================================");
-        eprintln!("[GIF ENCODER] Frame count: {}", self.frames.len());
-        eprintln!("[GIF ENCODER] First timestamp: {:.3}s", first_ts);
-        eprintln!("[GIF ENCODER] Last timestamp: {:.3}s", last_ts);
-        eprintln!("[GIF ENCODER] Duration: {:.3}s", duration);
-        eprintln!("[GIF ENCODER] Target FPS: {}", self.fps);
-        eprintln!("[GIF ENCODER] Actual FPS: {:.2}", actual_fps);
-        eprintln!("[GIF ENCODER] Frame dimensions: {}x{}", first_frame.width, first_frame.height);
-        eprintln!("[GIF ENCODER] Quality preset: {:?}", self.preset);
-        eprintln!("[GIF ENCODER] ========================================");
-
         // Create FFmpeg encoder with ACTUAL FPS from timestamps
         let encoder = FfmpegGifEncoder::new(
             first_frame.width,
@@ -154,19 +145,19 @@ pub fn resize_frame(
     if src_width == dst_width && src_height == dst_height {
         return rgba_data.to_vec();
     }
-    
+
     let src_image: ImageBuffer<Rgba<u8>, _> =
         ImageBuffer::from_raw(src_width, src_height, rgba_data.to_vec())
             .expect("Failed to create image buffer");
-    
+
     let filter = if high_quality {
         image::imageops::FilterType::Lanczos3
     } else {
         image::imageops::FilterType::Nearest
     };
-    
+
     let resized = image::imageops::resize(&src_image, dst_width, dst_height, filter);
-    
+
     resized.into_raw()
 }
 
@@ -183,9 +174,9 @@ pub fn crop_frame(
     let src_image: ImageBuffer<Rgba<u8>, _> =
         ImageBuffer::from_raw(src_width, src_height, rgba_data.to_vec())
             .expect("Failed to create image buffer");
-    
+
     let cropped = image::imageops::crop_imm(&src_image, x, y, crop_width, crop_height).to_image();
-    
+
     cropped.into_raw()
 }
 
@@ -205,7 +196,9 @@ mod tests {
         let mut recorder = GifRecorder::new(2, 2, 30, GifQualityPreset::Fast, 100);
 
         // Create a simple 2x2 red frame
-        let rgba = vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255];
+        let rgba = vec![
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+        ];
 
         recorder.add_frame(rgba, 2, 2, 0.0);
         assert_eq!(recorder.frame_count(), 1);
@@ -215,7 +208,9 @@ mod tests {
     fn test_max_frames_limit() {
         let mut recorder = GifRecorder::new(2, 2, 30, GifQualityPreset::High, 2);
 
-        let rgba = vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255];
+        let rgba = vec![
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+        ];
 
         recorder.add_frame(rgba.clone(), 2, 2, 0.0);
         recorder.add_frame(rgba.clone(), 2, 2, 0.033);
@@ -227,7 +222,9 @@ mod tests {
     #[test]
     fn test_duration_calculation() {
         let mut recorder = GifRecorder::new(2, 2, 30, GifQualityPreset::Balanced, 100);
-        let rgba = vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255];
+        let rgba = vec![
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+        ];
 
         recorder.add_frame(rgba.clone(), 2, 2, 0.0);
         recorder.add_frame(rgba.clone(), 2, 2, 5.0);
@@ -240,7 +237,9 @@ mod tests {
     #[test]
     fn test_take_frames() {
         let mut recorder = GifRecorder::new(2, 2, 30, GifQualityPreset::Balanced, 100);
-        let rgba = vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255];
+        let rgba = vec![
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+        ];
 
         recorder.add_frame(rgba.clone(), 2, 2, 0.0);
         recorder.add_frame(rgba.clone(), 2, 2, 1.0);

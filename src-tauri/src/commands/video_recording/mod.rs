@@ -1117,8 +1117,12 @@ pub async fn start_recording(
     // Use prepared output path if available (from prepare_recording), else generate new one
     let output_path = take_prepared_output_path()
         .unwrap_or_else(|| generate_output_path(&settings).unwrap_or_else(|_| {
-            // Fallback to temp dir if generation fails
-            std::env::temp_dir().join(format!("recording_{}.mp4", chrono::Local::now().format("%Y%m%d_%H%M%S")))
+            // Fallback to temp dir if generation fails - respect format
+            let ext = match settings.format {
+                RecordingFormat::Gif => "gif",
+                RecordingFormat::Mp4 => "mp4",
+            };
+            std::env::temp_dir().join(format!("recording_{}.{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), ext))
         }));
     
     log::info!("[RECORDING] Using output path: {:?}", output_path);

@@ -1242,6 +1242,7 @@ fn run_gif_capture(
     command_rx: Receiver<RecorderCommand>,
     started_at: &str,
 ) -> Result<f64, String> {
+    log::debug!("[GIF] Starting capture, mode={:?}", settings.mode);
 
     // Check if this is Window mode (native window capture via WGC)
     let window_id = is_window_mode(&settings.mode);
@@ -1253,21 +1254,34 @@ fn run_gif_capture(
     };
 
     // Start WGC capture based on mode
-    let wgc = if let Some(wid) = window_id {
-        WgcVideoCapture::new_window(wid, settings.include_cursor)
-            .map_err(|e| format!("Failed to start WGC window capture: {}", e))?
+    // For window capture, wait for first frame to ensure capture is ready
+    let (wgc, first_frame_dims) = if let Some(wid) = window_id {
+        log::debug!("[GIF] Using window capture for hwnd={}", wid);
+        let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
+            .map_err(|e| format!("Failed to start WGC window capture: {}", e))?;
+        
+        // Wait for first frame to get actual dimensions (important for DPI scaling)
+        let first_frame = wgc.wait_for_first_frame(1000);
+        if first_frame.is_none() {
+            log::warn!("[GIF] Timeout waiting for first frame from window capture");
+        }
+        let dims = first_frame.as_ref().map(|(w, h, _)| (*w, *h));
+        (wgc, dims)
     } else {
         // Monitor/Region mode: use monitor capture
         let monitor_index = match &settings.mode {
             RecordingMode::Monitor { monitor_index } => *monitor_index,
             _ => 0,
         };
-        WgcVideoCapture::new(monitor_index, settings.include_cursor)
-            .map_err(|e| format!("Failed to start WGC capture: {}", e))?
+        log::debug!("[GIF] Using monitor capture, index={}", monitor_index);
+        let wgc = WgcVideoCapture::new(monitor_index, settings.include_cursor)
+            .map_err(|e| format!("Failed to start WGC capture: {}", e))?;
+        (wgc, None)
     };
 
-    // Get capture dimensions
-    let (capture_width, capture_height) = (wgc.width(), wgc.height());
+    // Get capture dimensions - prefer first frame dims for window capture (DPI accuracy)
+    let (capture_width, capture_height) = first_frame_dims
+        .unwrap_or_else(|| (wgc.width(), wgc.height()));
     let (width, height) = if let Some((_, _, w, h)) = crop_region {
         (w, h)
     } else {
@@ -1344,11 +1358,17 @@ fn run_gif_capture(
             let y = y.max(0) as u32;
             let mut cropped = Vec::with_capacity((w * h * 4) as usize);
 
-            for row in y..(y + h).min(frame.height) {
-                let start = ((row * frame.width + x) * 4) as usize;
-                let end = ((row * frame.width + x + w.min(frame.width - x)) * 4) as usize;
-                if start < bgra_data.len() && end <= bgra_data.len() {
-                    cropped.extend_from_slice(&bgra_data[start..end]);
+            // Skip if crop region is outside frame bounds
+            if x < frame.width && y < frame.height {
+                let available_width = frame.width.saturating_sub(x);
+                let crop_w = w.min(available_width);
+
+                for row in y..(y + h).min(frame.height) {
+                    let start = ((row * frame.width + x) * 4) as usize;
+                    let end = ((row * frame.width + x + crop_w) * 4) as usize;
+                    if start < bgra_data.len() && end <= bgra_data.len() {
+                        cropped.extend_from_slice(&bgra_data[start..end]);
+                    }
                 }
             }
             cropped

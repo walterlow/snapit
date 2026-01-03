@@ -100,16 +100,57 @@ impl FfmpegGifEncoder {
             return Err("No frames to encode".to_string());
         }
 
+        // Validate frame data
+        let expected_frame_size = (self.width * self.height * 4) as usize;
+        let valid_frames: Vec<_> = frames
+            .iter()
+            .filter(|f| f.rgba_data.len() == expected_frame_size)
+            .collect();
+
+        if valid_frames.is_empty() {
+            if let Some(first) = frames.first() {
+                return Err(format!(
+                    "No valid frames to encode. First frame has {} bytes, expected {} ({}x{}x4)",
+                    first.rgba_data.len(),
+                    expected_frame_size,
+                    self.width,
+                    self.height
+                ));
+            }
+            return Err("No valid frames to encode".to_string());
+        }
+
         // Build filter chain based on preset
         let filter = self.preset.to_filter();
 
-        eprintln!("[FFMPEG] ========================================");
-        eprintln!("[FFMPEG] Input: {} frames of {}x{} RGBA", frames.len(), self.width, self.height);
-        eprintln!("[FFMPEG] Input FPS: {:.2}", self.fps);
-        eprintln!("[FFMPEG] Expected GIF duration: {:.2}s", frames.len() as f64 / self.fps);
-        eprintln!("[FFMPEG] Filter: {}", filter);
-        eprintln!("[FFMPEG] Output: {}", output_path.display());
-        eprintln!("[FFMPEG] ========================================");
+        // Ensure even dimensions for filter compatibility
+        let width = if self.width % 2 != 0 {
+            self.width - 1
+        } else {
+            self.width
+        };
+        let height = if self.height % 2 != 0 {
+            self.height - 1
+        } else {
+            self.height
+        };
+        let needs_crop = width != self.width || height != self.height;
+
+        // Build filter chain - prepend crop if dimensions need adjustment
+        let full_filter = if needs_crop {
+            format!("crop={}:{}:0:0,{}", width, height, filter)
+        } else {
+            filter.to_string()
+        };
+
+        log::debug!(
+            "[GIF] Encoding {} frames ({}x{} @ {:.1} fps) to {}",
+            valid_frames.len(),
+            self.width,
+            self.height,
+            self.fps,
+            output_path.display()
+        );
 
         // Direct pipe: rawvideo -> palettegen -> paletteuse -> GIF
         // Using BGRA input to avoid color conversion overhead in capture loop
@@ -117,14 +158,20 @@ impl FfmpegGifEncoder {
         let mut child = Command::new(&self.ffmpeg_path)
             .args([
                 "-y",
-                "-f", "rawvideo",
-                "-pix_fmt", "bgra",
-                "-s", &format!("{}x{}", self.width, self.height),
-                "-r", &format!("{}", self.fps),
-                "-i", "pipe:0",
-                "-filter_complex", filter,
-                "-gifflags", "+transdiff",
-                "-loop", "0",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "bgra",
+                "-s",
+                &format!("{}x{}", self.width, self.height),
+                "-r",
+                &format!("{}", self.fps),
+                "-i",
+                "pipe:0",
+                "-filter_complex",
+                &full_filter,
+                "-loop",
+                "0",
             ])
             .arg(output_path)
             .stdin(Stdio::piped())
@@ -133,12 +180,15 @@ impl FfmpegGifEncoder {
             .spawn()
             .map_err(|e| format!("Failed to start FFmpeg: {}", e))?;
 
-        let mut stdin = child.stdin.take()
+        let mut stdin = child
+            .stdin
+            .take()
             .ok_or_else(|| "Failed to open FFmpeg stdin".to_string())?;
 
-        // Pipe frames directly to FFmpeg
-        let total = frames.len();
-        for (i, frame) in frames.iter().enumerate() {
+        // Pipe frames directly to FFmpeg (only valid-sized frames)
+        let total = valid_frames.len();
+        let mut written_frames = 0;
+        for (i, frame) in valid_frames.iter().enumerate() {
             if let Err(e) = stdin.write_all(&frame.rgba_data) {
                 // Write failed - FFmpeg probably crashed, get stderr
                 drop(stdin);
@@ -146,9 +196,13 @@ impl FfmpegGifEncoder {
                 let stderr = output
                     .map(|o| String::from_utf8_lossy(&o.stderr).to_string())
                     .unwrap_or_default();
-                return Err(format!("Failed to write frame {}: {}. FFmpeg error: {}", i, e, stderr));
+                return Err(format!(
+                    "Failed to write frame {}: {}. FFmpeg error: {}",
+                    i, e, stderr
+                ));
             }
 
+            written_frames += 1;
             progress_callback((i + 1) as f32 / total as f32 * 0.9);
         }
 
@@ -156,7 +210,8 @@ impl FfmpegGifEncoder {
         drop(stdin);
 
         // Wait for FFmpeg to finish
-        let output = child.wait_with_output()
+        let output = child
+            .wait_with_output()
             .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
 
         if !output.status.success() {
@@ -170,9 +225,6 @@ impl FfmpegGifEncoder {
         let file_size = std::fs::metadata(output_path)
             .map(|m| m.len())
             .map_err(|e| format!("Failed to get output file size: {}", e))?;
-
-        eprintln!("[FFMPEG] Encoding complete! Output size: {} bytes ({:.2} MB)",
-            file_size, file_size as f64 / 1024.0 / 1024.0);
 
         Ok(file_size)
     }
@@ -216,7 +268,11 @@ mod tests {
     #[test]
     fn test_all_presets_use_split_filter() {
         // All presets should use split filter for palette generation
-        for preset in [GifQualityPreset::Fast, GifQualityPreset::Balanced, GifQualityPreset::High] {
+        for preset in [
+            GifQualityPreset::Fast,
+            GifQualityPreset::Balanced,
+            GifQualityPreset::High,
+        ] {
             let filter = preset.to_filter();
             assert!(filter.starts_with("split[a][b]"));
             assert!(filter.contains("palettegen"));

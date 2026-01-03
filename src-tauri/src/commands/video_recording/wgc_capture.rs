@@ -113,6 +113,54 @@ impl GraphicsCaptureApiHandler for VideoCaptureHandler {
     }
 }
 
+/// Check if the current Windows version supports hiding the capture border.
+/// This requires Windows 11 (build 22000) or later.
+/// We detect this by checking the OS version via environment or registry.
+fn is_border_toggle_supported() -> bool {
+    // Check Windows build number - Windows 11 starts at build 22000
+    // Use the VERSION_BUILD environment variable set by Windows, or registry
+    if let Ok(build_str) = std::env::var("OS_BUILD") {
+        if let Ok(build) = build_str.parse::<u32>() {
+            return build >= 22000;
+        }
+    }
+
+    // Fallback: try to read from registry
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        if let Ok(output) = Command::new("cmd").args(["/c", "ver"]).output() {
+            let ver_str = String::from_utf8_lossy(&output.stdout);
+            // Parse "Microsoft Windows [Version 10.0.22631.4460]" format
+            if let Some(start) = ver_str.find('[') {
+                if let Some(end) = ver_str.find(']') {
+                    let version_part = &ver_str[start + 1..end];
+                    // Extract build number (third part after "Version 10.0.")
+                    let parts: Vec<&str> = version_part.split('.').collect();
+                    if parts.len() >= 3 {
+                        if let Ok(build) = parts[2].parse::<u32>() {
+                            return build >= 22000;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Default to false (use border) for safety
+    false
+}
+
+/// Get the appropriate DrawBorderSettings based on Windows version.
+fn get_border_settings() -> DrawBorderSettings {
+    if is_border_toggle_supported() {
+        DrawBorderSettings::WithoutBorder
+    } else {
+        // Windows 10 doesn't support hiding the border
+        DrawBorderSettings::Default
+    }
+}
+
 /// WGC-based video capture session.
 pub struct WgcVideoCapture {
     /// Receiver for captured frames
@@ -171,7 +219,7 @@ impl WgcVideoCapture {
         let settings = Settings::new(
             monitor,
             cursor_settings,
-            DrawBorderSettings::Default,
+            get_border_settings(),
             SecondaryWindowSettings::Default,
             MinimumUpdateIntervalSettings::Default,
             DirtyRegionSettings::Default,
@@ -257,7 +305,7 @@ impl WgcVideoCapture {
         let settings = Settings::new(
             window,
             cursor_settings,
-            DrawBorderSettings::Default,
+            get_border_settings(),
             SecondaryWindowSettings::Default,
             MinimumUpdateIntervalSettings::Default,
             DirtyRegionSettings::Default,

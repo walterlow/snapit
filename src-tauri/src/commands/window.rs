@@ -247,7 +247,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             if let Err(e) = crate::commands::video_recording::recorder::start_recording(
                                 app_clone.clone(), settings.clone(), 
                                 crate::commands::video_recording::generate_output_path(&settings)
-                                    .unwrap_or_else(|_| std::env::temp_dir().join("recording.mp4"))
+                                    .unwrap_or_else(|_| std::env::temp_dir().join(format!("recording.{}", format_str)))
                             ).await {
                                 log::error!("Failed to start recording: {}", e);
                                 // Close toolbar window and restore main window on error

@@ -381,13 +381,9 @@ pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
         .map(|s| s.enabled)
         .unwrap_or(false);
     
-    if webcam_enabled {
-        // Create webcam output path
-        let mut webcam_path = output_path.clone();
-        let stem = webcam_path.file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-        webcam_path.set_file_name(format!("{}_webcam.mp4", stem));
+    if webcam_enabled && format == RecordingFormat::Mp4 {
+        // For MP4, output_path is a folder - webcam goes inside as webcam.mp4
+        let webcam_path = output_path.join("webcam.mp4");
         
         // Spawn FFmpeg in background thread - this is the slow part
         std::thread::spawn(move || {
@@ -1201,12 +1197,63 @@ pub async fn load_video_project(video_path: String) -> Result<VideoProject, Stri
 
 /// Save a video project to a JSON file.
 ///
-/// The project file is saved alongside the source video with `.snapit` extension.
+/// For folder-based projects (screen_video is inside a folder):
+///   Saves to `project.json` in the same folder, with relative paths.
+///
+/// For legacy flat file projects:
+///   Saves alongside the video with `.snapit` extension.
 #[command]
-pub async fn save_video_project(project: VideoProject) -> Result<(), String> {
+pub async fn save_video_project(mut project: VideoProject) -> Result<(), String> {
     let video_path = std::path::Path::new(&project.sources.screen_video);
+    
+    // Check if this is a folder-based project (video is inside a project folder)
+    if let Some(parent) = video_path.parent() {
+        // If the parent folder looks like a project folder (video is screen.mp4)
+        if video_path.file_name().and_then(|n| n.to_str()) == Some("screen.mp4") {
+            // Save to project.json in the folder, with relative paths
+            let project_path = parent.join("project.json");
+            
+            // Convert absolute paths back to relative paths for storage
+            let to_relative = |abs_path: &str| -> String {
+                let path = std::path::Path::new(abs_path);
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(abs_path)
+                    .to_string()
+            };
+            
+            // Create a copy with relative paths for saving
+            let mut save_project = project.clone();
+            save_project.sources.screen_video = to_relative(&project.sources.screen_video);
+            if let Some(ref p) = project.sources.webcam_video {
+                save_project.sources.webcam_video = Some(to_relative(p));
+            }
+            if let Some(ref p) = project.sources.cursor_data {
+                save_project.sources.cursor_data = Some(to_relative(p));
+            }
+            if let Some(ref p) = project.sources.audio_file {
+                save_project.sources.audio_file = Some(to_relative(p));
+            }
+            if let Some(ref p) = project.sources.system_audio {
+                save_project.sources.system_audio = Some(to_relative(p));
+            }
+            if let Some(ref p) = project.sources.microphone_audio {
+                save_project.sources.microphone_audio = Some(to_relative(p));
+            }
+            if let Some(ref p) = project.sources.background_music {
+                save_project.sources.background_music = Some(to_relative(p));
+            }
+            
+            // Update timestamp
+            save_project.updated_at = chrono::Utc::now().to_rfc3339();
+            
+            return save_project.save(&project_path);
+        }
+    }
+    
+    // Legacy: save alongside video with .snapit extension
     let project_path = video_path.with_extension("snapit");
-
+    project.updated_at = chrono::Utc::now().to_rfc3339();
     project.save(&project_path)
 }
 
@@ -1428,6 +1475,15 @@ pub async fn export_video(
 // ============================================================================
 
 /// Generate a unique output path for the recording.
+/// 
+/// For video (MP4), returns a folder path that will contain:
+///   - screen.mp4 (main recording)
+///   - webcam.mp4 (optional)
+///   - cursor.json (optional)
+///   - system.wav, mic.wav (optional, deleted after muxing)
+///   - project.json (video project metadata)
+/// 
+/// For GIF, returns a file path directly (no folder structure needed).
 pub fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, String> {
     // Get the default save directory from settings
     let save_dir = crate::commands::settings::get_default_save_dir_sync()
@@ -1441,16 +1497,24 @@ pub fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, Str
     std::fs::create_dir_all(&save_dir)
         .map_err(|e| format!("Failed to create save directory: {}", e))?;
     
-    // Generate filename with timestamp
+    // Generate name with timestamp
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let extension = match settings.format {
-        RecordingFormat::Mp4 => "mp4",
-        RecordingFormat::Gif => "gif",
-    };
     
-    let filename = format!("recording_{}_{}.{}", timestamp, rand::random::<u16>(), extension);
-    
-    Ok(save_dir.join(filename))
+    match settings.format {
+        RecordingFormat::Mp4 => {
+            // For video, create a project folder
+            let folder_name = format!("recording_{}_{}", timestamp, rand::random::<u16>());
+            let folder_path = save_dir.join(&folder_name);
+            std::fs::create_dir_all(&folder_path)
+                .map_err(|e| format!("Failed to create recording folder: {}", e))?;
+            Ok(folder_path)
+        }
+        RecordingFormat::Gif => {
+            // For GIF, use flat file (no complex artifacts)
+            let filename = format!("recording_{}_{}.gif", timestamp, rand::random::<u16>());
+            Ok(save_dir.join(filename))
+        }
+    }
 }
 
 /// Emit a recording state change event to the frontend.

@@ -298,17 +298,21 @@ interface ZoomTransformStyle {
 }
 
 function boundsToZoomState(interp: InterpolatedZoom): ZoomState {
-  const width = boundsWidth(interp.bounds);
+  const scale = boundsWidth(interp.bounds);
 
-  // No zoom (width ~= 1.0)
-  if (Math.abs(width - 1) < 0.001) {
+  // No zoom (scale ~= 1.0)
+  if (Math.abs(scale - 1) < 0.001) {
     return { scale: 1, centerX: 0.5, centerY: 0.5 };
   }
 
-  // Calculate scale and center from bounds
-  const scale = width;
-  const centerX = (interp.bounds.topLeft.x + interp.bounds.bottomRight.x) / 2;
-  const centerY = (interp.bounds.topLeft.y + interp.bounds.bottomRight.y) / 2;
+  // Recover target coordinates from bounds.
+  // The bounds are calculated as:
+  //   topLeft = (0 - centerDiff.x, 0 - centerDiff.y)
+  //   where centerDiff = (target * scale - target) = target * (scale - 1)
+  // So: topLeft = -target * (scale - 1)
+  // Therefore: target = -topLeft / (scale - 1)
+  const centerX = -interp.bounds.topLeft.x / (scale - 1);
+  const centerY = -interp.bounds.topLeft.y / (scale - 1);
 
   return { scale, centerX, centerY };
 }

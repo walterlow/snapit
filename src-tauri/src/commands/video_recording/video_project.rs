@@ -1134,14 +1134,89 @@ fn parse_frame_rate(rate: &str) -> u32 {
     rate.parse::<f64>().unwrap_or(30.0).round() as u32
 }
 
-/// Load a VideoProject from a screen recording file.
+/// Load a VideoProject from a screen recording file or project folder.
 ///
-/// This function:
-/// 1. Extracts video metadata (dimensions, duration, fps) using ffprobe
-/// 2. Detects associated files (webcam: `_webcam.mp4`, cursor: `_cursor.json`)
-/// 3. Loads cursor events if available for auto-zoom
-/// 4. Creates a VideoProject with default configurations
+/// Supports two structures:
+/// 1. **New folder structure**: `recording_123456/screen.mp4` with `project.json` alongside
+/// 2. **Legacy flat files**: `recording_123456.mp4` with `_webcam.mp4`, `_cursor.json` siblings
+///
+/// For folder structure:
+/// - Loads project.json if it exists
+/// - Resolves relative paths to absolute paths
+///
+/// For legacy structure:
+/// - Extracts video metadata using ffprobe
+/// - Detects associated files by naming convention
+/// - Creates a VideoProject with default configurations
 pub fn load_video_project_from_file(video_path: &std::path::Path) -> Result<VideoProject, String> {
+    // Check if this is a video inside a project folder
+    // (e.g., recording_123456/screen.mp4)
+    if let Some(parent) = video_path.parent() {
+        let project_json = parent.join("project.json");
+        if project_json.exists() {
+            // Load from project.json
+            return load_video_project_from_folder(parent);
+        }
+    }
+
+    // Fall back to legacy flat file handling
+    load_video_project_legacy(video_path)
+}
+
+/// Load a VideoProject from a project folder containing project.json.
+/// Resolves relative paths in the project to absolute paths.
+fn load_video_project_from_folder(folder_path: &std::path::Path) -> Result<VideoProject, String> {
+    let project_json = folder_path.join("project.json");
+
+    let content = std::fs::read_to_string(&project_json)
+        .map_err(|e| format!("Failed to read project.json: {}", e))?;
+
+    let mut project: VideoProject = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse project.json: {}", e))?;
+
+    // Resolve relative paths to absolute paths
+    // The sources contain relative paths like "screen.mp4", "webcam.mp4", etc.
+    // We need to convert them to absolute paths for the video editor to use
+
+    let resolve_path = |relative: &str| -> String {
+        let path = folder_path.join(relative);
+        path.to_string_lossy().to_string()
+    };
+
+    // Resolve screen video path
+    project.sources.screen_video = resolve_path(&project.sources.screen_video);
+
+    // Resolve optional paths
+    if let Some(ref webcam) = project.sources.webcam_video {
+        project.sources.webcam_video = Some(resolve_path(webcam));
+    }
+    if let Some(ref cursor) = project.sources.cursor_data {
+        project.sources.cursor_data = Some(resolve_path(cursor));
+    }
+    if let Some(ref audio) = project.sources.audio_file {
+        project.sources.audio_file = Some(resolve_path(audio));
+    }
+    if let Some(ref system) = project.sources.system_audio {
+        project.sources.system_audio = Some(resolve_path(system));
+    }
+    if let Some(ref mic) = project.sources.microphone_audio {
+        project.sources.microphone_audio = Some(resolve_path(mic));
+    }
+    if let Some(ref music) = project.sources.background_music {
+        project.sources.background_music = Some(resolve_path(music));
+    }
+
+    log::info!(
+        "[PROJECT] Loaded video project from folder: {:?}",
+        folder_path
+    );
+
+    Ok(project)
+}
+
+/// Load a VideoProject from a legacy flat MP4 file.
+/// Detects associated files by naming convention (_webcam.mp4, _cursor.json, etc.)
+fn load_video_project_legacy(video_path: &std::path::Path) -> Result<VideoProject, String> {
     // Get video metadata
     let metadata = VideoMetadata::from_file(video_path)?;
 

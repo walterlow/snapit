@@ -301,7 +301,7 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
           </div>
 
           {/* Hidden video element for frame extraction */}
-          <video ref={videoRef} className="hidden" crossOrigin="anonymous" />
+          <video ref={videoRef} className="hidden" />
         </div>
       )}
     </div>

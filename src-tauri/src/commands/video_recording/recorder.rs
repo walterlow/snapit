@@ -69,6 +69,7 @@ use super::cursor::{CursorEventCapture, save_cursor_recording};
 use super::desktop_icons::{hide_desktop_icons, show_desktop_icons};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
+use super::video_project::VideoProject;
 use super::webcam::{stop_capture_service, WebcamEncoderPipe};
 use super::wgc_capture::WgcVideoCapture;
 use super::{emit_state_change, get_webcam_settings, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
@@ -610,6 +611,13 @@ fn start_capture_thread(
 }
 
 /// Run video (MP4) capture using DXGI Duplication API.
+/// 
+/// For MP4, `output_path` is a project folder containing:
+///   - screen.mp4 (main recording)
+///   - webcam.mp4 (optional)
+///   - cursor.json (optional)
+///   - project.json (video project metadata, created after recording)
+/// 
 /// Returns the actual recording duration in seconds.
 fn run_video_capture(
     app: &AppHandle,
@@ -621,6 +629,9 @@ fn run_video_capture(
 ) -> Result<f64, String> {
     log::debug!("[CAPTURE] Starting video capture, mode={:?}", settings.mode);
 
+    // For MP4, output_path is a folder - main video goes to screen.mp4 inside
+    let screen_video_path = output_path.join("screen.mp4");
+
     // === WEBCAM OUTPUT PATH ===
     // Webcam capture service is already running (pre-warmed during countdown).
     // Just set up the output path here.
@@ -629,10 +640,7 @@ fn run_video_capture(
         .unwrap_or(false);
     
     let webcam_output_path: Option<PathBuf> = if webcam_enabled {
-        let mut path = output_path.clone();
-        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        path.set_file_name(format!("{}_webcam.mp4", stem));
-        Some(path)
+        Some(output_path.join("webcam.mp4"))
     } else {
         None
     };
@@ -734,7 +742,7 @@ fn run_video_capture(
         video_settings,
         audio_settings,
         ContainerSettingsBuilder::default(),
-        output_path,
+        &screen_video_path,
     ).map_err(|e| format!("Failed to create encoder: {:?}", e))?;
 
     // === SHARED CONTROL FLAGS ===
@@ -788,20 +796,16 @@ fn run_video_capture(
         Arc::clone(&should_stop),
         Arc::clone(&is_paused),
     );
+    // Audio files go inside the project folder
     let (system_audio_path, mic_audio_path) = {
-        let stem = output_path.file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let parent = output_path.parent().unwrap_or(std::path::Path::new("."));
-        
         let system_path = if settings.audio.capture_system_audio {
-            Some(parent.join(format!("{}_system.wav", stem)))
+            Some(output_path.join("system.wav"))
         } else {
             None
         };
         
         let mic_path = if settings.audio.microphone_device_index.is_some() {
-            Some(parent.join(format!("{}_mic.wav", stem)))
+            Some(output_path.join("mic.wav"))
         } else {
             None
         };
@@ -819,12 +823,8 @@ fn run_video_capture(
     // === CURSOR EVENT CAPTURE ===
     // Record cursor positions and clicks for auto-zoom in video editor
     let mut cursor_event_capture = CursorEventCapture::new();
-    let cursor_data_path = {
-        let mut path = output_path.clone();
-        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        path.set_file_name(format!("{}_cursor.json", stem));
-        path
-    };
+    // Cursor data goes inside the project folder
+    let cursor_data_path = output_path.join("cursor.json");
     
     // Get region for cursor capture (if region mode)
     let cursor_region = match &settings.mode {
@@ -1135,7 +1135,7 @@ fn run_video_capture(
 
     // Mux audio with video using FFmpeg (bypasses windows-capture audio jitter)
     if let Err(e) = mux_audio_to_video(
-        output_path,
+        &screen_video_path,
         system_audio_path.as_ref(),
         mic_audio_path.as_ref(),
     ) {
@@ -1144,6 +1144,17 @@ fn run_video_capture(
 
     // NOTE: Webcam sync is now handled in finish_with_duration() above.
     // The webcam encoder remuxes with correct FPS to match screen duration.
+
+    // Create project.json with video project metadata
+    create_video_project_file(
+        output_path,
+        width,
+        height,
+        recording_duration.as_millis() as u64,
+        settings.fps,
+        webcam_output_path.is_some(),
+        !cursor_recording.events.is_empty(),
+    )?;
 
     Ok(recording_duration.as_secs_f64())
 }
@@ -1501,5 +1512,51 @@ pub async fn resume_recording(app: AppHandle) -> Result<(), String> {
     controller.set_paused(false);
     emit_state_change(&app, &controller.state);
 
+    Ok(())
+}
+
+// ============================================================================
+// Video Project Creation
+// ============================================================================
+
+/// Create a project.json file in the video project folder.
+/// 
+/// This creates the VideoProject metadata file that allows the video editor
+/// to load and edit the recording with all its associated files.
+fn create_video_project_file(
+    project_folder: &PathBuf,
+    width: u32,
+    height: u32,
+    duration_ms: u64,
+    fps: u32,
+    has_webcam: bool,
+    has_cursor_data: bool,
+) -> Result<(), String> {
+    // Create the VideoProject with relative paths (files are in the same folder)
+    let screen_video = "screen.mp4".to_string();
+    
+    let mut project = VideoProject::new(&screen_video, width, height, duration_ms, fps);
+    
+    // Set project name from folder name
+    if let Some(folder_name) = project_folder.file_name() {
+        project.name = folder_name.to_string_lossy().to_string();
+    }
+    
+    // Update sources with relative paths for files that exist
+    if has_webcam {
+        project.sources.webcam_video = Some("webcam.mp4".to_string());
+        project.webcam.enabled = true;
+    }
+    
+    if has_cursor_data {
+        project.sources.cursor_data = Some("cursor.json".to_string());
+    }
+    
+    // Save project.json to the folder
+    let project_file = project_folder.join("project.json");
+    project.save(&project_file)?;
+    
+    log::info!("[PROJECT] Created project.json in {:?}", project_folder);
+    
     Ok(())
 }

@@ -11,6 +11,7 @@ import { useEffect, useCallback } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
+import { webcamLogger } from '../utils/logger';
 
 interface WebcamErrorEvent {
   message: string;
@@ -43,7 +44,7 @@ export function useWebcamCoordination(): UseWebcamCoordinationReturn {
     const setupWebcamErrorListener = async () => {
       unlistenWebcamError = await listen<WebcamErrorEvent>('webcam-error', (event) => {
         const { message, is_fatal } = event.payload;
-        console.error('[WEBCAM ERROR]', message, 'Fatal:', is_fatal);
+        webcamLogger.error('Webcam error:', message, 'Fatal:', is_fatal);
 
         if (is_fatal) {
           toast.error('Webcam disconnected', {

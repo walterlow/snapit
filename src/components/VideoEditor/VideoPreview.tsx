@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Play, Pause, Volume2, VolumeX, Maximize2, Loader2 } from 'lucide-react';
 import { useVideoEditorStore, formatTimecode } from '../../stores/videoEditorStore';
 import { Button } from '@/components/ui/button';
+import { videoEditorLogger } from '@/utils/logger';
 import {
   Tooltip,
   TooltipContent,
@@ -65,7 +66,7 @@ export function VideoPreview({ width, height }: VideoPreviewProps) {
           lastFrameTimeRef.current = currentTimeMs;
         }
       } catch (error) {
-        console.error('Failed to extract frame:', error);
+        videoEditorLogger.error('Failed to extract frame:', error);
       } finally {
         if (!cancelled) {
           setIsLoadingFrame(false);
@@ -131,7 +132,7 @@ export function VideoPreview({ width, height }: VideoPreviewProps) {
 
   const handleFullscreen = useCallback(() => {
     // Would trigger fullscreen preview - implementation depends on Tauri window handling
-    console.log('Fullscreen preview requested');
+    videoEditorLogger.debug('Fullscreen preview requested');
   }, []);
 
   return (

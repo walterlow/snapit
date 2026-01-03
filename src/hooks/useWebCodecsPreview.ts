@@ -13,6 +13,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Input, ALL_FORMATS, UrlSource, VideoSampleSink } from 'mediabunny';
 import type { InputVideoTrack } from 'mediabunny';
+import { videoEditorLogger } from '@/utils/logger';
 
 interface FrameCache {
   [timestampMs: number]: ImageBitmap;
@@ -173,10 +174,10 @@ export function useWebCodecsPreview(videoPath: string | null): WebCodecsPreviewR
         setIsReady(true);
         setError(null);
 
-        console.log('[WebCodecs] Initialized:', { duration, width, height });
+        videoEditorLogger.debug('WebCodecs initialized:', { duration, width, height });
       } catch (err) {
         if (cancelled) return;
-        console.error('[WebCodecs] Init error:', err);
+        videoEditorLogger.error('WebCodecs init error:', err);
         setError(err instanceof Error ? err.message : 'Failed to initialize');
         setIsReady(false);
       }

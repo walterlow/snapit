@@ -18,6 +18,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ShortcutConfig, ShortcutStatus } from '../types';
+import { hotkeyLogger } from './logger';
 
 // Store unlisten functions for hook-based event listeners
 const hookListeners: Map<string, UnlistenFn> = new Map();
@@ -179,7 +180,7 @@ export async function updateTrayShortcut(id: string, shortcut: string): Promise<
   try {
     await invoke('update_tray_shortcut', { shortcutId: id, displayText });
   } catch (error) {
-    console.error(`Failed to update tray shortcut for ${id}:`, error);
+    hotkeyLogger.error(`Failed to update tray shortcut for ${id}:`, error);
   }
 }
 
@@ -373,7 +374,7 @@ export async function unregisterAllShortcuts(): Promise<void> {
   try {
     await unregisterAll();
   } catch (error) {
-    console.error('Failed to unregister all shortcuts:', error);
+    hotkeyLogger.error('Failed to unregister all shortcuts:', error);
   }
 
   // Also unregister any hook-based shortcuts
@@ -403,13 +404,13 @@ export async function updateShortcut(
   const config = store.settings.shortcuts[id];
 
   if (!config) {
-    console.error(`Shortcut ${id} not found`);
+    hotkeyLogger.error(`Shortcut ${id} not found`);
     return 'error';
   }
 
   // Validate the new shortcut
   if (!isValidShortcut(newShortcut)) {
-    console.error(`Invalid shortcut format: ${newShortcut}`);
+    hotkeyLogger.error(`Invalid shortcut format: ${newShortcut}`);
     return 'error';
   }
 
@@ -417,7 +418,7 @@ export async function updateShortcut(
   const shortcuts = store.settings.shortcuts;
   for (const [otherId, otherConfig] of Object.entries(shortcuts)) {
     if (otherId !== id && otherConfig.currentShortcut === newShortcut) {
-      console.error(`Shortcut ${newShortcut} is already used by ${otherId}`);
+      hotkeyLogger.error(`Shortcut ${newShortcut} is already used by ${otherId}`);
       return 'conflict';
     }
   }
@@ -520,7 +521,7 @@ export async function checkShortcutConflict(
       return 'conflict';
     }
   } catch (error) {
-    console.error('Error checking shortcut conflict:', error);
+    hotkeyLogger.error('Error checking shortcut conflict:', error);
     // Registration threw an error - likely a conflict
     return 'conflict';
   }

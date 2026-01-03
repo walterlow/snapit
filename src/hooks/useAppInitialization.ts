@@ -17,6 +17,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useVideoRecordingStore } from '../stores/videoRecordingStore';
 import { registerAllShortcuts, setShortcutHandler } from '../utils/hotkeyManager';
 import { createErrorHandler } from '../utils/errorReporting';
+import { settingsLogger } from '../utils/logger';
 
 interface UseAppInitializationProps {
   /** Handler for new capture shortcut */
@@ -70,7 +71,7 @@ export function useAppInitialization({
           registerAllShortcuts(),
         ]);
       } catch (error) {
-        console.error('Failed to initialize settings:', error);
+        settingsLogger.error('Failed to initialize settings:', error);
       }
     };
 

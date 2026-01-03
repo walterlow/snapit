@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { CanvasShape, CompositorSettings, BlurType } from '../types';
+import type { CanvasShape, CompositorSettings, BlurType, CanvasBounds } from '../types';
 import { DEFAULT_COMPOSITOR_SETTINGS } from '../types';
 import { STORAGE } from '../constants';
 import {
@@ -11,13 +11,8 @@ import {
   haveShapesChanged,
 } from './editorHistory';
 
-// Canvas bounds for non-destructive crop/expand
-export interface CanvasBounds {
-  width: number;
-  height: number;
-  imageOffsetX: number;
-  imageOffsetY: number;
-}
+// Re-export CanvasBounds for backward compatibility
+export type { CanvasBounds } from '../types';
 
 // Preview state for smooth slider interactions (only affects CSS preview, not Konva)
 export interface CompositorPreview {

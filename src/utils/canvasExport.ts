@@ -1,6 +1,6 @@
 import Konva from 'konva';
 import { writeFile } from '@tauri-apps/plugin-fs';
-import type { CompositorSettings } from '../types';
+import type { CompositorSettings, CanvasBounds } from '../types';
 
 export interface ContentBounds {
   x: number;
@@ -14,13 +14,6 @@ export interface ExportBounds {
   y: number;
   width: number;
   height: number;
-}
-
-export interface CanvasBounds {
-  width: number;
-  height: number;
-  imageOffsetX: number;
-  imageOffsetY: number;
 }
 
 /**

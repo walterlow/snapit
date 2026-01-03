@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Menu, MenuItem, PredefinedMenuItem } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { ChevronDown, ChevronLeft } from 'lucide-react';
+import { captureLogger } from '@/utils/logger';
 
 // Common dimension presets
 const DIMENSION_PRESETS = [
@@ -107,7 +108,7 @@ export const DimensionSelect: React.FC<DimensionSelectProps> = ({
         await menu.popup();
       }
     } catch (error) {
-      console.error('Failed to open preset menu:', error);
+      captureLogger.error('Failed to open preset menu:', error);
     }
   }, [disabled, handlePresetSelect]);
 

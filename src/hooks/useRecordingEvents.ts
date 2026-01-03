@@ -13,6 +13,7 @@ import type { RecordingState, RecordingFormat } from '../types';
 import type { ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
 import { createErrorHandler } from '../utils/errorReporting';
 import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
+import { recordingLogger } from '../utils/logger';
 
 interface UseRecordingEventsReturn {
   /** Current toolbar mode based on recording state */
@@ -69,7 +70,7 @@ export function useRecordingEvents(): UseRecordingEventsReturn {
       lastBackendSyncRef.current = { backendTime: 0, localTime: Date.now() };
     }
     const startTime = Date.now();
-    console.log('[TIMER] Frontend timer STARTED at', new Date().toISOString());
+    recordingLogger.debug('Frontend timer STARTED at', new Date().toISOString());
     
     const interval = setInterval(() => {
       const sync = lastBackendSyncRef.current;
@@ -84,7 +85,7 @@ export function useRecordingEvents(): UseRecordingEventsReturn {
       clearInterval(interval);
       const finalTime = lastBackendSyncRef.current?.backendTime ?? 0;
       const localDuration = (Date.now() - startTime) / 1000;
-      console.log('[TIMER] Frontend timer STOPPED. Backend sync:', finalTime.toFixed(3), 's, Local:', localDuration.toFixed(3), 's');
+      recordingLogger.debug('Frontend timer STOPPED. Backend sync:', finalTime.toFixed(3), 's, Local:', localDuration.toFixed(3), 's');
       // Don't null the ref - preserves last value for debugging
     };
   }, [mode]);
@@ -125,10 +126,10 @@ export function useRecordingEvents(): UseRecordingEventsReturn {
             break;
 
           case 'recording':
-            console.log('[TIMER] Received recording state, backend elapsedSecs:', state.elapsedSecs);
+            recordingLogger.debug('Received recording state, backend elapsedSecs:', state.elapsedSecs);
             if (!isRecordingActiveRef.current) {
               isRecordingActiveRef.current = true;
-              console.log('[TIMER] Recording mode ACTIVATED, initial elapsedSecs:', state.elapsedSecs);
+              recordingLogger.debug('Recording mode ACTIVATED, initial elapsedSecs:', state.elapsedSecs);
             }
             // Sync with backend elapsed time - store for hybrid timer calculation
             // Timer will interpolate between backend updates for smooth display
@@ -143,13 +144,13 @@ export function useRecordingEvents(): UseRecordingEventsReturn {
             break;
 
           case 'processing':
-            console.log('[TIMER] Received processing state - timer should stop now');
+            recordingLogger.debug('Received processing state - timer should stop now');
             setMode('processing');
             setProgress(state.progress);
             break;
 
           case 'completed':
-            console.log('[TIMER] Recording COMPLETED. Backend duration:', state.durationSecs, 's, file:', state.outputPath);
+            recordingLogger.info('Recording COMPLETED. Backend duration:', state.durationSecs, 's, file:', state.outputPath);
             isRecordingActiveRef.current = false;
             setMode('selection');
             setElapsedTime(0);

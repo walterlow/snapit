@@ -11,6 +11,7 @@ import { AppWindow } from 'lucide-react';
 import { Menu, MenuItem, PredefinedMenuItem } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
 import type { WindowInfo, FastCaptureResult, CaptureType } from '@/types';
+import { captureLogger } from '@/utils/logger';
 
 interface WindowPickerPanelProps {
   disabled?: boolean;
@@ -33,7 +34,7 @@ export const WindowPickerPanel: React.FC<WindowPickerPanelProps> = ({
       // Filter out minimized windows
       return result.filter(w => !w.is_minimized);
     } catch (error) {
-      console.error('Failed to load windows:', error);
+      captureLogger.error('Failed to load windows:', error);
       return [];
     }
   };
@@ -66,7 +67,7 @@ export const WindowPickerPanel: React.FC<WindowPickerPanelProps> = ({
         });
       }
     } catch (error) {
-      console.error('Failed to capture window:', error);
+      captureLogger.error('Failed to capture window:', error);
     } finally {
       setIsCapturing(false);
     }
@@ -107,7 +108,7 @@ export const WindowPickerPanel: React.FC<WindowPickerPanelProps> = ({
         onCaptureComplete?.();
       }
     } catch (error) {
-      console.error('Failed to start window picker:', error);
+      captureLogger.error('Failed to start window picker:', error);
     } finally {
       setIsCapturing(false);
     }
@@ -168,7 +169,7 @@ export const WindowPickerPanel: React.FC<WindowPickerPanelProps> = ({
         await menu.popup();
       }
     } catch (error) {
-      console.error('Failed to open window menu:', error);
+      captureLogger.error('Failed to open window menu:', error);
     }
   }, [disabled, isCapturing, handleSelectWindow, handlePickWindow]);
 

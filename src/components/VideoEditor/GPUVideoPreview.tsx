@@ -2,6 +2,7 @@ import { memo, useCallback, useRef, useEffect, useState, useMemo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Play } from 'lucide-react';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
+import { videoEditorLogger } from '../../utils/logger';
 import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine, startPlaybackLoop, stopPlaybackLoop } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
 import { useInterpolatedScene, shouldRenderScreen, getCameraOnlyTransitionOpacity, getRegularCameraTransitionOpacity } from '../../hooks/useSceneMode';
@@ -458,7 +459,7 @@ export function GPUVideoPreview() {
     const onError = (e: Event) => {
       const videoEl = e.target as HTMLVideoElement;
       const error = videoEl.error;
-      console.error('Video error:', error);
+      videoEditorLogger.error('Video error:', error);
       setVideoError(error?.message || 'Failed to load video');
     };
 
@@ -485,7 +486,7 @@ export function GPUVideoPreview() {
     if (isPlaying) {
       if (video.paused) {
         video.play().catch(e => {
-          console.error('Play failed:', e);
+          videoEditorLogger.error('Play failed:', e);
           controls.pause();
         });
       }

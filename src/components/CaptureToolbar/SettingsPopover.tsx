@@ -10,6 +10,7 @@ import { Settings } from 'lucide-react';
 import { Menu, MenuItem, PredefinedMenuItem, CheckMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
+import { settingsLogger } from '@/utils/logger';
 import type { CaptureType } from '@/types';
 
 interface SettingsPopoverProps {
@@ -215,7 +216,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         await menu.popup();
       }
     } catch (error) {
-      console.error('Failed to open settings menu:', error);
+      settingsLogger.error('Failed to open settings menu:', error);
     }
   }, [
     disabled,

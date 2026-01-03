@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
+import { libraryLogger } from '@/utils/logger';
 
 interface UseDragDropImportProps {
   onImportComplete: () => Promise<void>;
@@ -53,7 +54,7 @@ export function useDragDropImport({
           id: toastId,
         });
       } catch (error) {
-        console.error('Failed to import images:', error);
+        libraryLogger.error('Failed to import images:', error);
         toast.error('Failed to import images', { id: toastId });
       }
     },

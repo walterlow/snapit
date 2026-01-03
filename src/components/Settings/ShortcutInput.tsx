@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RotateCcw, ChevronDown, Check, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { hotkeyLogger } from '@/utils/logger';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -158,7 +159,7 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
       const result = await checkShortcutConflict(localShortcut, shortcutId);
       setConflictStatus(result === 'error' ? 'conflict' : result);
     } catch (error) {
-      console.error('Error checking conflict:', error);
+      hotkeyLogger.error('Error checking conflict:', error);
       setConflictStatus('conflict');
     }
   }, [localShortcut, value, shortcutId]);

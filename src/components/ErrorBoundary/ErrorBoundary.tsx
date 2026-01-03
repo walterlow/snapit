@@ -1,5 +1,6 @@
 import { Component, ReactNode } from 'react';
 import { reportError } from '../../utils/errorReporting';
+import { logger } from '../../utils/logger';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -42,8 +43,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     });
 
     // Log component stack for debugging
-    console.error('Error Boundary caught an error:', error);
-    console.error('Component stack:', errorInfo.componentStack);
+    logger.error('Error Boundary caught an error:', error);
+    logger.error('Component stack:', errorInfo.componentStack);
 
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo);

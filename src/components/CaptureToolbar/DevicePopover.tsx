@@ -10,6 +10,7 @@ import { Video, VideoOff, ChevronDown } from 'lucide-react';
 import { Menu, MenuItem, PredefinedMenuItem, CheckMenuItem } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { useWebcamSettingsStore } from '@/stores/webcamSettingsStore';
+import { webcamLogger } from '@/utils/logger';
 
 interface DevicePopoverProps {
   disabled?: boolean;
@@ -104,7 +105,7 @@ export const DevicePopover: React.FC<DevicePopoverProps> = ({ disabled = false }
         await menu.popup();
       }
     } catch (error) {
-      console.error('Failed to open camera menu:', error);
+      webcamLogger.error('Failed to open camera menu:', error);
     }
   }, [disabled, devices, settings.enabled, settings.deviceIndex, loadDevices, handleSelectDevice]);
 

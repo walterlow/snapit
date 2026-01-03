@@ -29,6 +29,7 @@ import { useRecordingEvents } from '../hooks/useRecordingEvents';
 import { useSelectionEvents } from '../hooks/useSelectionEvents';
 import { useWebcamCoordination } from '../hooks/useWebcamCoordination';
 import { useToolbarPositioning } from '../hooks/useToolbarPositioning';
+import { toolbarLogger } from '../utils/logger';
 
 const CaptureToolbarWindow: React.FC = () => {
   // No URL params - toolbar always starts in "startup" state (no selection)
@@ -67,7 +68,7 @@ const CaptureToolbarWindow: React.FC = () => {
   // This initializes webcam and screen capture so recording starts instantly
   useEffect(() => {
     invoke('prewarm_capture').catch((e) => {
-      console.warn('Failed to pre-warm capture:', e);
+      toolbarLogger.warn('Failed to pre-warm capture:', e);
     });
   }, []);
 
@@ -260,7 +261,7 @@ const CaptureToolbarWindow: React.FC = () => {
         await invoke('start_recording', { settings: recordingSettings });
       }
     } catch (e) {
-      console.error('Failed to capture:', e);
+      toolbarLogger.error('Failed to capture:', e);
       recordingInitiatedRef.current = false;
       setMode('selection');
     }
@@ -276,7 +277,7 @@ const CaptureToolbarWindow: React.FC = () => {
       }
       await emit('reset-to-startup', null);
     } catch (e) {
-      console.error('Failed to go back:', e);
+      toolbarLogger.error('Failed to go back:', e);
     }
   }, []);
 
@@ -302,27 +303,27 @@ const CaptureToolbarWindow: React.FC = () => {
         await currentWindow.close();
       }
     } catch (e) {
-      console.error('Failed to cancel:', e);
+      toolbarLogger.error('Failed to cancel:', e);
     }
   }, [mode, selectionConfirmed, closeWebcamPreview]);
 
   const handlePause = useCallback(async () => {
-    try { await invoke('pause_recording'); } catch (e) { console.error('Failed to pause:', e); }
+    try { await invoke('pause_recording'); } catch (e) { toolbarLogger.error('Failed to pause:', e); }
   }, []);
 
   const handleResume = useCallback(async () => {
-    try { await invoke('resume_recording'); } catch (e) { console.error('Failed to resume:', e); }
+    try { await invoke('resume_recording'); } catch (e) { toolbarLogger.error('Failed to resume:', e); }
   }, []);
 
   const handleStop = useCallback(async () => {
-    try { await invoke('stop_recording'); } catch (e) { console.error('Failed to stop:', e); }
+    try { await invoke('stop_recording'); } catch (e) { toolbarLogger.error('Failed to stop:', e); }
   }, []);
 
   const handleDimensionChange = useCallback(async (width: number, height: number) => {
     try {
       await invoke('capture_overlay_set_dimensions', { width, height });
     } catch (e) {
-      console.error('Failed to set dimensions:', e);
+      toolbarLogger.error('Failed to set dimensions:', e);
     }
   }, []);
 
@@ -358,7 +359,7 @@ const CaptureToolbarWindow: React.FC = () => {
           // Toolbar stays hidden, overlay will show it when selection is made
         }
       } catch (e) {
-        console.error('Failed to trigger capture:', e);
+        toolbarLogger.error('Failed to trigger capture:', e);
         await currentWindow.show();
       }
     }
@@ -401,7 +402,7 @@ const CaptureToolbarWindow: React.FC = () => {
     try {
       await invoke('show_library_window');
     } catch (e) {
-      console.error('Failed to open library:', e);
+      toolbarLogger.error('Failed to open library:', e);
     }
   }, []);
 

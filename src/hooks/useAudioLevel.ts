@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { audioLogger } from '@/utils/logger';
 
 interface UseAudioLevelOptions {
   /** Device ID to monitor (from navigator.mediaDevices) */
@@ -130,7 +131,7 @@ export function useAudioLevel({
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to capture audio';
       setError(message);
-      console.error('Audio capture error:', err);
+      audioLogger.error('Audio capture error:', err);
       cleanup();
     }
   }, [deviceId, smoothing, updateInterval, cleanup]);

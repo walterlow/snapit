@@ -12,6 +12,7 @@ import { listen } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { toast } from 'sonner';
 import { useSettingsStore } from '../stores/settingsStore';
+import { libraryLogger } from '../utils/logger';
 
 interface AppEventCallbacks {
   /** Called when a recording completes - should refresh the library */
@@ -42,7 +43,7 @@ export function useAppEventListeners(callbacks: AppEventCallbacks) {
     unlisteners.push(
       listen<{ status: string }>('recording-state-changed', (event) => {
         if (event.payload.status === 'completed') {
-          console.log('[App] Recording completed, refreshing library...');
+          libraryLogger.info('Recording completed, refreshing library...');
           // Delay to ensure file is fully written
           const t1 = setTimeout(() => {
             callbacks.onRecordingComplete();

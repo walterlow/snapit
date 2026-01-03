@@ -164,6 +164,12 @@ export const recordingLogger = createLogger('Recording');
 export const captureLogger = createLogger('Capture');
 export const libraryLogger = createLogger('Library');
 export const editorLogger = createLogger('Editor');
+export const webcamLogger = createLogger('Webcam');
+export const toolbarLogger = createLogger('Toolbar');
+export const videoEditorLogger = createLogger('VideoEditor');
+export const settingsLogger = createLogger('Settings');
+export const hotkeyLogger = createLogger('Hotkey');
+export const audioLogger = createLogger('Audio');
 
 /**
  * Flush all pending logs immediately (call on app shutdown)

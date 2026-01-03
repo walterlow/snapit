@@ -2,6 +2,7 @@ import { memo, useMemo, useRef, useEffect } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { usePreviewOrPlaybackTime } from '../../hooks/usePlaybackEngine';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
+import { webcamLogger } from '../../utils/logger';
 import type { WebcamConfig, VisibilitySegment } from '../../types';
 
 const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
@@ -158,7 +159,7 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   
   // Debug: log webcam config on mount
   useEffect(() => {
-    console.log('[WEBCAM] Config:', {
+    webcamLogger.debug('Config:', {
       path: webcamVideoPath,
       enabled: config.enabled,
       position: config.position,
@@ -171,7 +172,7 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   const isVisible = useMemo(() => {
     // Always show if enabled and no segments defined
     if (!config.enabled) {
-      console.log('[WEBCAM] Hidden: not enabled');
+      webcamLogger.debug('Hidden: not enabled');
       return false;
     }
     const visible = isWebcamVisibleAt(config.visibilitySegments, currentTimeMs);
@@ -181,7 +182,7 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   // Convert file path to asset URL
   const videoSrc = useMemo(() => {
     const src = convertFileSrc(webcamVideoPath);
-    console.log('[WEBCAM] Video src:', src);
+    webcamLogger.debug('Video src:', src);
     return src;
   }, [webcamVideoPath]);
   
@@ -284,10 +285,10 @@ export const WebcamOverlay = memo(function WebcamOverlay({
         playsInline
         preload="auto"
         onError={(e) => {
-          console.error('[WEBCAM] Video load error:', e.currentTarget.error);
+          webcamLogger.error('Video load error:', e.currentTarget.error);
         }}
         onLoadedData={() => {
-          console.log('[WEBCAM] Video loaded OK');
+          webcamLogger.debug('Video loaded OK');
         }}
       />
     </div>

@@ -11,6 +11,7 @@ import { Menu, MenuItem, PredefinedMenuItem, CheckMenuItem } from '@tauri-apps/a
 import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { useAudioInputStore } from '@/stores/audioInputStore';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
+import { audioLogger } from '@/utils/logger';
 
 interface MicrophonePopoverProps {
   disabled?: boolean;
@@ -98,7 +99,7 @@ export const MicrophonePopover: React.FC<MicrophonePopoverProps> = ({ disabled =
         await menu.popup();
       }
     } catch (error) {
-      console.error('Failed to open microphone menu:', error);
+      audioLogger.error('Failed to open microphone menu:', error);
     }
   }, [disabled, devices, isEnabled, selectedDeviceIndex, loadDevices, handleSelectDevice]);
 

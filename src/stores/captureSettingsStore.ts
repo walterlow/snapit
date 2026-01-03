@@ -12,6 +12,7 @@ import type { CaptureType } from '../types';
 /** Source mode for capture selection */
 export type CaptureSourceMode = 'display' | 'window' | 'area';
 import { createErrorHandler } from '../utils/errorReporting';
+import { settingsLogger } from '../utils/logger';
 
 const CAPTURE_SETTINGS_STORE_PATH = 'capture-settings.json';
 
@@ -159,7 +160,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       await store.set('sourceMode', sourceMode);
       await store.save();
     } catch (error) {
-      console.error('Failed to save capture settings:', error);
+      settingsLogger.error('Failed to save capture settings:', error);
       throw error;
     }
   },

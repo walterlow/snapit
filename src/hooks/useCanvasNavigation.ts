@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import Konva from 'konva';
-import type { CompositorSettings, Tool } from '../types';
+import type { CompositorSettings, Tool, CanvasBounds } from '../types';
 
 const MIN_ZOOM = 0.3;  // 30%
 const MAX_ZOOM = 2;    // 200%
@@ -10,13 +10,6 @@ const VIEW_PADDING = 48;
 // Momentum zoom settings
 const ZOOM_MOMENTUM_FRICTION = 0.6; // Decay per frame (lower = stops faster)
 const ZOOM_MOMENTUM_MIN = 0.002; // Velocity threshold to stop animation
-
-interface CanvasBounds {
-  width: number;
-  height: number;
-  imageOffsetX: number;
-  imageOffsetY: number;
-}
 
 interface UseCanvasNavigationProps {
   image: HTMLImageElement | undefined;

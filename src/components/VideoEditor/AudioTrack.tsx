@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { audioLogger } from '../../utils/logger';
 import type { AudioWaveform } from '../../types';
 
 interface AudioTrackProps {
@@ -51,7 +52,7 @@ export const AudioTrack = memo(function AudioTrack({
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
-          console.error('[AudioTrack] Failed to load waveform:', err);
+          audioLogger.error('Failed to load waveform:', err);
         }
       } finally {
         if (!cancelled) {

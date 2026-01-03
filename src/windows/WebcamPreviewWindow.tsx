@@ -12,6 +12,7 @@ import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { WebcamSettings, WebcamSize, WebcamShape } from '@/types/generated';
+import { webcamLogger } from '@/utils/logger';
 
 // Preview window size based on webcam size setting
 const PREVIEW_SIZES: Record<WebcamSize, number> = {
@@ -50,7 +51,7 @@ const WebcamPreviewWindow: React.FC = () => {
   // Listen for settings changes from the toolbar
   useEffect(() => {
     const unlisten = listen<WebcamSettings>('webcam-settings-changed', (event) => {
-      console.log('[WebcamPreview] Settings changed:', event.payload);
+      webcamLogger.debug('Settings changed:', event.payload);
       setSettings(event.payload);
     });
 
@@ -67,7 +68,7 @@ const WebcamPreviewWindow: React.FC = () => {
         const newSize = PREVIEW_SIZES[settings.size];
         await win.setSize(new LogicalSize(newSize, newSize));
       } catch (e) {
-        console.error('[WebcamPreview] Failed to resize window:', e);
+        webcamLogger.error('Failed to resize window:', e);
       }
     };
 
@@ -89,7 +90,7 @@ const WebcamPreviewWindow: React.FC = () => {
       }
     } catch (e) {
       // Only log errors occasionally to avoid spam
-      console.debug('[WebcamPreview] Frame poll error:', e);
+      webcamLogger.debug('Frame poll error:', e);
     }
   }, []);
 
@@ -97,14 +98,14 @@ const WebcamPreviewWindow: React.FC = () => {
   const startPolling = useCallback(() => {
     if (frameIntervalRef.current) return; // Already polling
     frameIntervalRef.current = window.setInterval(pollFrame, FRAME_POLL_INTERVAL);
-    console.log('[WebcamPreview] Frame polling started');
+    webcamLogger.debug('Frame polling started');
   }, [pollFrame]);
 
   const stopPolling = useCallback(() => {
     if (frameIntervalRef.current) {
       clearInterval(frameIntervalRef.current);
       frameIntervalRef.current = null;
-      console.log('[WebcamPreview] Frame polling stopped');
+      webcamLogger.debug('Frame polling stopped');
     }
   }, []);
 
@@ -117,16 +118,16 @@ const WebcamPreviewWindow: React.FC = () => {
       
       // Skip if already started with this device
       if (captureStartedRef.current && currentDeviceRef.current === deviceIndex) {
-        console.log('[WebcamPreview] Capture already running for device', deviceIndex);
+        webcamLogger.debug('Capture already running for device', deviceIndex);
         return;
       }
       
       try {
-        console.log('[WebcamPreview] Starting native capture, device:', deviceIndex);
+        webcamLogger.debug('Starting native capture, device:', deviceIndex);
         await invoke('start_webcam_preview', { deviceIndex });
         captureStartedRef.current = true;
         currentDeviceRef.current = deviceIndex;
-        console.log('[WebcamPreview] Native capture started');
+        webcamLogger.debug('Native capture started');
 
         // Start polling for frames
         startPolling();
@@ -134,12 +135,12 @@ const WebcamPreviewWindow: React.FC = () => {
         // Exclude window from screen capture
         try {
           await invoke('exclude_webcam_from_capture');
-          console.log('[WebcamPreview] Window excluded from capture');
+          webcamLogger.debug('Window excluded from capture');
         } catch (e) {
-          console.warn('[WebcamPreview] Failed to exclude from capture:', e);
+          webcamLogger.warn('Failed to exclude from capture:', e);
         }
       } catch (e) {
-        console.error('[WebcamPreview] Failed to start native capture:', e);
+        webcamLogger.error('Failed to start native capture:', e);
         if (mountedRef.current) {
           setError(e instanceof Error ? e.message : 'Failed to access webcam');
         }
@@ -164,9 +165,9 @@ const WebcamPreviewWindow: React.FC = () => {
         await invoke('stop_webcam_preview');
         captureStartedRef.current = false;
         currentDeviceRef.current = null;
-        console.log('[WebcamPreview] Native capture stopped');
+        webcamLogger.debug('Native capture stopped');
       } catch (e) {
-        console.error('[WebcamPreview] Failed to stop capture:', e);
+        webcamLogger.error('Failed to stop capture:', e);
       }
     }
   }, [stopPolling]);
@@ -190,13 +191,13 @@ const WebcamPreviewWindow: React.FC = () => {
   // Listen for close event from main window
   useEffect(() => {
     const unlisten = listen('webcam-preview-close', async () => {
-      console.log('[WebcamPreview] Received close event');
+      webcamLogger.debug('Received close event');
       await stopCapture();
       try {
         const win = getCurrentWindow();
         await win.close();
       } catch (e) {
-        console.error('[WebcamPreview] Error closing window:', e);
+        webcamLogger.error('Error closing window:', e);
       }
     });
 

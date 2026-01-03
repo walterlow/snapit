@@ -23,6 +23,7 @@ import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, VideoBackgroundType, SceneMode, ZoomRegion } from '../types';
+import { videoEditorLogger } from '../utils/logger';
 
 /**
  * Position grid for 9-point webcam anchor selection.
@@ -459,7 +460,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
         description: `${sizeMB} MB • ${result.format.toUpperCase()}`,
       });
     } catch (error) {
-      console.error(`[EXPORT] Failed:`, error);
+      videoEditorLogger.error('Export failed:', error);
       const message = error instanceof Error ? error.message : 'Export failed';
       toast.error(message);
     }

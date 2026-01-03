@@ -8,6 +8,7 @@
 import React, { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { recordingLogger } from '../utils/logger';
 import type { RecordingState } from '../types';
 
 const CountdownWindow: React.FC = () => {
@@ -28,7 +29,7 @@ const CountdownWindow: React.FC = () => {
           setCount(state.secondsRemaining);
         } else if (state.status === 'recording' || state.status === 'idle' || state.status === 'error') {
           // Countdown finished or cancelled - close this window
-          currentWindow.close().catch(console.error);
+          currentWindow.close().catch((e) => recordingLogger.error('Failed to close countdown window:', e));
         }
       });
     };

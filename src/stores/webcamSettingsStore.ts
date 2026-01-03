@@ -4,6 +4,7 @@ import { emit } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { WebcamDevice, WebcamSettings, WebcamPosition, WebcamSize, WebcamShape } from '../types/generated';
 import { createErrorHandler } from '../utils/errorReporting';
+import { webcamLogger } from '../utils/logger';
 
 interface WebcamSettingsState {
   // State
@@ -53,14 +54,14 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
   loadSettings: async () => {
     try {
       const settings = await invoke<WebcamSettings>('get_webcam_settings_cmd');
-      console.log('[WebcamStore] Loaded settings from Rust:', settings);
+      webcamLogger.debug('Loaded settings from Rust:', settings);
       // Merge with current state to preserve previewOpen
       set((state) => ({
         settings: { ...state.settings, ...settings }
       }));
-      console.log('[WebcamStore] After set, store state:', get().settings);
+      webcamLogger.debug('After set, store state:', get().settings);
     } catch (error) {
-      console.error('[WebcamStore] Failed to load settings from Rust:', error);
+      webcamLogger.error('Failed to load settings from Rust:', error);
     }
   },
 
@@ -69,12 +70,12 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
     try {
       // Use native Rust device enumeration (no browser getUserMedia needed)
       const videoDevices = await invoke<WebcamDevice[]>('list_webcam_devices');
-      console.log('[WebcamStore] Found webcam devices (native):', videoDevices);
+      webcamLogger.debug('Found webcam devices (native):', videoDevices);
       set({ devices: videoDevices, isLoadingDevices: false });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ devicesError: message, isLoadingDevices: false });
-      console.error('[WebcamStore] Failed to load webcam devices:', error);
+      webcamLogger.error('Failed to load webcam devices:', error);
     }
   },
 
@@ -96,7 +97,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         await closePreview();
       }
     } catch (error) {
-      console.error('Failed to set webcam enabled:', error);
+      webcamLogger.error('Failed to set webcam enabled:', error);
     }
   },
 
@@ -107,7 +108,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         settings: { ...state.settings, deviceIndex },
       }));
     } catch (error) {
-      console.error('Failed to set webcam device:', error);
+      webcamLogger.error('Failed to set webcam device:', error);
     }
   },
 
@@ -124,7 +125,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         );
       }
     } catch (error) {
-      console.error('Failed to set webcam position:', error);
+      webcamLogger.error('Failed to set webcam position:', error);
     }
   },
 
@@ -146,7 +147,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         }
       }
     } catch (error) {
-      console.error('Failed to set webcam size:', error);
+      webcamLogger.error('Failed to set webcam size:', error);
     }
   },
 
@@ -162,7 +163,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         );
       }
     } catch (error) {
-      console.error('Failed to set webcam shape:', error);
+      webcamLogger.error('Failed to set webcam shape:', error);
     }
   },
 
@@ -178,7 +179,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         );
       }
     } catch (error) {
-      console.error('Failed to set webcam mirror:', error);
+      webcamLogger.error('Failed to set webcam mirror:', error);
     }
   },
 
@@ -240,7 +241,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
           try {
             await invoke('exclude_webcam_from_capture');
           } catch (e) {
-            console.warn('[WebcamStore] Failed to exclude preview from capture:', e);
+            webcamLogger.warn('Failed to exclude preview from capture:', e);
           }
           
           // Trigger anchor positioning after a delay
@@ -268,11 +269,11 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         });
 
         win.once('tauri://error', (e) => {
-          console.error('Failed to create webcam preview:', e);
+          webcamLogger.error('Failed to create webcam preview:', e);
           set({ previewOpen: false });
         });
       } catch (error) {
-        console.error('Failed to open webcam preview:', error);
+        webcamLogger.error('Failed to open webcam preview:', error);
       }
     }
   },
@@ -289,7 +290,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
     try {
       await invoke('close_webcam_preview');
     } catch (e) {
-      console.error('Failed to close preview via Rust:', e);
+      webcamLogger.error('Failed to close preview via Rust:', e);
     }
 
     // Also emit event as backup

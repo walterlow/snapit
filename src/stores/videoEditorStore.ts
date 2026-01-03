@@ -18,6 +18,7 @@ import type {
   TextSegment,
   CursorRecording,
 } from '../types';
+import { videoEditorLogger } from '../utils/logger';
 
 interface VideoEditorState {
   // Project state
@@ -203,9 +204,9 @@ export const useVideoEditorStore = create<VideoEditorState>()(
             path: cursorDataPath,
           });
           set({ cursorRecording: recording });
-          console.log('[CURSOR] Loaded cursor recording with', recording.events.length, 'events');
+          videoEditorLogger.debug('Loaded cursor recording with', recording.events.length, 'events');
         } catch (error) {
-          console.warn('[CURSOR] Failed to load cursor recording:', error);
+          videoEditorLogger.warn('Failed to load cursor recording:', error);
           // Don't fail - cursor data is optional for auto zoom
         }
       },
@@ -656,7 +657,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           try {
             await invoke('destroy_editor_instance', { instanceId: existingId });
           } catch (e) {
-            console.warn('Failed to destroy existing editor instance:', e);
+            videoEditorLogger.warn('Failed to destroy existing editor instance:', e);
           }
         }
         
@@ -684,7 +685,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         try {
           await invoke('destroy_editor_instance', { instanceId: editorInstanceId });
         } catch (e) {
-          console.warn('Failed to destroy editor instance:', e);
+          videoEditorLogger.warn('Failed to destroy editor instance:', e);
         }
         
         set({
@@ -715,7 +716,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           set({ renderedFrame: frame, currentFrame: frame.frame, currentTimeMs: frame.timestampMs });
           return frame;
         } catch (error) {
-          console.error('Failed to render frame:', error);
+          videoEditorLogger.error('Failed to render frame:', error);
           return null;
         }
       },
@@ -752,7 +753,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         // Destroy GPU editor if active (fire-and-forget)
         const { editorInstanceId } = get();
         if (editorInstanceId) {
-          invoke('destroy_editor_instance', { instanceId: editorInstanceId }).catch(console.warn);
+          invoke('destroy_editor_instance', { instanceId: editorInstanceId }).catch((e) => videoEditorLogger.warn('Failed to destroy editor on clear:', e));
         }
         
         set({
@@ -835,10 +836,10 @@ export const useVideoEditorStore = create<VideoEditorState>()(
             }
           : project;
         
-        console.log(`[EXPORT] Exporting to: ${outputPath}`);
-        console.log(`[EXPORT] Format: ${selectedFormat}, Quality: ${projectWithFormat.export.quality}, FPS: ${projectWithFormat.export.fps}`);
-        console.log(`[EXPORT] Scene config:`, projectWithFormat.scene);
-        console.log(`[EXPORT] Zoom config:`, projectWithFormat.zoom);
+        videoEditorLogger.info(`Exporting to: ${outputPath}`);
+        videoEditorLogger.debug(`Format: ${selectedFormat}, Quality: ${projectWithFormat.export.quality}, FPS: ${projectWithFormat.export.fps}`);
+        videoEditorLogger.debug('Scene config:', projectWithFormat.scene);
+        videoEditorLogger.debug('Zoom config:', projectWithFormat.zoom);
         
         set({ isExporting: true, exportProgress: null });
         
@@ -848,11 +849,11 @@ export const useVideoEditorStore = create<VideoEditorState>()(
             outputPath,
           });
           
-          console.log(`[EXPORT] Success:`, result);
+          videoEditorLogger.info('Export success:', result);
           set({ isExporting: false, exportProgress: null });
           return result;
         } catch (error) {
-          console.error(`[EXPORT] Failed:`, error);
+          videoEditorLogger.error('Export failed:', error);
           set({ isExporting: false, exportProgress: null });
           throw error;
         }

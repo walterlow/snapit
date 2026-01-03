@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { emit, listen } from '@tauri-apps/api/event';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { settingsLogger } from '@/utils/logger';
 import type { Theme } from '@/types';
 
 /**
@@ -83,7 +84,7 @@ export function useTheme() {
     updateGeneralSettings({ theme: newTheme });
     // Emit event to sync other windows (unless this is from an external update)
     if (!isExternalUpdate.current) {
-      emit('theme-changed', { theme: newTheme }).catch(console.error);
+      emit('theme-changed', { theme: newTheme }).catch((e) => settingsLogger.error('Failed to emit theme-changed:', e));
     }
   }, [updateGeneralSettings]);
 

@@ -5,6 +5,14 @@ export interface Region {
   height: number;
 }
 
+// Canvas bounds for non-destructive crop/expand operations
+export interface CanvasBounds {
+  width: number;
+  height: number;
+  imageOffsetX: number;
+  imageOffsetY: number;
+}
+
 export interface Dimensions {
   width: number;
   height: number;

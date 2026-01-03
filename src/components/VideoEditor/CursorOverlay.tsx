@@ -11,6 +11,7 @@ import { memo, useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useCursorInterpolation } from '../../hooks/useCursorInterpolation';
 import { usePreviewOrPlaybackTime } from '../../hooks/usePlaybackEngine';
 import { WINDOWS_CURSORS, DEFAULT_CURSOR, type CursorDefinition } from '../../constants/cursors';
+import { editorLogger } from '../../utils/logger';
 import type { CursorRecording, CursorConfig, CursorImage, WindowsCursorShape } from '../../types';
 
 // Default cursor config values
@@ -68,7 +69,7 @@ function loadSvgCursor(
     onLoad();
   };
   img.onerror = () => {
-    console.warn(`[CursorOverlay] Failed to load SVG cursor: ${shape}`);
+    editorLogger.warn(`Failed to load SVG cursor: ${shape}`);
   };
   img.src = definition.svg;
 
@@ -94,7 +95,7 @@ function loadBitmapCursor(
     onLoad();
   };
   img.onerror = () => {
-    console.warn(`[CursorOverlay] Failed to load bitmap cursor: ${id}`);
+    editorLogger.warn(`Failed to load bitmap cursor: ${id}`);
   };
   img.src = `data:image/png;base64,${image.dataBase64}`;
 
@@ -315,7 +316,7 @@ export const CursorOverlay = memo(function CursorOverlay({
     // Priority 1: SVG cursor (if cursorShape is detected)
     if (shape) {
       const svgImage = cursorImageCache.get(svgCacheKey(shape));
-      const definition = WINDOWS_CURSORS[shape];
+      const definition: CursorDefinition | undefined = WINDOWS_CURSORS[shape as WindowsCursorShape];
 
       if (svgImage && definition) {
         drawCursor(svgImage, definition);

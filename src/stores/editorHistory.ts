@@ -3,8 +3,7 @@
  * Provides structural sharing and memory estimation for undo/redo snapshots.
  */
 
-import type { CanvasShape } from '../types';
-import type { CanvasBounds } from './editorStore';
+import type { CanvasShape, CanvasBounds } from '../types';
 
 /** Snapshot of undoable state */
 export interface HistorySnapshot {

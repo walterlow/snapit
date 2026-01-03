@@ -11,6 +11,7 @@ import { Menu, MenuItem, PredefinedMenuItem } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { Monitor } from 'lucide-react';
 import type { MonitorInfo, FastCaptureResult, CaptureType } from '@/types';
+import { captureLogger } from '@/utils/logger';
 
 interface DisplayPickerPanelProps {
   disabled?: boolean;
@@ -37,7 +38,7 @@ export const DisplayPickerPanel: React.FC<DisplayPickerPanelProps> = ({
       const result = await invoke<MonitorInfo[]>('get_monitors');
       setMonitors(result);
     } catch (error) {
-      console.error('Failed to load monitors:', error);
+      captureLogger.error('Failed to load monitors:', error);
     }
   };
 
@@ -74,7 +75,7 @@ export const DisplayPickerPanel: React.FC<DisplayPickerPanelProps> = ({
         });
       }
     } catch (error) {
-      console.error('Failed to capture display:', error);
+      captureLogger.error('Failed to capture display:', error);
     } finally {
       setIsCapturing(false);
     }
@@ -134,7 +135,7 @@ export const DisplayPickerPanel: React.FC<DisplayPickerPanelProps> = ({
         await menu.popup();
       }
     } catch (error) {
-      console.error('Failed to open display menu:', error);
+      captureLogger.error('Failed to open display menu:', error);
     }
   };
 

@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { toolbarLogger } from '@/utils/logger';
 
 const TITLEBAR_HEIGHT = 41; // 40px height + 1px border-bottom (see styles.css .titlebar)
 
@@ -51,7 +52,7 @@ export function useToolbarPositioning({ contentRef, selectionConfirmed }: UseToo
           windowShownRef.current = true;
         }
       } catch (e) {
-        console.error('Failed to resize toolbar:', e);
+        toolbarLogger.error('Failed to resize toolbar:', e);
       }
     };
 
@@ -93,7 +94,7 @@ export function useToolbarPositioning({ contentRef, selectionConfirmed }: UseToo
           // Trigger resize
           const windowWidth = Math.ceil(rect.width) + 1;
           const windowHeight = Math.ceil(rect.height) + TITLEBAR_HEIGHT + 1;
-          invoke('resize_capture_toolbar', { width: windowWidth, height: windowHeight }).catch(console.error);
+          invoke('resize_capture_toolbar', { width: windowWidth, height: windowHeight }).catch((e) => toolbarLogger.error('Failed to resize toolbar:', e));
         }
       });
     });

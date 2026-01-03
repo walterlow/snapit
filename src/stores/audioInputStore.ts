@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { audioLogger } from '../utils/logger';
 import type { AudioInputDevice } from '../types/generated';
 
 interface AudioInputState {
@@ -25,7 +26,7 @@ export const useAudioInputStore = create<AudioInputState>((set) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ devicesError: message, isLoadingDevices: false });
-      console.error('Failed to load audio input devices:', error);
+      audioLogger.error('Failed to load audio input devices:', error);
     }
   },
 }));

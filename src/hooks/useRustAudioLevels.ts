@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { AudioLevels } from '@/types/generated';
+import { audioLogger } from '@/utils/logger';
 
 interface UseRustAudioLevelsOptions {
   /** Microphone device index (null = disabled) */
@@ -59,7 +60,7 @@ export function useRustAudioLevels({
     if (!shouldMonitor) {
       // Stop monitoring and clean up
       invoke('stop_audio_monitoring').catch((err) => {
-        console.error('[useRustAudioLevels] Failed to stop monitoring:', err);
+        audioLogger.error('Failed to stop monitoring:', err);
       });
 
       if (unlistenRef.current) {
@@ -81,7 +82,7 @@ export function useRustAudioLevels({
       setIsStarting(true);
       setError(null);
 
-      console.log('[useRustAudioLevels] Starting monitoring:', { micDeviceIndex, monitorSystemAudio });
+      audioLogger.debug('Starting monitoring:', { micDeviceIndex, monitorSystemAudio });
 
       try {
         // Set up event listener first
@@ -94,7 +95,7 @@ export function useRustAudioLevels({
           setSystemActive(systemActive);
         });
 
-        console.log('[useRustAudioLevels] Event listener registered');
+        audioLogger.debug('Event listener registered');
 
         if (cancelled) {
           unlisten();
@@ -109,12 +110,12 @@ export function useRustAudioLevels({
           monitorSystemAudio: monitorSystemAudio,
         });
 
-        console.log('[useRustAudioLevels] Rust monitoring started successfully');
+        audioLogger.debug('Rust monitoring started successfully');
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
-        console.error('[useRustAudioLevels] Failed to start monitoring:', err);
+        audioLogger.error('Failed to start monitoring:', err);
       } finally {
         if (!cancelled) {
           setIsStarting(false);
@@ -129,7 +130,7 @@ export function useRustAudioLevels({
       cancelled = true;
 
       invoke('stop_audio_monitoring').catch((err) => {
-        console.error('[useRustAudioLevels] Failed to stop monitoring on cleanup:', err);
+        audioLogger.error('Failed to stop monitoring on cleanup:', err);
       });
 
       if (unlistenRef.current) {

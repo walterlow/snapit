@@ -135,15 +135,20 @@ export const useCanvasNavigation = ({
 
   // Cleanup RAF handles on unmount
   useEffect(() => {
+    // Capture current ref values for cleanup
+    const zoomSyncTimeout = zoomSyncTimeoutRef.current;
+    const fitRequest = fitRequestRef.current;
+    const momentumRAF = momentumRAFRef.current;
+    
     return () => {
-      if (zoomSyncTimeoutRef.current) {
-        cancelAnimationFrame(zoomSyncTimeoutRef.current);
+      if (zoomSyncTimeout) {
+        cancelAnimationFrame(zoomSyncTimeout);
       }
-      if (fitRequestRef.current) {
-        cancelAnimationFrame(fitRequestRef.current);
+      if (fitRequest) {
+        cancelAnimationFrame(fitRequest);
       }
-      if (momentumRAFRef.current) {
-        cancelAnimationFrame(momentumRAFRef.current);
+      if (momentumRAF) {
+        cancelAnimationFrame(momentumRAF);
       }
     };
   }, []);

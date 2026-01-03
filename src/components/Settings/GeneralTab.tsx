@@ -49,7 +49,7 @@ export const GeneralTab: React.FC = () => {
     loadAutostartStatus();
   }, []);
 
-  // Set default save directory if not configured
+  // Set default save directory if not configured (runs once on mount)
   useEffect(() => {
     const initDefaultSaveDir = async () => {
       if (!general.defaultSaveDir) {
@@ -62,6 +62,7 @@ export const GeneralTab: React.FC = () => {
       }
     };
     initDefaultSaveDir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally run once on mount only
   }, []);
 
   const handleAutostartChange = async (enabled: boolean) => {

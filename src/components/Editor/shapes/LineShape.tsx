@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import { Line, Circle } from 'react-konva';
 import Konva from 'konva';
 import type { CanvasShape } from '../../../types';
@@ -30,7 +30,8 @@ export const LineShape: React.FC<LineShapeProps> = React.memo(({
 }) => {
   const cursorHandlers = useShapeCursor(isDraggable);
   // points[] = [startX, startY, endX, endY]
-  const points = shape.points || [0, 0, 0, 0];
+  // Memoize to prevent new array reference on every render when shape.points is undefined
+  const points = useMemo(() => shape.points || [0, 0, 0, 0], [shape.points]);
   const strokeWidth = shape.strokeWidth || 2;
   const handleSize = Math.min(6, Math.max(4, strokeWidth * 0.2)) / zoom;
 

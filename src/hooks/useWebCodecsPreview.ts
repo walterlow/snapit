@@ -130,6 +130,10 @@ export function useWebCodecsPreview(videoPath: string | null): WebCodecsPreviewR
 
     let cancelled = false;
     let currentSink: VideoSampleSink | null = null;
+    
+    // Capture refs for cleanup (ESLint: refs may change before cleanup runs)
+    const frameCacheRef = frameCache.current;
+    const pendingDecodesRef = pendingDecodes.current;
 
     const init = async () => {
       try {
@@ -199,11 +203,11 @@ export function useWebCodecsPreview(videoPath: string | null): WebCodecsPreviewR
       videoTrackRef.current = null;
       decodeQueueRef.current = [];
       
-      for (const bitmap of Object.values(frameCache.current)) {
+      for (const bitmap of Object.values(frameCacheRef)) {
         bitmap.close();
       }
       frameCache.current = {};
-      pendingDecodes.current.clear();
+      pendingDecodesRef.clear();
     };
   }, [videoPath]);
 

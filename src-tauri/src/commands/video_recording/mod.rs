@@ -42,22 +42,12 @@ pub use ffmpeg_gif_encoder::GifQualityPreset;
 pub use state::RECORDING_CONTROLLER;
 
 // Video editor types
-pub use cursor::{
-    CursorEvent, CursorEventCapture, CursorEventType, CursorRecording,
-    load_cursor_recording, save_cursor_recording,
-};
+pub use cursor::CursorRecording;
 pub use video_project::{
-    AudioWaveform,
-    AudioTrackSettings, AutoZoomConfig, ClickHighlightConfig, ClickHighlightStyle, CursorConfig,
-    EasingFunction, ExportConfig, ExportFormat, ExportResolution, TimelineState, VideoProject,
-    VideoSources, VisibilitySegment, WebcamBorder, WebcamConfig,
-    WebcamOverlayPosition, WebcamOverlayShape, ZoomConfig, ZoomMode, ZoomRegion,
-    ZoomTransition, apply_auto_zoom_to_project, load_video_project_from_file, 
-    get_video_frame_cached, clear_frame_cache,
+    AudioWaveform, AutoZoomConfig, VideoProject, load_video_project_from_file, 
+    get_video_frame_cached, clear_frame_cache, apply_auto_zoom_to_project,
 };
-pub use audio_multitrack::MultiTrackAudioRecorder;
-pub use audio_monitor::AudioLevels;
-pub use video_export::{ExportProgress, ExportResult, ExportStage, VideoExporter};
+pub use video_export::ExportResult;
 
 // GPU-accelerated editor
 pub use gpu_editor::EditorState;
@@ -212,8 +202,8 @@ use std::sync::Mutex;
 use lazy_static::lazy_static;
 
 pub use webcam::{
-    WebcamDevice, WebcamFrame, WebcamPosition, WebcamSettings, WebcamShape,
-    WebcamSize, composite_webcam, compute_webcam_rect, get_webcam_devices,
+    WebcamDevice, WebcamPosition, WebcamSettings, WebcamShape,
+    WebcamSize, get_webcam_devices,
 };
 
 lazy_static! {
@@ -660,8 +650,8 @@ pub async fn clamp_webcam_to_selection(
 
         // Get current window position
         let current_pos = window.outer_position().map_err(|e| e.to_string())?;
-        let mut x = current_pos.x;
-        let mut y = current_pos.y;
+        let x = current_pos.x;
+        let y = current_pos.y;
 
         // Calculate bounds
         let min_x = sel_x + padding;
@@ -956,7 +946,9 @@ impl Default for RecordingSettings {
             mode: RecordingMode::Monitor { monitor_index: 0 },
             fps: 30,
             max_duration_secs: None,
-            include_cursor: true,
+            // Disable system cursor in video frames - we render our own cursor overlay
+            // in the video editor with SVG cursors, smoothing, and effects
+            include_cursor: false,
             audio: AudioSettings::default(),
             quality: 80,
             gif_quality_preset: GifQualityPreset::default(),

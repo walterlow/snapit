@@ -212,7 +212,7 @@ pub enum ZoomRegionMode {
 
 impl Default for ZoomRegionMode {
     fn default() -> Self {
-        ZoomRegionMode::Manual
+        ZoomRegionMode::Auto
     }
 }
 
@@ -294,6 +294,47 @@ pub enum EasingFunction {
 // Cursor Configuration
 // ============================================================================
 
+/// Type of cursor to display in output video.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Default)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum CursorType {
+    /// Use the actual recorded cursor appearance.
+    #[default]
+    Auto,
+    /// Display a simple circle indicator instead of actual cursor.
+    Circle,
+}
+
+/// Animation style preset for cursor movement smoothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Default)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum CursorAnimationStyle {
+    /// Slower, more deliberate movement (tension: 65, mass: 1.8, friction: 16).
+    Slow,
+    /// Balanced, natural movement (tension: 120, mass: 1.1, friction: 18).
+    #[default]
+    Mellow,
+    /// Quick, responsive movement (tension: 200, mass: 0.8, friction: 20).
+    Fast,
+    /// User-defined tension/mass/friction values.
+    Custom,
+}
+
+impl CursorAnimationStyle {
+    /// Get the preset physics values for this animation style.
+    /// Returns (tension, mass, friction) or None for Custom.
+    pub fn preset_values(&self) -> Option<(f32, f32, f32)> {
+        match self {
+            Self::Slow => Some((65.0, 1.8, 16.0)),
+            Self::Mellow => Some((120.0, 1.1, 18.0)),
+            Self::Fast => Some((200.0, 0.8, 20.0)),
+            Self::Custom => None,
+        }
+    }
+}
+
 /// Cursor rendering configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -301,12 +342,28 @@ pub enum EasingFunction {
 pub struct CursorConfig {
     /// Show cursor in output video.
     pub visible: bool,
+    /// Type of cursor to display (actual cursor or circle indicator).
+    #[serde(default)]
+    pub cursor_type: CursorType,
     /// Scale factor (1.0 = native size, 2.0 = double size).
     pub scale: f32,
     /// Enable smooth movement interpolation.
     pub smooth_movement: bool,
-    /// Smoothing factor (0.0-1.0, higher = smoother but more latency).
-    pub smooth_factor: f32,
+    /// Animation style preset (determines physics values).
+    #[serde(default)]
+    pub animation_style: CursorAnimationStyle,
+    /// Spring tension for physics-based smoothing (higher = snappier).
+    #[serde(default = "CursorConfig::default_tension")]
+    pub tension: f32,
+    /// Mass for physics-based smoothing (higher = more momentum).
+    #[serde(default = "CursorConfig::default_mass")]
+    pub mass: f32,
+    /// Friction for physics-based smoothing (higher = more damping).
+    #[serde(default = "CursorConfig::default_friction")]
+    pub friction: f32,
+    /// Motion blur amount (0.0 = none, 1.0 = maximum).
+    #[serde(default)]
+    pub motion_blur: f32,
     /// Click highlight settings.
     pub click_highlight: ClickHighlightConfig,
     /// Hide cursor when idle.
@@ -315,13 +372,32 @@ pub struct CursorConfig {
     pub idle_timeout_ms: u32,
 }
 
+impl CursorConfig {
+    fn default_tension() -> f32 {
+        120.0
+    }
+    fn default_mass() -> f32 {
+        1.1
+    }
+    fn default_friction() -> f32 {
+        18.0
+    }
+}
+
 impl Default for CursorConfig {
     fn default() -> Self {
+        let style = CursorAnimationStyle::default();
+        let (tension, mass, friction) = style.preset_values().unwrap_or((120.0, 1.1, 18.0));
         Self {
             visible: true,
+            cursor_type: CursorType::default(),
             scale: 1.0,
             smooth_movement: true,
-            smooth_factor: 0.3,
+            animation_style: style,
+            tension,
+            mass,
+            friction,
+            motion_blur: 0.0,
             click_highlight: ClickHighlightConfig::default(),
             hide_when_idle: false,
             idle_timeout_ms: 3000,
@@ -1280,9 +1356,7 @@ pub fn clear_frame_cache(video_path: Option<&std::path::Path>) {
 // Auto-Zoom Generation
 // ============================================================================
 
-use crate::commands::video_recording::cursor::{
-    load_cursor_recording, CursorEventType, CursorRecording,
-};
+use crate::commands::video_recording::cursor::{load_cursor_recording, CursorEventType};
 
 /// Configuration for auto-zoom generation.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

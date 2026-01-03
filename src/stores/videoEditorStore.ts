@@ -13,6 +13,7 @@ import type {
   RenderedFrame,
   WebcamConfig,
   ExportConfig,
+  CursorConfig,
   SceneSegment,
   TextSegment,
   CursorRecording,
@@ -106,6 +107,9 @@ interface VideoEditorState {
 
   // Export config actions
   updateExportConfig: (updates: Partial<ExportConfig>) => void;
+
+  // Cursor config actions
+  updateCursorConfig: (updates: Partial<CursorConfig>) => void;
   
   // Timeline view actions
   setTimelineZoom: (zoom: number) => void;
@@ -531,6 +535,22 @@ export const useVideoEditorStore = create<VideoEditorState>()(
             ...project,
             export: {
               ...project.export,
+              ...updates,
+            },
+          },
+        });
+      },
+
+      // Cursor config actions
+      updateCursorConfig: (updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            cursor: {
+              ...project.cursor,
               ...updates,
             },
           },

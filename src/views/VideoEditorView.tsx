@@ -334,6 +334,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     cancelExport,
     updateWebcamConfig,
     updateExportConfig,
+    updateCursorConfig,
     splitMode,
     setSplitMode,
     splitZoomRegionAtPlayhead,
@@ -353,7 +354,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
   } = useVideoEditorStore();
 
   // Properties panel tab state
-  type PropertiesTab = 'project' | 'webcam' | 'export';
+  type PropertiesTab = 'project' | 'cursor' | 'webcam' | 'export';
   const [activeTab, setActiveTab] = useState<PropertiesTab>('project');
 
   // Skip amount in milliseconds
@@ -507,6 +508,18 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
             >
               Project
             </button>
+            {project?.sources.cursorData && (
+              <button
+                onClick={() => setActiveTab('cursor')}
+                className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                  activeTab === 'cursor'
+                    ? 'text-zinc-200 border-b-2 border-blue-500 bg-zinc-800/30'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                Cursor
+              </button>
+            )}
             {project?.sources.webcamVideo && (
               <button
                 onClick={() => setActiveTab('webcam')}
@@ -637,6 +650,325 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     </div>
                   </>
                 )}
+              </div>
+            )}
+
+            {/* Cursor Tab */}
+            {activeTab === 'cursor' && project?.sources.cursorData && (
+              <div className="p-4 space-y-4">
+                {/* Show/Hide Toggle */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-400">Show Cursor</span>
+                  <button
+                    onClick={() => updateCursorConfig({ visible: !project.cursor.visible })}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      project.cursor.visible ? 'bg-emerald-500' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                        project.cursor.visible ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Cursor Type */}
+                <div>
+                  <span className="text-[11px] text-zinc-500 block mb-2">Cursor Type</span>
+                  <ToggleGroup
+                    type="single"
+                    value={project.cursor.cursorType}
+                    onValueChange={(value) => {
+                      if (value) updateCursorConfig({ cursorType: value as 'auto' | 'circle' });
+                    }}
+                    className="justify-start"
+                  >
+                    <ToggleGroupItem value="auto" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                      Auto
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="circle" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                      Circle
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+
+                {/* Size Slider */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-400">Size</span>
+                    <span className="text-xs text-zinc-300 font-mono">
+                      {Math.round(project.cursor.scale * 100)}%
+                    </span>
+                  </div>
+                  <Slider
+                    value={[project.cursor.scale * 100]}
+                    onValueChange={(values) => updateCursorConfig({ scale: values[0] / 100 })}
+                    min={50}
+                    max={300}
+                    step={10}
+                  />
+                </div>
+
+                {/* Hide When Idle */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-400">Hide When Idle</span>
+                  <button
+                    onClick={() => updateCursorConfig({ hideWhenIdle: !project.cursor.hideWhenIdle })}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      project.cursor.hideWhenIdle ? 'bg-emerald-500' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                        project.cursor.hideWhenIdle ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Idle Timeout (only when hideWhenIdle is enabled) */}
+                {project.cursor.hideWhenIdle && (
+                  <div className="pl-3 border-l border-zinc-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] text-zinc-500">Inactivity Delay</span>
+                      <span className="text-[11px] text-zinc-400 font-mono">
+                        {(project.cursor.idleTimeoutMs / 1000).toFixed(1)}s
+                      </span>
+                    </div>
+                    <Slider
+                      value={[project.cursor.idleTimeoutMs]}
+                      onValueChange={(values) => updateCursorConfig({ idleTimeoutMs: values[0] })}
+                      min={500}
+                      max={5000}
+                      step={100}
+                    />
+                  </div>
+                )}
+
+                {/* Smooth Movement */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-400">Smooth Movement</span>
+                  <button
+                    onClick={() => updateCursorConfig({ smoothMovement: !project.cursor.smoothMovement })}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      project.cursor.smoothMovement ? 'bg-emerald-500' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                        project.cursor.smoothMovement ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Animation Style (only when smoothMovement is enabled) */}
+                {project.cursor.smoothMovement && (
+                  <div className="pl-3 border-l border-zinc-700 space-y-3">
+                    <div>
+                      <span className="text-[11px] text-zinc-500 block mb-2">Animation Style</span>
+                      <ToggleGroup
+                        type="single"
+                        value={project.cursor.animationStyle}
+                        onValueChange={(value) => {
+                          if (value) {
+                            const style = value as 'slow' | 'mellow' | 'fast' | 'custom';
+                            // Apply preset values when selecting a non-custom style
+                            const presets: Record<string, { tension: number; mass: number; friction: number }> = {
+                              slow: { tension: 65, mass: 1.8, friction: 16 },
+                              mellow: { tension: 120, mass: 1.1, friction: 18 },
+                              fast: { tension: 200, mass: 0.8, friction: 20 },
+                            };
+                            if (style !== 'custom' && presets[style]) {
+                              updateCursorConfig({ animationStyle: style, ...presets[style] });
+                            } else {
+                              updateCursorConfig({ animationStyle: style });
+                            }
+                          }
+                        }}
+                        className="justify-start flex-wrap gap-1"
+                      >
+                        <ToggleGroupItem value="slow" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                          Slow
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="mellow" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                          Mellow
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="fast" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                          Fast
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="custom" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                          Custom
+                        </ToggleGroupItem>
+                      </ToggleGroup>
+                    </div>
+
+                    {/* Physics Controls (only when Custom style is selected) */}
+                    {project.cursor.animationStyle === 'custom' && (
+                      <div className="space-y-3 pt-2">
+                        {/* Tension */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] text-zinc-500">Tension</span>
+                            <span className="text-[11px] text-zinc-400 font-mono">{Math.round(project.cursor.tension)}</span>
+                          </div>
+                          <Slider
+                            value={[project.cursor.tension]}
+                            onValueChange={(values) => updateCursorConfig({ tension: values[0] })}
+                            min={1}
+                            max={500}
+                            step={5}
+                          />
+                        </div>
+
+                        {/* Mass */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] text-zinc-500">Mass</span>
+                            <span className="text-[11px] text-zinc-400 font-mono">{project.cursor.mass.toFixed(1)}</span>
+                          </div>
+                          <Slider
+                            value={[project.cursor.mass * 10]}
+                            onValueChange={(values) => updateCursorConfig({ mass: values[0] / 10 })}
+                            min={1}
+                            max={100}
+                            step={1}
+                          />
+                        </div>
+
+                        {/* Friction */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] text-zinc-500">Friction</span>
+                            <span className="text-[11px] text-zinc-400 font-mono">{Math.round(project.cursor.friction)}</span>
+                          </div>
+                          <Slider
+                            value={[project.cursor.friction]}
+                            onValueChange={(values) => updateCursorConfig({ friction: values[0] })}
+                            min={0}
+                            max={50}
+                            step={1}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Motion Blur */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-400">Motion Blur</span>
+                    <span className="text-xs text-zinc-300 font-mono">
+                      {Math.round(project.cursor.motionBlur * 100)}%
+                    </span>
+                  </div>
+                  <Slider
+                    value={[project.cursor.motionBlur * 100]}
+                    onValueChange={(values) => updateCursorConfig({ motionBlur: values[0] / 100 })}
+                    min={0}
+                    max={100}
+                    step={5}
+                  />
+                </div>
+
+                {/* Click Highlight Section */}
+                <div className="pt-3 border-t border-zinc-800">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs text-zinc-400">Click Highlight</span>
+                    <button
+                      onClick={() => updateCursorConfig({
+                        clickHighlight: { ...project.cursor.clickHighlight, enabled: !project.cursor.clickHighlight.enabled }
+                      })}
+                      className={`relative w-10 h-5 rounded-full transition-colors ${
+                        project.cursor.clickHighlight.enabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                          project.cursor.clickHighlight.enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {project.cursor.clickHighlight.enabled && (
+                    <div className="space-y-3">
+                      {/* Highlight Style */}
+                      <div>
+                        <span className="text-[11px] text-zinc-500 block mb-2">Style</span>
+                        <ToggleGroup
+                          type="single"
+                          value={project.cursor.clickHighlight.style}
+                          onValueChange={(value) => {
+                            if (value) updateCursorConfig({
+                              clickHighlight: { ...project.cursor.clickHighlight, style: value as 'ripple' | 'spotlight' | 'ring' }
+                            });
+                          }}
+                          className="justify-start"
+                        >
+                          <ToggleGroupItem value="ripple" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                            Ripple
+                          </ToggleGroupItem>
+                          <ToggleGroupItem value="spotlight" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                            Spotlight
+                          </ToggleGroupItem>
+                          <ToggleGroupItem value="ring" className="text-xs h-7 px-2.5 data-[state=on]:bg-zinc-700">
+                            Ring
+                          </ToggleGroupItem>
+                        </ToggleGroup>
+                      </div>
+
+                      {/* Highlight Color */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-zinc-500">Color</span>
+                        <input
+                          type="color"
+                          value={project.cursor.clickHighlight.color}
+                          onChange={(e) => updateCursorConfig({
+                            clickHighlight: { ...project.cursor.clickHighlight, color: e.target.value }
+                          })}
+                          className="w-8 h-6 rounded border border-zinc-700 cursor-pointer bg-transparent"
+                        />
+                      </div>
+
+                      {/* Highlight Radius */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] text-zinc-500">Radius</span>
+                          <span className="text-[11px] text-zinc-400 font-mono">{project.cursor.clickHighlight.radius}px</span>
+                        </div>
+                        <Slider
+                          value={[project.cursor.clickHighlight.radius]}
+                          onValueChange={(values) => updateCursorConfig({
+                            clickHighlight: { ...project.cursor.clickHighlight, radius: values[0] }
+                          })}
+                          min={10}
+                          max={100}
+                          step={5}
+                        />
+                      </div>
+
+                      {/* Highlight Duration */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] text-zinc-500">Duration</span>
+                          <span className="text-[11px] text-zinc-400 font-mono">{project.cursor.clickHighlight.durationMs}ms</span>
+                        </div>
+                        <Slider
+                          value={[project.cursor.clickHighlight.durationMs]}
+                          onValueChange={(values) => updateCursorConfig({
+                            clickHighlight: { ...project.cursor.clickHighlight, durationMs: values[0] }
+                          })}
+                          min={100}
+                          max={1000}
+                          step={50}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

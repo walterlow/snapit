@@ -14,13 +14,15 @@ mod composite;
 pub mod events;
 mod highlight;
 
-pub use capture::CursorCapture;
-pub use composite::{composite_cursor, composite_cursor_scaled};
+// CursorCapture and composite functions are no longer used - cursor is rendered in editor
+// pub use capture::CursorCapture;
+// pub use composite::{composite_cursor, composite_cursor_scaled};
 pub use events::{
-    CursorEvent, CursorEventCapture, CursorEventType, CursorRecording,
-    load_cursor_recording, save_cursor_recording,
+    load_cursor_recording, save_cursor_recording, CursorEventCapture, CursorEventType,
+    CursorRecording,
 };
-pub use highlight::{get_active_clicks, render_click_highlight};
+// Click highlight is rendered in frontend
+// pub use highlight::{get_active_clicks, render_click_highlight};
 
 use std::collections::HashMap;
 use std::sync::Arc;

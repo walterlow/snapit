@@ -68,7 +68,10 @@ impl CursorCaptureManager {
         }
 
         // Extract cursor bitmap using DrawIconEx (handles all cursor types)
-        eprintln!("[CURSOR] Cache miss for handle {}, extracting with DrawIconEx...", cursor_handle);
+        eprintln!(
+            "[CURSOR] Cache miss for handle {}, extracting with DrawIconEx...",
+            cursor_handle
+        );
         let cached = self.extract_cursor_with_drawicon(cursor_info.hCursor)?;
 
         let state = CursorState {
@@ -131,7 +134,10 @@ impl CursorCaptureManager {
             (32, 32)
         };
 
-        eprintln!("[CURSOR] Cursor size: {}x{}, hotspot: ({}, {})", width, height, hotspot_x, hotspot_y);
+        eprintln!(
+            "[CURSOR] Cursor size: {}x{}, hotspot: ({}, {})",
+            width, height, hotspot_x, hotspot_y
+        );
 
         // Clean up icon info bitmaps
         if !icon_info.hbmColor.is_invalid() {
@@ -264,7 +270,11 @@ impl CursorCaptureManager {
 
         // Count opaque pixels for debugging
         let opaque_count = bgra_data.chunks(4).filter(|p| p[3] > 0).count();
-        eprintln!("[CURSOR] Cursor has {} opaque pixels out of {}", opaque_count, width * height);
+        eprintln!(
+            "[CURSOR] Cursor has {} opaque pixels out of {}",
+            opaque_count,
+            width * height
+        );
 
         Ok(CachedCursor {
             width,

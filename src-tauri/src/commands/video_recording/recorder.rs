@@ -65,11 +65,11 @@ use windows_capture::{
 };
 
 use super::audio_multitrack::MultiTrackAudioRecorder;
-use super::cursor::{composite_cursor, CursorCapture, CursorEventCapture, save_cursor_recording};
+use super::cursor::{CursorEventCapture, save_cursor_recording};
 use super::desktop_icons::{hide_desktop_icons, show_desktop_icons};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
-use super::webcam::{start_capture_service, stop_capture_service, WebcamEncoderPipe};
+use super::webcam::{stop_capture_service, WebcamEncoderPipe};
 use super::wgc_capture::WgcVideoCapture;
 use super::{emit_state_change, get_webcam_settings, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
 
@@ -716,7 +716,7 @@ fn run_video_capture(
     let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
 
     // Determine if we need audio
-    let capture_audio = settings.audio.capture_system_audio || settings.audio.microphone_device_index.is_some();
+    let _capture_audio = settings.audio.capture_system_audio || settings.audio.microphone_device_index.is_some();
 
     // Create video encoder with audio enabled if needed
     // Use H.264 codec for better browser/WebView compatibility (HEVC requires paid extension)
@@ -741,12 +741,8 @@ fn run_video_capture(
     let should_stop = Arc::new(AtomicBool::new(false));
     let is_paused = Arc::new(AtomicBool::new(false));
 
-    // Cursor capture manager (for include_cursor option)
-    let mut cursor_capture = if settings.include_cursor {
-        Some(CursorCapture::new())
-    } else {
-        None
-    };
+    // NOTE: Cursor is now captured via CursorEventCapture (events + images)
+    // and rendered by the video editor/exporter - not composited during recording.
 
     // === WEBCAM ENCODER SETUP ===
     // Try to use pre-spawned FFmpeg pipe (from prepare_recording).
@@ -1051,34 +1047,12 @@ fn run_video_capture(
 
         last_frame_time = Instant::now();
 
-        // Get mutable reference to frame buffer for compositing
-        let frame_data = &mut buffer_pool.frame_buffer;
+        // NOTE: Cursor is NO LONGER composited onto frames!
+        // Cursor events and images are captured separately (CursorEventCapture)
+        // and rendered by the video editor/exporter for flexibility.
+        // This allows: cursor type switching, motion blur, physics smoothing, etc.
 
-        // Composite cursor onto frame (before vertical flip)
-        // Note: WGC can include cursor natively, but we use our own for consistency
-        if let Some(ref mut cursor_cap) = cursor_capture {
-            match cursor_cap.capture() {
-                Ok(cursor_state) => {
-                    if cursor_state.visible {
-                        let (region_x, region_y) = crop_region
-                            .map(|(x, y, _, _)| (x, y))
-                            .unwrap_or((0, 0));
-
-                        composite_cursor(
-                            frame_data,
-                            width,
-                            height,
-                            &cursor_state,
-                            region_x,
-                            region_y,
-                        );
-                    }
-                }
-                Err(_) => {}
-            }
-        }
-
-        // NOTE: Webcam is now recorded to a separate file (not composited onto screen)
+        // NOTE: Webcam is recorded to a separate file (not composited onto screen)
         // This allows toggling webcam visibility in the video editor
 
         // Flip vertically using pooled buffer (both DXGI and WGC return top-down, encoder expects bottom-up)

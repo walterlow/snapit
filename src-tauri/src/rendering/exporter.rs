@@ -11,12 +11,14 @@ use std::process::{Command, Stdio, Child};
 use tauri::{AppHandle, Emitter};
 
 use crate::commands::video_recording::video_project::{
-    VideoProject, ExportFormat, WebcamOverlayPosition, WebcamOverlayShape, CornerStyle, ShadowConfig,
-    ZoomMode, AutoZoomConfig, apply_auto_zoom_to_project, SceneMode,
+    VideoProject, ExportFormat, WebcamOverlayPosition, WebcamOverlayShape,
+    ZoomMode, AutoZoomConfig, apply_auto_zoom_to_project, SceneMode, CursorType,
 };
 use crate::commands::video_recording::video_export::{ExportProgress, ExportStage, ExportResult};
+use crate::commands::video_recording::cursor::events::load_cursor_recording;
 use super::zoom::ZoomInterpolator;
 use super::scene::SceneInterpolator;
+use super::cursor::{CursorInterpolator, composite_cursor};
 use super::stream_decoder::StreamDecoder;
 use super::renderer::Renderer;
 use super::compositor::Compositor;
@@ -144,6 +146,37 @@ pub async fn export_video_gpu(
     // Create scene interpolator for smooth scene transitions
     let scene_interpolator = SceneInterpolator::new(project.scene.segments.clone());
 
+    // Load cursor recording and create interpolator if cursor is visible
+    let cursor_interpolator = if project.cursor.visible {
+        if let Some(ref cursor_data_path) = project.sources.cursor_data {
+            let cursor_path = std::path::Path::new(cursor_data_path);
+            if cursor_path.exists() {
+                match load_cursor_recording(cursor_path) {
+                    Ok(recording) => {
+                        log::info!(
+                            "[EXPORT] Loaded cursor recording with {} events, {} images",
+                            recording.events.len(),
+                            recording.cursor_images.len()
+                        );
+                        Some(CursorInterpolator::new(&recording))
+                    }
+                    Err(e) => {
+                        log::warn!("[EXPORT] Failed to load cursor recording: {}", e);
+                        None
+                    }
+                }
+            } else {
+                log::debug!("[EXPORT] Cursor data file not found: {}", cursor_data_path);
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        log::debug!("[EXPORT] Cursor rendering disabled in project settings");
+        None
+    };
+
     emit_progress(&app, 0.08, ExportStage::Encoding, "Rendering frames...");
 
     // Render each frame sequentially from streaming decoders
@@ -187,41 +220,80 @@ pub async fn export_video_gpu(
             None
         };
 
-        // Determine what to render based on scene mode
-        // Use interpolated scene for smooth transitions
-        let (frame_to_render, webcam_overlay) = match interpolated_scene.scene_mode {
-            SceneMode::CameraOnly => {
-                // Fullscreen webcam - use webcam frame as main content, no overlay
-                if let Some(ref webcam_frame) = current_webcam_frame {
-                    if frame_idx % 30 == 0 {
-                        log::info!(
-                            "[EXPORT] CameraOnly mode at {}ms - rendering webcam {}x{} fullscreen",
-                            relative_time_ms, webcam_frame.width, webcam_frame.height
-                        );
-                    }
-                    // Scale webcam frame to output size
-                    let scaled_frame = scale_frame_to_fill(webcam_frame, out_w, out_h);
-                    (scaled_frame, None)
-                } else {
-                    log::warn!("[EXPORT] CameraOnly mode but no webcam frame available!");
-                    // No webcam available, fallback to screen
-                    (screen_frame.clone(), None)
-                }
-            }
-            SceneMode::ScreenOnly => {
-                // Screen only - no webcam overlay
+        // Determine what to render based on interpolated scene values
+        // This handles smooth transitions between scene modes
+        let camera_only_opacity = interpolated_scene.camera_only_transition_opacity();
+        let regular_camera_opacity = interpolated_scene.regular_camera_transition_opacity();
+        let is_in_camera_only_transition = interpolated_scene.is_transitioning_camera_only();
+        
+        // Log transition state for debugging
+        if is_in_camera_only_transition && frame_idx % 10 == 0 {
+            log::debug!(
+                "[EXPORT] Frame {}: cameraOnly transition - camera_only_opacity={:.2}, regular_camera_opacity={:.2}, screen_blur={:.2}",
+                frame_idx, camera_only_opacity, regular_camera_opacity, interpolated_scene.screen_blur
+            );
+        }
+        
+        // Build the frame to render with proper blending
+        let (frame_to_render, webcam_overlay) = if camera_only_opacity > 0.99 {
+            // Fully in cameraOnly mode - just show fullscreen webcam
+            if let Some(ref webcam_frame) = current_webcam_frame {
+                let scaled_frame = scale_frame_to_fill(webcam_frame, out_w, out_h);
+                (scaled_frame, None)
+            } else {
                 (screen_frame.clone(), None)
             }
-            SceneMode::Default => {
-                // Default - screen with webcam overlay (if visible)
-                let overlay = if webcam_visible {
-                    current_webcam_frame.as_ref().map(|frame| {
-                        build_webcam_overlay(&project, frame.clone(), out_w, out_h)
-                    })
+        } else if camera_only_opacity > 0.01 {
+            // In cameraOnly transition - blend screen and fullscreen webcam
+            if let Some(ref webcam_frame) = current_webcam_frame {
+                // Start with screen frame (apply blur if needed)
+                let mut blended_frame = if interpolated_scene.screen_blur > 0.01 {
+                    // Note: GPU blur would be better, but for now we skip CPU blur
+                    // The screen will still fade out via opacity blending
+                    screen_frame.clone()
+                } else {
+                    screen_frame.clone()
+                };
+                
+                // Scale webcam to fill output
+                let fullscreen_webcam = scale_frame_to_fill(webcam_frame, out_w, out_h);
+                
+                // Blend fullscreen webcam over screen with camera_only_opacity
+                blend_frames_alpha(&mut blended_frame, &fullscreen_webcam, camera_only_opacity as f32);
+                
+                // Regular webcam overlay during transition (fades at 1.5x speed)
+                let overlay = if regular_camera_opacity > 0.01 && webcam_visible {
+                    let mut overlay = build_webcam_overlay(&project, webcam_frame.clone(), out_w, out_h);
+                    // Apply the transition opacity to the overlay
+                    overlay.shadow_opacity *= regular_camera_opacity as f32;
+                    Some(overlay)
                 } else {
                     None
                 };
-                (screen_frame.clone(), overlay)
+                
+                (blended_frame, overlay)
+            } else {
+                // No webcam available
+                (screen_frame.clone(), None)
+            }
+        } else {
+            // Not in cameraOnly transition - normal rendering
+            match interpolated_scene.scene_mode {
+                SceneMode::ScreenOnly => {
+                    // Screen only - no webcam overlay
+                    (screen_frame.clone(), None)
+                }
+                _ => {
+                    // Default mode - screen with webcam overlay (if visible)
+                    let overlay = if webcam_visible && regular_camera_opacity > 0.01 {
+                        current_webcam_frame.as_ref().map(|frame| {
+                            build_webcam_overlay(&project, frame.clone(), out_w, out_h)
+                        })
+                    } else {
+                        None
+                    };
+                    (screen_frame.clone(), overlay)
+                }
             }
         };
 
@@ -243,7 +315,40 @@ pub async fn export_video_gpu(
         );
 
         // Read rendered frame back to CPU
-        let rgba_data = renderer.read_texture(&output_texture, out_w, out_h).await;
+        let mut rgba_data = renderer.read_texture(&output_texture, out_w, out_h).await;
+
+        // Composite cursor onto frame (CPU-based) if cursor is visible and not in cameraOnly mode
+        if let Some(ref cursor_interp) = cursor_interpolator {
+            // Only show cursor when screen is visible (not in cameraOnly mode)
+            if camera_only_opacity < 0.99 {
+                let cursor = cursor_interp.get_cursor_at(relative_time_ms);
+                
+                // Get cursor image based on cursor type
+                if project.cursor.cursor_type == CursorType::Circle {
+                    // Draw circle indicator instead of actual cursor
+                    draw_cursor_circle(
+                        &mut rgba_data,
+                        out_w,
+                        out_h,
+                        cursor.x,
+                        cursor.y,
+                        project.cursor.scale,
+                    );
+                } else if let Some(ref cursor_id) = cursor.cursor_id {
+                    // Draw actual cursor image
+                    if let Some(cursor_image) = cursor_interp.get_cursor_image(cursor_id) {
+                        composite_cursor(
+                            &mut rgba_data,
+                            out_w,
+                            out_h,
+                            &cursor,
+                            cursor_image,
+                            project.cursor.scale,
+                        );
+                    }
+                }
+            }
+        }
 
         // Write to FFmpeg encoder
         if let Err(e) = stdin.write_all(&rgba_data) {
@@ -560,6 +665,30 @@ fn scale_frame_to_fill(frame: &DecodedFrame, target_w: u32, target_h: u32) -> De
     }
 }
 
+/// Blend source frame over destination with alpha opacity.
+/// dest = dest * (1 - alpha) + src * alpha
+/// 
+/// Used for smooth scene transitions - blending fullscreen webcam over screen.
+fn blend_frames_alpha(dest: &mut DecodedFrame, src: &DecodedFrame, alpha: f32) {
+    if dest.width != src.width || dest.height != src.height {
+        log::warn!(
+            "[EXPORT] blend_frames_alpha: size mismatch dest={}x{} src={}x{}",
+            dest.width, dest.height, src.width, src.height
+        );
+        return;
+    }
+    
+    let inv_alpha = 1.0 - alpha;
+    for i in (0..dest.data.len()).step_by(4) {
+        if i + 3 < src.data.len() {
+            dest.data[i] = ((dest.data[i] as f32 * inv_alpha) + (src.data[i] as f32 * alpha)) as u8;
+            dest.data[i + 1] = ((dest.data[i + 1] as f32 * inv_alpha) + (src.data[i + 1] as f32 * alpha)) as u8;
+            dest.data[i + 2] = ((dest.data[i + 2] as f32 * inv_alpha) + (src.data[i + 2] as f32 * alpha)) as u8;
+            // Keep dest alpha (index i + 3)
+        }
+    }
+}
+
 /// Copy of SceneMode for matching (since we can't import from video_project in match)
 impl std::fmt::Display for SceneMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -567,6 +696,89 @@ impl std::fmt::Display for SceneMode {
             SceneMode::Default => write!(f, "Default"),
             SceneMode::CameraOnly => write!(f, "CameraOnly"),
             SceneMode::ScreenOnly => write!(f, "ScreenOnly"),
+        }
+    }
+}
+
+/// Draw a cursor circle indicator at the given position.
+/// 
+/// Draws a white circle with semi-transparent fill and a darker border
+/// to indicate cursor position when actual cursor images aren't available.
+fn draw_cursor_circle(
+    frame_data: &mut [u8],
+    frame_width: u32,
+    frame_height: u32,
+    cursor_x: f32,  // normalized 0-1
+    cursor_y: f32,  // normalized 0-1
+    scale: f32,
+) {
+    // Circle parameters
+    let base_radius = 12.0; // Base radius in pixels
+    let radius = base_radius * scale;
+    let border_width = 2.0 * scale;
+    
+    // Convert normalized position to pixel position
+    let center_x = cursor_x * frame_width as f32;
+    let center_y = cursor_y * frame_height as f32;
+    
+    // Bounding box for the circle
+    let min_x = ((center_x - radius - border_width).floor() as i32).max(0);
+    let max_x = ((center_x + radius + border_width).ceil() as i32).min(frame_width as i32 - 1);
+    let min_y = ((center_y - radius - border_width).floor() as i32).max(0);
+    let max_y = ((center_y + radius + border_width).ceil() as i32).min(frame_height as i32 - 1);
+    
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            let dx = x as f32 - center_x;
+            let dy = y as f32 - center_y;
+            let dist = (dx * dx + dy * dy).sqrt();
+            
+            let idx = ((y as u32 * frame_width + x as u32) * 4) as usize;
+            if idx + 3 >= frame_data.len() {
+                continue;
+            }
+            
+            // Determine what to draw based on distance from center
+            let inner_radius = radius - border_width;
+            
+            if dist <= inner_radius {
+                // Inside the circle - semi-transparent white fill
+                let alpha = 0.5;
+                let fill_r = 255u8;
+                let fill_g = 255u8;
+                let fill_b = 255u8;
+                
+                // Smooth edge using anti-aliasing
+                let edge_dist = inner_radius - dist;
+                let edge_alpha = if edge_dist < 1.0 { edge_dist * alpha } else { alpha };
+                let inv_alpha = 1.0 - edge_alpha;
+                
+                frame_data[idx] = ((fill_r as f32 * edge_alpha) + (frame_data[idx] as f32 * inv_alpha)) as u8;
+                frame_data[idx + 1] = ((fill_g as f32 * edge_alpha) + (frame_data[idx + 1] as f32 * inv_alpha)) as u8;
+                frame_data[idx + 2] = ((fill_b as f32 * edge_alpha) + (frame_data[idx + 2] as f32 * inv_alpha)) as u8;
+            } else if dist <= radius {
+                // On the border - darker semi-transparent ring
+                let alpha = 0.7;
+                let border_r = 50u8;
+                let border_g = 50u8;
+                let border_b = 50u8;
+                
+                // Smooth edges
+                let outer_edge = radius - dist;
+                let inner_edge = dist - inner_radius;
+                let edge_alpha = if outer_edge < 1.0 {
+                    outer_edge * alpha
+                } else if inner_edge < 1.0 {
+                    inner_edge * alpha
+                } else {
+                    alpha
+                };
+                let inv_alpha = 1.0 - edge_alpha;
+                
+                frame_data[idx] = ((border_r as f32 * edge_alpha) + (frame_data[idx] as f32 * inv_alpha)) as u8;
+                frame_data[idx + 1] = ((border_g as f32 * edge_alpha) + (frame_data[idx + 1] as f32 * inv_alpha)) as u8;
+                frame_data[idx + 2] = ((border_b as f32 * edge_alpha) + (frame_data[idx + 2] as f32 * inv_alpha)) as u8;
+            }
         }
     }
 }
@@ -600,6 +812,7 @@ mod tests {
     use crate::commands::video_recording::video_project::{
         WebcamConfig, WebcamBorder, VideoSources, ZoomConfig, CursorConfig,
         AudioTrackSettings, ExportConfig, SceneConfig, TextConfig, TimelineState,
+        CornerStyle, ShadowConfig,
     };
 
     /// Create a minimal VideoProject for testing webcam positioning

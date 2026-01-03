@@ -143,7 +143,7 @@ impl AudioCollector {
         // Try system audio first
         if let Some(ref rx) = self.system_rx {
             match rx.try_recv() {
-                Ok(mut frame) => {
+                Ok(frame) => {
                     // If mic is also available, try to mix
                     if let Some(ref mic_rx) = self.mic_rx {
                         if let Ok(mic_frame) = mic_rx.try_recv() {
@@ -305,9 +305,9 @@ impl AudioCaptureManager {
                     .ok_or_else(|| format!("Audio input device {} not found", device_index))?;
 
                 log::info!(
-                    "Using microphone [{}]: {}",
+                    "Using microphone [{}]: {:?}",
                     device_index,
-                    device.name().unwrap_or_default()
+                    device.description()
                 );
 
                 // Get supported config

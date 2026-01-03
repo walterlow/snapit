@@ -23,7 +23,15 @@ pub fn composite_cursor(
     capture_y: i32,
 ) {
     // Use default scale (1.0 = native size)
-    composite_cursor_scaled(frame, frame_width, frame_height, cursor, capture_x, capture_y, 1.0);
+    composite_cursor_scaled(
+        frame,
+        frame_width,
+        frame_height,
+        cursor,
+        capture_x,
+        capture_y,
+        1.0,
+    );
 }
 
 /// Composite cursor onto frame buffer with alpha blending and scaling.
@@ -73,7 +81,8 @@ pub fn composite_cursor_scaled(
     ) {
         Some(c) => {
             // Debug: log on first successful clip
-            static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static LOGGED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 eprintln!("[COMPOSITE] Drawing cursor at draw_pos ({}, {}), scale={:.2}, clip: src({},{}) dst({},{}) size {}x{}",
                     cursor_draw_x, cursor_draw_y, scale,
@@ -83,7 +92,8 @@ pub fn composite_cursor_scaled(
         }
         None => {
             // Debug: cursor outside frame
-            static LOGGED_OUTSIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static LOGGED_OUTSIDE: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             if !LOGGED_OUTSIDE.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 eprintln!("[COMPOSITE] Cursor outside frame: draw_pos ({}, {}), cursor {}x{} (scaled), frame {}x{}",
                     cursor_draw_x, cursor_draw_y, scaled_width, scaled_height, frame_width, frame_height);
@@ -122,7 +132,13 @@ pub fn composite_cursor_scaled(
                 )
             } else {
                 // Bilinear interpolation for smooth scaling
-                sample_bilinear(&cursor.bgra_data, cursor.width, cursor.height, orig_x, orig_y)
+                sample_bilinear(
+                    &cursor.bgra_data,
+                    cursor.width,
+                    cursor.height,
+                    orig_x,
+                    orig_y,
+                )
             };
 
             // Skip fully transparent pixels

@@ -20,4 +20,9 @@ y: number,
 /**
  * Type of event.
  */
-eventType: CursorEventType, };
+eventType: CursorEventType, 
+/**
+ * ID of the cursor image active at this event (references cursor_images map).
+ * Only set when cursor shape changes or on first event.
+ */
+cursorId: string | null, };

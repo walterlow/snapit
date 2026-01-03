@@ -16,8 +16,7 @@ use tauri::{AppHandle, Emitter};
 use ts_rs::TS;
 
 use super::video_project::{
-    AudioTrackSettings, EasingFunction, ExportFormat, VideoProject, WebcamOverlayPosition,
-    WebcamOverlayShape, ZoomRegion,
+    EasingFunction, ExportFormat, VideoProject, WebcamOverlayPosition, ZoomRegion,
 };
 
 // ============================================================================
@@ -318,7 +317,6 @@ impl VideoExporter {
                     .unwrap()
                     .clone(),
             );
-            input_index += 1;
             Some(idx)
         } else {
             None
@@ -546,7 +544,11 @@ impl VideoExporter {
     }
 
     /// Build webcam processing filter (scale, crop to circle if needed).
-    fn build_webcam_filter(&self, screen_width: u32, screen_height: u32) -> Result<String, String> {
+    fn build_webcam_filter(
+        &self,
+        screen_width: u32,
+        _screen_height: u32,
+    ) -> Result<String, String> {
         let webcam_cfg = &self.project.webcam;
 
         // Calculate webcam size based on percentage of screen width

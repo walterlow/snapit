@@ -175,7 +175,8 @@ fn handle_mouse_move(state_ptr: *mut OverlayState, lparam: LPARAM) -> LRESULT {
                     // Window mode: detect window under cursor
                     let screen_x = state.monitor.x + x;
                     let screen_y = state.monitor.y + y;
-                    state.cursor.hovered_window = get_window_at_point(screen_x, screen_y, state.hwnd);
+                    state.cursor.hovered_window =
+                        get_window_at_point(screen_x, screen_y, state.hwnd);
                 }
                 OverlayMode::RegionSelect => {
                     // Region mode: handle drag or window detection
@@ -191,7 +192,8 @@ fn handle_mouse_move(state_ptr: *mut OverlayState, lparam: LPARAM) -> LRESULT {
                         // Window detection mode - find window under cursor
                         let screen_x = state.monitor.x + x;
                         let screen_y = state.monitor.y + y;
-                        state.cursor.hovered_window = get_window_at_point(screen_x, screen_y, state.hwnd);
+                        state.cursor.hovered_window =
+                            get_window_at_point(screen_x, screen_y, state.hwnd);
                     }
                 }
             }
@@ -269,7 +271,9 @@ fn handle_region_selection_complete(state: &mut OverlayState) {
 
         if state.capture_type == CaptureType::Screenshot {
             // For screenshots, capture immediately without adjustment mode
-            state.result.confirm(screen_bounds, OverlayAction::CaptureScreenshot);
+            state
+                .result
+                .confirm(screen_bounds, OverlayAction::CaptureScreenshot);
             state.should_close = true;
         } else {
             // For video/gif, enter adjustment mode
@@ -288,7 +292,7 @@ fn handle_window_selection(state: &mut OverlayState, window_bounds: Rect, window
     // Get window title for debugging
     let title = unsafe {
         use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextW, GetWindowTextLengthW};
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW};
         let hwnd = HWND(window_id as *mut std::ffi::c_void);
         let len = GetWindowTextLengthW(hwnd);
         if len > 0 {
@@ -299,10 +303,18 @@ fn handle_window_selection(state: &mut OverlayState, window_bounds: Rect, window
             String::from("(no title)")
         }
     };
-    println!("[OVERLAY] Window selected: hwnd={}, title='{}', bounds={}x{}", window_id, title, window_bounds.width(), window_bounds.height());
+    println!(
+        "[OVERLAY] Window selected: hwnd={}, title='{}', bounds={}x{}",
+        window_id,
+        title,
+        window_bounds.width(),
+        window_bounds.height()
+    );
     if state.capture_type == CaptureType::Screenshot {
         // For screenshots, capture immediately using window capture
-        state.result.confirm_window(window_bounds, OverlayAction::CaptureScreenshot, window_id);
+        state
+            .result
+            .confirm_window(window_bounds, OverlayAction::CaptureScreenshot, window_id);
         state.should_close = true;
     } else {
         // For video/gif, enter locked adjustment mode (window bounds are fixed)
@@ -335,7 +347,9 @@ fn handle_monitor_selection(state: &mut OverlayState) {
             let screen_bounds = Rect::from_xywh(mon_x, mon_y, mon_w, mon_h);
 
             if state.capture_type == CaptureType::Screenshot {
-                state.result.confirm(screen_bounds, OverlayAction::CaptureScreenshot);
+                state
+                    .result
+                    .confirm(screen_bounds, OverlayAction::CaptureScreenshot);
                 state.should_close = true;
             } else {
                 // For video/gif, enter locked adjustment mode (monitor bounds are fixed)
@@ -418,7 +432,9 @@ fn mouse_coords(lparam: LPARAM) -> (i32, i32) {
 /// Emit adjustment ready event to show the toolbar
 fn emit_adjustment_ready(state: &OverlayState, bounds: Rect) {
     let event = SelectionEvent::from(bounds);
-    let _ = state.app_handle.emit("capture-overlay-adjustment-ready", event);
+    let _ = state
+        .app_handle
+        .emit("capture-overlay-adjustment-ready", event);
 }
 
 /// Emit dimensions update during adjustment drag
@@ -426,12 +442,15 @@ fn emit_dimensions_update(state: &OverlayState) {
     let screen_bounds = state.monitor.local_rect_to_screen(state.adjustment.bounds);
 
     // Emit globally so both capture-toolbar and webcam-preview receive it
-    let _ = state.app_handle.emit("selection-updated", serde_json::json!({
-        "x": screen_bounds.left,
-        "y": screen_bounds.top,
-        "width": screen_bounds.width(),
-        "height": screen_bounds.height()
-    }));
+    let _ = state.app_handle.emit(
+        "selection-updated",
+        serde_json::json!({
+            "x": screen_bounds.left,
+            "y": screen_bounds.top,
+            "width": screen_bounds.width(),
+            "height": screen_bounds.height()
+        }),
+    );
 }
 
 /// Emit final selection when adjustment drag ends
@@ -439,12 +458,15 @@ fn emit_final_selection(state: &OverlayState) {
     let screen_bounds = state.monitor.local_rect_to_screen(state.adjustment.bounds);
 
     // Emit globally so both capture-toolbar and webcam-preview receive it
-    let _ = state.app_handle.emit("selection-updated", serde_json::json!({
-        "x": screen_bounds.left,
-        "y": screen_bounds.top,
-        "width": screen_bounds.width(),
-        "height": screen_bounds.height()
-    }));
+    let _ = state.app_handle.emit(
+        "selection-updated",
+        serde_json::json!({
+            "x": screen_bounds.left,
+            "y": screen_bounds.top,
+            "width": screen_bounds.width(),
+            "height": screen_bounds.height()
+        }),
+    );
 
     // Bring toolbar window to front
     if let Some(win) = state.app_handle.get_webview_window("capture-toolbar") {
@@ -474,21 +496,26 @@ fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
     }
     // For unlocked selections (region), overlay stays interactive for adjustment handles
     // The toolbar will still appear on top due to TOPMOST flag
-    
-    let _ = state.app_handle.emit("create-capture-toolbar", serde_json::json!({
-        "x": screen_bounds.left,
-        "y": screen_bounds.top,
-        "width": screen_bounds.width(),
-        "height": screen_bounds.height()
-    }));
+
+    let _ = state.app_handle.emit(
+        "create-capture-toolbar",
+        serde_json::json!({
+            "x": screen_bounds.left,
+            "y": screen_bounds.top,
+            "width": screen_bounds.width(),
+            "height": screen_bounds.height()
+        }),
+    );
 }
 
 /// Make the overlay click-through so the toolbar receives all mouse events.
 /// This is bulletproof - no Z-order fighting, overlay just passes input through.
 fn make_overlay_click_through(state: &OverlayState) {
     unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_TRANSPARENT, WS_EX_LAYERED};
-        
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+        };
+
         let ex_style = GetWindowLongW(state.hwnd, GWL_EXSTYLE);
         // Add WS_EX_TRANSPARENT to make the window click-through
         // WS_EX_LAYERED is already set for our D2D rendering
@@ -502,7 +529,7 @@ fn bring_webcam_preview_to_front(state: &OverlayState) {
     if let Some(win) = state.app_handle.get_webview_window("webcam-preview") {
         if let Ok(hwnd) = win.hwnd() {
             unsafe {
-                use windows::Win32::UI::WindowsAndMessaging::{BringWindowToTop, SetForegroundWindow};
+                use windows::Win32::UI::WindowsAndMessaging::BringWindowToTop;
                 let hwnd = HWND(hwnd.0);
                 let _ = SetWindowPos(
                     hwnd,

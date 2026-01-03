@@ -12,11 +12,8 @@ mod composite;
 mod device;
 mod encoder;
 
-pub use capture::{
-    enumerate_devices as enumerate_webcam_devices, is_capture_running, start_capture_service,
-    stop_capture_service, SharedFrame, WEBCAM_BUFFER,
-};
-pub use composite::composite_webcam;
+pub use capture::{is_capture_running, start_capture_service, stop_capture_service, WEBCAM_BUFFER};
+// composite_webcam no longer used - webcam composited via GPU in editor
 pub use device::{get_webcam_devices, WebcamDevice};
 pub use encoder::WebcamEncoderPipe;
 

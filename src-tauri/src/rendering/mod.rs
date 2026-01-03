@@ -18,6 +18,7 @@ pub mod renderer;
 pub mod compositor;
 pub mod zoom;
 pub mod scene;
+pub mod cursor;
 pub mod editor_instance;
 pub mod exporter;
 
@@ -28,5 +29,6 @@ pub use renderer::Renderer;
 pub use compositor::Compositor;
 pub use zoom::ZoomInterpolator;
 pub use scene::{InterpolatedScene, SceneInterpolator};
+pub use cursor::{CursorInterpolator, InterpolatedCursor, composite_cursor};
 pub use editor_instance::EditorInstance;
 pub use exporter::export_video_gpu;

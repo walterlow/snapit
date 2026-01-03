@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 use crate::commands::video_recording::video_project::VideoProject;
 use crate::rendering::{EditorInstance, EditorInstanceInfo, PlaybackState, RenderedFrame};

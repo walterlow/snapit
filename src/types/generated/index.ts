@@ -39,7 +39,9 @@ export type { WebcamSize } from './WebcamSize';
 // Video editor - Cursor event types
 export type { CursorEvent } from './CursorEvent';
 export type { CursorEventType } from './CursorEventType';
+export type { CursorImage } from './CursorImage';
 export type { CursorRecording } from './CursorRecording';
+export type { WindowsCursorShape } from './WindowsCursorShape';
 
 // Video editor - Project types
 export type { VideoProject } from './VideoProject';
@@ -57,6 +59,8 @@ export type { EasingFunction } from './EasingFunction';
 
 // Video editor - Cursor config types
 export type { CursorConfig } from './CursorConfig';
+export type { CursorType } from './CursorType';
+export type { CursorAnimationStyle } from './CursorAnimationStyle';
 export type { ClickHighlightConfig } from './ClickHighlightConfig';
 export type { ClickHighlightStyle } from './ClickHighlightStyle';
 

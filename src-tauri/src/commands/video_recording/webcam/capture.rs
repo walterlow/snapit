@@ -208,7 +208,6 @@ impl WebcamCaptureService {
 
     /// Run the capture loop (blocking - call from a thread).
     pub fn run(self) -> Result<(), String> {
-        use nokhwa::pixel_format::RgbFormat;
         use nokhwa::utils::{
             CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
             Resolution,

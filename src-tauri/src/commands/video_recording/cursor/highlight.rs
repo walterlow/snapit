@@ -34,13 +34,49 @@ pub fn render_click_highlight(
 
     match config.style {
         ClickHighlightStyle::Ripple => {
-            render_ripple(frame, frame_width, frame_height, x, y, progress, config.radius, r, g, b, base_alpha);
+            render_ripple(
+                frame,
+                frame_width,
+                frame_height,
+                x,
+                y,
+                progress,
+                config.radius,
+                r,
+                g,
+                b,
+                base_alpha,
+            );
         }
         ClickHighlightStyle::Spotlight => {
-            render_spotlight(frame, frame_width, frame_height, x, y, progress, config.radius, r, g, b, base_alpha);
+            render_spotlight(
+                frame,
+                frame_width,
+                frame_height,
+                x,
+                y,
+                progress,
+                config.radius,
+                r,
+                g,
+                b,
+                base_alpha,
+            );
         }
         ClickHighlightStyle::Ring => {
-            render_ring(frame, frame_width, frame_height, x, y, progress, config.radius, r, g, b, base_alpha);
+            render_ring(
+                frame,
+                frame_width,
+                frame_height,
+                x,
+                y,
+                progress,
+                config.radius,
+                r,
+                g,
+                b,
+                base_alpha,
+            );
         }
     }
 }
@@ -110,10 +146,10 @@ fn render_ripple(
 ) {
     // Ripple expands from 0 to max_radius
     let current_radius = (max_radius as f32 * progress) as i32;
-    
+
     // Fade out as ripple expands
     let alpha = base_alpha * (1.0 - progress);
-    
+
     if current_radius <= 0 || alpha <= 0.0 {
         return;
     }
@@ -169,7 +205,7 @@ fn render_spotlight(
 ) {
     // Spotlight stays same size but fades out
     let alpha = base_alpha * (1.0 - progress);
-    
+
     if alpha <= 0.0 {
         return;
     }
@@ -219,10 +255,10 @@ fn render_ring(
 ) {
     // Ring expands from 0 to max_radius
     let current_radius = (max_radius as f32 * progress) as i32;
-    
+
     // Fade out as ring expands
     let alpha = base_alpha * (1.0 - progress);
-    
+
     if current_radius <= 0 || alpha <= 0.0 {
         return;
     }
@@ -231,7 +267,7 @@ fn render_ring(
     let ring_thickness = ((current_radius as f32) * 0.15).max(2.0);
     let outer_radius = current_radius as f32;
     let inner_radius = (outer_radius - ring_thickness).max(0.0);
-    
+
     let outer_radius_sq = outer_radius * outer_radius;
     let inner_radius_sq = inner_radius * inner_radius;
 
@@ -380,18 +416,21 @@ mod tests {
                 x: 50,
                 y: 50,
                 event_type: CursorEventType::LeftClick { pressed: true },
+                cursor_id: None,
             },
             CursorEvent {
                 timestamp_ms: 200,
                 x: 100,
                 y: 100,
                 event_type: CursorEventType::LeftClick { pressed: false }, // Release - should be ignored
+                cursor_id: None,
             },
             CursorEvent {
                 timestamp_ms: 500,
                 x: 150,
                 y: 150,
                 event_type: CursorEventType::RightClick { pressed: true },
+                cursor_id: None,
             },
         ];
 

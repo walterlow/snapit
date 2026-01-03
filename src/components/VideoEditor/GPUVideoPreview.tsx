@@ -7,7 +7,8 @@ import { useZoomPreview } from '../../hooks/useZoomPreview';
 import { useInterpolatedScene, shouldRenderScreen, getCameraOnlyTransitionOpacity, getRegularCameraTransitionOpacity } from '../../hooks/useSceneMode';
 import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { WebcamOverlay } from './WebcamOverlay';
-import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording } from '../../types';
+import { CursorOverlay } from './CursorOverlay';
+import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
@@ -201,7 +202,8 @@ const FullscreenWebcam = memo(function FullscreenWebcam({
     const targetTime = currentTimeMs / 1000;
     const diff = Math.abs(video.currentTime - targetTime);
 
-    if (diff > 0.1) {
+    // Use smaller threshold for more responsive scrubbing
+    if (diff > 0.05) {
       video.currentTime = targetTime;
     }
   }, [currentTimeMs, isPlaying]);
@@ -230,6 +232,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   videoSrc,
   zoomRegions,
   cursorRecording,
+  cursorConfig,
   webcamVideoPath,
   webcamConfig,
   sceneSegments,
@@ -242,6 +245,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   videoSrc: string | null | undefined;
   zoomRegions: ZoomRegion[] | undefined;
   cursorRecording: CursorRecording | null | undefined;
+  cursorConfig: CursorConfig | undefined;
   webcamVideoPath: string | undefined;
   webcamConfig: WebcamConfig | undefined;
   sceneSegments: SceneSegment[] | undefined;
@@ -308,9 +312,13 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
         </div>
       )}
 
-      {/* Fullscreen webcam - shown when cameraOnly opacity > 0 (during transitions AND when fully in cameraOnly) */}
-      {cameraOnlyOpacity > 0.01 && webcamVideoPath && (
-        <div style={fullscreenWebcamStyle}>
+      {/* Fullscreen webcam - always rendered (hidden when not needed) for instant scrubbing response */}
+      {webcamVideoPath && (
+        <div style={{
+          ...fullscreenWebcamStyle,
+          visibility: cameraOnlyOpacity > 0.01 ? 'visible' : 'hidden',
+          pointerEvents: cameraOnlyOpacity > 0.01 ? 'auto' : 'none',
+        }}>
           <FullscreenWebcam
             webcamVideoPath={webcamVideoPath}
             mirror={webcamConfig?.mirror}
@@ -329,6 +337,16 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
             containerHeight={containerHeight}
           />
         </div>
+      )}
+
+      {/* Cursor overlay - rendered on top of video content */}
+      {showScreen && containerWidth > 0 && containerHeight > 0 && (
+        <CursorOverlay
+          cursorRecording={cursorRecording}
+          cursorConfig={cursorConfig}
+          containerWidth={containerWidth}
+          containerHeight={containerHeight}
+        />
       )}
     </>
   );
@@ -508,6 +526,7 @@ export function GPUVideoPreview() {
             videoSrc={videoSrc ?? undefined}
             zoomRegions={project?.zoom?.regions}
             cursorRecording={cursorRecording}
+            cursorConfig={project?.cursor}
             webcamVideoPath={project?.sources.webcamVideo ?? undefined}
             webcamConfig={project?.webcam}
             sceneSegments={project?.scene?.segments}

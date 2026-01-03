@@ -75,6 +75,8 @@ export interface InterpolatedCursor {
   /** Velocity for motion blur effects */
   velocityX: number;
   velocityY: number;
+  /** Active cursor image ID (references cursorImages map) */
+  cursorId: string | null;
 }
 
 // ============================================================================
@@ -243,6 +245,7 @@ function densifyCursorMoves(
           x: current.x + (next.x - current.x) * t,
           y: current.y + (next.y - current.y) * t,
           eventType: { type: 'move' },
+          cursorId: null,
         });
       }
     }
@@ -358,14 +361,35 @@ function computeSmoothedEvents(
 }
 
 /**
+ * Find the active cursor ID at a given timestamp.
+ * Returns the cursor ID from the most recent event with a non-null cursorId.
+ */
+function getActiveCursorId(
+  events: CursorEvent[],
+  timeMs: number
+): string | null {
+  let activeCursorId: string | null = null;
+  
+  for (const event of events) {
+    if (event.timestampMs > timeMs) break;
+    if (event.cursorId !== null) {
+      activeCursorId = event.cursorId;
+    }
+  }
+  
+  return activeCursorId;
+}
+
+/**
  * Interpolate smoothed position at a specific timestamp.
  */
 function interpolateAtTime(
   events: SmoothedCursorEvent[],
-  timeMs: number
+  timeMs: number,
+  cursorId: string | null
 ): InterpolatedCursor {
   if (events.length === 0) {
-    return { x: 0.5, y: 0.5, velocityX: 0, velocityY: 0 };
+    return { x: 0.5, y: 0.5, velocityX: 0, velocityY: 0, cursorId };
   }
 
   // Before first event
@@ -376,6 +400,7 @@ function interpolateAtTime(
       y: e.position.y,
       velocityX: e.velocity.x,
       velocityY: e.velocity.y,
+      cursorId,
     };
   }
 
@@ -387,6 +412,7 @@ function interpolateAtTime(
       y: last.position.y,
       velocityX: last.velocity.x,
       velocityY: last.velocity.y,
+      cursorId,
     };
   }
 
@@ -410,6 +436,7 @@ function interpolateAtTime(
         y: sim.position.y,
         velocityX: sim.velocity.x,
         velocityY: sim.velocity.y,
+        cursorId,
       };
     }
   }
@@ -420,6 +447,7 @@ function interpolateAtTime(
     y: last.position.y,
     velocityX: last.velocity.x,
     velocityY: last.velocity.y,
+    cursorId,
   };
 }
 
@@ -444,17 +472,32 @@ export function useCursorInterpolation(
     return computeSmoothedEvents(cursorRecording);
   }, [cursorRecording]);
 
+  // Cache original events for cursor ID lookup
+  const originalEvents = useMemo(() => {
+    return cursorRecording?.events ?? [];
+  }, [cursorRecording]);
+
+  // Get fallback cursor ID from available cursor images
+  // This handles old recordings where early events might not have cursor_id
+  const fallbackCursorId = useMemo(() => {
+    const images = cursorRecording?.cursorImages ?? {};
+    const keys = Object.keys(images);
+    return keys.length > 0 ? keys[0] : null;
+  }, [cursorRecording?.cursorImages]);
+
   // Return interpolation function
   const getCursorAt = useCallback(
     (timeMs: number): InterpolatedCursor => {
-      return interpolateAtTime(smoothedEvents, timeMs);
+      const cursorId = getActiveCursorId(originalEvents, timeMs) ?? fallbackCursorId;
+      return interpolateAtTime(smoothedEvents, timeMs, cursorId);
     },
-    [smoothedEvents]
+    [smoothedEvents, originalEvents, fallbackCursorId]
   );
 
   return {
     getCursorAt,
     hasCursorData: smoothedEvents.length > 0,
+    cursorImages: cursorRecording?.cursorImages ?? {},
   };
 }
 
@@ -467,12 +510,12 @@ export function getRawCursorAt(
   timeMs: number
 ): InterpolatedCursor {
   if (!recording || recording.events.length === 0) {
-    return { x: 0.5, y: 0.5, velocityX: 0, velocityY: 0 };
+    return { x: 0.5, y: 0.5, velocityX: 0, velocityY: 0, cursorId: null };
   }
 
   const moves = recording.events.filter(e => e.eventType.type === 'move');
   if (moves.length === 0) {
-    return { x: 0.5, y: 0.5, velocityX: 0, velocityY: 0 };
+    return { x: 0.5, y: 0.5, velocityX: 0, velocityY: 0, cursorId: null };
   }
 
   // Find the event closest to but not after timeMs
@@ -485,11 +528,21 @@ export function getRawCursorAt(
     }
   }
 
+  // Get cursor ID with fallback to first available image
+  let cursorId = getActiveCursorId(recording.events, timeMs);
+  if (cursorId === null && recording.cursorImages) {
+    const keys = Object.keys(recording.cursorImages);
+    if (keys.length > 0) {
+      cursorId = keys[0];
+    }
+  }
+
   const pos = normalizePosition(closest.x, closest.y, recording);
   return {
     x: pos.x,
     y: pos.y,
     velocityX: 0,
     velocityY: 0,
+    cursorId,
   };
 }

@@ -18,7 +18,7 @@ use super::compositor::Compositor;
 use super::decoder::VideoDecoder;
 use super::renderer::Renderer;
 use super::types::{
-    DecodedFrame, EditorInstanceInfo, PlaybackEvent, PlaybackState, RenderOptions, RenderedFrame,
+    EditorInstanceInfo, PlaybackEvent, PlaybackState, RenderOptions, RenderedFrame,
 };
 use super::zoom::ZoomInterpolator;
 

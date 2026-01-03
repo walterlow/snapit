@@ -391,7 +391,9 @@ export type {
 export type {
   CursorEvent,
   CursorEventType,
+  CursorImage,
   CursorRecording,
+  WindowsCursorShape,
 } from './generated';
 
 // Video project types
@@ -406,6 +408,8 @@ export type {
   ZoomTransition,
   EasingFunction,
   CursorConfig,
+  CursorType,
+  CursorAnimationStyle,
   ClickHighlightConfig,
   ClickHighlightStyle,
   WebcamConfig,
@@ -457,7 +461,9 @@ export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
   mode: { type: 'monitor', monitorIndex: 0 },
   fps: 30,
   maxDurationSecs: null,
-  includeCursor: true,
+  // Disable system cursor in video frames - we render our own cursor overlay
+  // in the video editor with SVG cursors, smoothing, and effects
+  includeCursor: false,
   audio: {
     captureSystemAudio: true,
     microphoneDeviceIndex: null,

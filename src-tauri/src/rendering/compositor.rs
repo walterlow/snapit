@@ -7,7 +7,7 @@ use std::sync::Arc;
 use wgpu::{Device, Queue};
 
 use super::renderer::Renderer;
-use super::types::{CompositorUniforms, DecodedFrame, RenderOptions, WebcamShape};
+use super::types::{DecodedFrame, RenderOptions, WebcamShape};
 
 /// WGSL shader for video compositing with zoom and webcam overlay.
 /// Supports circle, squircle (superellipse), and rounded rectangle shapes with drop shadow.

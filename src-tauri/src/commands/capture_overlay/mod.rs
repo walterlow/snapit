@@ -511,21 +511,19 @@ fn run_overlay(
                         SetWindowPos, SetForegroundWindow, ShowWindow,
                         HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
                     };
-                    unsafe {
-                        // Restore if minimized
-                        let _ = ShowWindow(HWND(toolbar_hwnd.0), SW_RESTORE);
-                        // Show the window
-                        let _ = ShowWindow(HWND(toolbar_hwnd.0), SW_SHOW);
-                        // Set as topmost
-                        let _ = SetWindowPos(
-                            HWND(toolbar_hwnd.0),
-                            HWND_TOPMOST,
-                            0, 0, 0, 0,
-                            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-                        );
-                        // Force foreground
-                        let _ = SetForegroundWindow(HWND(toolbar_hwnd.0));
-                    }
+                    // Restore if minimized
+                    let _ = ShowWindow(HWND(toolbar_hwnd.0), SW_RESTORE);
+                    // Show the window
+                    let _ = ShowWindow(HWND(toolbar_hwnd.0), SW_SHOW);
+                    // Set as topmost
+                    let _ = SetWindowPos(
+                        HWND(toolbar_hwnd.0),
+                        HWND_TOPMOST,
+                        0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    );
+                    // Force foreground
+                    let _ = SetForegroundWindow(HWND(toolbar_hwnd.0));
                 }
                 let _ = win.show();
                 let _ = win.set_focus();

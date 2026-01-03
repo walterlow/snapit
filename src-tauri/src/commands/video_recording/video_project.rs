@@ -1400,21 +1400,17 @@ impl Default for AutoZoomConfig {
 /// 2. Filters for click events (left clicks by default)
 /// 3. Creates ZoomRegion entries for each click
 /// 4. Merges clicks that are too close together
-/// 5. Normalizes coordinates to 0-1 range
+/// 5. Normalizes coordinates to 0-1 range using region dimensions from the recording
 ///
 /// # Arguments
 /// * `cursor_data_path` - Path to the cursor recording JSON file
 /// * `config` - Auto-zoom configuration settings
-/// * `video_width` - Video width in pixels (for coordinate normalization)
-/// * `video_height` - Video height in pixels (for coordinate normalization)
 ///
 /// # Returns
 /// Vector of ZoomRegion entries sorted by start time
 pub fn generate_auto_zoom_regions(
     cursor_data_path: &std::path::Path,
     config: &AutoZoomConfig,
-    video_width: u32,
-    video_height: u32,
 ) -> Result<Vec<ZoomRegion>, String> {
     // Load cursor recording
     let recording = load_cursor_recording(cursor_data_path)?;
@@ -1436,7 +1432,12 @@ pub fn generate_auto_zoom_regions(
         return Ok(Vec::new());
     }
 
-    log::info!("[AUTO_ZOOM] Found {} click events", clicks.len());
+    log::info!(
+        "[AUTO_ZOOM] Found {} click events, region: {}x{}",
+        clicks.len(),
+        recording.region_width,
+        recording.region_height
+    );
 
     // Generate zoom regions
     let mut regions: Vec<ZoomRegion> = Vec::new();
@@ -1446,9 +1447,10 @@ pub fn generate_auto_zoom_regions(
         let relative_x = click.x - recording.region_offset_x;
         let relative_y = click.y - recording.region_offset_y;
 
-        // Normalize to 0-1 range based on video dimensions
-        let target_x = (relative_x as f32 / video_width as f32).clamp(0.0, 1.0);
-        let target_y = (relative_y as f32 / video_height as f32).clamp(0.0, 1.0);
+        // Normalize to 0-1 range using the recording's region dimensions
+        // This is consistent with cursor.rs normalize_position()
+        let target_x = (relative_x as f32 / recording.region_width as f32).clamp(0.0, 1.0);
+        let target_y = (relative_y as f32 / recording.region_height as f32).clamp(0.0, 1.0);
 
         // Check if this click is too close to the previous one
         if let Some(last_region) = regions.last_mut() {
@@ -1530,12 +1532,8 @@ pub fn apply_auto_zoom_to_project(
     }
 
     // Generate new auto-zoom regions
-    let new_regions = generate_auto_zoom_regions(
-        cursor_path,
-        config,
-        project.sources.original_width,
-        project.sources.original_height,
-    )?;
+    // Uses region dimensions from the cursor recording for coordinate normalization
+    let new_regions = generate_auto_zoom_regions(cursor_path, config)?;
 
     // Remove existing auto-generated regions, keep manual ones
     project.zoom.regions.retain(|r| !r.is_auto);

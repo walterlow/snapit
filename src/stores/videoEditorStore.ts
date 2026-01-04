@@ -135,6 +135,13 @@ interface VideoEditorState {
   generateAutoZoom: (config?: AutoZoomConfig) => Promise<void>;
   isGeneratingAutoZoom: boolean;
   
+  // Save state
+  isSaving: boolean;
+  lastSavedAt: string | null;
+  
+  // Save action
+  saveProject: () => Promise<void>;
+  
   // Export actions
   exportVideo: (outputPath: string) => Promise<ExportResult>;
   setExportProgress: (progress: ExportProgress | null) => void;
@@ -180,6 +187,8 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       isGeneratingAutoZoom: false,
       isExporting: false,
       exportProgress: null,
+      isSaving: false,
+      lastSavedAt: null,
 
       // Project actions
       setProject: (project) => {
@@ -866,6 +875,28 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       cancelExport: () => {
         // TODO: Implement cancel via Tauri command when backend supports it
         set({ isExporting: false, exportProgress: null });
+      },
+
+      // Save project to disk
+      saveProject: async () => {
+        const { project } = get();
+        if (!project) {
+          videoEditorLogger.warn('No project to save');
+          return;
+        }
+
+        set({ isSaving: true });
+
+        try {
+          await invoke('save_video_project', { project });
+          const savedAt = new Date().toISOString();
+          set({ isSaving: false, lastSavedAt: savedAt });
+          videoEditorLogger.info('Project saved successfully');
+        } catch (error) {
+          videoEditorLogger.error('Failed to save project:', error);
+          set({ isSaving: false });
+          throw error;
+        }
       },
     }),
     { name: 'VideoEditorStore', enabled: process.env.NODE_ENV === 'development' }

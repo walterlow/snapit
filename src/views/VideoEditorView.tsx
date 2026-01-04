@@ -352,6 +352,9 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     selectSceneSegment,
     updateSceneSegment,
     deleteSceneSegment,
+    // Save
+    saveProject,
+    isSaving,
   } = useVideoEditorStore();
 
   // Properties panel tab state
@@ -396,6 +399,17 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     setTimelineZoom(timelineZoom / 1.5);
   }, [timelineZoom, setTimelineZoom]);
 
+  // Save project handler
+  const handleSave = useCallback(async () => {
+    if (!project || isSaving) return;
+    try {
+      await saveProject();
+      toast.success('Project saved');
+    } catch {
+      toast.error('Failed to save project');
+    }
+  }, [project, isSaving, saveProject]);
+
   // Use keyboard shortcuts
   useVideoEditorShortcuts({
     enabled: !!project && !isExporting,
@@ -410,6 +424,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     onTimelineZoomIn: handleTimelineZoomIn,
     onTimelineZoomOut: handleTimelineZoomOut,
     onDeselect: handleDeselect,
+    onSave: handleSave,
     onExport: () => {}, // Will be wired to handleExport after it's defined
   });
 
@@ -423,6 +438,20 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
       unlisten.then((fn) => fn());
     };
   }, [setExportProgress]);
+
+  // Auto-save project when it changes (debounced)
+  useEffect(() => {
+    if (!project || isSaving || isExporting) return;
+
+    const timeoutId = setTimeout(() => {
+      saveProject().catch((error) => {
+        // Silent fail for auto-save - user can manually save with Ctrl+S
+        console.warn('Auto-save failed:', error);
+      });
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [project, isSaving, isExporting, saveProject]);
 
   // Navigate back to library
   const handleBack = useCallback(() => {

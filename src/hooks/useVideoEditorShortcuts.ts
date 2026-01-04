@@ -15,6 +15,7 @@ import { useEffect, useCallback } from 'react';
  * - Escape: Deselect all / exit split mode
  *
  * With modifiers:
+ * - Ctrl+S: Save project
  * - Ctrl+-: Zoom out timeline
  * - Ctrl+=: Zoom in timeline
  * - Ctrl+E: Export
@@ -33,6 +34,7 @@ interface UseVideoEditorShortcutsProps {
   onTimelineZoomIn: () => void;
   onTimelineZoomOut: () => void;
   onDeselect: () => void;
+  onSave: () => void;
   onExport: () => void;
 }
 
@@ -49,6 +51,7 @@ export function useVideoEditorShortcuts({
   onTimelineZoomIn,
   onTimelineZoomOut,
   onDeselect,
+  onSave,
   onExport,
 }: UseVideoEditorShortcutsProps) {
   // Check if event target is an input field
@@ -68,6 +71,10 @@ export function useVideoEditorShortcuts({
       // Modifier shortcuts
       if (isMod) {
         switch (e.key) {
+          case 's':
+            e.preventDefault();
+            onSave();
+            return;
           case '-':
           case '_':
             e.preventDefault();
@@ -148,6 +155,7 @@ export function useVideoEditorShortcuts({
     onTimelineZoomIn,
     onTimelineZoomOut,
     onDeselect,
+    onSave,
     onExport,
   ]);
 }

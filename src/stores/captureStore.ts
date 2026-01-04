@@ -18,6 +18,61 @@ interface LibraryCache {
   timestamp: number;
 }
 
+// Session persistence types
+type ViewType = 'library' | 'editor' | 'videoEditor';
+
+interface EditorSession {
+  view: ViewType;
+  projectId?: string;
+  videoProjectPath?: string;
+}
+
+// Save editor session to sessionStorage (survives F5 refresh)
+function saveEditorSession(session: EditorSession): void {
+  try {
+    sessionStorage.setItem(STORAGE.SESSION_VIEW_KEY, session.view);
+    if (session.projectId) {
+      sessionStorage.setItem(STORAGE.SESSION_PROJECT_ID_KEY, session.projectId);
+    } else {
+      sessionStorage.removeItem(STORAGE.SESSION_PROJECT_ID_KEY);
+    }
+    if (session.videoProjectPath) {
+      sessionStorage.setItem(STORAGE.SESSION_VIDEO_PROJECT_PATH_KEY, session.videoProjectPath);
+    } else {
+      sessionStorage.removeItem(STORAGE.SESSION_VIDEO_PROJECT_PATH_KEY);
+    }
+  } catch {
+    // sessionStorage might be disabled
+  }
+}
+
+// Load editor session from sessionStorage
+function loadEditorSession(): EditorSession | null {
+  try {
+    const view = sessionStorage.getItem(STORAGE.SESSION_VIEW_KEY) as ViewType | null;
+    if (!view || view === 'library') return null;
+    
+    return {
+      view,
+      projectId: sessionStorage.getItem(STORAGE.SESSION_PROJECT_ID_KEY) ?? undefined,
+      videoProjectPath: sessionStorage.getItem(STORAGE.SESSION_VIDEO_PROJECT_PATH_KEY) ?? undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Clear editor session
+function clearEditorSession(): void {
+  try {
+    sessionStorage.removeItem(STORAGE.SESSION_VIEW_KEY);
+    sessionStorage.removeItem(STORAGE.SESSION_PROJECT_ID_KEY);
+    sessionStorage.removeItem(STORAGE.SESSION_VIDEO_PROJECT_PATH_KEY);
+  } catch {
+    // Ignore
+  }
+}
+
 // Save captures to localStorage cache
 function saveToCache(captures: CaptureListItem[]): void {
   try {
@@ -120,6 +175,10 @@ interface CaptureState {
   setView: (view: 'library' | 'editor' | 'videoEditor') => void;
   setCurrentImageData: (data: string | null) => void;
   setCurrentProject: (project: CaptureProject | null) => void;
+  
+  // Session persistence (survives F5 refresh)
+  restoreEditorSession: () => Promise<boolean>;
+  saveEditorSession: () => void;
 }
 
 // Helper: Create placeholder capture for optimistic updates
@@ -268,8 +327,11 @@ export const useCaptureStore = create<CaptureState>()(
         hasUnsavedChanges: false,
         loadingProjectId: null,
       });
+      // Save session for F5 persistence
+      saveEditorSession({ view: 'editor', projectId: id });
     } catch (error) {
       // On error, go back to library
+      clearEditorSession();
       set({ error: String(error), loadingProjectId: null, view: 'library' });
     }
   },
@@ -535,17 +597,70 @@ export const useCaptureStore = create<CaptureState>()(
   setFilterFavorites: (value: boolean) => set({ filterFavorites: value }),
   setFilterTags: (tags: string[]) => set({ filterTags: tags }),
   setSkipStagger: (value: boolean) => set({ skipStagger: value }),
-  clearCurrentProject: () =>
+  clearCurrentProject: () => {
+    clearEditorSession();
     set({
       currentProject: null,
       currentImageData: null,
       hasUnsavedChanges: false,
       view: 'library',
-    }),
+    });
+  },
   setHasUnsavedChanges: (value: boolean) => set({ hasUnsavedChanges: value }),
-  setView: (view: 'library' | 'editor' | 'videoEditor') => set({ view }),
+  setView: (view: 'library' | 'editor' | 'videoEditor') => {
+    set({ view });
+    // Persist view change to session storage
+    if (view === 'library') {
+      clearEditorSession();
+    }
+  },
   setCurrentImageData: (data: string | null) => set({ currentImageData: data }),
   setCurrentProject: (project: CaptureProject | null) => set({ currentProject: project }),
+
+  // Save current editor session to sessionStorage
+  saveEditorSession: () => {
+    const { view, currentProject } = get();
+    if (view === 'editor' && currentProject) {
+      saveEditorSession({ view, projectId: currentProject.id });
+    } else if (view === 'videoEditor') {
+      // Video editor project path is handled separately via videoEditorStore
+      saveEditorSession({ view });
+    } else {
+      clearEditorSession();
+    }
+  },
+
+  // Restore editor session from sessionStorage (called on app init)
+  restoreEditorSession: async () => {
+    const session = loadEditorSession();
+    if (!session) return false;
+
+    if (session.view === 'editor' && session.projectId) {
+      try {
+        await get().loadProject(session.projectId);
+        return true;
+      } catch (error) {
+        libraryLogger.warn('Failed to restore editor session:', error);
+        clearEditorSession();
+        return false;
+      }
+    } else if (session.view === 'videoEditor' && session.videoProjectPath) {
+      try {
+        // Load video project and set it in video editor store
+        const { useVideoEditorStore } = await import('./videoEditorStore');
+        const project = await invoke('load_video_project', { videoPath: session.videoProjectPath });
+        useVideoEditorStore.getState().setProject(project as import('../types').VideoProject);
+        set({ view: 'videoEditor' });
+        return true;
+      } catch (error) {
+        libraryLogger.warn('Failed to restore video editor session:', error);
+        clearEditorSession();
+        return false;
+      }
+    }
+
+    return false;
+  },
 }),
     { name: 'CaptureStore', enabled: process.env.NODE_ENV === 'development' }
   )

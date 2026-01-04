@@ -18,6 +18,7 @@ import type {
   TextSegment,
   CursorRecording,
 } from '../types';
+import { STORAGE } from '../constants';
 import { videoEditorLogger } from '../utils/logger';
 
 interface VideoEditorState {
@@ -200,6 +201,16 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           selectedZoomRegionId: null,
           selectedWebcamSegmentIndex: null,
         });
+
+        // Save video project path to session storage for F5 persistence
+        if (project?.sources.screenVideo) {
+          try {
+            sessionStorage.setItem(STORAGE.SESSION_VIDEO_PROJECT_PATH_KEY, project.sources.screenVideo);
+            sessionStorage.setItem(STORAGE.SESSION_VIEW_KEY, 'videoEditor');
+          } catch {
+            // sessionStorage might be disabled
+          }
+        }
 
         // Auto-load cursor data if available
         if (project?.sources.cursorData) {

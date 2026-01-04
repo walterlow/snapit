@@ -37,12 +37,24 @@ export function useAppInitialization({
   triggerFullscreenCapture,
   triggerAllMonitorsCapture,
 }: UseAppInitializationProps) {
-  const { loadCaptures } = useCaptureStore();
+  const { loadCaptures, restoreEditorSession } = useCaptureStore();
 
-  // Load captures on mount
+  // Restore editor session and load captures on mount
   useEffect(() => {
-    loadCaptures();
-  }, [loadCaptures]);
+    const init = async () => {
+      // Try to restore editor session first (F5 refresh persistence)
+      const restored = await restoreEditorSession();
+      
+      // Always load captures for library (in background if editor restored)
+      if (!restored) {
+        await loadCaptures();
+      } else {
+        // Load captures in background for when user returns to library
+        loadCaptures();
+      }
+    };
+    init();
+  }, [loadCaptures, restoreEditorSession]);
 
   // Run startup cleanup (orphan temp files, missing thumbnails)
   useEffect(() => {

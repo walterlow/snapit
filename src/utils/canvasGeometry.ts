@@ -3,6 +3,7 @@
  */
 
 import type { CanvasShape } from '../types';
+import { editorLogger } from './logger';
 
 // Checkerboard pattern constants for transparency indication
 const CHECKER_SIZE = 10;
@@ -20,7 +21,7 @@ export const createCheckerPattern = (): HTMLImageElement | null => {
   canvas.height = CHECKER_SIZE * 2;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
-    console.error('Failed to get 2D canvas context for checker pattern');
+    editorLogger.error('Failed to get 2D canvas context for checker pattern');
     return null;
   }
   ctx.fillStyle = CHECKER_LIGHT;

@@ -69,6 +69,22 @@ pub enum SnapItError {
     #[error("Lock poisoned: {context}")]
     LockPoisoned { context: String },
 
+    /// GPU rendering error (wgpu)
+    #[error("GPU error: {0}")]
+    GpuError(String),
+
+    /// GPU device lost (recoverable - requires re-initialization)
+    #[error("GPU device lost: {0}")]
+    GpuDeviceLost(String),
+
+    /// Video editor error
+    #[error("Video editor error: {0}")]
+    VideoEditorError(String),
+
+    /// Export/render pipeline error
+    #[error("Export error: {0}")]
+    ExportError(String),
+
     /// Generic error with message
     #[error("{0}")]
     Other(String),
@@ -189,5 +205,20 @@ mod tests {
         if let Err(SnapItError::LockPoisoned { context }) = result {
             assert_eq!(context, "test_mutex");
         }
+    }
+
+    #[test]
+    fn test_gpu_and_editor_errors() {
+        let gpu = SnapItError::GpuError("shader compilation failed".to_string());
+        assert!(gpu.to_string().contains("GPU error"));
+
+        let gpu_lost = SnapItError::GpuDeviceLost("device removed".to_string());
+        assert!(gpu_lost.to_string().contains("GPU device lost"));
+
+        let editor = SnapItError::VideoEditorError("invalid timeline".to_string());
+        assert!(editor.to_string().contains("Video editor error"));
+
+        let export = SnapItError::ExportError("encoding failed".to_string());
+        assert!(export.to_string().contains("Export error"));
     }
 }

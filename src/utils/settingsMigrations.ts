@@ -12,6 +12,7 @@
 
 import { DEFAULT_GENERAL_SETTINGS, DEFAULT_SHORTCUTS } from '../types';
 import type { AppSettings, GeneralSettings, ShortcutConfig } from '../types';
+import { settingsLogger } from './logger';
 
 // Current settings schema version - increment when making breaking changes
 export const SETTINGS_VERSION = 1;
@@ -66,13 +67,13 @@ export function migrateSettings(rawSettings: RawSettings | null): RawSettings {
     const migrate = migrations[nextVersion];
 
     if (!migrate) {
-      console.warn(`No migration found for version ${nextVersion}`);
+      settingsLogger.warn(`No migration found for version ${nextVersion}`);
       // Skip to next version and hope for the best
       version = nextVersion;
       continue;
     }
 
-    console.log(`Migrating settings from v${version} to v${nextVersion}`);
+    settingsLogger.info(`Migrating settings from v${version} to v${nextVersion}`);
     settings = migrate(settings);
     version = settings._version ?? nextVersion;
   }

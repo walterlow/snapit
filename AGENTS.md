@@ -2,276 +2,190 @@
 
 > For agentic coding assistants working on this Tauri + React + Rust codebase.
 
-## Quick Reference
+**Generated:** 2026-01-05 | **Commit:** 949207b | **Branch:** videoeditor
 
-### Commands
+## Overview
 
-```bash
-# Development
-npm run dev              # Start Vite dev server (frontend only)
-npm run tauri dev        # Run full Tauri app in development
+Screen capture & annotation tool for Windows. Tauri 2 + React 19 + Rust + wgpu GPU rendering.
 
-# Build
-npm run build            # Build frontend (tsc + vite)
-npm run tauri build      # Build production app
-
-# Testing
-npm run test             # Run tests in watch mode
-npm run test:run         # Run tests once
-npm run test -- -t "pattern"           # Run tests matching pattern
-npm run test -- src/stores/editorStore # Run single test file
-npm run test:coverage    # Run with coverage
-
-# Linting & Type Checking
-npm run lint             # ESLint on src/
-npm run lint:fix         # ESLint with auto-fix
-npm run typecheck        # TypeScript check (tsc --noEmit)
-
-# Rust
-cargo test --lib         # Run Rust tests + generate TS types
-cargo clippy             # Rust linting
-cargo fmt                # Format Rust code
-```
-
-### Pre-commit Hook
-
-Husky runs `lint-staged` on commit, which runs ESLint --fix on staged `*.ts,*.tsx` files.
-
----
-
-## Project Structure
+## Structure
 
 ```
 snapit/
-├── src/                    # React frontend (TypeScript)
-│   ├── components/         # UI components (shadcn/ui pattern)
-│   ├── hooks/              # Custom React hooks
-│   ├── stores/             # Zustand state stores
-│   ├── types/              # TypeScript types
-│   │   └── generated/      # AUTO-GENERATED from Rust - DO NOT EDIT
-│   ├── utils/              # Utility functions
-│   ├── views/              # Main view components
-│   └── windows/            # Entry points for secondary windows
-├── src-tauri/              # Rust backend
+├── src/                        # React frontend (TypeScript)
+│   ├── components/
+│   │   ├── Editor/             # Canvas annotation editor (Konva) [AGENTS.md]
+│   │   ├── VideoEditor/        # Video editing UI + timeline [AGENTS.md]
+│   │   ├── Library/            # Capture library with virtualization
+│   │   ├── CaptureToolbar/     # Recording controls
+│   │   └── ui/                 # shadcn/ui components (24)
+│   ├── hooks/                  # 35 custom hooks [AGENTS.md]
+│   ├── stores/                 # 12 Zustand stores [AGENTS.md]
+│   ├── types/generated/        # AUTO-GENERATED - DO NOT EDIT
+│   ├── windows/                # Secondary window entry points
+│   └── constants/              # All magic numbers/strings
+├── src-tauri/
 │   ├── src/
-│   │   ├── commands/       # Tauri command handlers
-│   │   ├── rendering/      # GPU rendering (wgpu)
-│   │   ├── error.rs        # Central error types
-│   │   └── lib.rs          # App setup + tray
-│   └── capabilities/       # Tauri capability configs
-└── public/                 # Static assets
+│   │   ├── commands/           # 70+ Tauri handlers [AGENTS.md]
+│   │   ├── rendering/          # wgpu GPU pipeline [AGENTS.md]
+│   │   ├── error.rs            # SnapItError + SnapItResult
+│   │   └── lib.rs              # App setup, tray, plugins
+│   └── capabilities/           # Window permissions
+└── public/                     # Static assets
 ```
 
----
+## Where to Look
 
-## Code Style Guidelines
+| Task | Location | Notes |
+|------|----------|-------|
+| Add annotation tool | `src/components/Editor/shapes/` | Follow ShapeRenderer pattern |
+| Add Tauri command | `src-tauri/src/commands/` | Return `SnapItResult<T>` |
+| Add shared type | Rust file with `#[derive(TS)]` | Run `cargo test --lib` |
+| Add UI component | `src/components/ui/` | Use shadcn/ui CLI |
+| Add store | `src/stores/` | Use devtools middleware |
+| Add hook | `src/hooks/` | Extract from component logic |
+| Video editing | `src/components/VideoEditor/` | Uses GPU via Rust |
+| Screen capture | `src-tauri/src/commands/capture/` | xcap + BitBlt fallback |
+
+## Commands
+
+```bash
+# Development
+npm run tauri dev        # Full app with hot reload
+npm run dev              # Vite only (no Tauri)
+
+# Build
+npm run tauri build      # Production app
+cargo test --lib         # Regenerate TS types from Rust
+
+# Quality
+npm run test:run         # Vitest once
+npm run lint             # ESLint
+npm run typecheck        # tsc --noEmit
+cargo clippy             # Rust linting
+```
+
+## Conventions
 
 ### TypeScript
 
-**Imports**: Order by external → internal → types, use `@/` alias for src paths.
-
+**Imports**: External → internal (`@/`) → types
 ```typescript
-import { useState, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useState } from 'react';
 import { useEditorStore } from '@/stores/editorStore';
 import type { CanvasShape } from '@/types';
 ```
 
-**Naming**:
-- Components: PascalCase (`CaptureToolbar.tsx`)
-- Hooks: `use` prefix, camelCase (`useTheme.ts`)
-- Stores: camelCase with `Store` suffix (`editorStore.ts`)
-- Constants: SCREAMING_SNAKE_CASE (`STORAGE.HISTORY_LIMIT`)
-- Types/Interfaces: PascalCase (`EditorState`, `CanvasShape`)
+**Naming**: Components=PascalCase, hooks=`use*`, stores=`*Store`, constants=SCREAMING_SNAKE
 
-**Type Safety**:
-- NEVER use `as any`, `@ts-ignore`, `@ts-expect-error`
-- Prefix unused params with `_` (`_event`, `_unused`)
-- Use type guards for discriminated unions
-
-**No Hard-coded Values**: Extract magic numbers and strings to named constants in `src/constants/`.
-
+**No magic values**: Extract to `src/constants/`
 ```typescript
-// WRONG
-if (history.length > 50) { ... }
-const delay = 300;
-
-// CORRECT
-import { STORAGE, TIMING } from '@/constants';
-if (history.length > STORAGE.HISTORY_LIMIT) { ... }
-const delay = TIMING.DEBOUNCE_MS;
-```
-
-**State Management**: Zustand with devtools middleware.
-
-```typescript
-export const useEditorStore = create<EditorState>()(
-  devtools(
-    (set, get) => ({
-      // state and actions
-    }),
-    { name: 'EditorStore', enabled: process.env.NODE_ENV === 'development' }
-  )
-);
+// WRONG: if (history.length > 50)
+// CORRECT:
+import { STORAGE } from '@/constants';
+if (history.length > STORAGE.HISTORY_LIMIT)
 ```
 
 ### Rust
 
-**Error Handling**: Use `SnapItError` from `src-tauri/src/error.rs`. Always use `thiserror` for new error variants.
-
+**Error handling**: Always use `SnapItResult<T>` and `SnapItError` variants
 ```rust
 use crate::error::{SnapItError, SnapItResult};
 
 #[tauri::command]
 pub async fn my_command() -> SnapItResult<MyType> {
-    // ...
-    Err(SnapItError::CaptureError("reason".to_string()))
+    Err(SnapItError::CaptureError("reason".into()))
 }
 ```
 
-**Type Generation (ts-rs)**: Rust is the source of truth for shared types.
-
+**Type generation**: Rust is source of truth
 ```rust
-use ts_rs::TS;
-
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
-pub struct MyType {
-    pub some_field: String,
-    #[ts(type = "number")]  // u64 → number (JSON compat)
-    pub large_number: u64,
-}
+pub struct MyType { /* fields */ }
 ```
 
-After adding/modifying Rust types: `cargo test --lib` to regenerate TypeScript.
+### CSS
 
-**Naming**: snake_case for functions/variables, PascalCase for types, SCREAMING_SNAKE_CASE for constants.
-
-### CSS / Styling
-
-**Tailwind CSS 4** with shadcn/ui components (Radix UI primitives).
-
-**CRITICAL - Shadows**: NEVER use `box-shadow` for external shadows in Tauri windows.
-
+**CRITICAL - Shadows in Tauri**: NEVER use `box-shadow` for external shadows
 ```css
-/* WRONG - gets clipped in transparent windows */
-box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+/* WRONG - clipped in transparent windows */
+box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 
-/* CORRECT - use filter */
-filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
-
-/* box-shadow OK for inset only */
-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+/* CORRECT */
+filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
 ```
 
----
+## Anti-Patterns
+
+| Forbidden | Why |
+|-----------|-----|
+| `as any`, `@ts-ignore`, `@ts-expect-error` | Breaks type safety |
+| Edit `src/types/generated/*` | Overwritten by `cargo test --lib` |
+| `box-shadow` for external shadows | Clipped in Tauri windows |
+| Hard-coded numbers/strings | Use `src/constants/` |
+| Empty catch blocks | Handle or propagate errors |
 
 ## Key Patterns
 
-### Tauri Commands
-
-Frontend calls Rust via `invoke`:
-
+### Tauri IPC
 ```typescript
 import { invoke } from '@tauri-apps/api/core';
-
 const result = await invoke<FastCaptureResult>('capture_fullscreen_fast');
 ```
 
-Rust command signature:
+### Undo/Redo (Editor)
+```typescript
+import { takeSnapshot, commitSnapshot, recordAction } from '@/stores/editorStore';
 
-```rust
-#[tauri::command]
-pub async fn capture_fullscreen_fast() -> SnapItResult<FastCaptureResult> { ... }
+// Drag operations
+onDragStart={() => takeSnapshot()}
+onDragEnd={() => commitSnapshot()}
+
+// Instant actions
+recordAction(() => useEditorStore.getState().setShapes([...]));
 ```
 
-### Window Capabilities
-
-New windows must be added to `src-tauri/capabilities/desktop.json`:
-
-```json
-{
-  "windows": ["main", "library", "capture-toolbar", "new-window-name"]
-}
-```
-
-### React 19.2+ Activity
-
-Use `<Activity>` to preserve component state when switching views:
-
+### React 19 Activity
 ```tsx
-import { Activity } from 'react';
-
 <Activity mode={view === 'library' ? 'visible' : 'hidden'}>
   <CaptureLibrary />
 </Activity>
 ```
 
-### Undo/Redo Pattern
-
-Use snapshot-based history from editorStore:
-
-```typescript
-import { takeSnapshot, commitSnapshot, recordAction } from '@/stores/editorStore';
-
-// For drag operations
-onDragStart={() => takeSnapshot()}
-onDragEnd={() => commitSnapshot()}
-
-// For instant actions
-recordAction(() => {
-  useEditorStore.getState().setShapes([...]);
-});
+### Window Capabilities
+New windows must be added to `src-tauri/capabilities/desktop.json`:
+```json
+{ "windows": ["main", "library", "capture-toolbar", "new-window-name"] }
 ```
-
----
 
 ## Testing
 
-**Framework**: Vitest with jsdom, React Testing Library.
+**Framework**: Vitest + jsdom + React Testing Library
 
-**File naming**: `*.test.ts` or `*.test.tsx` in same directory as source.
-
-**Test structure**:
-
+**Mocks**: `src/test/mocks/tauri.ts` mocks all Tauri APIs
 ```typescript
-import { describe, it, expect, beforeEach } from 'vitest';
-
-describe('featureName', () => {
-  beforeEach(() => {
-    // Reset state
-  });
-
-  it('should do something specific', () => {
-    // Arrange, Act, Assert
-  });
-});
+import { setInvokeResponse } from '@/test/mocks/tauri';
+setInvokeResponse('command_name', mockResult);
 ```
 
-**Mocks**: Place in `src/test/mocks/`. Tauri APIs are mocked in `src/test/setup.ts`.
+**Pattern**: Tests colocated with source (`*.test.ts`)
 
----
+## Debugging
 
-## Important Notes
+| Issue | Check |
+|-------|-------|
+| Window events broken | `desktop.json` capabilities |
+| Type mismatch Rust↔TS | Run `cargo test --lib` |
+| Shadows clipped | Use `filter: drop-shadow()` |
+| State not persisting | Correct store + devtools enabled |
 
-1. **Simplicity first** - Make the simplest change possible. No backward compatibility unless asked.
+## Subdirectory Guides
 
-2. **Code readability** - Happy to make bigger changes to achieve better readability.
-
-3. **Generated types** - Never edit `src/types/generated/*`. Run `cargo test --lib` to regenerate.
-
-4. **FFmpeg/Rust for media** - Use ffmpeg-sidecar or Rust for media processing, not JavaScript.
-
-5. **shadcn/ui docs** - Component reference: https://ui.shadcn.com/docs
-
-6. **Path aliases** - Use `@/` for imports from `src/` (configured in tsconfig.json).
-
----
-
-## Debugging Tips
-
-- **Window events not working**: Check `desktop.json` capabilities
-- **Type mismatch Rust↔TS**: Run `cargo test --lib` to regenerate types
-- **Shadows clipped**: Use `filter: drop-shadow()` not `box-shadow`
-- **State not persisting**: Check if using correct store and devtools is enabled
+- [`src/components/Editor/AGENTS.md`](src/components/Editor/AGENTS.md) - Canvas annotation patterns
+- [`src/components/VideoEditor/AGENTS.md`](src/components/VideoEditor/AGENTS.md) - Video editing UI
+- [`src/stores/AGENTS.md`](src/stores/AGENTS.md) - Zustand state management
+- [`src/hooks/AGENTS.md`](src/hooks/AGENTS.md) - Custom hook conventions
+- [`src-tauri/src/commands/AGENTS.md`](src-tauri/src/commands/AGENTS.md) - Tauri command handlers
+- [`src-tauri/src/rendering/AGENTS.md`](src-tauri/src/rendering/AGENTS.md) - GPU rendering pipeline

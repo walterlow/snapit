@@ -3,6 +3,9 @@
 //! Composites video frames with zoom, webcam overlay (with circle/squircle mask and shadow).
 //! Shadow and squircle implementation based on Cap's rendering.
 
+// Allow unused fields - kept for potential future use
+#![allow(dead_code)]
+
 use std::sync::Arc;
 use wgpu::{Device, Queue};
 

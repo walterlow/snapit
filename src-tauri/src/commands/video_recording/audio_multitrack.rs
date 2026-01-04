@@ -3,6 +3,11 @@
 //! Records system audio and microphone to separate WAV files for later mixing.
 //! This enables independent volume control and audio editing in post-production.
 //!
+//! **NOTE**: Currently unused - audio is mixed in real-time instead of multi-track.
+//! Kept for potential future use in advanced audio editing.
+
+#![allow(dead_code)]
+
 //! # Architecture
 //!
 //! ```text

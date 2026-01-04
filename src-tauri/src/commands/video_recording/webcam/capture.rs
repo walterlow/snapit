@@ -7,6 +7,9 @@
 //! This avoids the "only one app can use camera" issue by having a single
 //! capture source that multiple consumers can read from.
 
+// Allow unused helpers - keeping for potential future use
+#![allow(dead_code)]
+
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -51,6 +54,9 @@ fn encode_bgra_to_jpeg(bgra: &[u8], width: u32, height: u32, quality: u8) -> Opt
 }
 
 /// A webcam frame with reference-counted pixel data for zero-copy sharing.
+///
+/// Note: Some fields are used by capture but not yet consumed by encoder/preview.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct SharedFrame {
     /// Frame data - BGRA pixels for encoder.

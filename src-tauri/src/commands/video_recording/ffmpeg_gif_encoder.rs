@@ -187,7 +187,6 @@ impl FfmpegGifEncoder {
 
         // Pipe frames directly to FFmpeg (only valid-sized frames)
         let total = valid_frames.len();
-        let mut written_frames = 0;
         for (i, frame) in valid_frames.iter().enumerate() {
             if let Err(e) = stdin.write_all(&frame.rgba_data) {
                 // Write failed - FFmpeg probably crashed, get stderr
@@ -202,7 +201,6 @@ impl FfmpegGifEncoder {
                 ));
             }
 
-            written_frames += 1;
             progress_callback((i + 1) as f32 / total as f32 * 0.9);
         }
 

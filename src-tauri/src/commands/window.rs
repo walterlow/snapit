@@ -1,3 +1,6 @@
+// Allow unused helpers - keeping for potential future use
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{command, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 

@@ -7,6 +7,10 @@
 //! - Click highlight animations
 //! - Cursor rendering in video editor (cursor images stored separately)
 
+// Allow unused helpers and Windows API return values
+#![allow(dead_code)]
+#![allow(unused_must_use)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -638,12 +642,12 @@ fn run_position_capture_loop(
     start_time: Instant,
 ) {
     let interval = Duration::from_micros(16667); // ~60fps
-    let mut last_x = i32::MIN;
-    let mut last_y = i32::MIN;
-    let mut last_cursor_handle: isize = 0;
 
     // Capture initial cursor immediately so first event has a valid cursor_id
     let (init_x, init_y, init_cursor_handle, init_cursor_visible) = get_cursor_info();
+    let mut last_x = init_x;
+    let mut last_y = init_y;
+    let mut last_cursor_handle: isize = 0;
     let mut initial_cursor_id: Option<String> = None;
 
     if init_cursor_visible && init_cursor_handle != 0 {
@@ -688,8 +692,6 @@ fn run_position_capture_loop(
             cursor_id: current_cursor_id.clone(),
         });
     }
-    last_x = init_x;
-    last_y = init_y;
 
     while !should_stop.load(Ordering::SeqCst) {
         let loop_start = Instant::now();

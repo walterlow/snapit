@@ -8,6 +8,9 @@
 //! - Force restore on app startup in case of previous crash
 //! - Always restore at end of recording thread
 
+// Allow unused helpers - keeping for potential future use
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Track if we hid the icons (so we only restore if we were the ones who hid them)

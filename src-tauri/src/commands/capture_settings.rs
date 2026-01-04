@@ -2,6 +2,12 @@
 //!
 //! These types define the settings for each capture mode (screenshot, video, GIF).
 //! They are exported to TypeScript via ts-rs for use in the frontend settings store.
+//!
+//! **NOTE**: These types exist for TypeScript generation only.
+//! Settings are stored in the frontend via Zustand; Rust receives individual
+//! values via commands rather than these composite structs.
+
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

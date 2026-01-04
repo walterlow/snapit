@@ -4,6 +4,9 @@
 //! The main recording loop pipes frames directly, ensuring perfect sync
 //! with screen recording (same loop iteration = same timestamp).
 
+// Allow unused encoder variants - keeping for potential future use
+#![allow(dead_code)]
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};

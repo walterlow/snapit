@@ -3,6 +3,9 @@
 //! Uses windows-capture's DXGI Duplication API for frame capture
 //! and VideoEncoder for hardware-accelerated MP4 encoding.
 
+// Allow unused internal helpers - may be useful for future features
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

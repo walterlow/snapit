@@ -6,6 +6,9 @@
 //! - Stroke style for dashed crosshair lines
 //! - Text format for size indicator
 
+// Allow unused fields - kept for resource lifetime management
+#![allow(dead_code)]
+
 use windows::core::{Interface, Result, PCWSTR};
 use windows::Foundation::Numerics::Matrix3x2;
 use windows::Win32::Graphics::Direct2D::Common::{

@@ -3,6 +3,9 @@
 //! This module contains all types, enums, constants, and geometry primitives
 //! used throughout the capture overlay system.
 
+// Allow unused utility methods - may be useful for future features
+#![allow(dead_code)]
+
 use serde::{Serialize, Serializer};
 use windows::core::PCWSTR;
 

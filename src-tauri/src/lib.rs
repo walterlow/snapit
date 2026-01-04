@@ -1,40 +1,17 @@
-use std::sync::Mutex;
-use tauri::{
-    image::Image,
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
-    Emitter, Manager, WindowEvent,
-};
+use tauri::{image::Image, Manager};
 
 #[cfg(desktop)]
 use tauri_plugin_autostart::MacosLauncher;
 
+pub mod app;
 mod commands;
+pub mod config;
 pub mod error;
 pub mod rendering;
 
-/// Holds references to tray menu items for dynamic updates
+// Re-export TrayState for external use
 #[cfg(desktop)]
-pub struct TrayState {
-    pub new_capture: MenuItem<tauri::Wry>,
-    pub fullscreen: MenuItem<tauri::Wry>,
-    pub all_monitors: MenuItem<tauri::Wry>,
-}
-
-#[cfg(desktop)]
-impl TrayState {
-    pub fn update_new_capture_text(&self, text: &str) -> Result<(), tauri::Error> {
-        self.new_capture.set_text(text)
-    }
-
-    pub fn update_fullscreen_text(&self, text: &str) -> Result<(), tauri::Error> {
-        self.fullscreen.set_text(text)
-    }
-
-    pub fn update_all_monitors_text(&self, text: &str) -> Result<(), tauri::Error> {
-        self.all_monitors.set_text(text)
-    }
-}
+pub use app::TrayState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -89,35 +66,7 @@ pub fn run() {
 
     builder
         .on_window_event(|window, event| {
-            match event {
-                // Fix Windows resize lag by adding small delay
-                // See: https://github.com/tauri-apps/tauri/issues/6322#issuecomment-2495685888
-                #[cfg(target_os = "windows")]
-                WindowEvent::Resized(_) => {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                },
-                // Minimize to tray instead of closing the main window (if enabled)
-                WindowEvent::CloseRequested { api, .. } => {
-                    let label = window.label();
-
-                    // Close webcam preview when main window or capture toolbar closes
-                    if label == "library" || label == "capture-toolbar" {
-                        if let Some(webcam_window) =
-                            window.app_handle().get_webview_window("webcam-preview")
-                        {
-                            let _ = webcam_window.destroy();
-                        }
-                    }
-
-                    // Handle minimize to tray for library window
-                    if label == "library" && commands::settings::is_close_to_tray() {
-                        api.prevent_close();
-                        let _ = window.hide();
-                    }
-                    // Otherwise let the window close normally
-                },
-                _ => {},
-            }
+            app::events::handle_window_event(window, event);
         })
         .invoke_handler(tauri::generate_handler![
             // Capture commands (with transparency support)
@@ -196,25 +145,29 @@ pub fn run() {
             commands::video_recording::pause_recording,
             commands::video_recording::resume_recording,
             commands::video_recording::get_recording_status,
-            commands::video_recording::set_recording_countdown,
-            commands::video_recording::set_recording_system_audio,
-            commands::video_recording::set_recording_fps,
-            commands::video_recording::set_recording_quality,
-            commands::video_recording::set_gif_quality_preset,
-            commands::video_recording::set_recording_include_cursor,
-            commands::video_recording::set_recording_quick_capture,
-            commands::video_recording::set_recording_max_duration,
-            commands::video_recording::set_recording_microphone_device,
-            commands::video_recording::set_hide_desktop_icons,
-            commands::video_recording::reset_recording_settings_cmd,
-            // Webcam commands
-            commands::video_recording::get_webcam_settings_cmd,
-            commands::video_recording::set_webcam_enabled,
-            commands::video_recording::set_webcam_device,
-            commands::video_recording::set_webcam_position,
-            commands::video_recording::set_webcam_size,
-            commands::video_recording::set_webcam_shape,
-            commands::video_recording::set_webcam_mirror,
+            // Recording config commands (from centralized config module)
+            config::recording::set_recording_countdown,
+            config::recording::set_recording_system_audio,
+            config::recording::set_recording_fps,
+            config::recording::set_recording_quality,
+            config::recording::set_gif_quality_preset,
+            config::recording::set_recording_include_cursor,
+            config::recording::set_recording_quick_capture,
+            config::recording::set_recording_max_duration,
+            config::recording::set_recording_microphone_device,
+            config::recording::set_hide_desktop_icons,
+            config::recording::reset_recording_config_cmd,
+            config::recording::set_recording_config,
+            config::recording::get_recording_config,
+            // Webcam config commands (from centralized config module)
+            config::webcam::get_webcam_settings_cmd,
+            config::webcam::set_webcam_enabled,
+            config::webcam::set_webcam_device,
+            config::webcam::set_webcam_position,
+            config::webcam::set_webcam_size,
+            config::webcam::set_webcam_shape,
+            config::webcam::set_webcam_mirror,
+            config::webcam::set_webcam_config,
             commands::video_recording::list_webcam_devices,
             commands::video_recording::list_audio_input_devices,
             commands::video_recording::close_webcam_preview,
@@ -308,8 +261,7 @@ pub fn run() {
 
             #[cfg(desktop)]
             {
-                let tray_state = setup_system_tray(app)?;
-                app.manage(Mutex::new(tray_state));
+                app::tray::init(app)?;
                 // Note: Shortcuts are now registered dynamically via frontend
                 // after settings are loaded. See commands::settings module.
             }
@@ -358,143 +310,6 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-#[cfg(desktop)]
-fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::Error>> {
-    use tauri::menu::PredefinedMenuItem;
-
-    let quit = MenuItem::with_id(app, "quit", "Quit SnapIt", true, None::<&str>)?;
-    let show_toolbar = MenuItem::with_id(
-        app,
-        "show_toolbar",
-        "Show Capture Toolbar",
-        true,
-        None::<&str>,
-    )?;
-    let capture = MenuItem::with_id(app, "capture", "New Capture", true, None::<&str>)?;
-    let capture_full = MenuItem::with_id(app, "capture_full", "Fullscreen", true, None::<&str>)?;
-    let capture_all = MenuItem::with_id(app, "capture_all", "All Monitors", true, None::<&str>)?;
-    let show = MenuItem::with_id(app, "show", "Show Library", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
-
-    let menu = Menu::with_items(
-        app,
-        &[
-            &show_toolbar,
-            &separator,
-            &capture,
-            &capture_full,
-            &capture_all,
-            &separator,
-            &show,
-            &settings,
-            &separator,
-            &quit,
-        ],
-    )?;
-
-    // Load custom tray icon (32x32 is standard for system tray)
-    let tray_icon =
-        Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("Failed to load tray icon");
-
-    let _tray = TrayIconBuilder::new()
-        .icon(tray_icon)
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(move |app, event| match event.id.as_ref() {
-            "quit" => app.exit(0),
-            "show_toolbar" => {
-                let app_handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = commands::window::show_startup_toolbar(app_handle).await {
-                        log::error!("Failed to show capture toolbar: {}", e);
-                    }
-                });
-            },
-            "capture" => {
-                let _ = commands::window::trigger_capture(app, None);
-            },
-            "capture_full" => {
-                // Fast fullscreen capture - no overlay, no PNG encoding
-                let app_handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Ok(result) = commands::capture::capture_fullscreen_fast().await {
-                        let _ = commands::window::open_editor_fast(
-                            app_handle,
-                            result.file_path,
-                            result.width,
-                            result.height,
-                        )
-                        .await;
-                    }
-                });
-            },
-            "capture_all" => {
-                // Capture all monitors combined
-                let app_handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Ok(bounds) = commands::capture::get_virtual_screen_bounds().await {
-                        let selection = commands::capture::ScreenRegionSelection {
-                            x: bounds.x,
-                            y: bounds.y,
-                            width: bounds.width,
-                            height: bounds.height,
-                        };
-                        if let Ok(result) =
-                            commands::capture::capture_screen_region_fast(selection).await
-                        {
-                            let _ = commands::window::open_editor_fast(
-                                app_handle,
-                                result.file_path,
-                                result.width,
-                                result.height,
-                            )
-                            .await;
-                        }
-                    }
-                });
-            },
-            "show" => {
-                if let Some(window) = app.get_webview_window("library") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            },
-            "settings" => {
-                // Show library window and emit event to open settings modal
-                if let Some(window) = app.get_webview_window("library") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-                let _ = app.emit("open-settings", ());
-            },
-            _ => {},
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::Click {
-                button: tauri::tray::MouseButton::Left,
-                button_state: tauri::tray::MouseButtonState::Up,
-                ..
-            } = event
-            {
-                // Left-click shows the capture toolbar
-                let app = tray.app_handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = commands::window::show_startup_toolbar(app).await {
-                        log::error!("Failed to show capture toolbar on tray click: {}", e);
-                    }
-                });
-            }
-        })
-        .build(app)?;
-
-    Ok(TrayState {
-        new_capture: capture,
-        fullscreen: capture_full,
-        all_monitors: capture_all,
-    })
 }
 
 // Global shortcuts are now registered dynamically via commands::settings module

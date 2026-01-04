@@ -8,6 +8,9 @@
 //! - `MonitorInfo` - Virtual screen bounds and coordinate conversion
 //! - `DragState` - Initial region selection (mouse drag)
 //! - `AdjustmentState` - Post-selection resize/move
+
+// Allow unused utility methods - may be useful for future features
+#![allow(dead_code)]
 //! - `CursorState` - Current cursor position and hovered window
 //! - `ResultState` - Final selection result
 //! - `GraphicsState` - All graphics resources (boxed)

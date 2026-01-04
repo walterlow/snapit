@@ -2,6 +2,11 @@
 //!
 //! Renders visual effects (ripple, spotlight, ring) at click locations
 //! during video export. Based on cursor events from CursorRecording.
+//!
+//! **DEPRECATED**: Click highlights are now rendered in the frontend.
+//! Kept for reference and potential fallback.
+
+#![allow(dead_code)]
 
 use super::events::{CursorEvent, CursorEventType};
 use crate::commands::video_recording::video_project::{ClickHighlightConfig, ClickHighlightStyle};

@@ -5,6 +5,9 @@
 //! 2. Different spring profiles (default, snappy near clicks, drag when held)
 //! 3. Cursor movement densification for sparse data
 
+// Allow unused fields - kept for potential future use
+#![allow(dead_code)]
+
 use crate::commands::video_recording::cursor::events::{
     CursorEvent, CursorEventType, CursorImage, CursorRecording,
 };

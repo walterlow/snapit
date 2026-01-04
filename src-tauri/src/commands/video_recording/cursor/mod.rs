@@ -9,6 +9,9 @@
 //! - Cursor smooth movement interpolation
 //! - Click highlight animations
 
+// Allow unused helpers - keeping for potential future use
+#![allow(dead_code)]
+
 mod capture;
 mod composite;
 pub mod events;
@@ -32,6 +35,9 @@ use std::sync::Arc;
 /// Uses Arc<Vec<u8>> for bgra_data to avoid expensive clones.
 /// Cursor bitmaps are typically 4KB+ and cloning on every frame
 /// would add significant allocation overhead.
+///
+/// **DEPRECATED**: Used by CPU-based cursor compositing, now replaced by GPU rendering.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct CursorState {
     /// Cursor is visible and should be drawn.
@@ -71,6 +77,9 @@ impl Default for CursorState {
 ///
 /// Uses Arc<Vec<u8>> for bgra_data to allow zero-cost sharing
 /// with CursorState without cloning the bitmap data.
+///
+/// **DEPRECATED**: Used by CPU-based cursor compositing.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct CachedCursor {
     pub width: u32,
@@ -85,6 +94,9 @@ pub(crate) struct CachedCursor {
 /// Caches cursor bitmaps by HCURSOR handle to avoid expensive
 /// GetDIBits calls every frame. The cache is invalidated when
 /// the cursor handle changes (e.g., switching from arrow to I-beam).
+///
+/// **DEPRECATED**: Used by CPU-based cursor compositing.
+#[allow(dead_code)]
 pub struct CursorCaptureManager {
     /// Cache of cursor bitmaps by HCURSOR handle.
     pub(crate) cache: HashMap<isize, CachedCursor>,

@@ -3,6 +3,9 @@
 //! Ported from Cap's zoom.rs - provides smooth zoom transitions
 //! using bounds-based interpolation and bezier easing curves.
 
+// Allow unused interpolation modes - keeping full implementation
+#![allow(dead_code)]
+
 use super::types::ZoomState;
 use crate::commands::video_recording::video_project::{ZoomConfig, ZoomRegion, ZoomRegionMode};
 

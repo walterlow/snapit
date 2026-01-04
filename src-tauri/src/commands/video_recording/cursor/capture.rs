@@ -2,6 +2,11 @@
 //!
 //! Uses DrawIconEx to render cursor directly onto frame buffer,
 //! which handles all cursor types correctly (color, monochrome, animated).
+//!
+//! **DEPRECATED**: Cursor capture is now handled via cursor events recording
+//! and rendered in the GPU-based editor. Kept for reference.
+
+#![allow(dead_code)]
 
 use super::{CachedCursor, CursorCaptureManager, CursorState};
 use std::mem;

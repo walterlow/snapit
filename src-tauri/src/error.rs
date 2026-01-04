@@ -134,6 +134,58 @@ impl<T> LockResultExt<T> for Result<T, std::sync::PoisonError<T>> {
     }
 }
 
+/// Extension trait for adding context to Results.
+///
+/// Similar to anyhow's `Context` trait, this allows chaining context
+/// information onto errors for better debugging.
+///
+/// # Example
+/// ```ignore
+/// use crate::error::{ResultExt, SnapItResult};
+///
+/// fn load_config() -> SnapItResult<Config> {
+///     std::fs::read_to_string("config.json")
+///         .context("failed to read config file")?;
+///     // ...
+/// }
+/// ```
+pub trait ResultExt<T> {
+    /// Add context to an error, converting it to SnapItError::Other.
+    fn context(self, msg: &str) -> SnapItResult<T>;
+
+    /// Add context lazily (only evaluated on error).
+    fn with_context<F: FnOnce() -> String>(self, f: F) -> SnapItResult<T>;
+}
+
+impl<T, E: std::fmt::Display> ResultExt<T> for Result<T, E> {
+    fn context(self, msg: &str) -> SnapItResult<T> {
+        self.map_err(|e| SnapItError::Other(format!("{}: {}", msg, e)))
+    }
+
+    fn with_context<F: FnOnce() -> String>(self, f: F) -> SnapItResult<T> {
+        self.map_err(|e| SnapItError::Other(format!("{}: {}", f(), e)))
+    }
+}
+
+/// Extension trait for adding context to Option types.
+pub trait OptionExt<T> {
+    /// Convert None to SnapItError::Other with the given message.
+    fn context(self, msg: &str) -> SnapItResult<T>;
+
+    /// Convert None to SnapItError::Other with a lazily evaluated message.
+    fn with_context<F: FnOnce() -> String>(self, f: F) -> SnapItResult<T>;
+}
+
+impl<T> OptionExt<T> for Option<T> {
+    fn context(self, msg: &str) -> SnapItResult<T> {
+        self.ok_or_else(|| SnapItError::Other(msg.to_string()))
+    }
+
+    fn with_context<F: FnOnce() -> String>(self, f: F) -> SnapItResult<T> {
+        self.ok_or_else(|| SnapItError::Other(f()))
+    }
+}
+
 /// Type alias for Results using SnapItError.
 pub type SnapItResult<T> = Result<T, SnapItError>;
 
@@ -220,5 +272,63 @@ mod tests {
 
         let export = SnapItError::ExportError("encoding failed".to_string());
         assert!(export.to_string().contains("Export error"));
+    }
+
+    #[test]
+    fn test_result_ext_context() {
+        let result: Result<(), &str> = Err("original error");
+        let with_context = result.context("operation failed");
+
+        assert!(matches!(with_context, Err(SnapItError::Other(_))));
+        let msg = with_context.unwrap_err().to_string();
+        assert!(msg.contains("operation failed"));
+        assert!(msg.contains("original error"));
+    }
+
+    #[test]
+    fn test_result_ext_with_context() {
+        let result: Result<(), &str> = Err("inner");
+        let with_context = result.with_context(|| format!("ctx-{}", 42));
+
+        let msg = with_context.unwrap_err().to_string();
+        assert!(msg.contains("ctx-42"));
+        assert!(msg.contains("inner"));
+    }
+
+    #[test]
+    fn test_result_ext_ok_passthrough() {
+        let result: Result<i32, &str> = Ok(42);
+        let with_context = result.context("should not appear");
+
+        assert_eq!(with_context.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_option_ext_context() {
+        let opt: Option<i32> = None;
+        let result = opt.context("value was missing");
+
+        assert!(matches!(result, Err(SnapItError::Other(_))));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("value was missing"));
+    }
+
+    #[test]
+    fn test_option_ext_some_passthrough() {
+        let opt: Option<i32> = Some(42);
+        let result = opt.context("should not appear");
+
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_option_ext_with_context() {
+        let opt: Option<i32> = None;
+        let result = opt.with_context(|| format!("missing value at index {}", 5));
+
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("missing value at index 5"));
     }
 }

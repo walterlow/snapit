@@ -2,6 +2,9 @@
 //!
 //! Provides frame-accurate seeking and prefetching for smooth playback.
 
+// Allow unused cache methods - kept for potential optimization
+#![allow(dead_code)]
+
 use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::Arc;

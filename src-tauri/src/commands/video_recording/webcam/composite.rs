@@ -2,6 +2,11 @@
 //!
 //! Alpha blends the webcam frame onto the captured screen frame
 //! with support for circular and rectangular shapes.
+//!
+//! **DEPRECATED**: Webcam compositing is now done via GPU in
+//! `rendering/compositor.rs`. Kept for reference.
+
+#![allow(dead_code)]
 
 use super::{compute_webcam_rect, WebcamFrame, WebcamSettings, WebcamShape};
 

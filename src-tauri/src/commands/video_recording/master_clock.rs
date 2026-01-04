@@ -8,6 +8,10 @@
 //!
 //! All timestamps are in 100-nanosecond units (Windows FILETIME format) for
 //! compatibility with Media Foundation encoders.
+//!
+//! **NOTE**: Currently only used in tests. Production code uses frame-based timing.
+
+#![allow(dead_code)]
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;

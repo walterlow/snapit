@@ -6,6 +6,12 @@
 //! - Smooth easing transitions
 //! - Multiple output formats (MP4, WebM, GIF)
 //! - Progress reporting via Tauri events
+//!
+//! **NOTE**: VideoExporter struct is deprecated (replaced by GPU-based export).
+//! Types (ExportProgress, ExportStage, ExportResult) are still used.
+
+// Allow deprecated VideoExporter code
+#![allow(dead_code)]
 
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -70,10 +76,14 @@ pub struct ExportResult {
 }
 
 // ============================================================================
-// Video Exporter
+// Video Exporter (DEPRECATED)
 // ============================================================================
 
 /// FFmpeg-based video exporter for edited projects.
+///
+/// **DEPRECATED**: This CPU-based exporter is replaced by GPU-based
+/// `rendering::exporter::export_video_gpu()`. Kept for reference.
+#[allow(dead_code)]
 pub struct VideoExporter {
     ffmpeg_path: PathBuf,
     project: VideoProject,

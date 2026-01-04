@@ -6,6 +6,9 @@
 //! WGC is more robust across different monitor configurations but may have
 //! slightly higher latency than DXGI.
 
+// Allow unused internal helpers
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;

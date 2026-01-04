@@ -2,6 +2,11 @@
 //!
 //! Alpha blends the cursor bitmap onto the captured frame.
 //! Supports cursor scaling for video editor cursor size adjustment.
+//!
+//! **DEPRECATED**: This CPU-based compositing is replaced by GPU rendering
+//! in `rendering/cursor.rs`. Kept for reference and potential fallback.
+
+#![allow(dead_code)]
 
 use super::CursorState;
 

@@ -7,6 +7,9 @@
 //!   - Preview window (via Tauri command)
 //! - This avoids "only one app can use camera" conflicts
 
+// Allow unused helpers - keeping for potential future use
+#![allow(dead_code)]
+
 mod capture;
 mod composite;
 mod device;
@@ -22,6 +25,9 @@ use std::time::Instant;
 use ts_rs::TS;
 
 /// Webcam frame data ready for compositing.
+///
+/// **DEPRECATED**: Used by CPU-based webcam compositing, now replaced by GPU rendering.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct WebcamFrame {
     /// BGRA pixel data.

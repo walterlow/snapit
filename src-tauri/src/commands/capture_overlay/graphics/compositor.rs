@@ -3,6 +3,9 @@
 //! DirectComposition allows us to create transparent windows that don't cause
 //! video blackout issues that occur with traditional WS_EX_LAYERED windows.
 
+// Allow unused fields - kept for resource lifetime management
+#![allow(dead_code)]
+
 use windows::core::{Interface, Result};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct3D11::ID3D11Device;

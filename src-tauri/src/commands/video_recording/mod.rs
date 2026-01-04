@@ -30,16 +30,28 @@ pub mod video_project;
 pub mod webcam;
 pub mod wgc_capture;
 
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::Mutex;
 use tauri::{command, AppHandle, Emitter, Manager};
 use ts_rs::TS;
 
-use crate::error::{LockResultExt, SnapItError};
+// ============================================================================
+// Re-exports from config module (centralized settings management)
+// ============================================================================
 
 pub use ffmpeg_gif_encoder::GifQualityPreset;
 pub use state::RECORDING_CONTROLLER;
+
+// Recording config - re-export only what's actually used in this module
+pub use crate::config::recording::{
+    get_countdown_secs, get_fps, get_gif_quality_preset, get_include_cursor, get_max_duration_secs,
+    get_microphone_device_index, get_quality, get_quick_capture, get_system_audio_enabled,
+};
+
+// Webcam config - re-export only what's actually used
+pub use crate::config::webcam::{get_webcam_settings, WebcamSize, WEBCAM_CONFIG};
 
 // Video editor types
 pub use cursor::CursorRecording;
@@ -52,283 +64,8 @@ pub use video_project::{
 // GPU-accelerated editor
 pub use gpu_editor::EditorState;
 
-// Global recording settings (set from frontend before starting recording)
-static COUNTDOWN_SECS: AtomicU32 = AtomicU32::new(3);
-static SYSTEM_AUDIO_ENABLED: AtomicBool = AtomicBool::new(true);
-static FPS: AtomicU32 = AtomicU32::new(30);
-static QUALITY: AtomicU32 = AtomicU32::new(80);
-static GIF_QUALITY_PRESET: AtomicU8 = AtomicU8::new(1); // 0=Fast, 1=Balanced, 2=High
-static INCLUDE_CURSOR: AtomicBool = AtomicBool::new(true);
-static MAX_DURATION_SECS: AtomicU32 = AtomicU32::new(0); // 0 = unlimited
-static MICROPHONE_DEVICE_INDEX: AtomicU32 = AtomicU32::new(u32::MAX); // u32::MAX = no microphone
-static QUICK_CAPTURE: AtomicBool = AtomicBool::new(false); // false = editor flow, true = quick capture
-
-/// Reset all recording settings to their default values.
-/// Useful when starting a fresh recording session or after errors.
-pub fn reset_recording_settings() {
-    COUNTDOWN_SECS.store(3, Ordering::SeqCst);
-    SYSTEM_AUDIO_ENABLED.store(true, Ordering::SeqCst);
-    FPS.store(30, Ordering::SeqCst);
-    QUALITY.store(80, Ordering::SeqCst);
-    GIF_QUALITY_PRESET.store(1, Ordering::SeqCst); // Balanced
-    INCLUDE_CURSOR.store(true, Ordering::SeqCst);
-    MAX_DURATION_SECS.store(0, Ordering::SeqCst); // unlimited
-    MICROPHONE_DEVICE_INDEX.store(u32::MAX, Ordering::SeqCst); // no microphone
-    QUICK_CAPTURE.store(false, Ordering::SeqCst); // editor flow
-    log::debug!("[SETTINGS] Recording settings reset to defaults");
-}
-
-/// Reset all recording settings to defaults (Tauri command).
-#[command]
-pub fn reset_recording_settings_cmd() {
-    reset_recording_settings();
-}
-
-/// Get the current countdown setting
-pub fn get_countdown_secs() -> u32 {
-    COUNTDOWN_SECS.load(Ordering::SeqCst)
-}
-
-/// Set the countdown preference (called from frontend before starting recording)
-#[command]
-pub fn set_recording_countdown(secs: u32) {
-    COUNTDOWN_SECS.store(secs, Ordering::SeqCst);
-}
-
-/// Get the current system audio setting
-pub fn get_system_audio_enabled() -> bool {
-    SYSTEM_AUDIO_ENABLED.load(Ordering::SeqCst)
-}
-
-/// Set the system audio preference (called from frontend before starting recording)
-#[command]
-pub fn set_recording_system_audio(enabled: bool) {
-    SYSTEM_AUDIO_ENABLED.store(enabled, Ordering::SeqCst);
-}
-
-/// Get the current FPS setting
-pub fn get_fps() -> u32 {
-    FPS.load(Ordering::SeqCst)
-}
-
-/// Set the FPS (called from frontend before starting recording)
-#[command]
-pub fn set_recording_fps(fps: u32) {
-    // Clamp to valid range (10-60)
-    FPS.store(fps.clamp(10, 60), Ordering::SeqCst);
-}
-
-/// Get the current quality setting
-pub fn get_quality() -> u32 {
-    QUALITY.load(Ordering::SeqCst)
-}
-
-/// Set the quality (called from frontend before starting recording)
-#[command]
-pub fn set_recording_quality(quality: u32) {
-    // Clamp to valid range (1-100)
-    QUALITY.store(quality.clamp(1, 100), Ordering::SeqCst);
-}
-
-/// Get the current GIF quality preset
-pub fn get_gif_quality_preset() -> GifQualityPreset {
-    match GIF_QUALITY_PRESET.load(Ordering::SeqCst) {
-        0 => GifQualityPreset::Fast,
-        2 => GifQualityPreset::High,
-        _ => GifQualityPreset::Balanced,
-    }
-}
-
-/// Set the GIF quality preset (called from frontend before starting GIF recording)
-#[command]
-pub fn set_gif_quality_preset(preset: GifQualityPreset) {
-    let value = match preset {
-        GifQualityPreset::Fast => 0,
-        GifQualityPreset::Balanced => 1,
-        GifQualityPreset::High => 2,
-    };
-    GIF_QUALITY_PRESET.store(value, Ordering::SeqCst);
-}
-
-/// Get the current include_cursor setting
-pub fn get_include_cursor() -> bool {
-    INCLUDE_CURSOR.load(Ordering::SeqCst)
-}
-
-/// Set whether to include cursor (called from frontend before starting recording)
-#[command]
-pub fn set_recording_include_cursor(include: bool) {
-    log::debug!("[SETTINGS] set_recording_include_cursor({})", include);
-    INCLUDE_CURSOR.store(include, Ordering::SeqCst);
-}
-
-/// Get the current quick capture setting
-pub fn get_quick_capture() -> bool {
-    QUICK_CAPTURE.load(Ordering::SeqCst)
-}
-
-/// Set whether to use quick capture mode (called from frontend before starting recording)
-/// Quick capture saves directly to file, skipping the video editor.
-#[command]
-pub fn set_recording_quick_capture(quick: bool) {
-    log::debug!("[SETTINGS] set_recording_quick_capture({})", quick);
-    QUICK_CAPTURE.store(quick, Ordering::SeqCst);
-}
-
-/// Get the current max duration setting (0 = unlimited)
-pub fn get_max_duration_secs() -> Option<u32> {
-    let val = MAX_DURATION_SECS.load(Ordering::SeqCst);
-    if val == 0 {
-        None
-    } else {
-        Some(val)
-    }
-}
-
-/// Set the max duration (called from frontend before starting recording)
-#[command]
-pub fn set_recording_max_duration(secs: u32) {
-    MAX_DURATION_SECS.store(secs, Ordering::SeqCst);
-}
-
-/// Get the current microphone device index (None = no microphone)
-pub fn get_microphone_device_index() -> Option<usize> {
-    let val = MICROPHONE_DEVICE_INDEX.load(Ordering::SeqCst);
-    if val == u32::MAX {
-        None
-    } else {
-        Some(val as usize)
-    }
-}
-
-/// Set the microphone device index (called from frontend before starting recording)
-/// Pass None or a value >= u32::MAX to disable microphone capture.
-#[command]
-pub fn set_recording_microphone_device(index: Option<u32>) {
-    let store_val = index.unwrap_or(u32::MAX);
-    log::debug!(
-        "[SETTINGS] set_recording_microphone_device({:?}) -> storing {}",
-        index,
-        store_val
-    );
-    MICROPHONE_DEVICE_INDEX.store(store_val, Ordering::SeqCst);
-}
-
-/// Set whether to hide desktop icons during recording
-#[command]
-pub fn set_hide_desktop_icons(enabled: bool) {
-    log::debug!("[SETTINGS] set_hide_desktop_icons({})", enabled);
-    desktop_icons::set_hide_desktop_icons_enabled(enabled);
-}
-
-// ============================================================================
-// Webcam Settings (Global Atomics)
-// ============================================================================
-
-use lazy_static::lazy_static;
-use std::sync::Mutex;
-
-pub use webcam::{
-    get_webcam_devices, WebcamDevice, WebcamPosition, WebcamSettings, WebcamShape, WebcamSize,
-};
-
-lazy_static! {
-    /// Global webcam settings (protected by mutex since it's a struct).
-    static ref WEBCAM_SETTINGS: Mutex<WebcamSettings> = Mutex::new(WebcamSettings::default());
-}
-
-/// Get the current webcam settings (internal use).
-pub fn get_webcam_settings() -> Result<WebcamSettings, SnapItError> {
-    Ok(WEBCAM_SETTINGS
-        .lock()
-        .map_lock_err("WEBCAM_SETTINGS")?
-        .clone())
-}
-
-/// Get the current webcam settings (Tauri command).
-#[command]
-pub fn get_webcam_settings_cmd() -> Result<WebcamSettings, SnapItError> {
-    let settings = WEBCAM_SETTINGS
-        .lock()
-        .map_lock_err("WEBCAM_SETTINGS")?
-        .clone();
-    log::debug!(
-        "[WEBCAM] get_webcam_settings_cmd returning enabled={}",
-        settings.enabled
-    );
-    Ok(settings)
-}
-
-/// Check if webcam capture is enabled.
-pub fn is_webcam_enabled() -> Result<bool, SnapItError> {
-    Ok(WEBCAM_SETTINGS
-        .lock()
-        .map_lock_err("WEBCAM_SETTINGS")?
-        .enabled)
-}
-
-/// Set webcam enabled state.
-#[command]
-pub fn set_webcam_enabled(enabled: bool) -> Result<(), SnapItError> {
-    log::debug!("[SETTINGS] set_webcam_enabled({})", enabled);
-    WEBCAM_SETTINGS
-        .lock()
-        .map_lock_err("WEBCAM_SETTINGS")?
-        .enabled = enabled;
-    Ok(())
-}
-
-/// Set webcam device index.
-#[command]
-pub fn set_webcam_device(device_index: usize) -> Result<(), SnapItError> {
-    log::debug!("[SETTINGS] set_webcam_device({})", device_index);
-    WEBCAM_SETTINGS
-        .lock()
-        .map_lock_err("WEBCAM_SETTINGS")?
-        .device_index = device_index;
-    Ok(())
-}
-
-/// Set webcam position.
-#[command]
-pub fn set_webcam_position(position: WebcamPosition) -> Result<(), SnapItError> {
-    log::debug!("[SETTINGS] set_webcam_position({:?})", position);
-    WEBCAM_SETTINGS
-        .lock()
-        .map_lock_err("WEBCAM_SETTINGS")?
-        .position = position;
-    Ok(())
-}
-
-/// Set webcam size.
-#[command]
-pub fn set_webcam_size(size: WebcamSize) -> Result<(), SnapItError> {
-    log::debug!("[SETTINGS] set_webcam_size({:?})", size);
-    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.size = size;
-    Ok(())
-}
-
-/// Set webcam shape.
-#[command]
-pub fn set_webcam_shape(shape: WebcamShape) -> Result<(), SnapItError> {
-    log::debug!("[SETTINGS] set_webcam_shape({:?})", shape);
-    WEBCAM_SETTINGS
-        .lock()
-        .map_lock_err("WEBCAM_SETTINGS")?
-        .shape = shape;
-    Ok(())
-}
-
-/// Set webcam mirror mode.
-#[command]
-pub fn set_webcam_mirror(mirror: bool) -> Result<(), SnapItError> {
-    log::debug!("[SETTINGS] set_webcam_mirror({})", mirror);
-    WEBCAM_SETTINGS
-        .lock()
-        .map_lock_err("WEBCAM_SETTINGS")?
-        .mirror = mirror;
-    Ok(())
-}
+// Webcam device listing
+pub use webcam::{get_webcam_devices, WebcamDevice};
 
 /// Get available webcam devices.
 #[command]
@@ -376,11 +113,12 @@ pub fn prewarm_capture() -> Result<(), String> {
     log::info!("[PREWARM] Pre-warming capture resources...");
 
     // Pre-warm webcam if enabled
-    let webcam_enabled = WEBCAM_SETTINGS.lock().map(|s| s.enabled).unwrap_or(false);
+    let webcam_config = WEBCAM_CONFIG.read();
+    let webcam_enabled = webcam_config.enabled;
+    let device_index = webcam_config.device_index;
+    drop(webcam_config); // Release lock before potentially slow operations
 
     if webcam_enabled {
-        let device_index = WEBCAM_SETTINGS.lock().map(|s| s.device_index).unwrap_or(0);
-
         if !webcam::is_capture_running() {
             log::info!(
                 "[PREWARM] Starting webcam capture (device {})",
@@ -427,7 +165,7 @@ pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
     }
 
     // Check webcam settings (fast)
-    let webcam_enabled = WEBCAM_SETTINGS.lock().map(|s| s.enabled).unwrap_or(false);
+    let webcam_enabled = WEBCAM_CONFIG.read().enabled;
 
     if webcam_enabled && format == RecordingFormat::Mp4 {
         // For MP4, output_path is a folder - webcam goes inside as webcam.mp4
@@ -537,7 +275,7 @@ pub fn list_audio_input_devices() -> Result<Vec<AudioInputDevice>, String> {
     use wasapi::{initialize_mta, DeviceEnumerator, Direction};
 
     // Initialize COM for this thread
-    initialize_mta().ok();
+    let _ = initialize_mta();
 
     let enumerator = DeviceEnumerator::new()
         .map_err(|e| format!("Failed to create device enumerator: {:?}", e))?;
@@ -649,15 +387,10 @@ pub async fn move_webcam_to_anchor(
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("webcam-preview") {
         // Get webcam size from settings
-        let webcam_size = {
-            let settings = WEBCAM_SETTINGS
-                .lock()
-                .map_err(|_| "Failed to lock webcam settings".to_string())?;
-            match settings.size {
-                WebcamSize::Small => 120,
-                WebcamSize::Medium => 160,
-                WebcamSize::Large => 200,
-            }
+        let webcam_size = match WEBCAM_CONFIG.read().size {
+            WebcamSize::Small => 120,
+            WebcamSize::Medium => 160,
+            WebcamSize::Large => 200,
         };
 
         let padding = 16; // Padding from selection edge
@@ -698,15 +431,10 @@ pub async fn clamp_webcam_to_selection(
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("webcam-preview") {
         // Get webcam size from settings
-        let webcam_size = {
-            let settings = WEBCAM_SETTINGS
-                .lock()
-                .map_err(|_| "Failed to lock webcam settings".to_string())?;
-            match settings.size {
-                WebcamSize::Small => 120,
-                WebcamSize::Medium => 160,
-                WebcamSize::Large => 200,
-            }
+        let webcam_size = match WEBCAM_CONFIG.read().size {
+            WebcamSize::Small => 120,
+            WebcamSize::Medium => 160,
+            WebcamSize::Large => 200,
         };
 
         let padding = 16;
@@ -1650,25 +1378,6 @@ pub fn emit_state_change(app: &AppHandle, state: &RecordingState) {
     }
     let _ = app.emit("recording-state-changed", state);
 }
-
-/// Webcam error event payload.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WebcamErrorEvent {
-    pub message: String,
-    pub is_fatal: bool,
-}
-
-/// Emit a webcam error event to the frontend.
-pub fn emit_webcam_error(app: &AppHandle, message: &str, is_fatal: bool) {
-    let event = WebcamErrorEvent {
-        message: message.to_string(),
-        is_fatal,
-    };
-    println!("[EMIT] webcam-error: {:?}", event);
-    let _ = app.emit("webcam-error", event);
-}
-
 // ============================================================================
 // Audio Level Monitoring Commands
 // ============================================================================

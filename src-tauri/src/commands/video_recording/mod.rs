@@ -170,9 +170,32 @@ pub fn prewarm_capture() -> Result<(), String> {
 /// This spawns FFmpeg for webcam so recording starts instantly.
 /// Called from frontend when user finishes drawing selection (before clicking Record).
 /// Runs heavy work in background thread to avoid blocking UI.
+///
+/// NOTE: This function is idempotent - if called multiple times (e.g., due to React
+/// double-render or StrictMode), it cancels any previous preparation before starting new.
 #[command]
 pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
     log::info!("[PREPARE] Preparing recording resources (background)...");
+
+    // IMPORTANT: Cancel any existing prepared resources FIRST to avoid race conditions.
+    // If prepare_recording is called twice quickly (React double-render), we need to
+    // ensure the webcam pipe matches the output path that will actually be used.
+    if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
+        if let Some(old_pipe) = prepared.take() {
+            log::info!("[PREPARE] Cancelling previous webcam pipe to avoid path mismatch");
+            old_pipe.cancel();
+        }
+    }
+    if let Ok(mut prepared) = get_prepared_output_path().lock() {
+        if let Some(old_path) = prepared.take() {
+            // Don't delete the folder - a background FFmpeg might still be starting up.
+            // Just clear the reference; orphaned empty folders are harmless.
+            log::info!(
+                "[PREPARE] Cleared previous output path reference: {:?}",
+                old_path
+            );
+        }
+    }
 
     // Generate output path now (before record click) - this is fast
     let settings = RecordingSettings {
@@ -193,6 +216,7 @@ pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
     if webcam_enabled && format == RecordingFormat::Mp4 {
         // For MP4, output_path is a folder - webcam goes inside as webcam.mp4
         let webcam_path = output_path.join("webcam.mp4");
+        let expected_output_path = output_path.clone();
 
         // Spawn FFmpeg in background thread - this is the slow part
         std::thread::spawn(move || {
@@ -200,10 +224,31 @@ pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
 
             match webcam::WebcamEncoderPipe::new(webcam_path) {
                 Ok(pipe) => {
-                    if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
-                        *prepared = Some(pipe);
+                    // IMPORTANT: Before storing, verify this pipe's output path is still the current one.
+                    // If prepare_recording was called again while we were spawning, our path is stale.
+                    let should_store = if let Ok(current_path) = get_prepared_output_path().lock() {
+                        current_path.as_ref() == Some(&expected_output_path)
+                    } else {
+                        false
+                    };
+
+                    if should_store {
+                        if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
+                            // Double-check no other pipe was stored while we were checking
+                            if let Some(existing) = prepared.take() {
+                                log::info!("[PREPARE] Cancelling superseded pipe");
+                                existing.cancel();
+                            }
+                            *prepared = Some(pipe);
+                        }
+                        log::info!("[PREPARE] FFmpeg spawned and ready");
+                    } else {
+                        log::info!(
+                            "[PREPARE] Discarding stale webcam pipe (path changed): {:?}",
+                            expected_output_path
+                        );
+                        pipe.cancel();
                     }
-                    log::info!("[PREPARE] FFmpeg spawned and ready");
                 },
                 Err(e) => {
                     log::warn!("[PREPARE] Failed to spawn FFmpeg: {}", e);

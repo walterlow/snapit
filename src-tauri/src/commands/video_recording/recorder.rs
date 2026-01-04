@@ -1407,6 +1407,34 @@ fn run_gif_capture(
         _ => None,
     };
 
+    // Determine monitor index and offset for Region mode
+    // We need the monitor offset to convert screen-space crop coords to monitor-local coords
+    let (monitor_index, monitor_offset) = match &settings.mode {
+        RecordingMode::Monitor { monitor_index } => (*monitor_index, (0, 0)),
+        RecordingMode::Region { x, y, .. } => {
+            // Find monitor that contains this region's top-left corner
+            if let Ok(monitors) = xcap::Monitor::all() {
+                let mut found_idx = 0;
+                let mut offset = (0i32, 0i32);
+                for (idx, m) in monitors.iter().enumerate() {
+                    let mx = m.x().unwrap_or(0);
+                    let my = m.y().unwrap_or(0);
+                    let mw = m.width().unwrap_or(0) as i32;
+                    let mh = m.height().unwrap_or(0) as i32;
+                    if *x >= mx && *x < mx + mw && *y >= my && *y < my + mh {
+                        found_idx = idx;
+                        offset = (mx, my);
+                        break;
+                    }
+                }
+                (found_idx, offset)
+            } else {
+                (0, (0, 0))
+            }
+        },
+        _ => (0, (0, 0)),
+    };
+
     // Start WGC capture based on mode
     // For window capture, wait for first frame to ensure capture is ready
     let (wgc, first_frame_dims) = if let Some(wid) = window_id {
@@ -1422,11 +1450,7 @@ fn run_gif_capture(
         let dims = first_frame.as_ref().map(|(w, h, _)| (*w, *h));
         (wgc, dims)
     } else {
-        // Monitor/Region mode: use monitor capture
-        let monitor_index = match &settings.mode {
-            RecordingMode::Monitor { monitor_index } => *monitor_index,
-            _ => 0,
-        };
+        // Monitor/Region mode: use monitor capture with correct monitor
         log::debug!("[GIF] Using monitor capture, index={}", monitor_index);
         let wgc = WgcVideoCapture::new(monitor_index, settings.include_cursor)
             .map_err(|e| format!("Failed to start WGC capture: {}", e))?;
@@ -1508,20 +1532,21 @@ fn run_gif_capture(
         // WGC returns BGRA - keep it as BGRA, FFmpeg will handle it
         let bgra_data = frame.data;
 
-        // Crop if needed
-        let final_data = if let Some((x, y, w, h)) = crop_region {
-            let x = x.max(0) as u32;
-            let y = y.max(0) as u32;
+        // Crop if needed - convert screen-space coords to monitor-local coords
+        let final_data = if let Some((screen_x, screen_y, w, h)) = crop_region {
+            // Subtract monitor offset to get monitor-local coordinates
+            let local_x = (screen_x - monitor_offset.0).max(0) as u32;
+            let local_y = (screen_y - monitor_offset.1).max(0) as u32;
             let mut cropped = Vec::with_capacity((w * h * 4) as usize);
 
             // Skip if crop region is outside frame bounds
-            if x < frame.width && y < frame.height {
-                let available_width = frame.width.saturating_sub(x);
+            if local_x < frame.width && local_y < frame.height {
+                let available_width = frame.width.saturating_sub(local_x);
                 let crop_w = w.min(available_width);
 
-                for row in y..(y + h).min(frame.height) {
-                    let start = ((row * frame.width + x) * 4) as usize;
-                    let end = ((row * frame.width + x + crop_w) * 4) as usize;
+                for row in local_y..(local_y + h).min(frame.height) {
+                    let start = ((row * frame.width + local_x) * 4) as usize;
+                    let end = ((row * frame.width + local_x + crop_w) * 4) as usize;
                     if start < bgra_data.len() && end <= bgra_data.len() {
                         cropped.extend_from_slice(&bgra_data[start..end]);
                     }

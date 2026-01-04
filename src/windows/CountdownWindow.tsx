@@ -45,15 +45,19 @@ const CountdownWindow: React.FC = () => {
     return null;
   }
 
+  // Use viewport-relative sizing so it scales properly at any DPI/window size
+  // The circle is sized relative to the smaller viewport dimension
   return (
     <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
       {/* Countdown container - no backdrop, just the countdown circle */}
-      <div className="relative">
-        {/* Countdown circle */}
+      <div className="relative flex flex-col items-center">
+        {/* Countdown circle - responsive size using min(vw, vh) */}
         <div
           key={count}
-          className="flex items-center justify-center w-40 h-40 rounded-full"
+          className="flex items-center justify-center rounded-full"
           style={{
+            width: 'min(160px, 40vw, 40vh)',
+            height: 'min(160px, 40vw, 40vh)',
             background: 'rgba(0, 0, 0, 0.85)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
@@ -65,7 +69,7 @@ const CountdownWindow: React.FC = () => {
           <span
             className="font-bold select-none"
             style={{
-              fontSize: '5rem',
+              fontSize: 'min(5rem, 20vw, 20vh)',
               color: '#fff',
               textShadow: '0 0 30px rgba(249, 112, 102, 0.8)',
             }}
@@ -74,12 +78,13 @@ const CountdownWindow: React.FC = () => {
           </span>
         </div>
 
-        {/* Text below */}
+        {/* Text below - responsive font size */}
         <div
-          className="absolute left-1/2 transform -translate-x-1/2 whitespace-nowrap text-center mt-6"
+          className="whitespace-nowrap text-center"
           style={{
+            marginTop: 'min(24px, 3vh)',
             color: 'rgba(255, 255, 255, 0.9)',
-            fontSize: '16px',
+            fontSize: 'min(16px, 4vw, 4vh)',
             fontWeight: 500,
             textShadow: '0 2px 8px rgba(0, 0, 0, 0.5)',
           }}

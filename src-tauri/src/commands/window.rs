@@ -757,6 +757,7 @@ pub async fn bring_capture_toolbar_to_front(app: AppHandle) -> Result<(), String
 
 /// Resize the capture toolbar window based on actual content size.
 /// Called by frontend after measuring rendered content via getBoundingClientRect().
+/// Frontend sends CSS pixels (logical), so we use Logical size to match.
 #[command]
 pub async fn resize_capture_toolbar(app: AppHandle, width: u32, height: u32) -> Result<(), String> {
     const MAX_WIDTH: u32 = 1280;
@@ -768,13 +769,14 @@ pub async fn resize_capture_toolbar(app: AppHandle, width: u32, height: u32) -> 
     // Clamp width to max
     let width = width.min(MAX_WIDTH);
 
-    // Get current position to maintain it
-    let current_pos = window
-        .outer_position()
-        .map_err(|e| format!("Failed to get position: {}", e))?;
-
-    // Resize using physical coordinates for consistency with set_physical_bounds
-    set_physical_bounds(&window, current_pos.x, current_pos.y, width, height)?;
+    // Use Logical size since frontend sends CSS pixels from getBoundingClientRect()
+    // This ensures the window size matches the content size at any DPI scaling
+    window
+        .set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: width as f64,
+            height: height as f64,
+        }))
+        .map_err(|e| format!("Failed to set size: {}", e))?;
 
     Ok(())
 }
@@ -880,7 +882,8 @@ pub async fn set_capture_toolbar_ignore_cursor(
 const COUNTDOWN_WINDOW_LABEL: &str = "countdown";
 
 /// Show the countdown overlay window during recording countdown.
-/// The window is fullscreen, transparent, click-through, and displays a large countdown number.
+/// The window is transparent, click-through, and displays a centered countdown number.
+/// Window size matches the recording region exactly (physical coordinates).
 #[command]
 pub async fn show_countdown_window(
     app: AppHandle,

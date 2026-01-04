@@ -39,6 +39,7 @@ const CaptureToolbarWindow: React.FC = () => {
   useTheme();
 
   // Refs for layout
+  const containerRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -97,7 +98,7 @@ const CaptureToolbarWindow: React.FC = () => {
   } = useSelectionEvents();
 
   // Measure content and resize window to fit
-  useToolbarPositioning({ contentRef, selectionConfirmed });
+  useToolbarPositioning({ containerRef, contentRef, selectionConfirmed, mode });
 
   // --- Event handlers ---
 
@@ -417,7 +418,7 @@ const CaptureToolbarWindow: React.FC = () => {
   // --- Render ---
 
   return (
-    <div className="app-container">
+    <div ref={containerRef} className="app-container">
       <Titlebar title="SnapIt Capture" showMaximize={false} onClose={handleTitlebarClose} onOpenLibrary={handleOpenLibrary} />
       <div ref={toolbarRef} className="toolbar-container">
         <div className="toolbar-animated-wrapper">

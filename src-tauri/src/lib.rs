@@ -130,7 +130,10 @@ pub fn run() {
             commands::settings::open_file_with_default_app,
             commands::settings::get_default_save_dir,
             commands::settings::update_tray_shortcut,
-            commands::settings::set_close_to_tray,
+            // App config commands (from centralized config module)
+            config::app::set_close_to_tray,
+            config::app::get_app_config,
+            config::app::set_app_config,
             // Font commands
             commands::fonts::get_system_fonts,
             // Keyboard hook commands (Windows shortcut override)

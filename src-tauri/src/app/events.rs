@@ -4,7 +4,7 @@
 
 use tauri::{Manager, Window, WindowEvent};
 
-use crate::commands;
+use crate::config;
 
 /// Handle window events for the application.
 ///
@@ -32,7 +32,7 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             }
 
             // Handle minimize to tray for library window
-            if label == "library" && commands::settings::is_close_to_tray() {
+            if label == "library" && config::app::is_close_to_tray() {
                 api.prevent_close();
                 let _ = window.hide();
             }

@@ -2,7 +2,11 @@
 //!
 //! These tests focus on pure logic and serialization without I/O dependencies.
 
-use super::*;
+use chrono::Utc;
+
+use super::ffmpeg::THUMBNAIL_SIZE;
+use super::generate_id;
+use super::types::*;
 
 #[test]
 fn test_generate_id_format() {

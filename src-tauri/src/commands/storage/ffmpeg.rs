@@ -1,0 +1,300 @@
+//! FFmpeg utilities for video processing and thumbnail generation.
+
+use image::DynamicImage;
+use std::fs;
+use std::path::PathBuf;
+
+/// Thumbnail size in pixels (longest edge).
+pub const THUMBNAIL_SIZE: u32 = 400;
+
+/// Find ffmpeg binary - checks bundled location, sidecar cache, then system PATH.
+pub fn find_ffmpeg() -> Option<PathBuf> {
+    let binary_name = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
+
+    // Check bundled location (next to executable)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let bundled = exe_dir.join(binary_name);
+            if bundled.exists() {
+                return Some(bundled);
+            }
+            // Also check resources subdirectory (Tauri puts resources there on some platforms)
+            let resources = exe_dir.join("resources").join(binary_name);
+            if resources.exists() {
+                return Some(resources);
+            }
+        }
+    }
+
+    // Check ffmpeg-sidecar cache
+    if let Ok(sidecar_dir) = ffmpeg_sidecar::paths::sidecar_dir() {
+        let cached = sidecar_dir.join(binary_name);
+        if cached.exists() {
+            return Some(cached);
+        }
+    }
+
+    // Check system PATH (for development or if ffmpeg is installed globally)
+    if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
+        .arg(binary_name)
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            let first_line = path_str.lines().next().unwrap_or("").trim();
+            if !first_line.is_empty() {
+                let path = PathBuf::from(first_line);
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Find ffprobe binary - checks bundled location, sidecar cache, then system PATH.
+pub fn find_ffprobe() -> Option<PathBuf> {
+    let binary_name = if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+
+    // Check bundled location (next to executable)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let bundled = exe_dir.join(binary_name);
+            if bundled.exists() {
+                return Some(bundled);
+            }
+            // Also check resources subdirectory
+            let resources = exe_dir.join("resources").join(binary_name);
+            if resources.exists() {
+                return Some(resources);
+            }
+        }
+    }
+
+    // Check ffmpeg-sidecar cache
+    if let Ok(sidecar_dir) = ffmpeg_sidecar::paths::sidecar_dir() {
+        let cached = sidecar_dir.join(binary_name);
+        if cached.exists() {
+            return Some(cached);
+        }
+    }
+
+    // Check system PATH
+    if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
+        .arg(binary_name)
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            let first_line = path_str.lines().next().unwrap_or("").trim();
+            if !first_line.is_empty() {
+                let path = PathBuf::from(first_line);
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Get video dimensions using bundled ffprobe.
+/// Returns (width, height) if successful.
+#[allow(dead_code)]
+pub fn get_video_dimensions(video_path: &PathBuf) -> Option<(u32, u32)> {
+    use std::process::Command;
+
+    let ffprobe_path = find_ffprobe()?;
+
+    let output = Command::new(ffprobe_path)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
+            &video_path.to_string_lossy().to_string(),
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let parts: Vec<&str> = output_str.trim().split('x').collect();
+
+    if parts.len() == 2 {
+        let width = parts[0].parse::<u32>().ok()?;
+        let height = parts[1].parse::<u32>().ok()?;
+        Some((width, height))
+    } else {
+        None
+    }
+}
+
+/// Generate thumbnail from video file using bundled ffmpeg.
+/// Returns the thumbnail path if successful.
+pub fn generate_video_thumbnail(
+    video_path: &PathBuf,
+    thumbnail_path: &PathBuf,
+) -> Result<(), String> {
+    use std::process::Command;
+
+    let ffmpeg_path = find_ffmpeg().ok_or_else(|| "ffmpeg not found".to_string())?;
+
+    // Use ffmpeg to extract a frame at 1 second (or 0 if video is shorter)
+    let result = Command::new(&ffmpeg_path)
+        .args([
+            "-y",
+            "-ss",
+            "1",
+            "-i",
+            &video_path.to_string_lossy().to_string(),
+            "-vframes",
+            "1",
+            "-vf",
+            &format!("scale={}:-1", THUMBNAIL_SIZE),
+            &thumbnail_path.to_string_lossy().to_string(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+    if result.status.success() {
+        return Ok(());
+    }
+
+    // Try at 0 seconds if 1 second failed (video might be < 1 second)
+    let retry_result = Command::new(&ffmpeg_path)
+        .args([
+            "-y",
+            "-ss",
+            "0",
+            "-i",
+            &video_path.to_string_lossy().to_string(),
+            "-vframes",
+            "1",
+            "-vf",
+            &format!("scale={}:-1", THUMBNAIL_SIZE),
+            &thumbnail_path.to_string_lossy().to_string(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+    if retry_result.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&retry_result.stderr);
+        Err(format!("ffmpeg failed: {}", stderr))
+    }
+}
+
+/// Generate thumbnail from GIF using pure Rust (image crate).
+/// Extracts the first frame and resizes it.
+pub fn generate_gif_thumbnail(gif_path: &PathBuf, thumbnail_path: &PathBuf) -> Result<(), String> {
+    // Open the GIF and get the first frame
+    let file = fs::File::open(gif_path).map_err(|e| format!("Failed to open GIF: {}", e))?;
+
+    let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(file))
+        .map_err(|e| format!("Failed to decode GIF: {}", e))?;
+
+    use image::AnimationDecoder;
+    let frames = decoder.into_frames();
+    let first_frame = frames
+        .into_iter()
+        .next()
+        .ok_or_else(|| "GIF has no frames".to_string())?
+        .map_err(|e| format!("Failed to get frame: {}", e))?;
+
+    let image = DynamicImage::ImageRgba8(first_frame.into_buffer());
+    let thumbnail = image.thumbnail(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
+
+    thumbnail
+        .save(thumbnail_path)
+        .map_err(|e| format!("Failed to save thumbnail: {}", e))?;
+
+    Ok(())
+}
+
+/// Generate thumbnail from an image.
+pub fn generate_thumbnail(image: &DynamicImage) -> Result<DynamicImage, String> {
+    Ok(image.thumbnail(THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+}
+
+/// Get video metadata using ffprobe for migration.
+pub fn get_video_metadata_for_migration(
+    ffprobe_path: &PathBuf,
+    video_path: &PathBuf,
+) -> Result<(u32, u32, u64, u32), String> {
+    use std::process::Command;
+
+    let output = Command::new(ffprobe_path)
+        .args([
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            "-select_streams",
+            "v:0",
+        ])
+        .arg(video_path)
+        .output()
+        .map_err(|e| format!("ffprobe failed: {}", e))?;
+
+    if !output.status.success() {
+        return Err("ffprobe failed".to_string());
+    }
+
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
+
+    let stream = json["streams"]
+        .as_array()
+        .and_then(|s| s.first())
+        .ok_or("No video stream")?;
+
+    let width = stream["width"].as_u64().unwrap_or(0) as u32;
+    let height = stream["height"].as_u64().unwrap_or(0) as u32;
+
+    let duration_secs = json["format"]["duration"]
+        .as_str()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let duration_ms = (duration_secs * 1000.0) as u64;
+
+    let fps_str = stream["r_frame_rate"]
+        .as_str()
+        .or_else(|| stream["avg_frame_rate"].as_str())
+        .unwrap_or("30/1");
+    let fps = if let Some((num, den)) = fps_str.split_once('/') {
+        let n: f64 = num.parse().unwrap_or(30.0);
+        let d: f64 = den.parse().unwrap_or(1.0);
+        if d > 0.0 {
+            (n / d).round() as u32
+        } else {
+            30
+        }
+    } else {
+        fps_str.parse::<f64>().unwrap_or(30.0).round() as u32
+    };
+
+    Ok((width, height, duration_ms, fps))
+}

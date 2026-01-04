@@ -9,6 +9,7 @@ import { useInterpolatedScene, shouldRenderScreen, getCameraOnlyTransitionOpacit
 import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { WebcamOverlay } from './WebcamOverlay';
 import { CursorOverlay } from './CursorOverlay';
+import { ClickHighlightOverlay } from './ClickHighlightOverlay';
 import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
@@ -338,6 +339,16 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
             containerHeight={containerHeight}
           />
         </div>
+      )}
+
+      {/* Click highlight overlay - rendered below cursor */}
+      {showScreen && containerWidth > 0 && containerHeight > 0 && (
+        <ClickHighlightOverlay
+          cursorRecording={cursorRecording}
+          clickHighlightConfig={cursorConfig?.clickHighlight}
+          containerWidth={containerWidth}
+          containerHeight={containerHeight}
+        />
       )}
 
       {/* Cursor overlay - rendered on top of video content */}

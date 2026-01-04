@@ -301,6 +301,13 @@ fn run_overlay(
         )
         .map_err(|e| format!("Failed to create window: {:?}", e))?;
 
+        // Exclude overlay from screen captures (Windows 10 2004+)
+        // This prevents the selection border from appearing in screenshots
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+        };
+        let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+
         // Initialize graphics
         let d3d_device =
             d3d::create_device().map_err(|e| format!("Failed to create D3D11 device: {:?}", e))?;

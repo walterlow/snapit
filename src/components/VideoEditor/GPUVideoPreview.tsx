@@ -5,7 +5,7 @@ import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { videoEditorLogger } from '../../utils/logger';
 import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine, startPlaybackLoop, stopPlaybackLoop } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
-import { useInterpolatedScene, shouldRenderScreen, getCameraOnlyTransitionOpacity, getRegularCameraTransitionOpacity } from '../../hooks/useSceneMode';
+import { useInterpolatedScene, shouldRenderScreen, shouldRenderCursor, getCameraOnlyTransitionOpacity, getRegularCameraTransitionOpacity } from '../../hooks/useSceneMode';
 import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { WebcamOverlay } from './WebcamOverlay';
 import { CursorOverlay } from './CursorOverlay';
@@ -261,6 +261,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
 
   // Use interpolated values for smooth transitions
   const showScreen = shouldRenderScreen(scene);
+  const showCursor = shouldRenderCursor(scene); // Hide cursor in Camera Only mode
   const cameraOnlyOpacity = getCameraOnlyTransitionOpacity(scene);
   // Regular webcam overlay opacity - fades at 1.5x speed during cameraOnly transitions
   const regularCameraOpacity = getRegularCameraTransitionOpacity(scene);
@@ -341,8 +342,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
         </div>
       )}
 
-      {/* Click highlight overlay - rendered below cursor */}
-      {showScreen && containerWidth > 0 && containerHeight > 0 && (
+      {/* Click highlight overlay - rendered below cursor (hidden in Camera Only mode) */}
+      {showCursor && containerWidth > 0 && containerHeight > 0 && (
         <ClickHighlightOverlay
           cursorRecording={cursorRecording}
           clickHighlightConfig={cursorConfig?.clickHighlight}
@@ -351,8 +352,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
         />
       )}
 
-      {/* Cursor overlay - rendered on top of video content */}
-      {showScreen && containerWidth > 0 && containerHeight > 0 && (
+      {/* Cursor overlay - rendered on top of video content (hidden in Camera Only mode) */}
+      {showCursor && containerWidth > 0 && containerHeight > 0 && (
         <CursorOverlay
           cursorRecording={cursorRecording}
           cursorConfig={cursorConfig}

@@ -235,7 +235,12 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       setIsPlaying: (playing) => set({ isPlaying: playing }),
 
       // Zoom region actions
-      selectZoomRegion: (id) => set({ selectedZoomRegionId: id }),
+      selectZoomRegion: (id) => set({
+        selectedZoomRegionId: id,
+        selectedSceneSegmentId: null,
+        selectedTextSegmentId: null,
+        selectedWebcamSegmentIndex: null,
+      }),
 
       addZoomRegion: (region) => {
         const { project } = get();
@@ -289,7 +294,12 @@ export const useVideoEditorStore = create<VideoEditorState>()(
 
 
       // Text segment actions
-      selectTextSegment: (id) => set({ selectedTextSegmentId: id }),
+      selectTextSegment: (id) => set({
+        selectedTextSegmentId: id,
+        selectedZoomRegionId: null,
+        selectedSceneSegmentId: null,
+        selectedWebcamSegmentIndex: null,
+      }),
 
       addTextSegment: (segment) => {
         const { project } = get();
@@ -344,7 +354,12 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       },
 
       // Scene segment actions
-      selectSceneSegment: (id) => set({ selectedSceneSegmentId: id }),
+      selectSceneSegment: (id) => set({
+        selectedSceneSegmentId: id,
+        selectedZoomRegionId: null,
+        selectedTextSegmentId: null,
+        selectedWebcamSegmentIndex: null,
+      }),
 
       addSceneSegment: (segment) => {
         const { project } = get();
@@ -399,7 +414,12 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       },
 
       // Webcam segment actions
-      selectWebcamSegment: (index) => set({ selectedWebcamSegmentIndex: index }),
+      selectWebcamSegment: (index) => set({
+        selectedWebcamSegmentIndex: index,
+        selectedZoomRegionId: null,
+        selectedSceneSegmentId: null,
+        selectedTextSegmentId: null,
+      }),
 
       addWebcamSegment: (segment) => {
         const { project } = get();

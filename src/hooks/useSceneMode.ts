@@ -460,3 +460,24 @@ export function getRegularCameraTransitionOpacity(scene: InterpolatedScene): num
   }
   return scene.cameraOpacity;
 }
+
+/**
+ * Should cursor and click highlights be rendered?
+ * Returns false when in Camera Only mode (cursor makes no sense without screen content).
+ */
+export function shouldRenderCursor(scene: InterpolatedScene): boolean {
+  // Don't render cursor when fully in cameraOnly mode
+  if (scene.fromMode === 'cameraOnly' && scene.toMode === 'cameraOnly') {
+    return false;
+  }
+  // Don't render cursor when transitioning TO cameraOnly (fade out with screen)
+  if (scene.toMode === 'cameraOnly') {
+    return scene.transitionProgress < 0.5;
+  }
+  // Don't render cursor when transitioning FROM cameraOnly until screen is visible
+  if (scene.fromMode === 'cameraOnly') {
+    return scene.transitionProgress > 0.5;
+  }
+  // Otherwise, render cursor when screen is visible
+  return shouldRenderScreen(scene);
+}

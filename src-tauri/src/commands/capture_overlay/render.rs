@@ -10,12 +10,10 @@
 use windows::core::Result;
 use windows::Win32::Graphics::Direct2D::Common::{D2D1_COLOR_F, D2D_POINT_2F, D2D_RECT_F};
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ROUNDED_RECT, ID2D1DeviceContext,
+    ID2D1DeviceContext, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ROUNDED_RECT,
 };
 use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::{IDXGISurface, DXGI_PRESENT};
-
-
 
 use super::commands::{get_highlighted_monitor, get_highlighted_window};
 use super::graphics::d2d::{create_target_bitmap, Brushes, D2DResources};
@@ -58,12 +56,7 @@ pub fn render(state: &OverlayState) -> Result<()> {
 
         // Draw crosshair (only when not adjusting and only in RegionSelect mode)
         if !state.adjustment.is_active && state.overlay_mode == OverlayMode::RegionSelect {
-            draw_crosshair(
-                &d2d.context,
-                d2d,
-                state.cursor.position,
-                state,
-            );
+            draw_crosshair(&d2d.context, d2d, state.cursor.position, state);
         }
 
         // Draw size indicator (when selecting, not adjusting)
@@ -74,7 +67,13 @@ pub fn render(state: &OverlayState) -> Result<()> {
         // Draw window name indicator (only in WindowSelect mode when hovering a window)
         if state.overlay_mode == OverlayMode::WindowSelect && !state.adjustment.is_active {
             if let Some(ref win) = state.cursor.hovered_window {
-                draw_window_name_indicator(&d2d.context, d2d, win.hwnd, render_info.clear_rect, state);
+                draw_window_name_indicator(
+                    &d2d.context,
+                    d2d,
+                    win.hwnd,
+                    render_info.clear_rect,
+                    state,
+                );
             }
         }
 
@@ -128,7 +127,7 @@ fn determine_render_info(state: &OverlayState) -> RenderInfo {
 /// Render info for DisplaySelect mode - highlight monitor (explicit or under cursor)
 fn determine_display_mode_render(state: &OverlayState, width: f32, height: f32) -> RenderInfo {
     let highlighted_index = get_highlighted_monitor();
-    
+
     if let Ok(monitors) = xcap::Monitor::all() {
         // If we have an explicit highlight from frontend, use that monitor
         let target_monitor = if highlighted_index >= 0 {
@@ -137,7 +136,7 @@ fn determine_display_mode_render(state: &OverlayState, width: f32, height: f32) 
             // Otherwise, find monitor under cursor
             let screen_cursor_x = state.monitor.x + state.cursor.position.x;
             let screen_cursor_y = state.monitor.y + state.cursor.position.y;
-            
+
             monitors.iter().find(|m| {
                 let mx = m.x().unwrap_or(0);
                 let my = m.y().unwrap_or(0);
@@ -149,7 +148,7 @@ fn determine_display_mode_render(state: &OverlayState, width: f32, height: f32) 
                     && screen_cursor_y < my + mh
             })
         };
-        
+
         if let Some(mon) = target_monitor {
             let mon_x = mon.x().unwrap_or(0);
             let mon_y = mon.y().unwrap_or(0);
@@ -191,13 +190,13 @@ fn determine_display_mode_render(state: &OverlayState, width: f32, height: f32) 
 /// Render info for WindowSelect mode - highlight window (explicit or under cursor)
 fn determine_window_mode_render(state: &OverlayState, width: f32, height: f32) -> RenderInfo {
     let highlighted_hwnd = get_highlighted_window();
-    
+
     // Check for explicit highlight from frontend first
     if highlighted_hwnd != 0 {
         // Get window bounds for the highlighted HWND
         if let Some(bounds) = get_window_bounds_by_hwnd(highlighted_hwnd) {
             let local_bounds = state.monitor.screen_rect_to_local(bounds);
-            
+
             let clear_rect = D2D_RECT_F {
                 left: (local_bounds.left as f32).max(0.0),
                 top: (local_bounds.top as f32).max(0.0),
@@ -212,7 +211,7 @@ fn determine_window_mode_render(state: &OverlayState, width: f32, height: f32) -
             };
         }
     }
-    
+
     // Fall back to cursor-detected window
     if let Some(ref win) = state.cursor.hovered_window {
         let local_bounds = state.monitor.screen_rect_to_local(win.bounds);
@@ -249,17 +248,19 @@ fn determine_window_mode_render(state: &OverlayState, width: f32, height: f32) -
 pub fn get_window_bounds_by_hwnd(hwnd: isize) -> Option<Rect> {
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
-    
+
     unsafe {
         let hwnd = HWND(hwnd as *mut std::ffi::c_void);
         let mut rect = RECT::default();
-        
+
         if DwmGetWindowAttribute(
             hwnd,
             DWMWA_EXTENDED_FRAME_BOUNDS,
             &mut rect as *mut RECT as *mut _,
             std::mem::size_of::<RECT>() as u32,
-        ).is_ok() {
+        )
+        .is_ok()
+        {
             Some(Rect::new(rect.left, rect.top, rect.right, rect.bottom))
         } else {
             None
@@ -277,7 +278,7 @@ fn determine_region_mode_render(state: &OverlayState, width: f32, height: f32) -
             draw_handles: false,
         };
     }
-    
+
     if let Some(ref win) = state.cursor.hovered_window {
         // Window detection mode - show hovered window
         let local_bounds = state.monitor.screen_rect_to_local(win.bounds);
@@ -296,7 +297,7 @@ fn determine_region_mode_render(state: &OverlayState, width: f32, height: f32) -
             draw_handles: false,
         };
     }
-    
+
     // No window detected - find the monitor under cursor and highlight it
     let screen_cursor_x = state.monitor.x + state.cursor.position.x;
     let screen_cursor_y = state.monitor.y + state.cursor.position.y;
@@ -430,8 +431,10 @@ fn draw_crosshair(
     cursor: Point,
     state: &OverlayState,
 ) {
-    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST};
     use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
 
     let cx = cursor.x as f32;
     let cy = cursor.y as f32;
@@ -487,7 +490,10 @@ fn draw_crosshair(
         if cx + gap < mon_right {
             context.DrawLine(
                 D2D_POINT_2F { x: cx + gap, y: cy },
-                D2D_POINT_2F { x: mon_right, y: cy },
+                D2D_POINT_2F {
+                    x: mon_right,
+                    y: cy,
+                },
                 &d2d.brushes.crosshair,
                 1.0,
                 &d2d.crosshair_stroke,
@@ -509,7 +515,10 @@ fn draw_crosshair(
         if cy + gap < mon_bottom {
             context.DrawLine(
                 D2D_POINT_2F { x: cx, y: cy + gap },
-                D2D_POINT_2F { x: cx, y: mon_bottom },
+                D2D_POINT_2F {
+                    x: cx,
+                    y: mon_bottom,
+                },
                 &d2d.brushes.crosshair,
                 1.0,
                 &d2d.crosshair_stroke,
@@ -628,7 +637,10 @@ fn draw_window_name_indicator(
     clear_rect: D2D_RECT_F,
     state: &OverlayState,
 ) {
-    use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
     use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
     let screen_width = state.monitor.width as f32;
@@ -643,7 +655,14 @@ fn draw_window_name_indicator(
             if let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) {
                 let mut buffer = [0u16; 260];
                 let mut size = buffer.len() as u32;
-                if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, windows::core::PWSTR(buffer.as_mut_ptr()), &mut size).is_ok() {
+                if QueryFullProcessImageNameW(
+                    process,
+                    PROCESS_NAME_WIN32,
+                    windows::core::PWSTR(buffer.as_mut_ptr()),
+                    &mut size,
+                )
+                .is_ok()
+                {
                     let path = String::from_utf16_lossy(&buffer[..size as usize]);
                     // Extract filename without extension
                     if let Some(filename) = std::path::Path::new(&path).file_stem() {
@@ -669,7 +688,10 @@ fn draw_window_name_indicator(
         app_name
     };
 
-    let text_wide: Vec<u16> = display_text.encode_utf16().chain(std::iter::once(0)).collect();
+    let text_wide: Vec<u16> = display_text
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
     // Calculate text box dimensions (larger for window name)
     let text_width = 400.0_f32;
@@ -684,7 +706,9 @@ fn draw_window_name_indicator(
 
     // Clamp to screen bounds
     let box_x = box_x.max(padding).min(screen_width - text_width - padding);
-    let box_y = box_y.max(padding).min(screen_height - text_height - padding);
+    let box_y = box_y
+        .max(padding)
+        .min(screen_height - text_height - padding);
 
     let bg_rect = D2D_RECT_F {
         left: box_x,

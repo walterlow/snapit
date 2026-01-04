@@ -58,8 +58,12 @@ const THUMBNAIL_SIZE: u32 = 400;
 
 /// Find ffmpeg binary - checks bundled location, sidecar cache, then system PATH.
 pub fn find_ffmpeg() -> Option<PathBuf> {
-    let binary_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
-    
+    let binary_name = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
+
     // Check bundled location (next to executable)
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
@@ -74,7 +78,7 @@ pub fn find_ffmpeg() -> Option<PathBuf> {
             }
         }
     }
-    
+
     // Check ffmpeg-sidecar cache
     if let Ok(sidecar_dir) = ffmpeg_sidecar::paths::sidecar_dir() {
         let cached = sidecar_dir.join(binary_name);
@@ -82,7 +86,7 @@ pub fn find_ffmpeg() -> Option<PathBuf> {
             return Some(cached);
         }
     }
-    
+
     // Check system PATH (for development or if ffmpeg is installed globally)
     if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
         .arg(binary_name)
@@ -99,51 +103,55 @@ pub fn find_ffmpeg() -> Option<PathBuf> {
             }
         }
     }
-    
+
     None
 }
 
 /// Generate thumbnail from video file using bundled ffmpeg.
 /// Returns the thumbnail path if successful.
-fn generate_video_thumbnail(
-    video_path: &PathBuf,
-    thumbnail_path: &PathBuf,
-) -> Result<(), String> {
+fn generate_video_thumbnail(video_path: &PathBuf, thumbnail_path: &PathBuf) -> Result<(), String> {
     use std::process::Command;
-    
-    let ffmpeg_path = find_ffmpeg()
-        .ok_or_else(|| "ffmpeg not found".to_string())?;
-    
+
+    let ffmpeg_path = find_ffmpeg().ok_or_else(|| "ffmpeg not found".to_string())?;
+
     // Use ffmpeg to extract a frame at 1 second (or 0 if video is shorter)
     let result = Command::new(&ffmpeg_path)
         .args([
             "-y",
-            "-ss", "1",
-            "-i", &video_path.to_string_lossy().to_string(),
-            "-vframes", "1",
-            "-vf", &format!("scale={}:-1", THUMBNAIL_SIZE),
+            "-ss",
+            "1",
+            "-i",
+            &video_path.to_string_lossy().to_string(),
+            "-vframes",
+            "1",
+            "-vf",
+            &format!("scale={}:-1", THUMBNAIL_SIZE),
             &thumbnail_path.to_string_lossy().to_string(),
         ])
         .output()
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-    
+
     if result.status.success() {
         return Ok(());
     }
-    
+
     // Try at 0 seconds if 1 second failed (video might be < 1 second)
     let retry_result = Command::new(&ffmpeg_path)
         .args([
             "-y",
-            "-ss", "0",
-            "-i", &video_path.to_string_lossy().to_string(),
-            "-vframes", "1",
-            "-vf", &format!("scale={}:-1", THUMBNAIL_SIZE),
+            "-ss",
+            "0",
+            "-i",
+            &video_path.to_string_lossy().to_string(),
+            "-vframes",
+            "1",
+            "-vf",
+            &format!("scale={}:-1", THUMBNAIL_SIZE),
             &thumbnail_path.to_string_lossy().to_string(),
         ])
         .output()
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-    
+
     if retry_result.status.success() {
         Ok(())
     } else {
@@ -154,8 +162,12 @@ fn generate_video_thumbnail(
 
 /// Find ffprobe binary - checks bundled location, sidecar cache, then system PATH.
 pub fn find_ffprobe() -> Option<PathBuf> {
-    let binary_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
-    
+    let binary_name = if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+
     // Check bundled location (next to executable)
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
@@ -170,7 +182,7 @@ pub fn find_ffprobe() -> Option<PathBuf> {
             }
         }
     }
-    
+
     // Check ffmpeg-sidecar cache
     if let Ok(sidecar_dir) = ffmpeg_sidecar::paths::sidecar_dir() {
         let cached = sidecar_dir.join(binary_name);
@@ -178,7 +190,7 @@ pub fn find_ffprobe() -> Option<PathBuf> {
             return Some(cached);
         }
     }
-    
+
     // Check system PATH
     if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
         .arg(binary_name)
@@ -195,7 +207,7 @@ pub fn find_ffprobe() -> Option<PathBuf> {
             }
         }
     }
-    
+
     None
 }
 
@@ -204,27 +216,31 @@ pub fn find_ffprobe() -> Option<PathBuf> {
 #[allow(dead_code)]
 fn get_video_dimensions(video_path: &PathBuf) -> Option<(u32, u32)> {
     use std::process::Command;
-    
+
     let ffprobe_path = find_ffprobe()?;
-    
+
     let output = Command::new(ffprobe_path)
         .args([
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "csv=p=0:s=x",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
             &video_path.to_string_lossy().to_string(),
         ])
         .output()
         .ok()?;
-    
+
     if !output.status.success() {
         return None;
     }
-    
+
     let output_str = String::from_utf8_lossy(&output.stdout);
     let parts: Vec<&str> = output_str.trim().split('x').collect();
-    
+
     if parts.len() == 2 {
         let width = parts[0].parse::<u32>().ok()?;
         let height = parts[1].parse::<u32>().ok()?;
@@ -236,17 +252,13 @@ fn get_video_dimensions(video_path: &PathBuf) -> Option<(u32, u32)> {
 
 /// Generate thumbnail from GIF using pure Rust (image crate).
 /// Extracts the first frame and resizes it.
-fn generate_gif_thumbnail(
-    gif_path: &PathBuf,
-    thumbnail_path: &PathBuf,
-) -> Result<(), String> {
+fn generate_gif_thumbnail(gif_path: &PathBuf, thumbnail_path: &PathBuf) -> Result<(), String> {
     // Open the GIF and get the first frame
-    let file = fs::File::open(gif_path)
-        .map_err(|e| format!("Failed to open GIF: {}", e))?;
-    
+    let file = fs::File::open(gif_path).map_err(|e| format!("Failed to open GIF: {}", e))?;
+
     let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(file))
         .map_err(|e| format!("Failed to decode GIF: {}", e))?;
-    
+
     use image::AnimationDecoder;
     let frames = decoder.into_frames();
     let first_frame = frames
@@ -254,13 +266,14 @@ fn generate_gif_thumbnail(
         .next()
         .ok_or_else(|| "GIF has no frames".to_string())?
         .map_err(|e| format!("Failed to get frame: {}", e))?;
-    
+
     let image = DynamicImage::ImageRgba8(first_frame.into_buffer());
     let thumbnail = image.thumbnail(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
-    
-    thumbnail.save(thumbnail_path)
+
+    thumbnail
+        .save(thumbnail_path)
         .map_err(|e| format!("Failed to save thumbnail: {}", e))?;
-    
+
     Ok(())
 }
 
@@ -444,8 +457,8 @@ pub async fn save_capture(
         .decode(&request.image_data)
         .map_err(|e| format!("Failed to decode image: {}", e))?;
 
-    let image = image::load_from_memory(&decoded)
-        .map_err(|e| format!("Failed to load image: {}", e))?;
+    let image =
+        image::load_from_memory(&decoded).map_err(|e| format!("Failed to load image: {}", e))?;
 
     let (width, height) = image.dimensions();
 
@@ -484,8 +497,7 @@ pub async fn save_capture(
     // Save project file
     let projects_dir = base_dir.join("projects");
     let project_dir = projects_dir.join(&id);
-    fs::create_dir_all(&project_dir)
-        .map_err(|e| format!("Failed to create project dir: {}", e))?;
+    fs::create_dir_all(&project_dir).map_err(|e| format!("Failed to create project dir: {}", e))?;
 
     let project_file = project_dir.join("project.json");
     let project_json = serde_json::to_string_pretty(&project)
@@ -518,8 +530,8 @@ pub async fn save_capture_from_file(
 
     // Read RGBA file - skip 8-byte header (width + height stored in file)
     use std::io::Read;
-    let mut file = fs::File::open(&file_path)
-        .map_err(|e| format!("Failed to open RGBA file: {}", e))?;
+    let mut file =
+        fs::File::open(&file_path).map_err(|e| format!("Failed to open RGBA file: {}", e))?;
 
     // Skip the 8-byte header (4 bytes width + 4 bytes height)
     let mut header = [0u8; 8];
@@ -575,8 +587,7 @@ pub async fn save_capture_from_file(
     // Save project file
     let projects_dir = base_dir.join("projects");
     let project_dir = projects_dir.join(&id);
-    fs::create_dir_all(&project_dir)
-        .map_err(|e| format!("Failed to create project dir: {}", e))?;
+    fs::create_dir_all(&project_dir).map_err(|e| format!("Failed to create project dir: {}", e))?;
 
     let project_file = project_dir.join("project.json");
     let project_json = serde_json::to_string_pretty(&project)
@@ -608,8 +619,8 @@ pub async fn update_project_annotations(
         return Err("Project not found".to_string());
     }
 
-    let content = fs::read_to_string(&project_file)
-        .map_err(|e| format!("Failed to read project: {}", e))?;
+    let content =
+        fs::read_to_string(&project_file).map_err(|e| format!("Failed to read project: {}", e))?;
 
     let mut project: CaptureProject =
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse project: {}", e))?;
@@ -642,8 +653,8 @@ pub async fn update_project_metadata(
         return Err("Project not found".to_string());
     }
 
-    let content = fs::read_to_string(&project_file)
-        .map_err(|e| format!("Failed to read project: {}", e))?;
+    let content =
+        fs::read_to_string(&project_file).map_err(|e| format!("Failed to read project: {}", e))?;
 
     let mut project: CaptureProject =
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse project: {}", e))?;
@@ -709,13 +720,13 @@ async fn load_project_item(
 }
 
 /// Process a video project folder into a CaptureListItem.
-/// 
+///
 /// Video project folders contain:
 ///   - project.json (metadata)
 ///   - screen.mp4 (main recording)
 ///   - webcam.mp4 (optional)
 ///   - cursor.json (optional)
-/// 
+///
 /// Returns None if the folder isn't a valid video project.
 async fn load_video_project_folder(
     folder_path: PathBuf,
@@ -724,80 +735,115 @@ async fn load_video_project_folder(
     // Check if this is a video project folder
     let project_json = folder_path.join("project.json");
     let screen_mp4 = folder_path.join("screen.mp4");
-    
+
     // Must have at least screen.mp4
     if !async_fs::try_exists(&screen_mp4).await.unwrap_or(false) {
         return None;
     }
-    
+
     // Use folder name as ID
-    let id = folder_path.file_name()
+    let id = folder_path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("recording")
         .to_string();
-    
+
     // Try to read metadata from project.json, fall back to file metadata
-    let (created_at, updated_at, dimensions) = if async_fs::try_exists(&project_json).await.unwrap_or(false) {
-        if let Ok(content) = async_fs::read_to_string(&project_json).await {
-            if let Ok(project) = serde_json::from_str::<serde_json::Value>(&content) {
-                let created = project.get("createdAt")
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(Utc::now);
-                let updated = project.get("updatedAt")
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or(created);
-                let dims = project.get("sources")
-                    .map(|s| Dimensions {
-                        width: s.get("originalWidth").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                        height: s.get("originalHeight").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                    })
-                    .unwrap_or(Dimensions { width: 0, height: 0 });
-                (created, updated, dims)
+    let (created_at, updated_at, dimensions) =
+        if async_fs::try_exists(&project_json).await.unwrap_or(false) {
+            if let Ok(content) = async_fs::read_to_string(&project_json).await {
+                if let Ok(project) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let created = project
+                        .get("createdAt")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(Utc::now);
+                    let updated = project
+                        .get("updatedAt")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or(created);
+                    let dims = project
+                        .get("sources")
+                        .map(|s| Dimensions {
+                            width: s.get("originalWidth").and_then(|v| v.as_u64()).unwrap_or(0)
+                                as u32,
+                            height: s
+                                .get("originalHeight")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
+                        })
+                        .unwrap_or(Dimensions {
+                            width: 0,
+                            height: 0,
+                        });
+                    (created, updated, dims)
+                } else {
+                    (
+                        Utc::now(),
+                        Utc::now(),
+                        Dimensions {
+                            width: 0,
+                            height: 0,
+                        },
+                    )
+                }
             } else {
-                (Utc::now(), Utc::now(), Dimensions { width: 0, height: 0 })
+                (
+                    Utc::now(),
+                    Utc::now(),
+                    Dimensions {
+                        width: 0,
+                        height: 0,
+                    },
+                )
             }
         } else {
-            (Utc::now(), Utc::now(), Dimensions { width: 0, height: 0 })
-        }
-    } else {
-        // Fall back to folder metadata
-        let metadata = async_fs::metadata(&folder_path).await.ok()?;
-        let created = metadata.created()
-            .or_else(|_| metadata.modified())
-            .map(|t| DateTime::<Utc>::from(t))
-            .unwrap_or_else(|_| Utc::now());
-        let updated = metadata.modified()
-            .map(|t| DateTime::<Utc>::from(t))
-            .unwrap_or(created);
-        (created, updated, Dimensions { width: 0, height: 0 })
-    };
-    
+            // Fall back to folder metadata
+            let metadata = async_fs::metadata(&folder_path).await.ok()?;
+            let created = metadata
+                .created()
+                .or_else(|_| metadata.modified())
+                .map(|t| DateTime::<Utc>::from(t))
+                .unwrap_or_else(|_| Utc::now());
+            let updated = metadata
+                .modified()
+                .map(|t| DateTime::<Utc>::from(t))
+                .unwrap_or(created);
+            (
+                created,
+                updated,
+                Dimensions {
+                    width: 0,
+                    height: 0,
+                },
+            )
+        };
+
     // Check/generate thumbnail
     let thumbnail_filename = format!("{}_thumb.png", &id);
     let thumbnail_path = thumbnails_dir.join(&thumbnail_filename);
     let thumb_exists = async_fs::try_exists(&thumbnail_path).await.unwrap_or(false);
-    
+
     if !thumb_exists {
         let video_path = screen_mp4.clone();
         let thumb_path = thumbnail_path.clone();
-        std::thread::spawn(move || {
-            match generate_video_thumbnail(&video_path, &thumb_path) {
+        std::thread::spawn(
+            move || match generate_video_thumbnail(&video_path, &thumb_path) {
                 Ok(()) => log::debug!("[THUMB] Video project OK: {:?}", thumb_path),
                 Err(e) => log::warn!("[THUMB] Video project FAILED: {}", e),
-            }
-        });
+            },
+        );
     }
-    
+
     let thumbnail_path_str = if thumb_exists {
         thumbnail_path.to_string_lossy().to_string()
     } else {
         String::new()
     };
-    
+
     Some(CaptureListItem {
         id,
         created_at,
@@ -816,19 +862,17 @@ async fn load_video_project_folder(
 
 /// Process a single media file (GIF or legacy flat MP4) into a CaptureListItem.
 /// Returns None if the file can't be processed.
-/// 
+///
 /// Note: New MP4 recordings are stored in project folders, but we still support
 /// legacy flat MP4 files for backward compatibility.
-async fn load_media_item(
-    path: PathBuf,
-    thumbnails_dir: PathBuf,
-) -> Option<CaptureListItem> {
+async fn load_media_item(path: PathBuf, thumbnails_dir: PathBuf) -> Option<CaptureListItem> {
     let metadata = async_fs::metadata(&path).await.ok()?;
     if !metadata.is_file() {
         return None;
     }
 
-    let extension = path.extension()
+    let extension = path
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())?;
 
@@ -843,24 +887,28 @@ async fn load_media_item(
         return None;
     }
 
-    let file_name = path.file_name()
+    let file_name = path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("recording")
         .to_string();
 
     // Use file name as ID (without extension)
-    let id = path.file_stem()
+    let id = path
+        .file_stem()
         .and_then(|n| n.to_str())
         .unwrap_or(&file_name)
         .to_string();
 
     // Get creation/modification time
-    let created_at = metadata.created()
+    let created_at = metadata
+        .created()
         .or_else(|_| metadata.modified())
         .map(|t| DateTime::<Utc>::from(t))
         .unwrap_or_else(|_| Utc::now());
 
-    let updated_at = metadata.modified()
+    let updated_at = metadata
+        .modified()
         .map(|t| DateTime::<Utc>::from(t))
         .unwrap_or(created_at);
 
@@ -898,7 +946,10 @@ async fn load_media_item(
     };
 
     // Skip video dimension fetching on startup for faster load
-    let dimensions = Dimensions { width: 0, height: 0 };
+    let dimensions = Dimensions {
+        width: 0,
+        height: 0,
+    };
 
     Some(CaptureListItem {
         id,
@@ -934,7 +985,11 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
             .await
             .map_err(|e| format!("Failed to read projects dir: {}", e))?;
 
-        while let Some(entry) = entries.next_entry().await.map_err(|e| format!("Failed to read entry: {}", e))? {
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| format!("Failed to read entry: {}", e))?
+        {
             let path = entry.path();
             if path.is_dir() {
                 project_dirs.push(path);
@@ -960,7 +1015,7 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
         // Collect all entries, separating folders (potential video projects) from files
         let mut video_project_folders: Vec<PathBuf> = Vec::new();
         let mut media_files: Vec<PathBuf> = Vec::new();
-        
+
         if let Ok(mut entries) = async_fs::read_dir(&captures_dir).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let path = entry.path();
@@ -995,7 +1050,7 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
 
         let folder_results = join_all(folder_futures).await;
         let file_results = join_all(file_futures).await;
-        
+
         captures.extend(folder_results.into_iter().flatten());
         captures.extend(file_results.into_iter().flatten());
     }
@@ -1017,8 +1072,8 @@ pub async fn get_project(app: AppHandle, project_id: String) -> Result<CapturePr
         return Err("Project not found".to_string());
     }
 
-    let content = fs::read_to_string(&project_file)
-        .map_err(|e| format!("Failed to read project: {}", e))?;
+    let content =
+        fs::read_to_string(&project_file).map_err(|e| format!("Failed to read project: {}", e))?;
 
     let project: CaptureProject =
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse project: {}", e))?;
@@ -1038,8 +1093,8 @@ pub async fn get_project_image(app: AppHandle, project_id: String) -> Result<Str
         return Err("Project not found".to_string());
     }
 
-    let content = fs::read_to_string(&project_file)
-        .map_err(|e| format!("Failed to read project: {}", e))?;
+    let content =
+        fs::read_to_string(&project_file).map_err(|e| format!("Failed to read project: {}", e))?;
 
     let project: CaptureProject =
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse project: {}", e))?;
@@ -1052,8 +1107,7 @@ pub async fn get_project_image(app: AppHandle, project_id: String) -> Result<Str
         base_dir.join("captures").join(&project.original_image)
     };
 
-    let image_data =
-        fs::read(&image_path).map_err(|e| format!("Failed to read image: {}", e))?;
+    let image_data = fs::read(&image_path).map_err(|e| format!("Failed to read image: {}", e))?;
 
     Ok(STANDARD.encode(&image_data))
 }
@@ -1134,7 +1188,7 @@ pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), St
                 fs::remove_dir_all(&project_dir)
                     .map_err(|e| format!("Failed to delete project: {}", e))?;
             }
-        }
+        },
         "video_folder" => {
             // Video project folder - delete the entire folder and all its contents
             // This removes screen.mp4, webcam.mp4, cursor.json, project.json, etc.
@@ -1145,37 +1199,38 @@ pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), St
                     log::info!("[DELETE] Removed video project folder: {:?}", folder_path);
                 }
             }
-        }
+        },
         "video" => {
             // Legacy flat MP4 file - delete main file and any associated files
             if let Some(video_path) = file_path {
                 fs::remove_file(&video_path)
                     .map_err(|e| format!("Failed to delete video file: {}", e))?;
-                
+
                 // Also try to delete associated legacy files (_webcam.mp4, _cursor.json, etc.)
-                let stem = video_path.file_stem()
+                let stem = video_path
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("");
                 let parent = video_path.parent().unwrap_or(&captures_dir);
-                
+
                 // Try to delete associated files (don't error if they don't exist)
                 let _ = fs::remove_file(parent.join(format!("{}_webcam.mp4", stem)));
                 let _ = fs::remove_file(parent.join(format!("{}_cursor.json", stem)));
                 let _ = fs::remove_file(parent.join(format!("{}_system.wav", stem)));
                 let _ = fs::remove_file(parent.join(format!("{}_mic.wav", stem)));
             }
-        }
+        },
         "gif" => {
             // GIF file - just delete the file
             if let Some(gif_path) = file_path {
                 fs::remove_file(&gif_path)
                     .map_err(|e| format!("Failed to delete GIF file: {}", e))?;
             }
-        }
+        },
         _ => {
             // Unknown type - nothing to delete, but don't error
             // The item might have already been deleted
-        }
+        },
     }
 
     // Always try to delete the thumbnail (common to all types)
@@ -1207,8 +1262,8 @@ pub async fn export_project(
         .decode(&rendered_image_data)
         .map_err(|e| format!("Failed to decode image: {}", e))?;
 
-    let image = image::load_from_memory(&decoded)
-        .map_err(|e| format!("Failed to load image: {}", e))?;
+    let image =
+        image::load_from_memory(&decoded).map_err(|e| format!("Failed to load image: {}", e))?;
 
     let img_format = match format.to_lowercase().as_str() {
         "png" => image::ImageFormat::Png,
@@ -1280,22 +1335,22 @@ pub async fn ensure_ffmpeg() -> Result<bool, String> {
         log::info!("ffmpeg already available");
         return Ok(true);
     }
-    
+
     // Try to download ffmpeg in background
     log::info!("ffmpeg not found, attempting download...");
     match ffmpeg_sidecar::download::auto_download() {
         Ok(()) => {
             log::info!("ffmpeg downloaded successfully");
             Ok(true)
-        }
+        },
         Err(e) => {
             log::warn!("Failed to download ffmpeg: {:?}", e);
             Ok(false)
-        }
+        },
     }
 }
 
-/// Startup cleanup: ensure directories exist, remove orphan temp files, 
+/// Startup cleanup: ensure directories exist, remove orphan temp files,
 /// migrate legacy video files to folder structure, and regenerate missing thumbnails.
 /// Returns immediately and runs heavy work in background thread to avoid blocking UI
 #[command]
@@ -1337,27 +1392,26 @@ pub async fn startup_cleanup(app: AppHandle) -> Result<StartupCleanupResult, Str
             if let Ok(entries) = fs::read_dir(&captures_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    
+
                     // Skip directories and non-MP4 files
                     if !path.is_file() {
                         continue;
                     }
-                    let extension = path.extension()
+                    let extension = path
+                        .extension()
                         .and_then(|e| e.to_str())
                         .map(|e| e.to_lowercase())
                         .unwrap_or_default();
                     if extension != "mp4" {
                         continue;
                     }
-                    
+
                     // Skip auxiliary files (webcam, etc.)
-                    let stem = path.file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("");
+                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
                     if stem.ends_with("_webcam") || stem.ends_with("_cursor") {
                         continue;
                     }
-                    
+
                     // Migrate this MP4 to folder structure
                     if let Err(e) = migrate_legacy_video(&path, &captures_dir, &thumbnails_dir) {
                         log::warn!("Failed to migrate video {:?}: {}", path, e);
@@ -1425,7 +1479,7 @@ pub async fn startup_cleanup(app: AppHandle) -> Result<StartupCleanupResult, Str
 }
 
 /// Migrate a legacy flat MP4 video to the new folder structure.
-/// 
+///
 /// Converts: recording_123456.mp4 + recording_123456_webcam.mp4 + recording_123456_cursor.json
 /// Into: recording_123456/screen.mp4 + webcam.mp4 + cursor.json + project.json
 fn migrate_legacy_video(
@@ -1433,70 +1487,75 @@ fn migrate_legacy_video(
     captures_dir: &PathBuf,
     thumbnails_dir: &PathBuf,
 ) -> Result<(), String> {
-    let stem = video_path.file_stem()
+    let stem = video_path
+        .file_stem()
         .and_then(|s| s.to_str())
         .ok_or("Invalid video path")?
         .to_string();
-    
+
     // Create the project folder
     let folder_path = captures_dir.join(&stem);
     if folder_path.exists() {
         // Already migrated or folder exists with same name
         return Ok(());
     }
-    
+
     fs::create_dir_all(&folder_path)
         .map_err(|e| format!("Failed to create project folder: {}", e))?;
-    
+
     // Move main video to screen.mp4
     let screen_path = folder_path.join("screen.mp4");
     fs::rename(video_path, &screen_path)
         .map_err(|e| format!("Failed to move main video: {}", e))?;
-    
+
     // Move associated files if they exist
     let webcam_src = captures_dir.join(format!("{}_webcam.mp4", stem));
     if webcam_src.exists() {
         let _ = fs::rename(&webcam_src, folder_path.join("webcam.mp4"));
     }
-    
+
     let cursor_src = captures_dir.join(format!("{}_cursor.json", stem));
     if cursor_src.exists() {
         let _ = fs::rename(&cursor_src, folder_path.join("cursor.json"));
     }
-    
+
     let system_src = captures_dir.join(format!("{}_system.wav", stem));
     if system_src.exists() {
         let _ = fs::rename(&system_src, folder_path.join("system.wav"));
     }
-    
+
     let mic_src = captures_dir.join(format!("{}_mic.wav", stem));
     if mic_src.exists() {
         let _ = fs::rename(&mic_src, folder_path.join("mic.wav"));
     }
-    
+
     // Get video metadata using ffprobe if available
     let (width, height, duration_ms, fps) = if let Some(ffprobe) = find_ffprobe() {
-        get_video_metadata_for_migration(&ffprobe, &screen_path)
-            .unwrap_or((0, 0, 0, 30))
+        get_video_metadata_for_migration(&ffprobe, &screen_path).unwrap_or((0, 0, 0, 30))
     } else {
         (0, 0, 0, 30)
     };
-    
+
     // Create project.json
-    let project = create_migration_project_json(&stem, width, height, duration_ms, fps, &folder_path);
+    let project =
+        create_migration_project_json(&stem, width, height, duration_ms, fps, &folder_path);
     let project_file = folder_path.join("project.json");
     fs::write(&project_file, project)
         .map_err(|e| format!("Failed to write project.json: {}", e))?;
-    
+
     // Rename thumbnail if it exists (from stem_thumb.png to new folder ID)
     let old_thumb = thumbnails_dir.join(format!("{}_thumb.png", stem));
     if old_thumb.exists() {
         // Thumbnail ID stays the same (folder name = old stem)
         // No need to rename, just keep it
     }
-    
-    log::info!("[MIGRATION] Migrated legacy video: {} -> {:?}", stem, folder_path);
-    
+
+    log::info!(
+        "[MIGRATION] Migrated legacy video: {} -> {:?}",
+        stem,
+        folder_path
+    );
+
     Ok(())
 }
 
@@ -1506,51 +1565,60 @@ fn get_video_metadata_for_migration(
     video_path: &PathBuf,
 ) -> Result<(u32, u32, u64, u32), String> {
     use std::process::Command;
-    
+
     let output = Command::new(ffprobe_path)
         .args([
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
-            "-select_streams", "v:0",
+            "-select_streams",
+            "v:0",
         ])
         .arg(video_path)
         .output()
         .map_err(|e| format!("ffprobe failed: {}", e))?;
-    
+
     if !output.status.success() {
         return Err("ffprobe failed".to_string());
     }
-    
+
     let json_str = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value = serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
-    
-    let stream = json["streams"].as_array()
+
+    let stream = json["streams"]
+        .as_array()
         .and_then(|s| s.first())
         .ok_or("No video stream")?;
-    
+
     let width = stream["width"].as_u64().unwrap_or(0) as u32;
     let height = stream["height"].as_u64().unwrap_or(0) as u32;
-    
+
     let duration_secs = json["format"]["duration"]
         .as_str()
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.0);
     let duration_ms = (duration_secs * 1000.0) as u64;
-    
-    let fps_str = stream["r_frame_rate"].as_str()
+
+    let fps_str = stream["r_frame_rate"]
+        .as_str()
         .or_else(|| stream["avg_frame_rate"].as_str())
         .unwrap_or("30/1");
     let fps = if let Some((num, den)) = fps_str.split_once('/') {
         let n: f64 = num.parse().unwrap_or(30.0);
         let d: f64 = den.parse().unwrap_or(1.0);
-        if d > 0.0 { (n / d).round() as u32 } else { 30 }
+        if d > 0.0 {
+            (n / d).round() as u32
+        } else {
+            30
+        }
     } else {
         fps_str.parse::<f64>().unwrap_or(30.0).round() as u32
     };
-    
+
     Ok((width, height, duration_ms, fps))
 }
 
@@ -1566,7 +1634,7 @@ fn create_migration_project_json(
     let now = chrono::Utc::now().to_rfc3339();
     let has_webcam = folder_path.join("webcam.mp4").exists();
     let has_cursor = folder_path.join("cursor.json").exists();
-    
+
     // Use serde_json to create a proper VideoProject-compatible JSON
     let sources = serde_json::json!({
         "screenVideo": "screen.mp4",
@@ -1581,7 +1649,7 @@ fn create_migration_project_json(
         "durationMs": duration_ms,
         "fps": fps
     });
-    
+
     let project = serde_json::json!({
         "id": format!("proj_migrated_{}", id),
         "createdAt": now,
@@ -1668,7 +1736,7 @@ fn create_migration_project_json(
             "segments": []
         }
     });
-    
+
     serde_json::to_string_pretty(&project).unwrap_or_else(|_| "{}".to_string())
 }
 
@@ -1703,8 +1771,7 @@ pub async fn import_image_from_path(
     }
 
     // Load image directly from file
-    let image = image::open(&path)
-        .map_err(|e| format!("Failed to load image: {}", e))?;
+    let image = image::open(&path).map_err(|e| format!("Failed to load image: {}", e))?;
 
     let (width, height) = image.dimensions();
 
@@ -1753,8 +1820,7 @@ pub async fn import_image_from_path(
     // Save project file
     let projects_dir = base_dir.join("projects");
     let project_dir = projects_dir.join(&id);
-    fs::create_dir_all(&project_dir)
-        .map_err(|e| format!("Failed to create project dir: {}", e))?;
+    fs::create_dir_all(&project_dir).map_err(|e| format!("Failed to create project dir: {}", e))?;
 
     let project_file = project_dir.join("project.json");
     let project_json = serde_json::to_string_pretty(&project)

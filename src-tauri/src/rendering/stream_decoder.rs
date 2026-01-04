@@ -129,11 +129,11 @@ impl StreamDecoder {
                     width: self.width,
                     height: self.height,
                 }))
-            }
+            },
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 // End of stream
                 Ok(None)
-            }
+            },
             Err(e) => Err(format!("Read error: {}", e)),
         }
     }

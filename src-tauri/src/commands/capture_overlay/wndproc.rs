@@ -121,18 +121,18 @@ fn handle_mouse_down(state_ptr: *mut OverlayState, lparam: LPARAM) -> LRESULT {
                 OverlayMode::DisplaySelect => {
                     // Display mode: click immediately selects the monitor under cursor
                     // No drag needed
-                }
+                },
                 OverlayMode::WindowSelect => {
                     // Window mode: click selects the hovered window
                     // No drag needed
-                }
+                },
                 OverlayMode::RegionSelect => {
                     // Region mode: start drag selection
                     state.drag.is_active = true;
                     state.drag.is_dragging = false;
                     state.drag.start = Point::new(x, y);
                     state.drag.current = Point::new(x, y);
-                }
+                },
             }
         }
     }
@@ -170,14 +170,14 @@ fn handle_mouse_move(state_ptr: *mut OverlayState, lparam: LPARAM) -> LRESULT {
                 OverlayMode::DisplaySelect => {
                     // Display mode: just update cursor, no window detection
                     // Monitor highlight is based purely on cursor position (handled in render)
-                }
+                },
                 OverlayMode::WindowSelect => {
                     // Window mode: detect window under cursor
                     let screen_x = state.monitor.x + x;
                     let screen_y = state.monitor.y + y;
                     state.cursor.hovered_window =
                         get_window_at_point(screen_x, screen_y, state.hwnd);
-                }
+                },
                 OverlayMode::RegionSelect => {
                     // Region mode: handle drag or window detection
                     if state.drag.is_active {
@@ -195,7 +195,7 @@ fn handle_mouse_move(state_ptr: *mut OverlayState, lparam: LPARAM) -> LRESULT {
                         state.cursor.hovered_window =
                             get_window_at_point(screen_x, screen_y, state.hwnd);
                     }
-                }
+                },
             }
         }
 
@@ -226,7 +226,7 @@ fn handle_mouse_up(state_ptr: *mut OverlayState) -> LRESULT {
                 OverlayMode::DisplaySelect => {
                     // Display mode: select the monitor under cursor
                     handle_monitor_selection(state);
-                }
+                },
                 OverlayMode::WindowSelect => {
                     // Window mode: select the hovered window
                     if let Some(ref win) = state.cursor.hovered_window {
@@ -234,7 +234,7 @@ fn handle_mouse_up(state_ptr: *mut OverlayState) -> LRESULT {
                         handle_window_selection(state, win.bounds, hwnd);
                     }
                     // If no window hovered, do nothing (click in empty space)
-                }
+                },
                 OverlayMode::RegionSelect => {
                     // Region mode: original behavior
                     if state.drag.is_active {
@@ -252,7 +252,7 @@ fn handle_mouse_up(state_ptr: *mut OverlayState) -> LRESULT {
                             handle_monitor_selection(state);
                         }
                     }
-                }
+                },
             }
         }
 
@@ -379,7 +379,7 @@ fn handle_key_down(state_ptr: *mut OverlayState, wparam: WPARAM) -> LRESULT {
                     state.adjustment.reset();
                 }
                 state.cancel();
-            }
+            },
             VK_RETURN => {
                 if state.adjustment.is_active {
                     // Confirm with recording action (Enter in adjustment mode starts recording)
@@ -389,12 +389,12 @@ fn handle_key_down(state_ptr: *mut OverlayState, wparam: WPARAM) -> LRESULT {
                         }
                     }
                 }
-            }
+            },
             k if k == VK_SHIFT.0 as u32 => {
                 state.drag.shift_held = true;
                 let _ = render::render(state);
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
     LRESULT(0)

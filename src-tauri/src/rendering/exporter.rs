@@ -7,25 +7,25 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio, Child};
+use std::process::{Child, Command, Stdio};
 use tauri::{AppHandle, Emitter};
 
-use crate::commands::video_recording::video_project::{
-    VideoProject, ExportFormat, WebcamOverlayPosition, WebcamOverlayShape,
-    ZoomMode, AutoZoomConfig, apply_auto_zoom_to_project, SceneMode, CursorType,
-};
-use crate::commands::video_recording::video_export::{ExportProgress, ExportStage, ExportResult};
-use crate::commands::video_recording::cursor::events::load_cursor_recording;
-use super::zoom::ZoomInterpolator;
-use super::scene::SceneInterpolator;
-use super::cursor::{CursorInterpolator, composite_cursor};
-use super::stream_decoder::StreamDecoder;
-use super::renderer::Renderer;
 use super::compositor::Compositor;
-use super::types::{RenderOptions, DecodedFrame, WebcamOverlay, WebcamShape};
+use super::cursor::{composite_cursor, CursorInterpolator};
+use super::renderer::Renderer;
+use super::scene::SceneInterpolator;
+use super::stream_decoder::StreamDecoder;
+use super::types::{DecodedFrame, RenderOptions, WebcamOverlay, WebcamShape};
+use super::zoom::ZoomInterpolator;
+use crate::commands::video_recording::cursor::events::load_cursor_recording;
+use crate::commands::video_recording::video_export::{ExportProgress, ExportResult, ExportStage};
+use crate::commands::video_recording::video_project::{
+    apply_auto_zoom_to_project, AutoZoomConfig, CursorType, ExportFormat, SceneMode, VideoProject,
+    WebcamOverlayPosition, WebcamOverlayShape, ZoomMode,
+};
 
 /// Export a video project using GPU rendering.
-/// 
+///
 /// Uses streaming decoders (1 FFmpeg process each) instead of per-frame spawning.
 pub async fn export_video_gpu(
     app: AppHandle,
@@ -34,7 +34,7 @@ pub async fn export_video_gpu(
 ) -> Result<ExportResult, String> {
     let start_time = std::time::Instant::now();
     let output_path = PathBuf::from(&output_path);
-    
+
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
@@ -89,9 +89,13 @@ pub async fn export_video_gpu(
 
     log::info!(
         "[EXPORT] GPU export (streaming): {}x{} @ {}fps, {} frames, webcam={}",
-        out_w, out_h, fps, total_frames, has_webcam
+        out_w,
+        out_h,
+        fps,
+        total_frames,
+        has_webcam
     );
-    
+
     // Log scene configuration for debugging
     log::info!(
         "[EXPORT] Scene config: default_mode={:?}, {} segments, webcam.enabled={}, webcam.visibility_segments={}",
@@ -103,10 +107,12 @@ pub async fn export_video_gpu(
     for seg in &project.scene.segments {
         log::info!(
             "[EXPORT]   Scene segment: {}ms-{}ms mode={:?}",
-            seg.start_ms, seg.end_ms, seg.mode
+            seg.start_ms,
+            seg.end_ms,
+            seg.mode
         );
     }
-    
+
     // Log zoom configuration
     log::info!(
         "[EXPORT] Zoom config: mode={:?}, {} regions",
@@ -121,20 +127,23 @@ pub async fn export_video_gpu(
     let mut stdin = ffmpeg.stdin.take().ok_or("Failed to get FFmpeg stdin")?;
 
     // Generate auto zoom regions if mode is Auto/Both but regions are empty
-    let project = if matches!(project.zoom.mode, ZoomMode::Auto | ZoomMode::Both) 
-        && project.zoom.regions.is_empty() 
-        && project.sources.cursor_data.is_some() 
+    let project = if matches!(project.zoom.mode, ZoomMode::Auto | ZoomMode::Both)
+        && project.zoom.regions.is_empty()
+        && project.sources.cursor_data.is_some()
     {
         log::info!("[EXPORT] Auto zoom mode enabled but no regions - generating...");
         match apply_auto_zoom_to_project(project.clone(), &AutoZoomConfig::default()) {
             Ok(updated) => {
-                log::info!("[EXPORT] Generated {} auto zoom regions", updated.zoom.regions.len());
+                log::info!(
+                    "[EXPORT] Generated {} auto zoom regions",
+                    updated.zoom.regions.len()
+                );
                 updated
-            }
+            },
             Err(e) => {
                 log::warn!("[EXPORT] Failed to generate auto zoom: {}", e);
                 project
-            }
+            },
         }
     } else {
         project
@@ -142,7 +151,7 @@ pub async fn export_video_gpu(
 
     // Create zoom interpolator
     let zoom_interpolator = ZoomInterpolator::new(&project.zoom);
-    
+
     // Create scene interpolator for smooth scene transitions
     let scene_interpolator = SceneInterpolator::new(project.scene.segments.clone());
 
@@ -159,11 +168,11 @@ pub async fn export_video_gpu(
                             recording.cursor_images.len()
                         );
                         Some(CursorInterpolator::new(&recording))
-                    }
+                    },
                     Err(e) => {
                         log::warn!("[EXPORT] Failed to load cursor recording: {}", e);
                         None
-                    }
+                    },
                 }
             } else {
                 log::debug!("[EXPORT] Cursor data file not found: {}", cursor_data_path);
@@ -182,7 +191,7 @@ pub async fn export_video_gpu(
     // Render each frame sequentially from streaming decoders
     let mut frame_idx = 0u32;
     let mut last_webcam_frame: Option<DecodedFrame> = None; // Cache last webcam frame
-    
+
     loop {
         // Read next screen frame from stream (async)
         let screen_frame = match screen_decoder.next_frame().await? {
@@ -193,27 +202,30 @@ pub async fn export_video_gpu(
         // Calculate relative timestamp (position in trimmed video = what timeline shows)
         // Scene segments, zoom regions, and visibility all use timeline-relative time
         let relative_time_ms = ((frame_idx as f64 / fps as f64) * 1000.0) as u64;
-        
+
         // Scene segments and zoom regions use RELATIVE time (timeline position)
         let zoom_state = zoom_interpolator.get_zoom_at(relative_time_ms);
         let interpolated_scene = scene_interpolator.get_scene_at(relative_time_ms);
         let webcam_visible = is_webcam_visible_at(&project, relative_time_ms);
-        
+
         // Log first few frames for debugging
         if frame_idx < 3 || (relative_time_ms >= 6000 && relative_time_ms <= 6200) {
             log::debug!(
                 "[EXPORT] Frame {}: relative={}ms, scene_mode={:?}, transition_progress={:.2}",
-                frame_idx, relative_time_ms, interpolated_scene.scene_mode, interpolated_scene.transition_progress
+                frame_idx,
+                relative_time_ms,
+                interpolated_scene.scene_mode,
+                interpolated_scene.transition_progress
             );
         }
-        
+
         // Read webcam frame if we have a decoder (always consume to stay in sync)
         let current_webcam_frame = if let Some(ref mut decoder) = webcam_decoder {
             match decoder.next_frame().await {
                 Ok(Some(webcam_frame)) => {
                     last_webcam_frame = Some(webcam_frame.clone());
                     Some(webcam_frame)
-                }
+                },
                 _ => last_webcam_frame.clone(),
             }
         } else {
@@ -225,7 +237,7 @@ pub async fn export_video_gpu(
         let camera_only_opacity = interpolated_scene.camera_only_transition_opacity();
         let regular_camera_opacity = interpolated_scene.regular_camera_transition_opacity();
         let is_in_camera_only_transition = interpolated_scene.is_transitioning_camera_only();
-        
+
         // Log transition state for debugging
         if is_in_camera_only_transition && frame_idx % 10 == 0 {
             log::debug!(
@@ -233,7 +245,7 @@ pub async fn export_video_gpu(
                 frame_idx, camera_only_opacity, regular_camera_opacity, interpolated_scene.screen_blur
             );
         }
-        
+
         // Build the frame to render with proper blending
         let (frame_to_render, webcam_overlay) = if camera_only_opacity > 0.99 {
             // Fully in cameraOnly mode - just show fullscreen webcam
@@ -254,23 +266,28 @@ pub async fn export_video_gpu(
                 } else {
                     screen_frame.clone()
                 };
-                
+
                 // Scale webcam to fill output
                 let fullscreen_webcam = scale_frame_to_fill(webcam_frame, out_w, out_h);
-                
+
                 // Blend fullscreen webcam over screen with camera_only_opacity
-                blend_frames_alpha(&mut blended_frame, &fullscreen_webcam, camera_only_opacity as f32);
-                
+                blend_frames_alpha(
+                    &mut blended_frame,
+                    &fullscreen_webcam,
+                    camera_only_opacity as f32,
+                );
+
                 // Regular webcam overlay during transition (fades at 1.5x speed)
                 let overlay = if regular_camera_opacity > 0.01 && webcam_visible {
-                    let mut overlay = build_webcam_overlay(&project, webcam_frame.clone(), out_w, out_h);
+                    let mut overlay =
+                        build_webcam_overlay(&project, webcam_frame.clone(), out_w, out_h);
                     // Apply the transition opacity to the overlay
                     overlay.shadow_opacity *= regular_camera_opacity as f32;
                     Some(overlay)
                 } else {
                     None
                 };
-                
+
                 (blended_frame, overlay)
             } else {
                 // No webcam available
@@ -282,7 +299,7 @@ pub async fn export_video_gpu(
                 SceneMode::ScreenOnly => {
                     // Screen only - no webcam overlay
                     (screen_frame.clone(), None)
-                }
+                },
                 _ => {
                     // Default mode - screen with webcam overlay (if visible)
                     let overlay = if webcam_visible && regular_camera_opacity > 0.01 {
@@ -293,7 +310,7 @@ pub async fn export_video_gpu(
                         None
                     };
                     (screen_frame.clone(), overlay)
-                }
+                },
             }
         };
 
@@ -322,7 +339,7 @@ pub async fn export_video_gpu(
             // Only show cursor when screen is visible (not in cameraOnly mode)
             if camera_only_opacity < 0.99 {
                 let cursor = cursor_interp.get_cursor_at(relative_time_ms);
-                
+
                 // Get cursor image based on cursor type
                 if project.cursor.cursor_type == CursorType::Circle {
                     // Draw circle indicator instead of actual cursor
@@ -380,9 +397,14 @@ pub async fn export_video_gpu(
     emit_progress(&app, 0.95, ExportStage::Finalizing, "Finalizing...");
 
     // Wait for FFmpeg encoder to finish
-    let status = ffmpeg.wait().map_err(|e| format!("FFmpeg wait failed: {}", e))?;
+    let status = ffmpeg
+        .wait()
+        .map_err(|e| format!("FFmpeg wait failed: {}", e))?;
     if !status.success() {
-        return Err(format!("FFmpeg encoding failed with status: {:?}", status.code()));
+        return Err(format!(
+            "FFmpeg encoding failed with status: {:?}",
+            status.code()
+        ));
     }
 
     // Decoders are stopped automatically via Drop
@@ -417,29 +439,24 @@ fn build_webcam_overlay(
 ) -> WebcamOverlay {
     // Match preview exactly: 16px margin, square pixels
     const MARGIN_PX: f32 = 16.0;
-    
+
     // Webcam overlay is square in PIXELS (same as preview)
     let webcam_size_px = out_w as f32 * project.webcam.size as f32;
-    
+
     // Calculate position in PIXELS first (matching WebcamOverlay.tsx getPositionStyle)
     let (left_px, top_px) = match project.webcam.position {
-        WebcamOverlayPosition::TopLeft => {
-            (MARGIN_PX, MARGIN_PX)
-        }
-        WebcamOverlayPosition::TopRight => {
-            (out_w as f32 - webcam_size_px - MARGIN_PX, MARGIN_PX)
-        }
-        WebcamOverlayPosition::BottomLeft => {
-            (MARGIN_PX, out_h as f32 - webcam_size_px - MARGIN_PX)
-        }
-        WebcamOverlayPosition::BottomRight => {
-            (out_w as f32 - webcam_size_px - MARGIN_PX, out_h as f32 - webcam_size_px - MARGIN_PX)
-        }
+        WebcamOverlayPosition::TopLeft => (MARGIN_PX, MARGIN_PX),
+        WebcamOverlayPosition::TopRight => (out_w as f32 - webcam_size_px - MARGIN_PX, MARGIN_PX),
+        WebcamOverlayPosition::BottomLeft => (MARGIN_PX, out_h as f32 - webcam_size_px - MARGIN_PX),
+        WebcamOverlayPosition::BottomRight => (
+            out_w as f32 - webcam_size_px - MARGIN_PX,
+            out_h as f32 - webcam_size_px - MARGIN_PX,
+        ),
         WebcamOverlayPosition::Custom => {
             // Custom positioning matches preview logic
             let custom_x = project.webcam.custom_x as f32;
             let custom_y = project.webcam.custom_y as f32;
-            
+
             let left = if custom_x <= 0.1 {
                 MARGIN_PX
             } else if custom_x >= 0.9 {
@@ -447,7 +464,7 @@ fn build_webcam_overlay(
             } else {
                 custom_x * out_w as f32 - webcam_size_px / 2.0
             };
-            
+
             let top = if custom_y <= 0.1 {
                 MARGIN_PX
             } else if custom_y >= 0.9 {
@@ -455,21 +472,26 @@ fn build_webcam_overlay(
             } else {
                 custom_y * out_h as f32 - webcam_size_px / 2.0
             };
-            
+
             (left, top)
-        }
+        },
     };
-    
+
     // Convert to normalized coordinates (0-1)
     let x_norm = left_px / out_w as f32;
     let y_norm = top_px / out_h as f32;
-    
+
     // Log for debugging
     eprintln!(
         "[EXPORT] Webcam: {}x{} aspect={:.3}, overlay={}px, pos=({:.0},{:.0})px norm=({:.3},{:.3})",
-        frame.width, frame.height,
+        frame.width,
+        frame.height,
         frame.width as f32 / frame.height as f32,
-        webcam_size_px, left_px, top_px, x_norm, y_norm
+        webcam_size_px,
+        left_px,
+        top_px,
+        x_norm,
+        y_norm
     );
 
     let shape = match project.webcam.shape {
@@ -481,10 +503,10 @@ fn build_webcam_overlay(
 
     // Default shadow settings (subtle drop shadow like Cap)
     // TODO: Add shadow settings to WebcamConfig for user control
-    let shadow = 0.5;           // 50% shadow strength
-    let shadow_size = 0.15;     // 15% of webcam size
-    let shadow_opacity = 0.25;  // 25% opacity
-    let shadow_blur = 0.3;      // 30% blur
+    let shadow = 0.5; // 50% shadow strength
+    let shadow_size = 0.15; // 15% of webcam size
+    let shadow_opacity = 0.25; // 25% opacity
+    let shadow_blur = 0.3; // 30% blur
 
     WebcamOverlay {
         frame,
@@ -508,17 +530,21 @@ fn start_ffmpeg_encoder(
     height: u32,
     fps: u32,
 ) -> Result<Child, String> {
-    let ffmpeg_path = crate::commands::storage::find_ffmpeg()
-        .ok_or("FFmpeg not found")?;
+    let ffmpeg_path = crate::commands::storage::find_ffmpeg().ok_or("FFmpeg not found")?;
 
     let mut args = vec![
         "-y".to_string(),
         // Raw RGBA input from stdin
-        "-f".to_string(), "rawvideo".to_string(),
-        "-pix_fmt".to_string(), "rgba".to_string(),
-        "-s".to_string(), format!("{}x{}", width, height),
-        "-r".to_string(), fps.to_string(),
-        "-i".to_string(), "-".to_string(),
+        "-f".to_string(),
+        "rawvideo".to_string(),
+        "-pix_fmt".to_string(),
+        "rgba".to_string(),
+        "-s".to_string(),
+        format!("{}x{}", width, height),
+        "-r".to_string(),
+        fps.to_string(),
+        "-i".to_string(),
+        "-".to_string(),
     ];
 
     // Add audio if available
@@ -533,41 +559,57 @@ fn start_ffmpeg_encoder(
         ExportFormat::Mp4 => {
             let crf = quality_to_crf(project.export.quality);
             args.extend([
-                "-c:v".to_string(), "libx264".to_string(),
-                "-crf".to_string(), crf.to_string(),
-                "-preset".to_string(), "fast".to_string(),
-                "-pix_fmt".to_string(), "yuv420p".to_string(),
+                "-c:v".to_string(),
+                "libx264".to_string(),
+                "-crf".to_string(),
+                crf.to_string(),
+                "-preset".to_string(),
+                "fast".to_string(),
+                "-pix_fmt".to_string(),
+                "yuv420p".to_string(),
             ]);
             if has_audio(project) {
                 args.extend([
-                    "-c:a".to_string(), "aac".to_string(),
-                    "-b:a".to_string(), "192k".to_string(),
+                    "-c:a".to_string(),
+                    "aac".to_string(),
+                    "-b:a".to_string(),
+                    "192k".to_string(),
                     "-shortest".to_string(),
                 ]);
             }
-        }
+        },
         ExportFormat::Webm => {
             let crf = quality_to_crf(project.export.quality);
             args.extend([
-                "-c:v".to_string(), "libvpx-vp9".to_string(),
-                "-crf".to_string(), crf.to_string(),
-                "-b:v".to_string(), "0".to_string(),
-                "-deadline".to_string(), "realtime".to_string(),
-                "-cpu-used".to_string(), "4".to_string(),
+                "-c:v".to_string(),
+                "libvpx-vp9".to_string(),
+                "-crf".to_string(),
+                crf.to_string(),
+                "-b:v".to_string(),
+                "0".to_string(),
+                "-deadline".to_string(),
+                "realtime".to_string(),
+                "-cpu-used".to_string(),
+                "4".to_string(),
             ]);
             if has_audio(project) {
                 args.extend([
-                    "-c:a".to_string(), "libopus".to_string(),
-                    "-b:a".to_string(), "128k".to_string(),
+                    "-c:a".to_string(),
+                    "libopus".to_string(),
+                    "-b:a".to_string(),
+                    "128k".to_string(),
                 ]);
             }
-        }
+        },
         ExportFormat::Gif => {
             args.extend([
                 "-vf".to_string(),
-                format!("fps={},split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse", fps.min(15)),
+                format!(
+                    "fps={},split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+                    fps.min(15)
+                ),
             ]);
-        }
+        },
     }
 
     args.push(output_path.to_string_lossy().to_string());
@@ -584,8 +626,8 @@ fn start_ffmpeg_encoder(
 }
 
 fn has_audio(project: &VideoProject) -> bool {
-    (project.sources.system_audio.is_some() && !project.audio.system_muted) ||
-    (project.sources.microphone_audio.is_some() && !project.audio.microphone_muted)
+    (project.sources.system_audio.is_some() && !project.audio.system_muted)
+        || (project.sources.microphone_audio.is_some() && !project.audio.microphone_muted)
 }
 
 fn quality_to_crf(quality: u32) -> u8 {
@@ -593,16 +635,19 @@ fn quality_to_crf(quality: u32) -> u8 {
 }
 
 fn emit_progress(app: &AppHandle, progress: f32, stage: ExportStage, message: &str) {
-    let _ = app.emit("export-progress", ExportProgress {
-        progress,
-        stage,
-        message: message.to_string(),
-    });
+    let _ = app.emit(
+        "export-progress",
+        ExportProgress {
+            progress,
+            stage,
+            message: message.to_string(),
+        },
+    );
 }
 
 /// Scale a frame to COVER target dimensions (crop to fill, like CSS object-fit: cover).
 /// Used for CameraOnly mode to show webcam fullscreen, matching Cap's approach.
-/// 
+///
 /// Unlike FIT (contain), this crops the source to match the output aspect ratio,
 /// ensuring the entire output is filled with no black bars.
 fn scale_frame_to_fill(frame: &DecodedFrame, target_w: u32, target_h: u32) -> DecodedFrame {
@@ -610,10 +655,10 @@ fn scale_frame_to_fill(frame: &DecodedFrame, target_w: u32, target_h: u32) -> De
     let src_h = frame.height as f32;
     let target_w_f = target_w as f32;
     let target_h_f = target_h as f32;
-    
+
     let src_aspect = src_w / src_h;
     let target_aspect = target_w_f / target_h_f;
-    
+
     // Calculate crop bounds to match target aspect ratio (like Cap's camera_only mode)
     // This crops the minimum amount needed to fill the output
     let (crop_x, crop_y, crop_w, crop_h) = if src_aspect > target_aspect {
@@ -627,25 +672,25 @@ fn scale_frame_to_fill(frame: &DecodedFrame, target_w: u32, target_h: u32) -> De
         let crop_y = (src_h - visible_height) / 2.0;
         (0.0, crop_y, src_w, visible_height)
     };
-    
+
     // Create output buffer
     let mut output = vec![0u8; (target_w * target_h * 4) as usize];
-    
+
     // Scale from cropped region to target
     let scale_x = target_w_f / crop_w;
     let scale_y = target_h_f / crop_h;
-    
+
     // Simple nearest-neighbor scaling from cropped region
     for dst_y in 0..target_h {
         for dst_x in 0..target_w {
             // Map destination pixel to source pixel (within cropped region)
             let src_x = (crop_x + (dst_x as f32 / scale_x)) as u32;
             let src_y = (crop_y + (dst_y as f32 / scale_y)) as u32;
-            
+
             if src_x < frame.width && src_y < frame.height {
                 let src_idx = ((src_y * frame.width + src_x) * 4) as usize;
                 let dst_idx = ((dst_y * target_w + dst_x) * 4) as usize;
-                
+
                 if src_idx + 3 < frame.data.len() && dst_idx + 3 < output.len() {
                     output[dst_idx] = frame.data[src_idx];
                     output[dst_idx + 1] = frame.data[src_idx + 1];
@@ -655,7 +700,7 @@ fn scale_frame_to_fill(frame: &DecodedFrame, target_w: u32, target_h: u32) -> De
             }
         }
     }
-    
+
     DecodedFrame {
         frame_number: frame.frame_number,
         timestamp_ms: frame.timestamp_ms,
@@ -667,23 +712,28 @@ fn scale_frame_to_fill(frame: &DecodedFrame, target_w: u32, target_h: u32) -> De
 
 /// Blend source frame over destination with alpha opacity.
 /// dest = dest * (1 - alpha) + src * alpha
-/// 
+///
 /// Used for smooth scene transitions - blending fullscreen webcam over screen.
 fn blend_frames_alpha(dest: &mut DecodedFrame, src: &DecodedFrame, alpha: f32) {
     if dest.width != src.width || dest.height != src.height {
         log::warn!(
             "[EXPORT] blend_frames_alpha: size mismatch dest={}x{} src={}x{}",
-            dest.width, dest.height, src.width, src.height
+            dest.width,
+            dest.height,
+            src.width,
+            src.height
         );
         return;
     }
-    
+
     let inv_alpha = 1.0 - alpha;
     for i in (0..dest.data.len()).step_by(4) {
         if i + 3 < src.data.len() {
             dest.data[i] = ((dest.data[i] as f32 * inv_alpha) + (src.data[i] as f32 * alpha)) as u8;
-            dest.data[i + 1] = ((dest.data[i + 1] as f32 * inv_alpha) + (src.data[i + 1] as f32 * alpha)) as u8;
-            dest.data[i + 2] = ((dest.data[i + 2] as f32 * inv_alpha) + (src.data[i + 2] as f32 * alpha)) as u8;
+            dest.data[i + 1] =
+                ((dest.data[i + 1] as f32 * inv_alpha) + (src.data[i + 1] as f32 * alpha)) as u8;
+            dest.data[i + 2] =
+                ((dest.data[i + 2] as f32 * inv_alpha) + (src.data[i + 2] as f32 * alpha)) as u8;
             // Keep dest alpha (index i + 3)
         }
     }
@@ -701,68 +751,75 @@ impl std::fmt::Display for SceneMode {
 }
 
 /// Draw a cursor circle indicator at the given position.
-/// 
+///
 /// Draws a white circle with semi-transparent fill and a darker border
 /// to indicate cursor position when actual cursor images aren't available.
 fn draw_cursor_circle(
     frame_data: &mut [u8],
     frame_width: u32,
     frame_height: u32,
-    cursor_x: f32,  // normalized 0-1
-    cursor_y: f32,  // normalized 0-1
+    cursor_x: f32, // normalized 0-1
+    cursor_y: f32, // normalized 0-1
     scale: f32,
 ) {
     // Circle parameters
     let base_radius = 12.0; // Base radius in pixels
     let radius = base_radius * scale;
     let border_width = 2.0 * scale;
-    
+
     // Convert normalized position to pixel position
     let center_x = cursor_x * frame_width as f32;
     let center_y = cursor_y * frame_height as f32;
-    
+
     // Bounding box for the circle
     let min_x = ((center_x - radius - border_width).floor() as i32).max(0);
     let max_x = ((center_x + radius + border_width).ceil() as i32).min(frame_width as i32 - 1);
     let min_y = ((center_y - radius - border_width).floor() as i32).max(0);
     let max_y = ((center_y + radius + border_width).ceil() as i32).min(frame_height as i32 - 1);
-    
+
     for y in min_y..=max_y {
         for x in min_x..=max_x {
             let dx = x as f32 - center_x;
             let dy = y as f32 - center_y;
             let dist = (dx * dx + dy * dy).sqrt();
-            
+
             let idx = ((y as u32 * frame_width + x as u32) * 4) as usize;
             if idx + 3 >= frame_data.len() {
                 continue;
             }
-            
+
             // Determine what to draw based on distance from center
             let inner_radius = radius - border_width;
-            
+
             if dist <= inner_radius {
                 // Inside the circle - semi-transparent white fill
                 let alpha = 0.5;
                 let fill_r = 255u8;
                 let fill_g = 255u8;
                 let fill_b = 255u8;
-                
+
                 // Smooth edge using anti-aliasing
                 let edge_dist = inner_radius - dist;
-                let edge_alpha = if edge_dist < 1.0 { edge_dist * alpha } else { alpha };
+                let edge_alpha = if edge_dist < 1.0 {
+                    edge_dist * alpha
+                } else {
+                    alpha
+                };
                 let inv_alpha = 1.0 - edge_alpha;
-                
-                frame_data[idx] = ((fill_r as f32 * edge_alpha) + (frame_data[idx] as f32 * inv_alpha)) as u8;
-                frame_data[idx + 1] = ((fill_g as f32 * edge_alpha) + (frame_data[idx + 1] as f32 * inv_alpha)) as u8;
-                frame_data[idx + 2] = ((fill_b as f32 * edge_alpha) + (frame_data[idx + 2] as f32 * inv_alpha)) as u8;
+
+                frame_data[idx] =
+                    ((fill_r as f32 * edge_alpha) + (frame_data[idx] as f32 * inv_alpha)) as u8;
+                frame_data[idx + 1] =
+                    ((fill_g as f32 * edge_alpha) + (frame_data[idx + 1] as f32 * inv_alpha)) as u8;
+                frame_data[idx + 2] =
+                    ((fill_b as f32 * edge_alpha) + (frame_data[idx + 2] as f32 * inv_alpha)) as u8;
             } else if dist <= radius {
                 // On the border - darker semi-transparent ring
                 let alpha = 0.7;
                 let border_r = 50u8;
                 let border_g = 50u8;
                 let border_b = 50u8;
-                
+
                 // Smooth edges
                 let outer_edge = radius - dist;
                 let inner_edge = dist - inner_radius;
@@ -774,10 +831,15 @@ fn draw_cursor_circle(
                     alpha
                 };
                 let inv_alpha = 1.0 - edge_alpha;
-                
-                frame_data[idx] = ((border_r as f32 * edge_alpha) + (frame_data[idx] as f32 * inv_alpha)) as u8;
-                frame_data[idx + 1] = ((border_g as f32 * edge_alpha) + (frame_data[idx + 1] as f32 * inv_alpha)) as u8;
-                frame_data[idx + 2] = ((border_b as f32 * edge_alpha) + (frame_data[idx + 2] as f32 * inv_alpha)) as u8;
+
+                frame_data[idx] =
+                    ((border_r as f32 * edge_alpha) + (frame_data[idx] as f32 * inv_alpha)) as u8;
+                frame_data[idx + 1] = ((border_g as f32 * edge_alpha)
+                    + (frame_data[idx + 1] as f32 * inv_alpha))
+                    as u8;
+                frame_data[idx + 2] = ((border_b as f32 * edge_alpha)
+                    + (frame_data[idx + 2] as f32 * inv_alpha))
+                    as u8;
             }
         }
     }
@@ -789,12 +851,12 @@ fn is_webcam_visible_at(project: &VideoProject, timestamp_ms: u64) -> bool {
     if !project.webcam.enabled {
         return false;
     }
-    
+
     // If no visibility segments defined, webcam is always visible
     if project.webcam.visibility_segments.is_empty() {
         return true;
     }
-    
+
     // Check visibility segments - find the last segment that starts before this timestamp
     let mut is_visible = true; // Default to visible
     for segment in &project.webcam.visibility_segments {
@@ -802,7 +864,7 @@ fn is_webcam_visible_at(project: &VideoProject, timestamp_ms: u64) -> bool {
             is_visible = segment.visible;
         }
     }
-    
+
     is_visible
 }
 
@@ -810,9 +872,8 @@ fn is_webcam_visible_at(project: &VideoProject, timestamp_ms: u64) -> bool {
 mod tests {
     use super::*;
     use crate::commands::video_recording::video_project::{
-        WebcamConfig, WebcamBorder, VideoSources, ZoomConfig, CursorConfig,
-        AudioTrackSettings, ExportConfig, SceneConfig, TextConfig, TimelineState,
-        CornerStyle, ShadowConfig,
+        AudioTrackSettings, CornerStyle, CursorConfig, ExportConfig, SceneConfig, ShadowConfig,
+        TextConfig, TimelineState, VideoSources, WebcamBorder, WebcamConfig, ZoomConfig,
     };
 
     /// Create a minimal VideoProject for testing webcam positioning
@@ -915,7 +976,7 @@ mod tests {
                     custom_y * out_h as f32 - webcam_size_px / 2.0
                 };
                 (left, top)
-            }
+            },
         }
     }
 
@@ -927,7 +988,12 @@ mod tests {
 
         let overlay = build_webcam_overlay(&project, frame, out_w, out_h);
         let (expected_x, expected_y) = expected_position_px(
-            WebcamOverlayPosition::BottomRight, 0.0, 0.0, out_w, out_h, 0.20
+            WebcamOverlayPosition::BottomRight,
+            0.0,
+            0.0,
+            out_w,
+            out_h,
+            0.20,
         );
 
         let actual_x_px = overlay.x * out_w as f32;
@@ -936,12 +1002,16 @@ mod tests {
         assert!(
             (actual_x_px - expected_x).abs() < 1.0,
             "BottomRight X mismatch: expected {:.1}, got {:.1} (diff: {:.2})",
-            expected_x, actual_x_px, (actual_x_px - expected_x).abs()
+            expected_x,
+            actual_x_px,
+            (actual_x_px - expected_x).abs()
         );
         assert!(
             (actual_y_px - expected_y).abs() < 1.0,
             "BottomRight Y mismatch: expected {:.1}, got {:.1} (diff: {:.2})",
-            expected_y, actual_y_px, (actual_y_px - expected_y).abs()
+            expected_y,
+            actual_y_px,
+            (actual_y_px - expected_y).abs()
         );
     }
 
@@ -956,8 +1026,16 @@ mod tests {
         let actual_x_px = overlay.x * out_w as f32;
         let actual_y_px = overlay.y * out_h as f32;
 
-        assert!((actual_x_px - 16.0).abs() < 1.0, "TopLeft X should be 16px margin, got {:.1}", actual_x_px);
-        assert!((actual_y_px - 16.0).abs() < 1.0, "TopLeft Y should be 16px margin, got {:.1}", actual_y_px);
+        assert!(
+            (actual_x_px - 16.0).abs() < 1.0,
+            "TopLeft X should be 16px margin, got {:.1}",
+            actual_x_px
+        );
+        assert!(
+            (actual_y_px - 16.0).abs() < 1.0,
+            "TopLeft Y should be 16px margin, got {:.1}",
+            actual_y_px
+        );
     }
 
     #[test]
@@ -976,19 +1054,24 @@ mod tests {
             let frame = make_test_frame();
             let overlay = build_webcam_overlay(&project, frame, out_w, out_h);
 
-            let (expected_x, expected_y) = expected_position_px(position, 0.0, 0.0, out_w, out_h, size);
+            let (expected_x, expected_y) =
+                expected_position_px(position, 0.0, 0.0, out_w, out_h, size);
             let actual_x_px = overlay.x * out_w as f32;
             let actual_y_px = overlay.y * out_h as f32;
 
             assert!(
                 (actual_x_px - expected_x).abs() < 1.0,
                 "{} X mismatch: expected {:.1}, got {:.1}",
-                name, expected_x, actual_x_px
+                name,
+                expected_x,
+                actual_x_px
             );
             assert!(
                 (actual_y_px - expected_y).abs() < 1.0,
                 "{} Y mismatch: expected {:.1}, got {:.1}",
-                name, expected_y, actual_y_px
+                name,
+                expected_y,
+                actual_y_px
             );
         }
     }
@@ -1012,12 +1095,14 @@ mod tests {
         assert!(
             (actual_x_px - expected_x).abs() < 1.0,
             "Custom center X mismatch: expected {:.1}, got {:.1}",
-            expected_x, actual_x_px
+            expected_x,
+            actual_x_px
         );
         assert!(
             (actual_y_px - expected_y).abs() < 1.0,
             "Custom center Y mismatch: expected {:.1}, got {:.1}",
-            expected_y, actual_y_px
+            expected_y,
+            actual_y_px
         );
     }
 
@@ -1033,8 +1118,16 @@ mod tests {
         let overlay = build_webcam_overlay(&project, make_test_frame(), out_w, out_h);
         let actual_x_px = overlay.x * out_w as f32;
         let actual_y_px = overlay.y * out_h as f32;
-        assert!((actual_x_px - 16.0).abs() < 1.0, "Edge snap X should be 16px, got {:.1}", actual_x_px);
-        assert!((actual_y_px - 16.0).abs() < 1.0, "Edge snap Y should be 16px, got {:.1}", actual_y_px);
+        assert!(
+            (actual_x_px - 16.0).abs() < 1.0,
+            "Edge snap X should be 16px, got {:.1}",
+            actual_x_px
+        );
+        assert!(
+            (actual_y_px - 16.0).abs() < 1.0,
+            "Edge snap Y should be 16px, got {:.1}",
+            actual_y_px
+        );
 
         // Test bottom-right edge snapping (custom_x=0.95, custom_y=0.95)
         let project = make_test_project(WebcamOverlayPosition::Custom, size, 0.95, 0.95);
@@ -1043,8 +1136,18 @@ mod tests {
         let actual_y_px = overlay.y * out_h as f32;
         let expected_x = out_w as f32 - webcam_size_px - 16.0;
         let expected_y = out_h as f32 - webcam_size_px - 16.0;
-        assert!((actual_x_px - expected_x).abs() < 1.0, "Edge snap X should be {:.1}, got {:.1}", expected_x, actual_x_px);
-        assert!((actual_y_px - expected_y).abs() < 1.0, "Edge snap Y should be {:.1}, got {:.1}", expected_y, actual_y_px);
+        assert!(
+            (actual_x_px - expected_x).abs() < 1.0,
+            "Edge snap X should be {:.1}, got {:.1}",
+            expected_x,
+            actual_x_px
+        );
+        assert!(
+            (actual_y_px - expected_y).abs() < 1.0,
+            "Edge snap Y should be {:.1}, got {:.1}",
+            expected_y,
+            actual_y_px
+        );
     }
 
     #[test]
@@ -1057,13 +1160,21 @@ mod tests {
         let overlay = build_webcam_overlay(&project, frame, out_w, out_h);
 
         // Size should match what we passed in
-        assert!((overlay.size - 0.20).abs() < 0.001, "Size should be 0.20, got {}", overlay.size);
-        
+        assert!(
+            (overlay.size - 0.20).abs() < 0.001,
+            "Size should be 0.20, got {}",
+            overlay.size
+        );
+
         // Size in pixels should be 20% of width
         let expected_size_px = out_w as f32 * 0.20;
         let actual_size_px = overlay.size * out_w as f32;
-        assert!((actual_size_px - expected_size_px).abs() < 1.0, 
-            "Pixel size should be {:.1}, got {:.1}", expected_size_px, actual_size_px);
+        assert!(
+            (actual_size_px - expected_size_px).abs() < 1.0,
+            "Pixel size should be {:.1}, got {:.1}",
+            expected_size_px,
+            actual_size_px
+        );
     }
 
     #[test]
@@ -1092,12 +1203,16 @@ mod tests {
             assert!(
                 (actual_x_px - expected_x).abs() < 1.0,
                 "{} ({out_w}x{out_h}) X mismatch: expected {:.1}, got {:.1}",
-                desc, expected_x, actual_x_px
+                desc,
+                expected_x,
+                actual_x_px
             );
             assert!(
                 (actual_y_px - expected_y).abs() < 1.0,
                 "{} ({out_w}x{out_h}) Y mismatch: expected {:.1}, got {:.1}",
-                desc, expected_y, actual_y_px
+                desc,
+                expected_y,
+                actual_y_px
             );
         }
     }
@@ -1123,12 +1238,16 @@ mod tests {
             assert!(
                 (actual_x_px - expected_x).abs() < 1.0,
                 "Size {:.0}% X mismatch: expected {:.1}, got {:.1}",
-                size * 100.0, expected_x, actual_x_px
+                size * 100.0,
+                expected_x,
+                actual_x_px
             );
             assert!(
                 (actual_y_px - expected_y).abs() < 1.0,
                 "Size {:.0}% Y mismatch: expected {:.1}, got {:.1}",
-                size * 100.0, expected_y, actual_y_px
+                size * 100.0,
+                expected_y,
+                actual_y_px
             );
         }
     }
@@ -1136,27 +1255,27 @@ mod tests {
     // ============================================================================
     // GPU PIXEL TESTS - Verify actual rendered output matches expected positions
     // ============================================================================
-    // 
+    //
     // These tests render frames through the GPU compositor and verify that
     // the webcam overlay appears at the correct pixel coordinates.
-    // 
+    //
     // Requires GPU - will be skipped in CI without GPU support.
-    // 
+    //
     // Outputs test images to: src-tauri/src/tests/
 
     /// Save RGBA pixels to a PNG file for visual verification.
     fn save_test_image(pixels: &[u8], width: u32, height: u32, filename: &str) {
         use std::path::Path;
-        
+
         // Output to src-tauri/src/tests/
         let output_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tests");
         if let Err(e) = std::fs::create_dir_all(&output_dir) {
             eprintln!("[WARN] Failed to create output dir: {}", e);
             return;
         }
-        
+
         let output_path = output_dir.join(filename);
-        
+
         // Use image crate to save PNG
         match image::RgbaImage::from_raw(width, height, pixels.to_vec()) {
             Some(img) => {
@@ -1165,10 +1284,10 @@ mod tests {
                 } else {
                     eprintln!("[GPU TEST] Saved: {}", output_path.display());
                 }
-            }
+            },
             None => {
                 eprintln!("[WARN] Failed to create image from pixels");
-            }
+            },
         }
     }
 
@@ -1246,7 +1365,7 @@ mod tests {
             Err(e) => {
                 eprintln!("[SKIP] GPU not available: {}", e);
                 return;
-            }
+            },
         };
 
         let compositor = super::super::compositor::Compositor::new(&renderer);
@@ -1289,7 +1408,10 @@ mod tests {
         // Find webcam bounds by detecting red pixels (different from blue background)
         let bounds = find_webcam_bounds(&pixels, out_w, out_h, 0, 0, 128);
 
-        assert!(bounds.is_some(), "Webcam should be visible in rendered output");
+        assert!(
+            bounds.is_some(),
+            "Webcam should be visible in rendered output"
+        );
         let (min_x, min_y, max_x, max_y) = bounds.unwrap();
 
         // Calculate expected position (BottomRight with 16px margin)
@@ -1301,36 +1423,49 @@ mod tests {
         // Allow some tolerance for anti-aliasing and circle shape
         let tolerance = 5.0;
 
-        eprintln!("[GPU TEST] Webcam bounds: ({}, {}) - ({}, {})", min_x, min_y, max_x, max_y);
-        eprintln!("[GPU TEST] Expected bounds: ({:.0}, {:.0}) - ({:.0}, {:.0})", 
-            expected_left, expected_top, expected_right, expected_bottom);
+        eprintln!(
+            "[GPU TEST] Webcam bounds: ({}, {}) - ({}, {})",
+            min_x, min_y, max_x, max_y
+        );
+        eprintln!(
+            "[GPU TEST] Expected bounds: ({:.0}, {:.0}) - ({:.0}, {:.0})",
+            expected_left, expected_top, expected_right, expected_bottom
+        );
 
         // Verify left edge (min_x should be close to expected_left)
         assert!(
             (min_x as f32 - expected_left).abs() < tolerance,
             "Left edge mismatch: expected {:.0}, got {} (diff: {:.1})",
-            expected_left, min_x, (min_x as f32 - expected_left).abs()
+            expected_left,
+            min_x,
+            (min_x as f32 - expected_left).abs()
         );
 
         // Verify top edge (min_y should be close to expected_top)
         assert!(
             (min_y as f32 - expected_top).abs() < tolerance,
             "Top edge mismatch: expected {:.0}, got {} (diff: {:.1})",
-            expected_top, min_y, (min_y as f32 - expected_top).abs()
+            expected_top,
+            min_y,
+            (min_y as f32 - expected_top).abs()
         );
 
         // Verify right edge (max_x should be close to expected_right)
         assert!(
             (max_x as f32 - expected_right).abs() < tolerance,
             "Right edge mismatch: expected {:.0}, got {} (diff: {:.1})",
-            expected_right, max_x, (max_x as f32 - expected_right).abs()
+            expected_right,
+            max_x,
+            (max_x as f32 - expected_right).abs()
         );
 
         // Verify bottom edge (max_y should be close to expected_bottom)
         assert!(
             (max_y as f32 - expected_bottom).abs() < tolerance,
             "Bottom edge mismatch: expected {:.0}, got {} (diff: {:.1})",
-            expected_bottom, max_y, (max_y as f32 - expected_bottom).abs()
+            expected_bottom,
+            max_y,
+            (max_y as f32 - expected_bottom).abs()
         );
 
         eprintln!("[GPU TEST] PASSED: Webcam position verified at pixel level!");
@@ -1346,7 +1481,7 @@ mod tests {
             Err(e) => {
                 eprintln!("[SKIP] GPU not available: {}", e);
                 return;
-            }
+            },
         };
 
         let compositor = super::super::compositor::Compositor::new(&renderer);
@@ -1384,19 +1519,27 @@ mod tests {
         let detected_width = max_x - min_x;
         let detected_height = max_y - min_y;
 
-        eprintln!("[GPU TEST] Detected webcam: {}x{} pixels", detected_width, detected_height);
+        eprintln!(
+            "[GPU TEST] Detected webcam: {}x{} pixels",
+            detected_width, detected_height
+        );
 
         // For a circle, width and height should be approximately equal
         let aspect_ratio = detected_width as f32 / detected_height as f32;
-        
+
         // Allow 5% tolerance (0.95 - 1.05)
         assert!(
             aspect_ratio > 0.95 && aspect_ratio < 1.05,
             "Webcam should be circular (square bounds), but aspect ratio is {:.3}. Size: {}x{}",
-            aspect_ratio, detected_width, detected_height
+            aspect_ratio,
+            detected_width,
+            detected_height
         );
 
-        eprintln!("[GPU TEST] PASSED: Webcam is circular (aspect ratio: {:.3})!", aspect_ratio);
+        eprintln!(
+            "[GPU TEST] PASSED: Webcam is circular (aspect ratio: {:.3})!",
+            aspect_ratio
+        );
     }
 
     /// GPU pixel test: Verify all corner positions.
@@ -1408,7 +1551,7 @@ mod tests {
             Err(e) => {
                 eprintln!("[SKIP] GPU not available: {}", e);
                 return;
-            }
+            },
         };
 
         let compositor = super::super::compositor::Compositor::new(&renderer);
@@ -1422,9 +1565,24 @@ mod tests {
 
         let positions = [
             (WebcamOverlayPosition::TopLeft, MARGIN, MARGIN, "TopLeft"),
-            (WebcamOverlayPosition::TopRight, out_w as f32 - webcam_size_px - MARGIN, MARGIN, "TopRight"),
-            (WebcamOverlayPosition::BottomLeft, MARGIN, out_h as f32 - webcam_size_px - MARGIN, "BottomLeft"),
-            (WebcamOverlayPosition::BottomRight, out_w as f32 - webcam_size_px - MARGIN, out_h as f32 - webcam_size_px - MARGIN, "BottomRight"),
+            (
+                WebcamOverlayPosition::TopRight,
+                out_w as f32 - webcam_size_px - MARGIN,
+                MARGIN,
+                "TopRight",
+            ),
+            (
+                WebcamOverlayPosition::BottomLeft,
+                MARGIN,
+                out_h as f32 - webcam_size_px - MARGIN,
+                "BottomLeft",
+            ),
+            (
+                WebcamOverlayPosition::BottomRight,
+                out_w as f32 - webcam_size_px - MARGIN,
+                out_h as f32 - webcam_size_px - MARGIN,
+                "BottomRight",
+            ),
         ];
 
         for (position, expected_x, expected_y, name) in positions {
@@ -1443,30 +1601,44 @@ mod tests {
                 background: Default::default(),
             };
 
-            let output_texture = compositor.composite(&renderer, &screen_frame, &render_options, 0.0);
+            let output_texture =
+                compositor.composite(&renderer, &screen_frame, &render_options, 0.0);
             let pixels = pollster::block_on(renderer.read_texture(&output_texture, out_w, out_h));
 
             // Save to dev folder for visual verification
-            save_test_image(&pixels, out_w, out_h, &format!("webcam_{}.png", name.to_lowercase()));
+            save_test_image(
+                &pixels,
+                out_w,
+                out_h,
+                &format!("webcam_{}.png", name.to_lowercase()),
+            );
 
             let bounds = find_webcam_bounds(&pixels, out_w, out_h, 30, 30, 30);
             assert!(bounds.is_some(), "{}: Webcam should be visible", name);
 
             let (min_x, min_y, _max_x, _max_y) = bounds.unwrap();
 
-            eprintln!("[GPU TEST] {}: found at ({}, {}), expected ({:.0}, {:.0})", 
-                name, min_x, min_y, expected_x, expected_y);
+            eprintln!(
+                "[GPU TEST] {}: found at ({}, {}), expected ({:.0}, {:.0})",
+                name, min_x, min_y, expected_x, expected_y
+            );
 
             assert!(
                 (min_x as f32 - expected_x).abs() < tolerance,
                 "{} X mismatch: expected {:.0}, got {} (diff: {:.1})",
-                name, expected_x, min_x, (min_x as f32 - expected_x).abs()
+                name,
+                expected_x,
+                min_x,
+                (min_x as f32 - expected_x).abs()
             );
 
             assert!(
                 (min_y as f32 - expected_y).abs() < tolerance,
                 "{} Y mismatch: expected {:.0}, got {} (diff: {:.1})",
-                name, expected_y, min_y, (min_y as f32 - expected_y).abs()
+                name,
+                expected_y,
+                min_y,
+                (min_y as f32 - expected_y).abs()
             );
         }
 

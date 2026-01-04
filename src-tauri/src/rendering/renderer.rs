@@ -189,7 +189,7 @@ impl Renderer {
         let _ = rx.await;
 
         let data = buffer_slice.get_mapped_range();
-        
+
         // Remove padding if present
         if padded_bytes_per_row != bytes_per_row {
             let mut result = Vec::with_capacity((bytes_per_row * height) as usize);

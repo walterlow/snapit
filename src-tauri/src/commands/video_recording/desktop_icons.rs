@@ -36,17 +36,21 @@ mod windows_impl {
     };
 
     /// Find the desktop icons ListView window.
-    /// 
+    ///
     /// Desktop icons are in a ListView control inside SHELLDLL_DefView.
     /// The parent can be either Progman or a WorkerW window (depends on wallpaper slideshow).
     fn find_desktop_icons_window() -> Option<HWND> {
         unsafe {
             // First try: Progman -> SHELLDLL_DefView -> SysListView32
             let progman = FindWindowW(w!("Progman"), None).ok()?;
-            
+
             // Try to find SHELLDLL_DefView under Progman
-            if let Ok(shell_view) = FindWindowExW(progman, HWND::default(), w!("SHELLDLL_DefView"), None) {
-                if let Ok(list_view) = FindWindowExW(shell_view, HWND::default(), w!("SysListView32"), None) {
+            if let Ok(shell_view) =
+                FindWindowExW(progman, HWND::default(), w!("SHELLDLL_DefView"), None)
+            {
+                if let Ok(list_view) =
+                    FindWindowExW(shell_view, HWND::default(), w!("SysListView32"), None)
+                {
                     return Some(list_view);
                 }
             }
@@ -58,14 +62,21 @@ mod windows_impl {
                 match FindWindowExW(HWND::default(), worker_w, w!("WorkerW"), None) {
                     Ok(hwnd) if hwnd != HWND::default() => {
                         worker_w = hwnd;
-                        
+
                         // Check if this WorkerW contains SHELLDLL_DefView
-                        if let Ok(shell_view) = FindWindowExW(worker_w, HWND::default(), w!("SHELLDLL_DefView"), None) {
-                            if let Ok(list_view) = FindWindowExW(shell_view, HWND::default(), w!("SysListView32"), None) {
+                        if let Ok(shell_view) =
+                            FindWindowExW(worker_w, HWND::default(), w!("SHELLDLL_DefView"), None)
+                        {
+                            if let Ok(list_view) = FindWindowExW(
+                                shell_view,
+                                HWND::default(),
+                                w!("SysListView32"),
+                                None,
+                            ) {
                                 return Some(list_view);
                             }
                         }
-                    }
+                    },
                     _ => break,
                 }
             }
@@ -142,4 +153,6 @@ mod windows_impl {
     pub fn install_panic_hook() {}
 }
 
-pub use windows_impl::{hide_desktop_icons, show_desktop_icons, force_show_desktop_icons, install_panic_hook};
+pub use windows_impl::{
+    force_show_desktop_icons, hide_desktop_icons, install_panic_hook, show_desktop_icons,
+};

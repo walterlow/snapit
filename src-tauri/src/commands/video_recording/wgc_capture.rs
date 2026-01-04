@@ -85,7 +85,7 @@ impl GraphicsCaptureApiHandler for VideoCaptureHandler {
             Err(e) => {
                 log::warn!("[WGC] Failed to get buffer on frame {}: {:?}", count, e);
                 return Ok(()); // Skip this frame
-            }
+            },
         };
 
         let mut raw_data = Vec::new();
@@ -387,11 +387,11 @@ impl WgcVideoCapture {
                         }
                     }
                     last_dims = Some(dims);
-                }
+                },
                 _ => {
                     log::warn!("[WGC] Error receiving frame while waiting for stable dimensions");
                     return None;
-                }
+                },
             }
         }
     }
@@ -611,7 +611,7 @@ mod tests {
                         }
                     }
                     last_dims = Some(dims);
-                }
+                },
                 _ => break,
             }
         }

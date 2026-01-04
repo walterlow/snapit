@@ -322,11 +322,11 @@ impl WebcamCaptureService {
                     // Store data + cached JPEG
                     WEBCAM_BUFFER.update(frame_data, jpeg_cache, width, height, is_mjpeg);
                     frame_count += 1;
-                }
+                },
                 Err(e) => {
                     eprintln!("[WEBCAM] Frame capture error: {}", e);
                     std::thread::sleep(std::time::Duration::from_millis(10));
-                }
+                },
             }
         }
 

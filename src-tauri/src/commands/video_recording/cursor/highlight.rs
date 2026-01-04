@@ -47,7 +47,7 @@ pub fn render_click_highlight(
                 b,
                 base_alpha,
             );
-        }
+        },
         ClickHighlightStyle::Spotlight => {
             render_spotlight(
                 frame,
@@ -62,7 +62,7 @@ pub fn render_click_highlight(
                 b,
                 base_alpha,
             );
-        }
+        },
         ClickHighlightStyle::Ring => {
             render_ring(
                 frame,
@@ -77,7 +77,7 @@ pub fn render_click_highlight(
                 b,
                 base_alpha,
             );
-        }
+        },
     }
 }
 
@@ -339,14 +339,14 @@ fn parse_color(color: &str) -> Option<(u8, u8, u8, f32)> {
                 let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
                 let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
                 Some((r, g, b, 0.5))
-            }
+            },
             8 => {
                 let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
                 let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
                 let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
                 let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
                 Some((r, g, b, a as f32 / 255.0))
-            }
+            },
             _ => None,
         }
     } else if color.starts_with("rgba(") && color.ends_with(')') {

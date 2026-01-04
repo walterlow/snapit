@@ -95,32 +95,33 @@ pub fn run() {
                 #[cfg(target_os = "windows")]
                 WindowEvent::Resized(_) => {
                     std::thread::sleep(std::time::Duration::from_millis(1));
-                }
+                },
                 // Minimize to tray instead of closing the main window (if enabled)
                 WindowEvent::CloseRequested { api, .. } => {
                     let label = window.label();
-                    
+
                     // Close webcam preview when main window or capture toolbar closes
                     if label == "library" || label == "capture-toolbar" {
-                        if let Some(webcam_window) = window.app_handle().get_webview_window("webcam-preview") {
+                        if let Some(webcam_window) =
+                            window.app_handle().get_webview_window("webcam-preview")
+                        {
                             let _ = webcam_window.destroy();
                         }
                     }
-                    
+
                     // Handle minimize to tray for library window
                     if label == "library" && commands::settings::is_close_to_tray() {
                         api.prevent_close();
                         let _ = window.hide();
                     }
                     // Otherwise let the window close normally
-                }
-                _ => {}
+                },
+                _ => {},
             }
         })
         .invoke_handler(tauri::generate_handler![
             // Capture commands (with transparency support)
             commands::capture::capture_region,
-            commands::capture::capture_fullscreen,
             commands::capture::capture_window,
             commands::capture::get_monitors,
             commands::capture::get_virtual_screen_bounds,
@@ -297,7 +298,7 @@ pub fn run() {
 
             // Install panic hook to restore desktop icons on any future panic (fast, non-blocking)
             commands::video_recording::desktop_icons::install_panic_hook();
-            
+
             // Safety: Restore desktop icons in case previous session crashed while hiding them
             // Run in background thread to not block startup toolbar
             std::thread::spawn(|| {
@@ -363,26 +364,39 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
     use tauri::menu::PredefinedMenuItem;
 
     let quit = MenuItem::with_id(app, "quit", "Quit SnapIt", true, None::<&str>)?;
-    let show_toolbar =
-        MenuItem::with_id(app, "show_toolbar", "Show Capture Toolbar", true, None::<&str>)?;
-    let capture =
-        MenuItem::with_id(app, "capture", "New Capture", true, None::<&str>)?;
-    let capture_full =
-        MenuItem::with_id(app, "capture_full", "Fullscreen", true, None::<&str>)?;
-    let capture_all =
-        MenuItem::with_id(app, "capture_all", "All Monitors", true, None::<&str>)?;
+    let show_toolbar = MenuItem::with_id(
+        app,
+        "show_toolbar",
+        "Show Capture Toolbar",
+        true,
+        None::<&str>,
+    )?;
+    let capture = MenuItem::with_id(app, "capture", "New Capture", true, None::<&str>)?;
+    let capture_full = MenuItem::with_id(app, "capture_full", "Fullscreen", true, None::<&str>)?;
+    let capture_all = MenuItem::with_id(app, "capture_all", "All Monitors", true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show Library", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
 
     let menu = Menu::with_items(
         app,
-        &[&show_toolbar, &separator, &capture, &capture_full, &capture_all, &separator, &show, &settings, &separator, &quit],
+        &[
+            &show_toolbar,
+            &separator,
+            &capture,
+            &capture_full,
+            &capture_all,
+            &separator,
+            &show,
+            &settings,
+            &separator,
+            &quit,
+        ],
     )?;
 
     // Load custom tray icon (32x32 is standard for system tray)
-    let tray_icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
-        .expect("Failed to load tray icon");
+    let tray_icon =
+        Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("Failed to load tray icon");
 
     let _tray = TrayIconBuilder::new()
         .icon(tray_icon)
@@ -397,10 +411,10 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                         log::error!("Failed to show capture toolbar: {}", e);
                     }
                 });
-            }
+            },
             "capture" => {
                 let _ = commands::window::trigger_capture(app, None);
-            }
+            },
             "capture_full" => {
                 // Fast fullscreen capture - no overlay, no PNG encoding
                 let app_handle = app.clone();
@@ -411,10 +425,11 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                             result.file_path,
                             result.width,
                             result.height,
-                        ).await;
+                        )
+                        .await;
                     }
                 });
-            }
+            },
             "capture_all" => {
                 // Capture all monitors combined
                 let app_handle = app.clone();
@@ -426,23 +441,26 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                             width: bounds.width,
                             height: bounds.height,
                         };
-                        if let Ok(result) = commands::capture::capture_screen_region_fast(selection).await {
+                        if let Ok(result) =
+                            commands::capture::capture_screen_region_fast(selection).await
+                        {
                             let _ = commands::window::open_editor_fast(
                                 app_handle,
                                 result.file_path,
                                 result.width,
                                 result.height,
-                            ).await;
+                            )
+                            .await;
                         }
                     }
                 });
-            }
+            },
             "show" => {
                 if let Some(window) = app.get_webview_window("library") {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
-            }
+            },
             "settings" => {
                 // Show library window and emit event to open settings modal
                 if let Some(window) = app.get_webview_window("library") {
@@ -450,8 +468,8 @@ fn setup_system_tray(app: &tauri::App) -> Result<TrayState, Box<dyn std::error::
                     let _ = window.set_focus();
                 }
                 let _ = app.emit("open-settings", ());
-            }
-            _ => {}
+            },
+            _ => {},
         })
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {

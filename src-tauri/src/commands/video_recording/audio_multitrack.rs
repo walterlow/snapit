@@ -68,7 +68,7 @@ impl MultiTrackAudioRecorder {
     }
 
     /// Create a new multi-track audio recorder with shared control flags.
-    /// 
+    ///
     /// Use this when you want to control pause/resume externally.
     pub fn with_flags(should_stop: Arc<AtomicBool>, is_paused: Arc<AtomicBool>) -> Self {
         Self {
@@ -163,11 +163,11 @@ impl MultiTrackAudioRecorder {
                 Ok(Err(e)) => {
                     log::error!("[MULTITRACK] System audio recording error: {}", e);
                     errors.push(format!("System audio: {}", e));
-                }
+                },
                 Err(_) => {
                     log::error!("[MULTITRACK] System audio thread panicked");
                     errors.push("System audio thread panicked".to_string());
-                }
+                },
             }
         }
 
@@ -178,11 +178,11 @@ impl MultiTrackAudioRecorder {
                 Ok(Err(e)) => {
                     log::error!("[MULTITRACK] Microphone recording error: {}", e);
                     errors.push(format!("Microphone: {}", e));
-                }
+                },
                 Err(_) => {
                     log::error!("[MULTITRACK] Microphone thread panicked");
                     errors.push("Microphone thread panicked".to_string());
-                }
+                },
             }
         }
 
@@ -195,7 +195,10 @@ impl MultiTrackAudioRecorder {
 
     /// Get the paths of recorded audio files.
     pub fn get_audio_paths(&self) -> (Option<&PathBuf>, Option<&PathBuf>) {
-        (self.system_audio_path.as_ref(), self.mic_audio_path.as_ref())
+        (
+            self.system_audio_path.as_ref(),
+            self.mic_audio_path.as_ref(),
+        )
     }
 }
 
@@ -226,7 +229,9 @@ fn record_system_audio(
         .get_default_device(&Direction::Render)
         .map_err(|e| format!("Failed to get default audio device: {:?}", e))?;
 
-    let device_name = device.get_friendlyname().unwrap_or_else(|_| "Unknown".to_string());
+    let device_name = device
+        .get_friendlyname()
+        .unwrap_or_else(|_| "Unknown".to_string());
     log::info!("[MULTITRACK] System audio device: '{}'", device_name);
 
     // Get audio client
@@ -275,8 +280,8 @@ fn record_system_audio(
         sample_format: hound::SampleFormat::Float,
     };
 
-    let file = File::create(output_path)
-        .map_err(|e| format!("Failed to create WAV file: {}", e))?;
+    let file =
+        File::create(output_path).map_err(|e| format!("Failed to create WAV file: {}", e))?;
     let mut writer = WavWriter::new(BufWriter::new(file), spec)
         .map_err(|e| format!("Failed to create WAV writer: {}", e))?;
 
@@ -315,7 +320,8 @@ fn record_system_audio(
                 // Convert to f32 samples and write
                 let samples = bytes_to_f32_samples(&sample_queue);
                 for sample in &samples {
-                    writer.write_sample(*sample)
+                    writer
+                        .write_sample(*sample)
                         .map_err(|e| format!("Failed to write sample: {}", e))?;
                 }
                 total_samples += samples.len() as u64;
@@ -325,10 +331,14 @@ fn record_system_audio(
     }
 
     // Finalize WAV file
-    writer.finalize()
+    writer
+        .finalize()
         .map_err(|e| format!("Failed to finalize WAV file: {}", e))?;
 
-    log::info!("[MULTITRACK] System audio recorded {} samples", total_samples);
+    log::info!(
+        "[MULTITRACK] System audio recorded {} samples",
+        total_samples
+    );
     Ok(())
 }
 
@@ -352,7 +362,9 @@ fn record_microphone(
         .get_default_device(&Direction::Capture)
         .map_err(|e| format!("Failed to get default microphone: {:?}", e))?;
 
-    let device_name = device.get_friendlyname().unwrap_or_else(|_| "Unknown".to_string());
+    let device_name = device
+        .get_friendlyname()
+        .unwrap_or_else(|_| "Unknown".to_string());
     log::info!("[MULTITRACK] Microphone device: '{}'", device_name);
 
     // Get audio client
@@ -401,8 +413,8 @@ fn record_microphone(
         sample_format: hound::SampleFormat::Float,
     };
 
-    let file = File::create(output_path)
-        .map_err(|e| format!("Failed to create WAV file: {}", e))?;
+    let file =
+        File::create(output_path).map_err(|e| format!("Failed to create WAV file: {}", e))?;
     let mut writer = WavWriter::new(BufWriter::new(file), spec)
         .map_err(|e| format!("Failed to create WAV writer: {}", e))?;
 
@@ -441,7 +453,8 @@ fn record_microphone(
                 // Convert to f32 samples and write
                 let samples = bytes_to_f32_samples(&sample_queue);
                 for sample in &samples {
-                    writer.write_sample(*sample)
+                    writer
+                        .write_sample(*sample)
                         .map_err(|e| format!("Failed to write sample: {}", e))?;
                 }
                 total_samples += samples.len() as u64;
@@ -451,7 +464,8 @@ fn record_microphone(
     }
 
     // Finalize WAV file
-    writer.finalize()
+    writer
+        .finalize()
         .map_err(|e| format!("Failed to finalize WAV file: {}", e))?;
 
     log::info!("[MULTITRACK] Microphone recorded {} samples", total_samples);
@@ -462,14 +476,14 @@ fn record_microphone(
 fn bytes_to_f32_samples(bytes: &VecDeque<u8>) -> Vec<f32> {
     let mut samples = Vec::with_capacity(bytes.len() / 4);
     let bytes_slice: Vec<u8> = bytes.iter().copied().collect();
-    
+
     for chunk in bytes_slice.chunks(4) {
         if chunk.len() == 4 {
             let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
             samples.push(sample);
         }
     }
-    
+
     samples
 }
 
@@ -484,7 +498,7 @@ mod tests {
         bytes.extend(&0.5f32.to_le_bytes());
         // -0.25 in f32 little-endian
         bytes.extend(&(-0.25f32).to_le_bytes());
-        
+
         let samples = bytes_to_f32_samples(&bytes);
         assert_eq!(samples.len(), 2);
         assert!((samples[0] - 0.5).abs() < 0.001);

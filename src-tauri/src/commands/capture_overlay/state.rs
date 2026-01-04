@@ -172,35 +172,35 @@ impl AdjustmentState {
             HandlePosition::TopLeft => {
                 self.bounds.left = self.original_bounds.left + dx;
                 self.bounds.top = self.original_bounds.top + dy;
-            }
+            },
             HandlePosition::Top => {
                 self.bounds.top = self.original_bounds.top + dy;
-            }
+            },
             HandlePosition::TopRight => {
                 self.bounds.right = self.original_bounds.right + dx;
                 self.bounds.top = self.original_bounds.top + dy;
-            }
+            },
             HandlePosition::Right => {
                 self.bounds.right = self.original_bounds.right + dx;
-            }
+            },
             HandlePosition::BottomRight => {
                 self.bounds.right = self.original_bounds.right + dx;
                 self.bounds.bottom = self.original_bounds.bottom + dy;
-            }
+            },
             HandlePosition::Bottom => {
                 self.bounds.bottom = self.original_bounds.bottom + dy;
-            }
+            },
             HandlePosition::BottomLeft => {
                 self.bounds.left = self.original_bounds.left + dx;
                 self.bounds.bottom = self.original_bounds.bottom + dy;
-            }
+            },
             HandlePosition::Left => {
                 self.bounds.left = self.original_bounds.left + dx;
-            }
+            },
             HandlePosition::Interior => {
                 self.bounds = self.original_bounds.offset(dx, dy);
-            }
-            HandlePosition::None => {}
+            },
+            HandlePosition::None => {},
         }
 
         // Ensure minimum size
@@ -413,7 +413,10 @@ impl OverlayState {
         if self.adjustment.is_active {
             Some(self.monitor.local_rect_to_screen(self.adjustment.bounds))
         } else if self.drag.is_dragging {
-            Some(self.monitor.local_rect_to_screen(self.drag.selection_rect()))
+            Some(
+                self.monitor
+                    .local_rect_to_screen(self.drag.selection_rect()),
+            )
         } else if let Some(ref win) = self.cursor.hovered_window {
             Some(win.bounds)
         } else {

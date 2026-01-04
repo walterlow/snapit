@@ -293,10 +293,10 @@ impl WasapiLoopback {
                             log::trace!("Audio channel full, dropping frame");
                         }
                     }
-                }
+                },
                 Err(e) => {
                     log::warn!("Failed to read audio: {:?}", e);
-                }
+                },
             }
         }
 

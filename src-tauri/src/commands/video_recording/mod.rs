@@ -31,10 +31,10 @@ pub mod webcam;
 pub mod wgc_capture;
 
 use serde::{Deserialize, Serialize};
-use tauri::{command, AppHandle, Emitter, Manager};
-use ts_rs::TS;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use tauri::{command, AppHandle, Emitter, Manager};
+use ts_rs::TS;
 
 use crate::error::{LockResultExt, SnapItError};
 
@@ -43,11 +43,11 @@ pub use state::RECORDING_CONTROLLER;
 
 // Video editor types
 pub use cursor::CursorRecording;
-pub use video_project::{
-    AudioWaveform, AutoZoomConfig, VideoProject, load_video_project_from_file, 
-    get_video_frame_cached, clear_frame_cache, apply_auto_zoom_to_project,
-};
 pub use video_export::ExportResult;
+pub use video_project::{
+    apply_auto_zoom_to_project, clear_frame_cache, get_video_frame_cached,
+    load_video_project_from_file, AudioWaveform, AutoZoomConfig, VideoProject,
+};
 
 // GPU-accelerated editor
 pub use gpu_editor::EditorState;
@@ -163,7 +163,11 @@ pub fn set_recording_include_cursor(include: bool) {
 /// Get the current max duration setting (0 = unlimited)
 pub fn get_max_duration_secs() -> Option<u32> {
     let val = MAX_DURATION_SECS.load(Ordering::SeqCst);
-    if val == 0 { None } else { Some(val) }
+    if val == 0 {
+        None
+    } else {
+        Some(val)
+    }
 }
 
 /// Set the max duration (called from frontend before starting recording)
@@ -175,7 +179,11 @@ pub fn set_recording_max_duration(secs: u32) {
 /// Get the current microphone device index (None = no microphone)
 pub fn get_microphone_device_index() -> Option<usize> {
     let val = MICROPHONE_DEVICE_INDEX.load(Ordering::SeqCst);
-    if val == u32::MAX { None } else { Some(val as usize) }
+    if val == u32::MAX {
+        None
+    } else {
+        Some(val as usize)
+    }
 }
 
 /// Set the microphone device index (called from frontend before starting recording)
@@ -183,7 +191,11 @@ pub fn get_microphone_device_index() -> Option<usize> {
 #[command]
 pub fn set_recording_microphone_device(index: Option<u32>) {
     let store_val = index.unwrap_or(u32::MAX);
-    log::debug!("[SETTINGS] set_recording_microphone_device({:?}) -> storing {}", index, store_val);
+    log::debug!(
+        "[SETTINGS] set_recording_microphone_device({:?}) -> storing {}",
+        index,
+        store_val
+    );
     MICROPHONE_DEVICE_INDEX.store(store_val, Ordering::SeqCst);
 }
 
@@ -198,12 +210,11 @@ pub fn set_hide_desktop_icons(enabled: bool) {
 // Webcam Settings (Global Atomics)
 // ============================================================================
 
-use std::sync::Mutex;
 use lazy_static::lazy_static;
+use std::sync::Mutex;
 
 pub use webcam::{
-    WebcamDevice, WebcamPosition, WebcamSettings, WebcamShape,
-    WebcamSize, get_webcam_devices,
+    get_webcam_devices, WebcamDevice, WebcamPosition, WebcamSettings, WebcamShape, WebcamSize,
 };
 
 lazy_static! {
@@ -213,27 +224,42 @@ lazy_static! {
 
 /// Get the current webcam settings (internal use).
 pub fn get_webcam_settings() -> Result<WebcamSettings, SnapItError> {
-    Ok(WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.clone())
+    Ok(WEBCAM_SETTINGS
+        .lock()
+        .map_lock_err("WEBCAM_SETTINGS")?
+        .clone())
 }
 
 /// Get the current webcam settings (Tauri command).
 #[command]
 pub fn get_webcam_settings_cmd() -> Result<WebcamSettings, SnapItError> {
-    let settings = WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.clone();
-    log::debug!("[WEBCAM] get_webcam_settings_cmd returning enabled={}", settings.enabled);
+    let settings = WEBCAM_SETTINGS
+        .lock()
+        .map_lock_err("WEBCAM_SETTINGS")?
+        .clone();
+    log::debug!(
+        "[WEBCAM] get_webcam_settings_cmd returning enabled={}",
+        settings.enabled
+    );
     Ok(settings)
 }
 
 /// Check if webcam capture is enabled.
 pub fn is_webcam_enabled() -> Result<bool, SnapItError> {
-    Ok(WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.enabled)
+    Ok(WEBCAM_SETTINGS
+        .lock()
+        .map_lock_err("WEBCAM_SETTINGS")?
+        .enabled)
 }
 
 /// Set webcam enabled state.
 #[command]
 pub fn set_webcam_enabled(enabled: bool) -> Result<(), SnapItError> {
     log::debug!("[SETTINGS] set_webcam_enabled({})", enabled);
-    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.enabled = enabled;
+    WEBCAM_SETTINGS
+        .lock()
+        .map_lock_err("WEBCAM_SETTINGS")?
+        .enabled = enabled;
     Ok(())
 }
 
@@ -241,7 +267,10 @@ pub fn set_webcam_enabled(enabled: bool) -> Result<(), SnapItError> {
 #[command]
 pub fn set_webcam_device(device_index: usize) -> Result<(), SnapItError> {
     log::debug!("[SETTINGS] set_webcam_device({})", device_index);
-    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.device_index = device_index;
+    WEBCAM_SETTINGS
+        .lock()
+        .map_lock_err("WEBCAM_SETTINGS")?
+        .device_index = device_index;
     Ok(())
 }
 
@@ -249,7 +278,10 @@ pub fn set_webcam_device(device_index: usize) -> Result<(), SnapItError> {
 #[command]
 pub fn set_webcam_position(position: WebcamPosition) -> Result<(), SnapItError> {
     log::debug!("[SETTINGS] set_webcam_position({:?})", position);
-    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.position = position;
+    WEBCAM_SETTINGS
+        .lock()
+        .map_lock_err("WEBCAM_SETTINGS")?
+        .position = position;
     Ok(())
 }
 
@@ -265,7 +297,10 @@ pub fn set_webcam_size(size: WebcamSize) -> Result<(), SnapItError> {
 #[command]
 pub fn set_webcam_shape(shape: WebcamShape) -> Result<(), SnapItError> {
     log::debug!("[SETTINGS] set_webcam_shape({:?})", shape);
-    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.shape = shape;
+    WEBCAM_SETTINGS
+        .lock()
+        .map_lock_err("WEBCAM_SETTINGS")?
+        .shape = shape;
     Ok(())
 }
 
@@ -273,7 +308,10 @@ pub fn set_webcam_shape(shape: WebcamShape) -> Result<(), SnapItError> {
 #[command]
 pub fn set_webcam_mirror(mirror: bool) -> Result<(), SnapItError> {
     log::debug!("[SETTINGS] set_webcam_mirror({})", mirror);
-    WEBCAM_SETTINGS.lock().map_lock_err("WEBCAM_SETTINGS")?.mirror = mirror;
+    WEBCAM_SETTINGS
+        .lock()
+        .map_lock_err("WEBCAM_SETTINGS")?
+        .mirror = mirror;
     Ok(())
 }
 
@@ -292,7 +330,8 @@ use std::sync::OnceLock;
 
 /// Pre-spawned webcam encoder pipe, ready to receive frames.
 /// Created during prewarm, used when recording starts.
-static PREPARED_WEBCAM_PIPE: OnceLock<StdMutex<Option<webcam::WebcamEncoderPipe>>> = OnceLock::new();
+static PREPARED_WEBCAM_PIPE: OnceLock<StdMutex<Option<webcam::WebcamEncoderPipe>>> =
+    OnceLock::new();
 
 /// Pre-generated output path for the next recording.
 static PREPARED_OUTPUT_PATH: OnceLock<StdMutex<Option<std::path::PathBuf>>> = OnceLock::new();
@@ -320,21 +359,18 @@ pub fn take_prepared_output_path() -> Option<std::path::PathBuf> {
 #[command]
 pub fn prewarm_capture() -> Result<(), String> {
     log::info!("[PREWARM] Pre-warming capture resources...");
-    
+
     // Pre-warm webcam if enabled
-    let webcam_enabled = WEBCAM_SETTINGS
-        .lock()
-        .map(|s| s.enabled)
-        .unwrap_or(false);
-    
+    let webcam_enabled = WEBCAM_SETTINGS.lock().map(|s| s.enabled).unwrap_or(false);
+
     if webcam_enabled {
-        let device_index = WEBCAM_SETTINGS
-            .lock()
-            .map(|s| s.device_index)
-            .unwrap_or(0);
-        
+        let device_index = WEBCAM_SETTINGS.lock().map(|s| s.device_index).unwrap_or(0);
+
         if !webcam::is_capture_running() {
-            log::info!("[PREWARM] Starting webcam capture (device {})", device_index);
+            log::info!(
+                "[PREWARM] Starting webcam capture (device {})",
+                device_index
+            );
             if let Err(e) = webcam::start_capture_service(device_index) {
                 log::warn!("[PREWARM] Webcam pre-warm failed: {}", e);
             }
@@ -342,14 +378,14 @@ pub fn prewarm_capture() -> Result<(), String> {
             log::info!("[PREWARM] Webcam already running");
         }
     }
-    
+
     // Pre-warm screen capture (DXGI) - load DLLs in background
     log::info!("[PREWARM] Touching DXGI...");
     std::thread::spawn(|| {
         use windows_capture::monitor::Monitor;
         let _ = Monitor::enumerate(); // Loads DirectX DLLs
     });
-    
+
     log::info!("[PREWARM] Pre-warm complete");
     Ok(())
 }
@@ -361,7 +397,7 @@ pub fn prewarm_capture() -> Result<(), String> {
 #[command]
 pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
     log::info!("[PREPARE] Preparing recording resources (background)...");
-    
+
     // Generate output path now (before record click) - this is fast
     let settings = RecordingSettings {
         format,
@@ -369,40 +405,37 @@ pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
     };
     let output_path = generate_output_path(&settings)?;
     log::info!("[PREPARE] Output path: {:?}", output_path);
-    
+
     // Store for later use
     if let Ok(mut prepared) = get_prepared_output_path().lock() {
         *prepared = Some(output_path.clone());
     }
-    
+
     // Check webcam settings (fast)
-    let webcam_enabled = WEBCAM_SETTINGS
-        .lock()
-        .map(|s| s.enabled)
-        .unwrap_or(false);
-    
+    let webcam_enabled = WEBCAM_SETTINGS.lock().map(|s| s.enabled).unwrap_or(false);
+
     if webcam_enabled && format == RecordingFormat::Mp4 {
         // For MP4, output_path is a folder - webcam goes inside as webcam.mp4
         let webcam_path = output_path.join("webcam.mp4");
-        
+
         // Spawn FFmpeg in background thread - this is the slow part
         std::thread::spawn(move || {
             log::info!("[PREPARE] Spawning FFmpeg for webcam: {:?}", webcam_path);
-            
+
             match webcam::WebcamEncoderPipe::new(webcam_path) {
                 Ok(pipe) => {
                     if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
                         *prepared = Some(pipe);
                     }
                     log::info!("[PREPARE] FFmpeg spawned and ready");
-                }
+                },
                 Err(e) => {
                     log::warn!("[PREPARE] Failed to spawn FFmpeg: {}", e);
-                }
+                },
             }
         });
     }
-    
+
     log::info!("[PREPARE] Recording preparation initiated");
     Ok(())
 }
@@ -411,7 +444,7 @@ pub fn prepare_recording(format: RecordingFormat) -> Result<(), String> {
 #[command]
 pub fn stop_prewarm() {
     log::info!("[PREWARM] Stopping pre-warmed resources");
-    
+
     // Cancel any prepared webcam pipe
     if let Ok(mut prepared) = get_prepared_webcam_pipe().lock() {
         if let Some(pipe) = prepared.take() {
@@ -419,7 +452,7 @@ pub fn stop_prewarm() {
             log::info!("[PREWARM] Cancelled prepared webcam pipe");
         }
     }
-    
+
     // Clear prepared output path
     if let Ok(mut prepared) = get_prepared_output_path().lock() {
         *prepared = None;
@@ -434,7 +467,10 @@ pub fn stop_prewarm() {
 /// Call this before showing the preview window.
 #[command]
 pub fn start_webcam_preview(device_index: usize) -> Result<(), String> {
-    log::debug!("[WEBCAM] start_webcam_preview(device_index={})", device_index);
+    log::debug!(
+        "[WEBCAM] start_webcam_preview(device_index={})",
+        device_index
+    );
     webcam::start_capture_service(device_index)
 }
 
@@ -457,7 +493,10 @@ pub fn get_webcam_preview_frame(quality: Option<u8>) -> Option<String> {
         static CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let count = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if count % 30 == 0 {
-            eprintln!("[WEBCAM] get_webcam_preview_frame: no frame available (call #{})", count);
+            eprintln!(
+                "[WEBCAM] get_webcam_preview_frame: no frame available (call #{})",
+                count
+            );
         }
     }
     result
@@ -480,36 +519,43 @@ pub fn is_webcam_preview_running() -> bool {
 /// Uses wasapi to get full friendly names (e.g., "Headset (WH-1000XM3 Hands-Free AG Audio)")
 #[command]
 pub fn list_audio_input_devices() -> Result<Vec<AudioInputDevice>, String> {
-    use wasapi::{DeviceEnumerator, Direction, initialize_mta};
-    
+    use wasapi::{initialize_mta, DeviceEnumerator, Direction};
+
     // Initialize COM for this thread
     initialize_mta().ok();
-    
+
     let enumerator = DeviceEnumerator::new()
         .map_err(|e| format!("Failed to create device enumerator: {:?}", e))?;
-    
+
     // Get default device ID for comparison
     let default_id = enumerator
         .get_default_device(&Direction::Capture)
         .ok()
         .and_then(|d| d.get_id().ok());
-    
+
     // Get all capture (input) devices
     let collection = enumerator
         .get_device_collection(&Direction::Capture)
         .map_err(|e| format!("Failed to get device collection: {:?}", e))?;
-    
+
     let mut result = Vec::new();
     for (index, device_result) in collection.into_iter().enumerate() {
         if let Ok(device) = device_result {
             let device_id = device.get_id().ok();
             let is_default = device_id.is_some() && device_id == default_id;
-            
+
             // get_friendlyname() returns full name like "Headset (WH-1000XM3 Hands-Free AG Audio)"
-            let name = device.get_friendlyname().unwrap_or_else(|_| "Unknown Device".to_string());
-            
-            log::debug!("[AUDIO] Device {}: name='{}', is_default={}", index, name, is_default);
-            
+            let name = device
+                .get_friendlyname()
+                .unwrap_or_else(|_| "Unknown Device".to_string());
+
+            log::debug!(
+                "[AUDIO] Device {}: name='{}', is_default={}",
+                index,
+                name,
+                is_default
+            );
+
             result.push(AudioInputDevice {
                 index,
                 name,
@@ -539,8 +585,8 @@ pub async fn bring_webcam_preview_to_front(app: tauri::AppHandle) -> Result<(), 
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, BringWindowToTop, SetForegroundWindow,
-            HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+            BringWindowToTop, SetForegroundWindow, SetWindowPos, HWND_TOPMOST, SWP_NOMOVE,
+            SWP_NOSIZE, SWP_SHOWWINDOW,
         };
 
         if let Some(window) = app.get_webview_window("webcam-preview") {
@@ -589,7 +635,8 @@ pub async fn move_webcam_to_anchor(
     if let Some(window) = app.get_webview_window("webcam-preview") {
         // Get webcam size from settings
         let webcam_size = {
-            let settings = WEBCAM_SETTINGS.lock()
+            let settings = WEBCAM_SETTINGS
+                .lock()
                 .map_err(|_| "Failed to lock webcam settings".to_string())?;
             match settings.size {
                 WebcamSize::Small => 120,
@@ -605,13 +652,17 @@ pub async fn move_webcam_to_anchor(
             "topLeft" => (sel_x + padding, sel_y + padding),
             "topRight" => (sel_x + sel_width - webcam_size - padding, sel_y + padding),
             "bottomLeft" => (sel_x + padding, sel_y + sel_height - webcam_size - padding),
-            "bottomRight" | _ => (sel_x + sel_width - webcam_size - padding, sel_y + sel_height - webcam_size - padding),
+            "bottomRight" | _ => (
+                sel_x + sel_width - webcam_size - padding,
+                sel_y + sel_height - webcam_size - padding,
+            ),
         };
 
         log::debug!("[WEBCAM] Moving to anchor {} at ({}, {})", anchor, x, y);
 
         // Move the window
-        window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+        window
+            .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
             .map_err(|e| e.to_string())?;
 
         // Bring to front after moving
@@ -633,7 +684,8 @@ pub async fn clamp_webcam_to_selection(
     if let Some(window) = app.get_webview_window("webcam-preview") {
         // Get webcam size from settings
         let webcam_size = {
-            let settings = WEBCAM_SETTINGS.lock()
+            let settings = WEBCAM_SETTINGS
+                .lock()
                 .map_err(|_| "Failed to lock webcam settings".to_string())?;
             match settings.size {
                 WebcamSize::Small => 120,
@@ -661,11 +713,19 @@ pub async fn clamp_webcam_to_selection(
 
         // Only move if position changed
         if clamped_x != x || clamped_y != y {
-            log::debug!("[WEBCAM] Clamping from ({}, {}) to ({}, {})", x, y, clamped_x, clamped_y);
-            window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                x: clamped_x,
-                y: clamped_y
-            })).map_err(|e| e.to_string())?;
+            log::debug!(
+                "[WEBCAM] Clamping from ({}, {}) to ({}, {})",
+                x,
+                y,
+                clamped_x,
+                clamped_y
+            );
+            window
+                .set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                    x: clamped_x,
+                    y: clamped_y,
+                }))
+                .map_err(|e| e.to_string())?;
         }
     }
 
@@ -688,10 +748,14 @@ pub async fn exclude_webcam_from_capture(app: tauri::AppHandle) -> Result<(), St
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+        };
 
         if let Some(window) = app.get_webview_window("webcam-preview") {
-            let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
+            let hwnd = window
+                .hwnd()
+                .map_err(|e| format!("Failed to get HWND: {}", e))?;
             unsafe {
                 SetWindowDisplayAffinity(HWND(hwnd.0), WDA_EXCLUDEFROMCAPTURE)
                     .map_err(|e| format!("Failed to exclude from capture: {:?}", e))?;
@@ -773,15 +837,16 @@ lazy_static! {
 /// Called from frontend when screen recording starts.
 #[command]
 pub fn webcam_recording_start(output_path: String) -> Result<(), String> {
-    let mut guard = WEBCAM_RECORDING_FILE.lock()
+    let mut guard = WEBCAM_RECORDING_FILE
+        .lock()
         .map_err(|e| format!("Failed to lock webcam recording state: {}", e))?;
-    
+
     // Close any existing file
     if guard.is_some() {
         log::warn!("[WEBCAM-REC] Previous recording not properly closed, closing now");
         *guard = None;
     }
-    
+
     // Create new file
     let file = OpenOptions::new()
         .create(true)
@@ -789,7 +854,7 @@ pub fn webcam_recording_start(output_path: String) -> Result<(), String> {
         .truncate(true)
         .open(&output_path)
         .map_err(|e| format!("Failed to create webcam recording file: {}", e))?;
-    
+
     *guard = Some(file);
     log::info!("[WEBCAM-REC] Started recording to: {}", output_path);
     Ok(())
@@ -799,9 +864,10 @@ pub fn webcam_recording_start(output_path: String) -> Result<(), String> {
 /// Called from frontend's MediaRecorder ondataavailable.
 #[command]
 pub fn webcam_recording_chunk(chunk: Vec<u8>) -> Result<(), String> {
-    let mut guard = WEBCAM_RECORDING_FILE.lock()
+    let mut guard = WEBCAM_RECORDING_FILE
+        .lock()
         .map_err(|e| format!("Failed to lock webcam recording state: {}", e))?;
-    
+
     if let Some(ref mut file) = *guard {
         file.write_all(&chunk)
             .map_err(|e| format!("Failed to write webcam chunk: {}", e))?;
@@ -816,9 +882,10 @@ pub fn webcam_recording_chunk(chunk: Vec<u8>) -> Result<(), String> {
 /// Called from frontend when screen recording stops.
 #[command]
 pub fn webcam_recording_stop() -> Result<(), String> {
-    let mut guard = WEBCAM_RECORDING_FILE.lock()
+    let mut guard = WEBCAM_RECORDING_FILE
+        .lock()
         .map_err(|e| format!("Failed to lock webcam recording state: {}", e))?;
-    
+
     if let Some(file) = guard.take() {
         // File is closed when dropped
         drop(file);
@@ -958,22 +1025,22 @@ impl RecordingSettings {
     pub fn validate(&mut self) {
         // Clamp FPS to 10-60
         self.fps = self.fps.clamp(10, 60);
-        
+
         // Clamp quality to 1-100
         self.quality = self.quality.clamp(1, 100);
-        
+
         // Clamp countdown to 0-10
         self.countdown_secs = self.countdown_secs.clamp(0, 10);
-        
+
         // GIF-specific limits
         if self.format == RecordingFormat::Gif {
             // Cap GIF FPS at 30 for reasonable file sizes
             self.fps = self.fps.min(30);
-            
+
             // GIF doesn't support audio
             self.audio.capture_system_audio = false;
             self.audio.microphone_device_index = None;
-            
+
             // Limit GIF duration to 60 seconds max
             if let Some(duration) = self.max_duration_secs {
                 self.max_duration_secs = Some(duration.min(60));
@@ -982,17 +1049,17 @@ impl RecordingSettings {
             }
         }
     }
-    
+
     /// Calculate video bitrate based on quality and resolution.
     pub fn calculate_bitrate(&self, width: u32, height: u32) -> u32 {
         let pixels = width * height;
         let base_bitrate = match pixels {
-            0..=921600 => 5_000_000,      // Up to 720p: 5 Mbps base
-            921601..=2073600 => 10_000_000, // Up to 1080p: 10 Mbps base
+            0..=921600 => 5_000_000,         // Up to 720p: 5 Mbps base
+            921601..=2073600 => 10_000_000,  // Up to 1080p: 10 Mbps base
             2073601..=3686400 => 15_000_000, // Up to 1440p: 15 Mbps base
-            _ => 25_000_000,               // 4K+: 25 Mbps base
+            _ => 25_000_000,                 // 4K+: 25 Mbps base
         };
-        
+
         // Scale by quality (50% at quality=1, 150% at quality=100)
         let quality_factor = 0.5 + (self.quality as f64 / 100.0);
         (base_bitrate as f64 * quality_factor) as u32
@@ -1000,7 +1067,7 @@ impl RecordingSettings {
 }
 
 /// Current state of a recording session.
-/// 
+///
 /// NOTE: ts-rs generates TypeScript types from Rust - single source of truth.
 /// The serde attributes ensure JSON serialization matches the generated TS types.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1033,9 +1100,7 @@ pub enum RecordingState {
         frame_count: u64,
     },
     /// Processing/encoding (mainly for GIF).
-    Processing {
-        progress: f32,
-    },
+    Processing { progress: f32 },
     /// Recording completed successfully.
     Completed {
         #[serde(rename = "outputPath")]
@@ -1047,9 +1112,7 @@ pub enum RecordingState {
         file_size_bytes: u64,
     },
     /// Recording failed.
-    Error {
-        message: String,
-    },
+    Error { message: String },
 }
 
 impl Default for RecordingState {
@@ -1101,7 +1164,7 @@ pub async fn start_recording(
 ) -> Result<StartRecordingResult, String> {
     let mut settings = settings;
     settings.validate();
-    
+
     // Check if already recording
     {
         let controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
@@ -1109,23 +1172,28 @@ pub async fn start_recording(
             return Err("A recording is already in progress".to_string());
         }
     }
-    
+
     // Use prepared output path if available (from prepare_recording), else generate new one
-    let output_path = take_prepared_output_path()
-        .unwrap_or_else(|| generate_output_path(&settings).unwrap_or_else(|_| {
+    let output_path = take_prepared_output_path().unwrap_or_else(|| {
+        generate_output_path(&settings).unwrap_or_else(|_| {
             // Fallback to temp dir if generation fails - respect format
             let ext = match settings.format {
                 RecordingFormat::Gif => "gif",
                 RecordingFormat::Mp4 => "mp4",
             };
-            std::env::temp_dir().join(format!("recording_{}.{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), ext))
-        }));
-    
+            std::env::temp_dir().join(format!(
+                "recording_{}.{}",
+                chrono::Local::now().format("%Y%m%d_%H%M%S"),
+                ext
+            ))
+        })
+    });
+
     log::info!("[RECORDING] Using output path: {:?}", output_path);
-    
+
     // Start recording via controller
     recorder::start_recording(app, settings.clone(), output_path).await?;
-    
+
     Ok(StartRecordingResult {
         success: true,
         message: "Recording started".to_string(),
@@ -1187,11 +1255,11 @@ pub async fn get_recording_status() -> Result<RecordingStatus, String> {
 #[command]
 pub async fn load_video_project(video_path: String) -> Result<VideoProject, String> {
     let path = std::path::Path::new(&video_path);
-    
+
     if !path.exists() {
         return Err(format!("Video file not found: {}", video_path));
     }
-    
+
     load_video_project_from_file(path)
 }
 
@@ -1205,14 +1273,14 @@ pub async fn load_video_project(video_path: String) -> Result<VideoProject, Stri
 #[command]
 pub async fn save_video_project(mut project: VideoProject) -> Result<(), String> {
     let video_path = std::path::Path::new(&project.sources.screen_video);
-    
+
     // Check if this is a folder-based project (video is inside a project folder)
     if let Some(parent) = video_path.parent() {
         // If the parent folder looks like a project folder (video is screen.mp4)
         if video_path.file_name().and_then(|n| n.to_str()) == Some("screen.mp4") {
             // Save to project.json in the folder, with relative paths
             let project_path = parent.join("project.json");
-            
+
             // Convert absolute paths back to relative paths for storage
             let to_relative = |abs_path: &str| -> String {
                 let path = std::path::Path::new(abs_path);
@@ -1221,7 +1289,7 @@ pub async fn save_video_project(mut project: VideoProject) -> Result<(), String>
                     .unwrap_or(abs_path)
                     .to_string()
             };
-            
+
             // Create a copy with relative paths for saving
             let mut save_project = project.clone();
             save_project.sources.screen_video = to_relative(&project.sources.screen_video);
@@ -1243,14 +1311,14 @@ pub async fn save_video_project(mut project: VideoProject) -> Result<(), String>
             if let Some(ref p) = project.sources.background_music {
                 save_project.sources.background_music = Some(to_relative(p));
             }
-            
+
             // Update timestamp
             save_project.updated_at = chrono::Utc::now().to_rfc3339();
-            
+
             return save_project.save(&project_path);
         }
     }
-    
+
     // Legacy: save alongside video with .snapit extension
     let project_path = video_path.with_extension("snapit");
     project.updated_at = chrono::Utc::now().to_rfc3339();
@@ -1288,14 +1356,14 @@ pub async fn extract_frame(
     tolerance_ms: Option<u64>,
 ) -> Result<String, String> {
     let path = std::path::Path::new(&video_path);
-    
+
     if !path.exists() {
         return Err(format!("Video file not found: {}", video_path));
     }
-    
+
     let max_w = max_width.unwrap_or(1280);
     let tolerance = tolerance_ms.unwrap_or(100);
-    
+
     get_video_frame_cached(path, timestamp_ms, Some(max_w), tolerance)
 }
 
@@ -1324,11 +1392,15 @@ pub async fn extract_audio_waveform(
 
     let sps = samples_per_second.unwrap_or(100);
 
-    let ffmpeg_path = crate::commands::storage::find_ffmpeg()
-        .ok_or_else(|| "FFmpeg not found".to_string())?;
+    let ffmpeg_path =
+        crate::commands::storage::find_ffmpeg().ok_or_else(|| "FFmpeg not found".to_string())?;
 
     // Get audio duration via ffprobe
-    let ffprobe_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    let ffprobe_name = if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
     let ffprobe_path = ffmpeg_path.with_file_name(ffprobe_name);
 
     let probe_output = std::process::Command::new(&ffprobe_path)
@@ -1358,11 +1430,17 @@ pub async fn extract_audio_waveform(
     // Extract audio as raw PCM samples (mono, f32)
     let output = std::process::Command::new(&ffmpeg_path)
         .args([
-            "-i", &audio_path,
-            "-vn", "-ac", "1",
-            "-ar", &sps.to_string(),
-            "-f", "f32le",
-            "-acodec", "pcm_f32le",
+            "-i",
+            &audio_path,
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            &sps.to_string(),
+            "-f",
+            "f32le",
+            "-acodec",
+            "pcm_f32le",
             "-",
         ])
         .output()
@@ -1383,7 +1461,11 @@ pub async fn extract_audio_waveform(
         samples.push(sample.abs().min(1.0));
     }
 
-    log::info!("[AUDIO_WAVEFORM] Extracted {} samples for {:.1}s audio", samples.len(), duration_secs);
+    log::info!(
+        "[AUDIO_WAVEFORM] Extracted {} samples for {:.1}s audio",
+        samples.len(),
+        duration_secs
+    );
 
     Ok(AudioWaveform {
         samples,
@@ -1410,14 +1492,14 @@ pub async fn generate_auto_zoom(
     config: Option<AutoZoomConfig>,
 ) -> Result<VideoProject, String> {
     let zoom_config = config.unwrap_or_default();
-    
+
     log::info!(
         "[AUTO_ZOOM] Generating auto-zoom for project '{}' with scale={}, hold={}ms",
         project.name,
         zoom_config.scale,
         zoom_config.hold_duration_ms
     );
-    
+
     apply_auto_zoom_to_project(project, &zoom_config)
 }
 
@@ -1449,24 +1531,24 @@ pub async fn export_video(
         project.name,
         output_path
     );
-    
+
     let path = std::path::PathBuf::from(&output_path);
-    
+
     // Ensure output directory exists
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
     }
-    
+
     // Use GPU-accelerated export pipeline (streaming decoders - 1 FFmpeg process each)
     let result = crate::rendering::export_video_gpu(app.clone(), project, output_path).await?;
-    
+
     log::info!(
         "[EXPORT] Export complete: {} bytes, {:.1}s",
         result.file_size_bytes,
         result.duration_secs
     );
-    
+
     Ok(result)
 }
 
@@ -1475,31 +1557,30 @@ pub async fn export_video(
 // ============================================================================
 
 /// Generate a unique output path for the recording.
-/// 
+///
 /// For video (MP4), returns a folder path that will contain:
 ///   - screen.mp4 (main recording)
 ///   - webcam.mp4 (optional)
 ///   - cursor.json (optional)
 ///   - system.wav, mic.wav (optional, deleted after muxing)
 ///   - project.json (video project metadata)
-/// 
+///
 /// For GIF, returns a file path directly (no folder structure needed).
 pub fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, String> {
     // Get the default save directory from settings
-    let save_dir = crate::commands::settings::get_default_save_dir_sync()
-        .unwrap_or_else(|_| {
-            dirs::video_dir()
-                .or_else(dirs::download_dir)
-                .unwrap_or_else(std::env::temp_dir)
-        });
-    
+    let save_dir = crate::commands::settings::get_default_save_dir_sync().unwrap_or_else(|_| {
+        dirs::video_dir()
+            .or_else(dirs::download_dir)
+            .unwrap_or_else(std::env::temp_dir)
+    });
+
     // Ensure save directory exists
     std::fs::create_dir_all(&save_dir)
         .map_err(|e| format!("Failed to create save directory: {}", e))?;
-    
+
     // Generate name with timestamp
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    
+
     match settings.format {
         RecordingFormat::Mp4 => {
             // For video, create a project folder
@@ -1508,12 +1589,12 @@ pub fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, Str
             std::fs::create_dir_all(&folder_path)
                 .map_err(|e| format!("Failed to create recording folder: {}", e))?;
             Ok(folder_path)
-        }
+        },
         RecordingFormat::Gif => {
             // For GIF, use flat file (no complex artifacts)
             let filename = format!("recording_{}_{}.gif", timestamp, rand::random::<u16>());
             Ok(save_dir.join(filename))
-        }
+        },
     }
 }
 

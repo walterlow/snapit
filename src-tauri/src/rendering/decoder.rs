@@ -2,9 +2,9 @@
 //!
 //! Provides frame-accurate seeking and prefetching for smooth playback.
 
+use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 use super::types::DecodedFrame;
@@ -67,7 +67,7 @@ impl FrameCache {
         if idx >= self.capacity {
             // Need to shift window forward
             let shift = idx - self.capacity + 1;
-            
+
             if shift >= self.capacity {
                 // Frame is too far ahead - clear cache and reset base
                 for slot in &mut self.frames {
@@ -113,7 +113,7 @@ impl VideoDecoder {
     pub fn new(path: &Path) -> Result<Self, String> {
         // Get video metadata using ffprobe
         let metadata = get_video_metadata(path)?;
-        
+
         Ok(Self {
             path: path.to_string_lossy().to_string(),
             width: metadata.width,
@@ -250,13 +250,13 @@ async fn decoder_task(
     mut rx: mpsc::Receiver<DecodeRequest>,
 ) {
     log::info!("[DECODER] Decoder task started for path: {}", path);
-    
+
     while let Some(request) = rx.recv().await {
         match request {
             DecodeRequest::Stop => {
                 log::info!("[DECODER] Decoder task stopping");
                 break;
-            }
+            },
             DecodeRequest::Seek(frame) => {
                 log::debug!("[DECODER] Seek request for frame {}", frame);
                 // Decode the requested frame using spawn_blocking to avoid blocking tokio runtime
@@ -269,17 +269,22 @@ async fn decoder_task(
                             let mut c = cache_clone.lock();
                             c.insert(frame, decoded);
                             Ok(())
-                        }
+                        },
                         Err(e) => Err(e),
                     }
-                }).await;
-                
+                })
+                .await;
+
                 if let Err(e) = result {
-                    log::error!("[DECODER] spawn_blocking failed for frame {}: {:?}", frame, e);
+                    log::error!(
+                        "[DECODER] spawn_blocking failed for frame {}: {:?}",
+                        frame,
+                        e
+                    );
                 } else if let Ok(Err(e)) = result {
                     log::error!("[DECODER] FFmpeg decode failed for frame {}: {}", frame, e);
                 }
-            }
+            },
             DecodeRequest::Prefetch(from_frame) => {
                 log::debug!("[DECODER] Prefetch request from frame {}", from_frame);
                 // Decode multiple frames ahead
@@ -289,7 +294,7 @@ async fn decoder_task(
                     let path = Path::new(&path_clone);
                     for i in 0..PREFETCH_COUNT {
                         let frame = from_frame + i as u32;
-                        
+
                         // Skip if already cached
                         {
                             let c = cache_clone.lock();
@@ -297,27 +302,28 @@ async fn decoder_task(
                                 continue;
                             }
                         }
-                        
+
                         match decode_frame_ffmpeg(path, frame, width, height, fps) {
                             Ok(decoded) => {
                                 let mut c = cache_clone.lock();
                                 c.insert(frame, decoded);
-                            }
+                            },
                             Err(e) => {
                                 log::warn!("[DECODER] Prefetch failed for frame {}: {}", frame, e);
-                            }
+                            },
                         }
                     }
-                }).await;
-            }
+                })
+                .await;
+            },
         }
     }
-    
+
     log::info!("[DECODER] Decoder task ended");
 }
 
 /// Decode a single frame using FFmpeg CLI.
-/// 
+///
 /// This is a fallback approach. For better performance, we should use
 /// ffmpeg-next bindings directly, but this works for initial implementation.
 fn decode_frame_ffmpeg(
@@ -329,38 +335,44 @@ fn decode_frame_ffmpeg(
 ) -> Result<DecodedFrame, String> {
     let timestamp_ms = ((frame as f64 / fps) * 1000.0) as u64;
     let timestamp_secs = timestamp_ms as f64 / 1000.0;
-    
+
     log::debug!(
         "[DECODER] Decoding frame {} at {:.3}s from {:?}",
         frame,
         timestamp_secs,
         path
     );
-    
+
     // Find FFmpeg
-    let ffmpeg_path = crate::commands::storage::find_ffmpeg()
-        .ok_or_else(|| "FFmpeg not found".to_string())?;
-    
+    let ffmpeg_path =
+        crate::commands::storage::find_ffmpeg().ok_or_else(|| "FFmpeg not found".to_string())?;
+
     // Use FFmpeg to extract frame as raw RGBA with explicit scaling to target dimensions
     let output = std::process::Command::new(&ffmpeg_path)
         .args([
-            "-ss", &format!("{:.3}", timestamp_secs),
-            "-i", &path.to_string_lossy(),
-            "-frames:v", "1",
-            "-vf", &format!("scale={}:{}", width, height),
-            "-f", "rawvideo",
-            "-pix_fmt", "rgba",
+            "-ss",
+            &format!("{:.3}", timestamp_secs),
+            "-i",
+            &path.to_string_lossy(),
+            "-frames:v",
+            "1",
+            "-vf",
+            &format!("scale={}:{}", width, height),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
             "-",
         ])
         .output()
         .map_err(|e| format!("FFmpeg failed to execute: {}", e))?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         log::error!("[DECODER] FFmpeg error for frame {}: {}", frame, stderr);
         return Err(format!("FFmpeg error: {}", stderr));
     }
-    
+
     let expected_size = (width * height * 4) as usize;
     if output.stdout.len() != expected_size {
         log::error!(
@@ -377,9 +389,13 @@ fn decode_frame_ffmpeg(
             output.stdout.len()
         ));
     }
-    
-    log::debug!("[DECODER] Frame {} decoded successfully ({} bytes)", frame, output.stdout.len());
-    
+
+    log::debug!(
+        "[DECODER] Frame {} decoded successfully ({} bytes)",
+        frame,
+        output.stdout.len()
+    );
+
     Ok(DecodedFrame {
         frame_number: frame,
         timestamp_ms,
@@ -401,11 +417,11 @@ struct VideoMetadata {
 /// Get video metadata using ffprobe.
 fn get_video_metadata(path: &Path) -> Result<VideoMetadata, String> {
     use crate::commands::video_recording::video_project::VideoMetadata as ProjectMetadata;
-    
+
     let meta = ProjectMetadata::from_file(path)?;
     let fps = meta.fps as f64;
     let frame_count = ((meta.duration_ms as f64 / 1000.0) * fps).ceil() as u32;
-    
+
     Ok(VideoMetadata {
         width: meta.width,
         height: meta.height,

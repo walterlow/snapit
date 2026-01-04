@@ -6,15 +6,11 @@
  */
 
 import { useCallback } from 'react';
-import { toast } from 'sonner';
-import { useCaptureStore } from '../stores/captureStore';
-import { useEditorStore, clearHistory } from '../stores/editorStore';
+import { invoke } from '@tauri-apps/api/core';
 import { CaptureService } from '../services/captureService';
+import type { FastCaptureResult } from '../types';
 
 export function useCaptureActions() {
-  const { saveNewCapture } = useCaptureStore();
-  const { clearEditor } = useEditorStore();
-
   /**
    * Trigger region capture overlay for screenshot.
    */
@@ -23,17 +19,16 @@ export function useCaptureActions() {
   }, []);
 
   /**
-   * Capture fullscreen of primary monitor.
+   * Capture fullscreen of primary monitor and open in editor.
    */
   const triggerFullscreenCapture = useCallback(async () => {
-    const result = await CaptureService.captureFullscreen();
-    if (result?.image_data) {
-      await saveNewCapture(result.image_data, 'fullscreen', {});
-      clearEditor();
-      clearHistory();
-      toast.success('Fullscreen captured');
-    }
-  }, [saveNewCapture, clearEditor]);
+    const result = await invoke<FastCaptureResult>('capture_fullscreen_fast');
+    await invoke('open_editor_fast', {
+      filePath: result.file_path,
+      width: result.width,
+      height: result.height,
+    });
+  }, []);
 
   /**
    * Capture all monitors combined into a single image.

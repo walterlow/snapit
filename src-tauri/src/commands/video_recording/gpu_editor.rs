@@ -2,9 +2,9 @@
 //!
 //! These commands manage EditorInstance lifecycle and playback control.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use tauri::{AppHandle, State};
 
 use crate::commands::video_recording::video_project::VideoProject;
@@ -36,7 +36,10 @@ pub async fn create_editor_instance(
     project: VideoProject,
     state: State<'_, EditorState>,
 ) -> Result<EditorInstanceInfo, String> {
-    log::info!("[GPU_EDITOR] Creating editor instance for project: {}", project.id);
+    log::info!(
+        "[GPU_EDITOR] Creating editor instance for project: {}",
+        project.id
+    );
 
     // Create the editor instance
     let mut instance = EditorInstance::new(project).await?;
@@ -49,7 +52,10 @@ pub async fn create_editor_instance(
     // Store in global state
     {
         let mut instances = state.instances.lock();
-        instances.insert(instance_id.clone(), Arc::new(tokio::sync::Mutex::new(instance)));
+        instances.insert(
+            instance_id.clone(),
+            Arc::new(tokio::sync::Mutex::new(instance)),
+        );
     }
 
     log::info!("[GPU_EDITOR] Created editor instance: {}", instance_id);
@@ -79,10 +85,7 @@ pub async fn destroy_editor_instance(
 
 /// Start playback.
 #[tauri::command]
-pub async fn editor_play(
-    instance_id: String,
-    state: State<'_, EditorState>,
-) -> Result<(), String> {
+pub async fn editor_play(instance_id: String, state: State<'_, EditorState>) -> Result<(), String> {
     let instance = get_instance(&instance_id, &state)?;
     let inst = instance.lock().await;
     inst.play().await

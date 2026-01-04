@@ -74,7 +74,7 @@ impl SegmentBounds {
         let position = match region.mode {
             ZoomRegionMode::Auto => {
                 cursor_pos.unwrap_or((region.target_x as f64, region.target_y as f64))
-            }
+            },
             ZoomRegionMode::Manual => (region.target_x as f64, region.target_y as f64),
         };
 
@@ -152,7 +152,7 @@ impl<'a> SegmentsCursor<'a> {
                     prev_segment: prev.map(|(_, s)| s),
                     segments,
                 }
-            }
+            },
         }
     }
 }
@@ -210,7 +210,7 @@ impl InterpolatedZoom {
                     t: 1.0 - zoom_t,
                     bounds: prev_bounds.lerp(&default, zoom_t),
                 }
-            }
+            },
 
             // Case 2: In first segment, zooming in
             (None, Some(segment)) => {
@@ -224,7 +224,7 @@ impl InterpolatedZoom {
                     t,
                     bounds: default.lerp(&segment_bounds, t),
                 }
-            }
+            },
 
             // Case 3: Transitioning between segments
             (Some(prev_segment), Some(segment)) => {
@@ -265,7 +265,7 @@ impl InterpolatedZoom {
                         bounds: default.lerp(&segment_bounds, zoom_t),
                     }
                 }
-            }
+            },
 
             // No segments active
             _ => Self {

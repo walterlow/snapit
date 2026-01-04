@@ -37,7 +37,7 @@ pub fn composite_webcam(
                 pos_y,
                 diameter,
             );
-        }
+        },
         WebcamShape::Rectangle => {
             composite_rectangle(
                 frame,
@@ -49,7 +49,7 @@ pub fn composite_webcam(
                 diameter,
                 diameter, // Square for now, could support different aspect ratios
             );
-        }
+        },
     }
 }
 

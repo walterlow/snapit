@@ -89,7 +89,7 @@ pub fn composite_cursor_scaled(
                     c.src_x, c.src_y, c.dst_x, c.dst_y, c.width, c.height);
             }
             c
-        }
+        },
         None => {
             // Debug: cursor outside frame
             static LOGGED_OUTSIDE: std::sync::atomic::AtomicBool =
@@ -99,7 +99,7 @@ pub fn composite_cursor_scaled(
                     cursor_draw_x, cursor_draw_y, scaled_width, scaled_height, frame_width, frame_height);
             }
             return;
-        }
+        },
     };
 
     // Blend each visible pixel with bilinear interpolation for scaling

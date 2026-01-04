@@ -44,22 +44,28 @@ fn restore_main_if_visible(app: &AppHandle) {
 /// Position a window using physical (pixel) coordinates.
 /// Use this when you have screen coordinates from Windows APIs.
 fn set_physical_position(window: &tauri::WebviewWindow, x: i32, y: i32) -> Result<(), String> {
-    window.set_position(tauri::Position::Physical(
-        tauri::PhysicalPosition { x, y }
-    )).map_err(|e| format!("Failed to set position: {}", e))
+    window
+        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+        .map_err(|e| format!("Failed to set position: {}", e))
 }
 
 /// Resize a window using physical (pixel) dimensions.
 /// Use this when you have dimensions from Windows APIs.
 fn set_physical_size(window: &tauri::WebviewWindow, width: u32, height: u32) -> Result<(), String> {
-    window.set_size(tauri::Size::Physical(
-        tauri::PhysicalSize { width, height }
-    )).map_err(|e| format!("Failed to set size: {}", e))
+    window
+        .set_size(tauri::Size::Physical(tauri::PhysicalSize { width, height }))
+        .map_err(|e| format!("Failed to set size: {}", e))
 }
 
 /// Position and resize a window using physical (pixel) coordinates.
 /// Convenience wrapper for set_physical_position + set_physical_size.
-fn set_physical_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, width: u32, height: u32) -> Result<(), String> {
+fn set_physical_bounds(
+    window: &tauri::WebviewWindow,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
     set_physical_position(window, x, y)?;
     set_physical_size(window, width, height)
 }
@@ -70,38 +76,42 @@ fn set_physical_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, width: u32
 #[cfg(target_os = "windows")]
 pub fn apply_dwm_transparency(window: &tauri::WebviewWindow) -> Result<(), String> {
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::Graphics::Dwm::{DwmEnableBlurBehindWindow, DWM_BLURBEHIND, DWM_BB_ENABLE, DWM_BB_BLURREGION};
+    use windows::Win32::Graphics::Dwm::{
+        DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
+    };
     use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, HRGN};
     use windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics;
     use windows::Win32::UI::WindowsAndMessaging::SM_CXVIRTUALSCREEN;
-    
-    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
-    
+
+    let hwnd = window
+        .hwnd()
+        .map_err(|e| format!("Failed to get HWND: {}", e))?;
+
     unsafe {
         // Create a tiny region way off-screen (PowerToys trick)
         // This enables DWM blur/transparency without actually blurring anything visible
         let pos = -GetSystemMetrics(SM_CXVIRTUALSCREEN) - 8;
         let hrgn: HRGN = CreateRectRgn(pos, 0, pos + 1, 1);
-        
+
         if hrgn.is_invalid() {
             return Err("Failed to create region".to_string());
         }
-        
+
         let blur_behind = DWM_BLURBEHIND {
             dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
             fEnable: true.into(),
             hRgnBlur: hrgn,
             fTransitionOnMaximized: false.into(),
         };
-        
+
         let result = DwmEnableBlurBehindWindow(HWND(hwnd.0), &blur_behind);
-        
+
         // Clean up the region
         let _ = DeleteObject(hrgn);
-        
+
         result.map_err(|e| format!("Failed to enable blur behind: {:?}", e))?;
     }
-    
+
     Ok(())
 }
 
@@ -119,13 +129,15 @@ pub fn apply_dwm_transparency(_window: &tauri::WebviewWindow) -> Result<(), Stri
 fn apply_rounded_corners(window: &tauri::WebviewWindow) -> Result<(), String> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE};
-    
+
     // DWMWCP_ROUND = 2 (standard rounded corners)
     // DWMWCP_ROUNDSMALL = 3 (smaller rounded corners)
     const DWMWCP_ROUND: i32 = 2;
-    
-    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
-    
+
+    let hwnd = window
+        .hwnd()
+        .map_err(|e| format!("Failed to get HWND: {}", e))?;
+
     unsafe {
         let preference = DWMWCP_ROUND;
         DwmSetWindowAttribute(
@@ -133,9 +145,10 @@ fn apply_rounded_corners(window: &tauri::WebviewWindow) -> Result<(), String> {
             DWMWA_WINDOW_CORNER_PREFERENCE,
             &preference as *const _ as *const std::ffi::c_void,
             std::mem::size_of::<i32>() as u32,
-        ).map_err(|e| format!("Failed to set rounded corners: {:?}", e))?;
+        )
+        .map_err(|e| format!("Failed to set rounded corners: {:?}", e))?;
     }
-    
+
     Ok(())
 }
 
@@ -146,12 +159,15 @@ fn apply_rounded_corners(_window: &tauri::WebviewWindow) -> Result<(), String> {
 
 /// Trigger the capture overlay - uses DirectComposition overlay for all capture types.
 /// capture_type: "screenshot", "video", or "gif"
-/// 
+///
 /// Uses DirectComposition overlay to avoid blackout issues with hardware-accelerated
 /// video content. This works for all capture types (screenshot, video, gif).
 pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<(), String> {
-    log::info!("[trigger_capture] Called with capture_type: {:?}", capture_type);
-    
+    log::info!(
+        "[trigger_capture] Called with capture_type: {:?}",
+        capture_type
+    );
+
     // Convert to owned String early to avoid lifetime issues with thread spawn
     let ct = capture_type.unwrap_or("screenshot").to_string();
 
@@ -161,11 +177,11 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
         MAIN_WAS_VISIBLE.store(was_visible, Ordering::SeqCst);
         // Don't hide main window - user may want to capture their own app
     }
-    
+
     // Clone capture type as owned String for use in spawned thread
     let is_gif = ct == "gif";
     let ct_for_thread = ct.clone();
-    
+
     // Launch DirectComposition overlay in background
     let app_clone = app.clone();
     std::thread::spawn(move || {
@@ -180,7 +196,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                     }
                 }
                 return;
-            }
+            },
         };
         rt.block_on(async {
             use crate::commands::capture_overlay::{OverlayAction, OverlayResult};
@@ -316,7 +332,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
             }
         });
     });
-    
+
     Ok(())
 }
 
@@ -411,15 +427,19 @@ pub async fn open_editor_fast(
 #[cfg(target_os = "windows")]
 fn exclude_window_from_capture(window: &tauri::WebviewWindow) -> Result<(), String> {
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
-    
-    let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
-    
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+    };
+
+    let hwnd = window
+        .hwnd()
+        .map_err(|e| format!("Failed to get HWND: {}", e))?;
+
     unsafe {
         SetWindowDisplayAffinity(HWND(hwnd.0), WDA_EXCLUDEFROMCAPTURE)
             .map_err(|e| format!("Failed to set display affinity: {:?}", e))?;
     }
-    
+
     Ok(())
 }
 
@@ -444,7 +464,7 @@ pub fn show_recording_border_sync(
 /// This is a transparent click-through window that shows a border to indicate
 /// what area is being recorded. The window is excluded from screen capture
 /// so it won't appear in recordings.
-/// 
+///
 /// Parameters:
 /// - x, y: Top-left corner of the recording region (screen coordinates)
 /// - width, height: Dimensions of the recording region
@@ -477,14 +497,18 @@ fn show_recording_border_impl(
     if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
         // Window exists - reposition and resize it using physical coordinates
         let _ = set_physical_bounds(&window, window_x, window_y, window_width, window_height);
-        window.show().map_err(|e| format!("Failed to show recording border: {}", e))?;
-        window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
+        window
+            .show()
+            .map_err(|e| format!("Failed to show recording border: {}", e))?;
+        window
+            .set_always_on_top(true)
+            .map_err(|e| format!("Failed to set always on top: {}", e))?;
         return Ok(());
     }
 
     // Create the window
     let url = WebviewUrl::App("recording-border.html".into());
-    
+
     let window = WebviewWindowBuilder::new(&app, RECORDING_BORDER_LABEL, url)
         .title("")
         .inner_size(window_width as f64, window_height as f64)
@@ -505,21 +529,25 @@ fn show_recording_border_impl(
     // CRITICAL: Exclude window from screen capture so it doesn't appear in recordings
     // TEMPORARILY DISABLED FOR MARKETING SCREENSHOTS
     exclude_window_from_capture(&window)?;
-    
+
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
         log::warn!("Failed to apply DWM transparency to border: {}", e);
     }
 
     // Make it click-through so users can interact with the content below
-    window.set_ignore_cursor_events(true)
+    window
+        .set_ignore_cursor_events(true)
         .map_err(|e| format!("Failed to set ignore cursor events: {}", e))?;
 
     // Now show the window
-    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show window: {}", e))?;
 
     // Ensure always on top
-    window.set_always_on_top(true)
+    window
+        .set_always_on_top(true)
         .map_err(|e| format!("Failed to set always on top: {}", e))?;
 
     Ok(())
@@ -529,7 +557,9 @@ fn show_recording_border_impl(
 #[command]
 pub async fn hide_recording_border(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(RECORDING_BORDER_LABEL) {
-        window.close().map_err(|e| format!("Failed to close recording border: {}", e))?;
+        window
+            .close()
+            .map_err(|e| format!("Failed to close recording border: {}", e))?;
     }
     Ok(())
 }
@@ -553,11 +583,18 @@ pub async fn show_capture_toolbar(
     // Check if window already exists
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         // Emit confirm-selection to update bounds and mark selection confirmed
-        let _ = window.emit("confirm-selection", serde_json::json!({
-            "x": x, "y": y, "width": width, "height": height
-        }));
-        window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
-        window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
+        let _ = window.emit(
+            "confirm-selection",
+            serde_json::json!({
+                "x": x, "y": y, "width": width, "height": height
+            }),
+        );
+        window
+            .show()
+            .map_err(|e| format!("Failed to show toolbar: {}", e))?;
+        window
+            .set_focus()
+            .map_err(|e| format!("Failed to focus toolbar: {}", e))?;
         return Ok(());
     }
 
@@ -616,9 +653,12 @@ pub async fn update_capture_toolbar(
     };
 
     // Emit selection update - frontend will reposition
-    let _ = window.emit("selection-updated", serde_json::json!({
-        "x": x, "y": y, "width": width, "height": height
-    }));
+    let _ = window.emit(
+        "selection-updated",
+        serde_json::json!({
+            "x": x, "y": y, "width": width, "height": height
+        }),
+    );
 
     // Ensure toolbar stays on top
     let _ = window.set_always_on_top(true);
@@ -626,15 +666,20 @@ pub async fn update_capture_toolbar(
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        };
 
         if let Ok(hwnd) = window.hwnd() {
             unsafe {
                 let _ = SetWindowPos(
                     HWND(hwnd.0),
                     HWND_TOPMOST,
-                    0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                 );
             }
         }
@@ -647,7 +692,9 @@ pub async fn update_capture_toolbar(
 #[command]
 pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        window.hide().map_err(|e| format!("Failed to hide capture toolbar: {}", e))?;
+        window
+            .hide()
+            .map_err(|e| format!("Failed to hide capture toolbar: {}", e))?;
     }
     Ok(())
 }
@@ -656,7 +703,9 @@ pub async fn hide_capture_toolbar(app: AppHandle) -> Result<(), String> {
 #[command]
 pub async fn close_capture_toolbar(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        window.close().map_err(|e| format!("Failed to close capture toolbar: {}", e))?;
+        window
+            .close()
+            .map_err(|e| format!("Failed to close capture toolbar: {}", e))?;
     }
     Ok(())
 }
@@ -672,8 +721,8 @@ pub async fn bring_capture_toolbar_to_front(app: AppHandle) -> Result<(), String
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, SetForegroundWindow, ShowWindow,
-            HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
+            SetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
+            SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
         };
 
         if let Ok(hwnd) = window.hwnd() {
@@ -683,7 +732,10 @@ pub async fn bring_capture_toolbar_to_front(app: AppHandle) -> Result<(), String
                 let _ = SetWindowPos(
                     HWND(hwnd.0),
                     HWND_TOPMOST,
-                    0, 0, 0, 0,
+                    0,
+                    0,
+                    0,
+                    0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                 );
                 let _ = SetForegroundWindow(HWND(hwnd.0));
@@ -691,8 +743,12 @@ pub async fn bring_capture_toolbar_to_front(app: AppHandle) -> Result<(), String
         }
     }
 
-    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
-    window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show toolbar: {}", e))?;
+    window
+        .set_focus()
+        .map_err(|e| format!("Failed to focus toolbar: {}", e))?;
 
     Ok(())
 }
@@ -700,11 +756,7 @@ pub async fn bring_capture_toolbar_to_front(app: AppHandle) -> Result<(), String
 /// Resize the capture toolbar window based on actual content size.
 /// Called by frontend after measuring rendered content via getBoundingClientRect().
 #[command]
-pub async fn resize_capture_toolbar(
-    app: AppHandle,
-    width: u32,
-    height: u32,
-) -> Result<(), String> {
+pub async fn resize_capture_toolbar(app: AppHandle, width: u32, height: u32) -> Result<(), String> {
     const MAX_WIDTH: u32 = 1280;
 
     let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
@@ -715,7 +767,8 @@ pub async fn resize_capture_toolbar(
     let width = width.min(MAX_WIDTH);
 
     // Get current position to maintain it
-    let current_pos = window.outer_position()
+    let current_pos = window
+        .outer_position()
         .map_err(|e| format!("Failed to get position: {}", e))?;
 
     // Resize using physical coordinates for consistency with set_physical_bounds
@@ -729,17 +782,15 @@ pub async fn resize_capture_toolbar(
 /// This allows frontend to fully control toolbar layout without hardcoded dimensions.
 /// Set only the position of the capture toolbar (preserves current size)
 #[command]
-pub async fn set_capture_toolbar_position(
-    app: AppHandle,
-    x: i32,
-    y: i32,
-) -> Result<(), String> {
+pub async fn set_capture_toolbar_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) else {
         return Ok(());
     };
 
     // Get current size
-    let size = window.outer_size().map_err(|e| format!("Failed to get size: {}", e))?;
+    let size = window
+        .outer_size()
+        .map_err(|e| format!("Failed to get size: {}", e))?;
 
     // Set position only (preserve size)
     set_physical_bounds(&window, x, y, size.width, size.height)?;
@@ -763,8 +814,12 @@ pub async fn set_capture_toolbar_bounds(
     set_physical_bounds(&window, x, y, width, height)?;
 
     // Ensure window is visible and on top
-    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
-    window.set_always_on_top(true).map_err(|e| format!("Failed to set always on top: {}", e))?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show toolbar: {}", e))?;
+    window
+        .set_always_on_top(true)
+        .map_err(|e| format!("Failed to set always on top: {}", e))?;
 
     // Re-apply DWM transparency
     if let Err(e) = apply_dwm_transparency(&window) {
@@ -775,7 +830,10 @@ pub async fn set_capture_toolbar_bounds(
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, BringWindowToTop, SetForegroundWindow, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            BringWindowToTop, SetForegroundWindow, SetWindowPos, HWND_TOPMOST, SWP_NOMOVE,
+            SWP_NOSIZE, SWP_SHOWWINDOW,
+        };
 
         if let Ok(hwnd) = window.hwnd() {
             unsafe {
@@ -784,8 +842,11 @@ pub async fn set_capture_toolbar_bounds(
                 let _ = SetWindowPos(
                     hwnd,
                     HWND_TOPMOST,
-                    0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                 );
                 // Bring to top of Z-order
                 let _ = BringWindowToTop(hwnd);
@@ -832,7 +893,7 @@ pub async fn show_countdown_window(
     }
 
     let url = WebviewUrl::App("countdown.html".into());
-    
+
     let window = WebviewWindowBuilder::new(&app, COUNTDOWN_WINDOW_LABEL, url)
         .title("Countdown")
         .inner_size(width as f64, height as f64)
@@ -850,16 +911,19 @@ pub async fn show_countdown_window(
     set_physical_bounds(&window, x, y, width, height)?;
 
     // Make click-through
-    window.set_ignore_cursor_events(true)
+    window
+        .set_ignore_cursor_events(true)
         .map_err(|e| format!("Failed to set cursor events: {}", e))?;
-    
+
     // Apply DWM blur-behind for true transparency on Windows
     if let Err(e) = apply_dwm_transparency(&window) {
         log::warn!("Failed to apply DWM transparency to countdown: {}", e);
     }
-    
+
     // Now show the window
-    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show window: {}", e))?;
 
     // Exclude from capture
     // TEMPORARILY DISABLED FOR MARKETING SCREENSHOTS
@@ -872,7 +936,9 @@ pub async fn show_countdown_window(
 #[command]
 pub async fn hide_countdown_window(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(COUNTDOWN_WINDOW_LABEL) {
-        window.close().map_err(|e| format!("Failed to close countdown window: {}", e))?;
+        window
+            .close()
+            .map_err(|e| format!("Failed to close countdown window: {}", e))?;
     }
     Ok(())
 }
@@ -887,22 +953,29 @@ pub async fn hide_countdown_window(app: AppHandle) -> Result<(), String> {
 #[command]
 pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
     log::info!("[show_startup_toolbar] Called");
-    
+
     // Check if window already exists
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
         log::info!("[show_startup_toolbar] Window already exists, showing it");
-        window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
-        window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
+        window
+            .show()
+            .map_err(|e| format!("Failed to show toolbar: {}", e))?;
+        window
+            .set_focus()
+            .map_err(|e| format!("Failed to focus toolbar: {}", e))?;
         return Ok(());
     }
 
     log::info!("[show_startup_toolbar] Window does not exist, creating new one");
 
     // Get primary monitor info for centering
-    let monitors = app.available_monitors()
+    let monitors = app
+        .available_monitors()
         .map_err(|e| format!("Failed to get monitors: {}", e))?;
 
-    let primary_monitor = monitors.into_iter().next()
+    let primary_monitor = monitors
+        .into_iter()
+        .next()
         .ok_or_else(|| "No monitors found".to_string())?;
 
     let monitor_pos = primary_monitor.position();
@@ -919,7 +992,13 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
     let x = monitor_pos.x + (monitor_size.width as i32 - initial_width as i32) / 2;
     let y = monitor_pos.y + monitor_size.height as i32 - initial_height as i32 - 100; // 100px from bottom
 
-    log::info!("[show_startup_toolbar] Creating window at position ({}, {}) with size {}x{}", x, y, initial_width, initial_height);
+    log::info!(
+        "[show_startup_toolbar] Creating window at position ({}, {}) with size {}x{}",
+        x,
+        y,
+        initial_width,
+        initial_height
+    );
 
     // Create window - visible immediately, frontend will resize after measuring
     // Uses custom titlebar like the main library window (decorations: false, transparent: true)
@@ -944,9 +1023,13 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
 
     // Show the window immediately - frontend will resize it after measuring content
     // This ensures the window appears even if frontend has timing issues
-    window.show().map_err(|e| format!("Failed to show toolbar: {}", e))?;
-    window.set_focus().map_err(|e| format!("Failed to focus toolbar: {}", e))?;
-    
+    window
+        .show()
+        .map_err(|e| format!("Failed to show toolbar: {}", e))?;
+    window
+        .set_focus()
+        .map_err(|e| format!("Failed to focus toolbar: {}", e))?;
+
     log::info!("[show_startup_toolbar] Window shown and focused");
 
     Ok(())
@@ -956,11 +1039,9 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
 #[command]
 pub async fn hide_startup_toolbar(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        window.hide().map_err(|e| format!("Failed to hide toolbar: {}", e))?;
+        window
+            .hide()
+            .map_err(|e| format!("Failed to hide toolbar: {}", e))?;
     }
     Ok(())
 }
-
-
-
-

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Shared master clock for synchronized recording.
-/// 
+///
 /// Thread-safe and lock-free for high-performance access from multiple threads.
 #[derive(Clone)]
 pub struct MasterClock {
@@ -76,7 +76,9 @@ impl MasterClock {
 
     /// Set the audio sample rate (default 48000).
     pub fn set_audio_sample_rate(&self, sample_rate: u32) {
-        self.inner.audio_sample_rate.store(sample_rate as u64, Ordering::SeqCst);
+        self.inner
+            .audio_sample_rate
+            .store(sample_rate as u64, Ordering::SeqCst);
     }
 
     /// Pause the clock.
@@ -94,9 +96,11 @@ impl MasterClock {
             let pause_start = self.inner.pause_start_us.load(Ordering::SeqCst);
             let now_us = self.inner.start_instant.elapsed().as_micros() as u64;
             let pause_duration = now_us.saturating_sub(pause_start);
-            
+
             // Add to total pause duration
-            self.inner.pause_duration_us.fetch_add(pause_duration, Ordering::SeqCst);
+            self.inner
+                .pause_duration_us
+                .fetch_add(pause_duration, Ordering::SeqCst);
             self.inner.pause_start_us.store(0, Ordering::SeqCst);
             self.inner.is_paused.store(false, Ordering::SeqCst);
         }
@@ -111,7 +115,7 @@ impl MasterClock {
     pub fn elapsed_us(&self) -> u64 {
         let total_elapsed = self.inner.start_instant.elapsed().as_micros() as u64;
         let pause_duration = self.inner.pause_duration_us.load(Ordering::SeqCst);
-        
+
         // If currently paused, also subtract time since pause started
         let current_pause = if self.inner.is_paused.load(Ordering::SeqCst) {
             let pause_start = self.inner.pause_start_us.load(Ordering::SeqCst);
@@ -119,8 +123,10 @@ impl MasterClock {
         } else {
             0
         };
-        
-        total_elapsed.saturating_sub(pause_duration).saturating_sub(current_pause)
+
+        total_elapsed
+            .saturating_sub(pause_duration)
+            .saturating_sub(current_pause)
     }
 
     /// Get elapsed recording time as Duration.
@@ -132,12 +138,14 @@ impl MasterClock {
     /// Guarantees monotonically increasing timestamps.
     pub fn video_timestamp_100ns(&self) -> i64 {
         let ts = (self.elapsed_us() * 10) as i64;
-        
+
         // Ensure monotonicity
         let last = self.inner.last_video_timestamp.load(Ordering::SeqCst);
         let new_ts = ts.max(last + 1);
-        self.inner.last_video_timestamp.store(new_ts, Ordering::SeqCst);
-        
+        self.inner
+            .last_video_timestamp
+            .store(new_ts, Ordering::SeqCst);
+
         new_ts
     }
 
@@ -146,21 +154,25 @@ impl MasterClock {
     pub fn audio_timestamp_100ns(&self) -> i64 {
         let sample_count = self.inner.audio_sample_count.load(Ordering::SeqCst);
         let sample_rate = self.inner.audio_sample_rate.load(Ordering::SeqCst);
-        
+
         // Convert samples to 100ns units: samples / sample_rate * 10_000_000
         let ts = (sample_count as f64 / sample_rate as f64 * 10_000_000.0) as i64;
-        
+
         // Ensure monotonicity
         let last = self.inner.last_audio_timestamp.load(Ordering::SeqCst);
         let new_ts = ts.max(last);
-        self.inner.last_audio_timestamp.store(new_ts, Ordering::SeqCst);
-        
+        self.inner
+            .last_audio_timestamp
+            .store(new_ts, Ordering::SeqCst);
+
         new_ts
     }
 
     /// Advance audio sample count (call after sending audio buffer).
     pub fn advance_audio_samples(&self, samples: u64) {
-        self.inner.audio_sample_count.fetch_add(samples, Ordering::SeqCst);
+        self.inner
+            .audio_sample_count
+            .fetch_add(samples, Ordering::SeqCst);
     }
 
     /// Get current audio sample count.
@@ -200,40 +212,49 @@ mod tests {
     fn test_basic_timing() {
         let clock = MasterClock::start_now();
         thread::sleep(Duration::from_millis(100));
-        
+
         let elapsed = clock.elapsed_us();
-        assert!(elapsed >= 90_000 && elapsed <= 150_000, "elapsed: {}", elapsed);
+        assert!(
+            elapsed >= 90_000 && elapsed <= 150_000,
+            "elapsed: {}",
+            elapsed
+        );
     }
 
     #[test]
     fn test_pause_resume() {
         let clock = MasterClock::start_now();
         thread::sleep(Duration::from_millis(50));
-        
+
         clock.pause();
         let before_pause = clock.elapsed_us();
         thread::sleep(Duration::from_millis(100)); // Paused time shouldn't count
         let during_pause = clock.elapsed_us();
-        
-        assert!((during_pause as i64 - before_pause as i64).abs() < 10_000, 
-            "Time should not advance during pause");
-        
+
+        assert!(
+            (during_pause as i64 - before_pause as i64).abs() < 10_000,
+            "Time should not advance during pause"
+        );
+
         clock.resume();
         thread::sleep(Duration::from_millis(50));
         let after_resume = clock.elapsed_us();
-        
-        assert!(after_resume > during_pause, "Time should advance after resume");
+
+        assert!(
+            after_resume > during_pause,
+            "Time should advance after resume"
+        );
     }
 
     #[test]
     fn test_audio_timestamps() {
         let clock = MasterClock::start_now();
         clock.set_audio_sample_rate(48000);
-        
+
         // Advance by 1 second worth of samples
         clock.advance_audio_samples(48000);
         let ts = clock.audio_timestamp_100ns();
-        
+
         // Should be ~1 second = 10_000_000 (100ns units)
         assert!(ts >= 9_900_000 && ts <= 10_100_000, "ts: {}", ts);
     }
@@ -241,7 +262,7 @@ mod tests {
     #[test]
     fn test_monotonicity() {
         let clock = MasterClock::start_now();
-        
+
         let mut last = 0i64;
         for _ in 0..1000 {
             let ts = clock.video_timestamp_100ns();

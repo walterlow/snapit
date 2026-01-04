@@ -50,12 +50,11 @@ use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, DispatchMessageW, GetCursorPos, GetSystemMetrics,
-    LoadCursorW, PeekMessageW, RegisterClassW, SetWindowLongPtrW, ShowWindow,
-    CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, IDC_CROSS, MSG, PM_REMOVE,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    SW_SHOW, WINDOW_EX_STYLE, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DestroyWindow, DispatchMessageW, GetCursorPos, GetSystemMetrics, LoadCursorW,
+    PeekMessageW, RegisterClassW, SetWindowLongPtrW, ShowWindow, CS_HREDRAW, CS_VREDRAW,
+    GWLP_USERDATA, IDC_CROSS, MSG, PM_REMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_SHOW, WINDOW_EX_STYLE, WNDCLASSW, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 use commands::{clear_pending_command, take_pending_command, take_pending_dimensions};
@@ -107,7 +106,7 @@ pub async fn show_capture_overlay(
 ) -> Result<Option<OverlayResult>, String> {
     log::info!("[show_capture_overlay] Called with capture_type: {:?}, source_mode: {:?}, preselect_monitor: {:?}, preselect_window: {:?}", 
         capture_type, source_mode, preselect_monitor, preselect_window);
-    
+
     let app_clone = app.clone();
     let ct = CaptureType::from_str(capture_type.as_deref().unwrap_or("video"));
     let mode = OverlayMode::from_str(source_mode.as_deref().unwrap_or("region"));
@@ -115,7 +114,13 @@ pub async fn show_capture_overlay(
     // Get virtual screen bounds (spans all monitors)
     let (x, y, width, height) = get_virtual_screen_bounds();
     let bounds = Rect::from_xywh(x, y, width, height);
-    log::info!("[show_capture_overlay] Virtual screen bounds: x={}, y={}, w={}, h={}", x, y, width, height);
+    log::info!(
+        "[show_capture_overlay] Virtual screen bounds: x={}, y={}, w={}, h={}",
+        x,
+        y,
+        width,
+        height
+    );
 
     // Calculate pre-selection bounds and metadata if provided
     let mut preselect_window_title: Option<String> = None;
@@ -139,16 +144,28 @@ pub async fn show_capture_overlay(
         None
     };
 
-    log::info!("[show_capture_overlay] Preselect bounds: {:?}, window_title: {:?}, monitor_name: {:?}",
-        preselect_bounds, preselect_window_title, preselect_monitor_name);
+    log::info!(
+        "[show_capture_overlay] Preselect bounds: {:?}, window_title: {:?}, monitor_name: {:?}",
+        preselect_bounds,
+        preselect_window_title,
+        preselect_monitor_name
+    );
 
-    tokio::task::spawn_blocking(move || run_overlay(
-        app_clone, bounds, ct, mode, preselect_bounds,
-        preselect_window, preselect_window_title,
-        preselect_monitor, preselect_monitor_name
-    ))
-        .await
-        .map_err(|e| format!("Task failed: {:?}", e))?
+    tokio::task::spawn_blocking(move || {
+        run_overlay(
+            app_clone,
+            bounds,
+            ct,
+            mode,
+            preselect_bounds,
+            preselect_window,
+            preselect_window_title,
+            preselect_monitor,
+            preselect_monitor_name,
+        )
+    })
+    .await
+    .map_err(|e| format!("Task failed: {:?}", e))?
 }
 
 /// Get bounds for a specific monitor by index
@@ -169,7 +186,7 @@ fn get_monitor_bounds(monitor_idx: usize) -> Option<Rect> {
 fn bring_window_to_front(hwnd: isize) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        SetForegroundWindow, ShowWindow, SW_RESTORE, IsIconic,
+        IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
     };
 
     let hwnd = HWND(hwnd as *mut std::ffi::c_void);
@@ -232,7 +249,7 @@ fn run_overlay(
         capture_type, overlay_mode, preselect_bounds,
         preselect_window_id, preselect_window_title,
         preselect_monitor_index, preselect_monitor_name);
-    
+
     // Prevent concurrent overlays
     if OVERLAY_ACTIVE.swap(true, Ordering::SeqCst) {
         log::warn!("[run_overlay] Overlay already active, returning None");
@@ -255,8 +272,8 @@ fn run_overlay(
     register_overlay_class()?;
 
     unsafe {
-        let hinstance = GetModuleHandleW(None)
-            .map_err(|e| format!("Failed to get module handle: {:?}", e))?;
+        let hinstance =
+            GetModuleHandleW(None).map_err(|e| format!("Failed to get module handle: {:?}", e))?;
 
         let class_name: Vec<u16> = OVERLAY_CLASS_NAME
             .encode_utf16()
@@ -304,8 +321,9 @@ fn run_overlay(
         let initial_cursor_y = cursor_pos.y - bounds.top;
 
         // Create state
-        let monitor_info = MonitorInfo::new(bounds.left, bounds.top, bounds.width(), bounds.height());
-        
+        let monitor_info =
+            MonitorInfo::new(bounds.left, bounds.top, bounds.width(), bounds.height());
+
         // If we have preselected bounds, convert to local coordinates and set up adjustment mode
         // Display/window preselection should be locked (no resize/move allowed)
         let adjustment = if let Some(presel) = preselect_bounds {
@@ -315,12 +333,15 @@ fn run_overlay(
             adj.is_locked = true; // Lock preselected display/window bounds
             adj.bounds = local_bounds;
             adj.original_bounds = local_bounds;
-            log::info!("[run_overlay] Starting in locked adjustment mode with bounds: {:?}", local_bounds);
+            log::info!(
+                "[run_overlay] Starting in locked adjustment mode with bounds: {:?}",
+                local_bounds
+            );
             adj
         } else {
             Default::default()
         };
-        
+
         let mut state = Box::new(OverlayState {
             app_handle: app,
             capture_type,
@@ -354,7 +375,7 @@ fn run_overlay(
 
         // Initial render
         render::render(&state).map_err(|e| format!("Failed to render: {:?}", e))?;
-        
+
         // If we have preselected bounds, confirm selection on existing startup toolbar
         // and make overlay click-through (locked selection doesn't need input)
         if preselect_bounds.is_some() {
@@ -371,23 +392,32 @@ fn run_overlay(
                     "area"
                 };
 
-                let _ = state.app_handle.emit("confirm-selection", serde_json::json!({
-                    "x": screen_sel.left,
-                    "y": screen_sel.top,
-                    "width": screen_sel.width(),
-                    "height": screen_sel.height(),
-                    "sourceType": source_type,
-                    "windowId": state.preselected_window_id,
-                    "sourceTitle": state.preselected_window_title,
-                    "monitorIndex": state.preselected_monitor_index,
-                    "monitorName": state.preselected_monitor_name
-                }));
-                log::info!("[run_overlay] Confirmed selection: source_type={}, window={:?}, monitor={:?}",
-                    source_type, state.preselected_window_title, state.preselected_monitor_name);
+                let _ = state.app_handle.emit(
+                    "confirm-selection",
+                    serde_json::json!({
+                        "x": screen_sel.left,
+                        "y": screen_sel.top,
+                        "width": screen_sel.width(),
+                        "height": screen_sel.height(),
+                        "sourceType": source_type,
+                        "windowId": state.preselected_window_id,
+                        "sourceTitle": state.preselected_window_title,
+                        "monitorIndex": state.preselected_monitor_index,
+                        "monitorName": state.preselected_monitor_name
+                    }),
+                );
+                log::info!(
+                    "[run_overlay] Confirmed selection: source_type={}, window={:?}, monitor={:?}",
+                    source_type,
+                    state.preselected_window_title,
+                    state.preselected_monitor_name
+                );
             }
             // Make overlay click-through for locked preselection
             // This is bulletproof - no Z-order fighting with toolbar
-            use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_TRANSPARENT, WS_EX_LAYERED};
+            use windows::Win32::UI::WindowsAndMessaging::{
+                GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+            };
             let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
             let new_style = ex_style | WS_EX_TRANSPARENT.0 as i32 | WS_EX_LAYERED.0 as i32;
             SetWindowLongW(hwnd, GWL_EXSTYLE, new_style);
@@ -423,25 +453,29 @@ fn run_overlay(
                 match take_pending_command() {
                     OverlayCommand::ConfirmRecording => {
                         if let Some(selection) = state.get_screen_selection() {
-                            state.result.confirm(selection, OverlayAction::StartRecording);
+                            state
+                                .result
+                                .confirm(selection, OverlayAction::StartRecording);
                             state.should_close = true;
                         }
-                    }
+                    },
                     OverlayCommand::ConfirmScreenshot => {
                         if let Some(selection) = state.get_screen_selection() {
-                            state.result.confirm(selection, OverlayAction::CaptureScreenshot);
+                            state
+                                .result
+                                .confirm(selection, OverlayAction::CaptureScreenshot);
                             state.should_close = true;
                         }
-                    }
+                    },
                     OverlayCommand::Reselect => {
                         state.reselect();
                         // Emit reselecting event (NOT closed) - webcam should stay open
                         let _ = state.app_handle.emit("capture-overlay-reselecting", ());
                         let _ = render::render(&state);
-                    }
+                    },
                     OverlayCommand::Cancel => {
                         state.cancel();
-                    }
+                    },
                     OverlayCommand::SetDimensions => {
                         let (new_width, new_height) = take_pending_dimensions();
                         if new_width > 0 && new_height > 0 {
@@ -457,12 +491,15 @@ fn run_overlay(
                                 cy - half_h + new_height as i32,
                             );
                             // Emit selection update and re-render
-                            let screen_sel = state.monitor.local_rect_to_screen(state.adjustment.bounds);
-                            let _ = state.app_handle.emit("selection-updated", SelectionEvent::from(screen_sel));
+                            let screen_sel =
+                                state.monitor.local_rect_to_screen(state.adjustment.bounds);
+                            let _ = state
+                                .app_handle
+                                .emit("selection-updated", SelectionEvent::from(screen_sel));
                             let _ = render::render(&state);
                         }
-                    }
-                    OverlayCommand::None => {}
+                    },
+                    OverlayCommand::None => {},
                 }
             }
 
@@ -508,8 +545,8 @@ fn run_overlay(
             if let Some(win) = app_for_toolbar.get_webview_window("capture-toolbar") {
                 if let Ok(toolbar_hwnd) = win.hwnd() {
                     use windows::Win32::UI::WindowsAndMessaging::{
-                        SetWindowPos, SetForegroundWindow, ShowWindow,
-                        HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
+                        SetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOMOVE,
+                        SWP_NOSIZE, SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
                     };
                     // Restore if minimized
                     let _ = ShowWindow(HWND(toolbar_hwnd.0), SW_RESTORE);
@@ -519,7 +556,10 @@ fn run_overlay(
                     let _ = SetWindowPos(
                         HWND(toolbar_hwnd.0),
                         HWND_TOPMOST,
-                        0, 0, 0, 0,
+                        0,
+                        0,
+                        0,
+                        0,
                         SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                     );
                     // Force foreground
@@ -558,34 +598,34 @@ fn run_overlay(
 }
 
 /// Start the highlight preview overlay.
-/// 
+///
 /// This overlay is click-through (WS_EX_TRANSPARENT) and only renders
 /// highlights based on HIGHLIGHTED_MONITOR/HIGHLIGHTED_WINDOW atomics.
 /// Used by picker panels to show visual feedback while hovering items.
 #[command]
 pub async fn start_highlight_preview() -> Result<(), String> {
     log::info!("[start_highlight_preview] Starting preview overlay");
-    
+
     // Check if already active
     if PREVIEW_ACTIVE.load(Ordering::SeqCst) {
         log::info!("[start_highlight_preview] Preview already active");
         return Ok(());
     }
-    
+
     // Can't run preview while main overlay is active
     if OVERLAY_ACTIVE.load(Ordering::SeqCst) {
         log::warn!("[start_highlight_preview] Main overlay is active, skipping preview");
         return Ok(());
     }
-    
+
     // Reset stop signal
     PREVIEW_SHOULD_STOP.store(false, Ordering::SeqCst);
-    
+
     // Get virtual screen bounds
     let (x, y, width, height) = get_virtual_screen_bounds();
     let bounds = Rect::from_xywh(x, y, width, height);
     log::info!("[start_highlight_preview] Bounds: {:?}", bounds);
-    
+
     // Spawn on tokio blocking thread pool (better managed than raw thread)
     // Don't await - let it run in background
     tokio::task::spawn_blocking(move || {
@@ -595,7 +635,7 @@ pub async fn start_highlight_preview() -> Result<(), String> {
         }
         log::info!("[start_highlight_preview] Thread finished");
     });
-    
+
     log::info!("[start_highlight_preview] Returning Ok");
     Ok(())
 }
@@ -619,56 +659,58 @@ pub async fn is_highlight_preview_active() -> bool {
 /// Run the preview overlay - click-through, render-only.
 fn run_preview_overlay(bounds: Rect) -> Result<(), String> {
     use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
-    
+
     log::info!("[run_preview_overlay] Starting");
-    
+
     // Set active flag
     if PREVIEW_ACTIVE.swap(true, Ordering::SeqCst) {
         log::info!("[run_preview_overlay] Already running, exiting");
         return Ok(()); // Already running
     }
-    
+
     // Initialize COM for this thread (required for D3D11/DirectComposition)
     log::info!("[run_preview_overlay] Initializing COM");
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
-    
+
     // Guard to reset flag and uninitialize COM on exit
     struct PreviewGuard;
     impl Drop for PreviewGuard {
         fn drop(&mut self) {
             PREVIEW_ACTIVE.store(false, Ordering::SeqCst);
-            unsafe { CoUninitialize(); }
+            unsafe {
+                CoUninitialize();
+            }
             log::info!("[run_preview_overlay] Preview overlay stopped");
         }
     }
     let _guard = PreviewGuard;
-    
+
     // Register window class if needed
     log::info!("[run_preview_overlay] Registering window class");
     register_overlay_class()?;
-    
+
     unsafe {
         log::info!("[run_preview_overlay] Getting module handle");
-        let hinstance = GetModuleHandleW(None)
-            .map_err(|e| format!("Failed to get module handle: {:?}", e))?;
-        
+        let hinstance =
+            GetModuleHandleW(None).map_err(|e| format!("Failed to get module handle: {:?}", e))?;
+
         let class_name: Vec<u16> = OVERLAY_CLASS_NAME
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
-        
+
         // Create window with DirectComposition style AND click-through
         // WS_EX_TRANSPARENT makes the window click-through
         let ex_style = WINDOW_EX_STYLE(
-            WS_EX_NOREDIRECTIONBITMAP 
-                | WS_EX_TOPMOST.0 
-                | WS_EX_TOOLWINDOW.0 
+            WS_EX_NOREDIRECTIONBITMAP
+                | WS_EX_TOPMOST.0
+                | WS_EX_TOOLWINDOW.0
                 | WS_EX_NOACTIVATE.0
                 | 0x00000020, // WS_EX_TRANSPARENT
         );
-        
+
         log::info!("[run_preview_overlay] Creating window");
         let hwnd = CreateWindowExW(
             ex_style,
@@ -685,42 +727,42 @@ fn run_preview_overlay(bounds: Rect) -> Result<(), String> {
             None,
         )
         .map_err(|e| format!("Failed to create preview window: {:?}", e))?;
-        
+
         // Initialize graphics
         log::info!("[run_preview_overlay] Creating D3D11 device");
-        let d3d_device = d3d::create_device()
-            .map_err(|e| format!("Failed to create D3D11 device: {:?}", e))?;
-        
+        let d3d_device =
+            d3d::create_device().map_err(|e| format!("Failed to create D3D11 device: {:?}", e))?;
+
         log::info!("[run_preview_overlay] Creating swap chain");
         let swap_chain = d3d::create_swap_chain(&d3d_device, bounds.width(), bounds.height())
             .map_err(|e| format!("Failed to create swap chain: {:?}", e))?;
-        
+
         log::info!("[run_preview_overlay] Creating DirectComposition");
         let compositor_resources = compositor::create_compositor(&d3d_device, hwnd, &swap_chain)
             .map_err(|e| format!("Failed to create DirectComposition: {:?}", e))?;
-        
+
         log::info!("[run_preview_overlay] Creating D2D resources");
         let d2d_resources = d2d::create_resources(&d3d_device)
             .map_err(|e| format!("Failed to create D2D resources: {:?}", e))?;
-        
+
         // Show window
         log::info!("[run_preview_overlay] Showing window");
         let _ = ShowWindow(hwnd, SW_SHOW);
-        
+
         // Preview render loop - no message handling, just render highlights
         let mut last_monitor = -2i32; // Use -2 as "uninitialized" vs -1 as "no highlight"
         let mut last_window = -1isize;
-        
+
         while !PREVIEW_SHOULD_STOP.load(Ordering::SeqCst) {
             // Check current highlight state
             let current_monitor = commands::get_highlighted_monitor();
             let current_window = commands::get_highlighted_window();
-            
+
             // Only re-render if highlight changed
             if current_monitor != last_monitor || current_window != last_window {
                 last_monitor = current_monitor;
                 last_window = current_window;
-                
+
                 // Render the preview
                 if let Err(e) = render_preview(
                     &d2d_resources,
@@ -733,24 +775,25 @@ fn run_preview_overlay(bounds: Rect) -> Result<(), String> {
                     log::error!("[run_preview_overlay] Render error: {:?}", e);
                 }
             }
-            
+
             // Process window messages (required for window to stay alive)
             let mut msg = MSG::default();
             while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE).as_bool() {
-                if msg.message == 0x0012 { // WM_QUIT
+                if msg.message == 0x0012 {
+                    // WM_QUIT
                     break;
                 }
                 DispatchMessageW(&msg);
             }
-            
+
             // Small sleep to avoid burning CPU
             std::thread::sleep(std::time::Duration::from_millis(16)); // ~60fps
         }
-        
+
         // Cleanup
         let _ = DestroyWindow(hwnd);
     }
-    
+
     Ok(())
 }
 
@@ -765,22 +808,25 @@ fn render_preview(
 ) -> windows::core::Result<()> {
     use windows::Win32::Graphics::Direct2D::Common::{D2D1_COLOR_F, D2D_RECT_F};
     use windows::Win32::Graphics::Dxgi::{IDXGISurface, DXGI_PRESENT};
-    
+
     unsafe {
         let surface: IDXGISurface = swap_chain.GetBuffer(0)?;
         let target_bitmap = d2d::create_target_bitmap(&d2d.context, &surface)?;
-        
+
         d2d.context.SetTarget(&target_bitmap);
         d2d.context.BeginDraw();
-        
+
         // Clear with fully transparent
         d2d.context.Clear(Some(&D2D1_COLOR_F {
-            r: 0.0, g: 0.0, b: 0.0, a: 0.0,
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
         }));
-        
+
         let width = bounds.width() as f32;
         let height = bounds.height() as f32;
-        
+
         // Determine clear rect based on highlights
         let clear_rect = if highlighted_window != 0 {
             // Highlight specific window
@@ -794,7 +840,12 @@ fn render_preview(
                 }
             } else {
                 // Window not found, no highlight
-                D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }
+                D2D_RECT_F {
+                    left: 0.0,
+                    top: 0.0,
+                    right: width,
+                    bottom: height,
+                }
             }
         } else if highlighted_monitor >= 0 {
             // Highlight specific monitor
@@ -804,7 +855,7 @@ fn render_preview(
                     let mon_y = mon.y().unwrap_or(0);
                     let mon_w = mon.width().unwrap_or(1920) as i32;
                     let mon_h = mon.height().unwrap_or(1080) as i32;
-                    
+
                     D2D_RECT_F {
                         left: (mon_x - bounds.left) as f32,
                         top: (mon_y - bounds.top) as f32,
@@ -812,16 +863,31 @@ fn render_preview(
                         bottom: (mon_y - bounds.top + mon_h) as f32,
                     }
                 } else {
-                    D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }
+                    D2D_RECT_F {
+                        left: 0.0,
+                        top: 0.0,
+                        right: width,
+                        bottom: height,
+                    }
                 }
             } else {
-                D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }
+                D2D_RECT_F {
+                    left: 0.0,
+                    top: 0.0,
+                    right: width,
+                    bottom: height,
+                }
             }
         } else {
             // No highlight - show nothing (fully transparent)
-            D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: height }
+            D2D_RECT_F {
+                left: 0.0,
+                top: 0.0,
+                right: width,
+                bottom: height,
+            }
         };
-        
+
         // Draw dim overlay if we have a highlight
         let has_highlight = highlighted_monitor >= 0 || highlighted_window != 0;
         if has_highlight {
@@ -829,42 +895,63 @@ fn render_preview(
             // Top
             if clear_rect.top > 0.0 {
                 d2d.context.FillRectangle(
-                    &D2D_RECT_F { left: 0.0, top: 0.0, right: width, bottom: clear_rect.top },
+                    &D2D_RECT_F {
+                        left: 0.0,
+                        top: 0.0,
+                        right: width,
+                        bottom: clear_rect.top,
+                    },
                     &d2d.brushes.overlay,
                 );
             }
             // Bottom
             if clear_rect.bottom < height {
                 d2d.context.FillRectangle(
-                    &D2D_RECT_F { left: 0.0, top: clear_rect.bottom, right: width, bottom: height },
+                    &D2D_RECT_F {
+                        left: 0.0,
+                        top: clear_rect.bottom,
+                        right: width,
+                        bottom: height,
+                    },
                     &d2d.brushes.overlay,
                 );
             }
             // Left
             if clear_rect.left > 0.0 {
                 d2d.context.FillRectangle(
-                    &D2D_RECT_F { left: 0.0, top: clear_rect.top, right: clear_rect.left, bottom: clear_rect.bottom },
+                    &D2D_RECT_F {
+                        left: 0.0,
+                        top: clear_rect.top,
+                        right: clear_rect.left,
+                        bottom: clear_rect.bottom,
+                    },
                     &d2d.brushes.overlay,
                 );
             }
             // Right
             if clear_rect.right < width {
                 d2d.context.FillRectangle(
-                    &D2D_RECT_F { left: clear_rect.right, top: clear_rect.top, right: width, bottom: clear_rect.bottom },
+                    &D2D_RECT_F {
+                        left: clear_rect.right,
+                        top: clear_rect.top,
+                        right: width,
+                        bottom: clear_rect.bottom,
+                    },
                     &d2d.brushes.overlay,
                 );
             }
-            
+
             // Draw border around highlight
-            d2d.context.DrawRectangle(&clear_rect, &d2d.brushes.border, 2.0, None);
+            d2d.context
+                .DrawRectangle(&clear_rect, &d2d.brushes.border, 2.0, None);
         }
-        
+
         d2d.context.EndDraw(None, None)?;
-        
+
         swap_chain.Present(1, DXGI_PRESENT(0)).ok()?;
         comp_device.Commit()?;
     }
-    
+
     Ok(())
 }
 

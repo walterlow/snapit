@@ -142,6 +142,9 @@ mod tests {
 
         // Should still detect corners
         assert_eq!(hit_test_handle(100, 100, bounds), HandlePosition::TopLeft);
-        assert_eq!(hit_test_handle(120, 120, bounds), HandlePosition::BottomRight);
+        assert_eq!(
+            hit_test_handle(120, 120, bounds),
+            HandlePosition::BottomRight
+        );
     }
 }

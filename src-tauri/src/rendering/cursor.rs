@@ -575,7 +575,7 @@ fn decode_cursor_images(
             Err(e) => {
                 log::warn!("[CURSOR] Failed to decode base64 for cursor {}: {}", id, e);
                 continue;
-            }
+            },
         };
 
         // Decode PNG to RGBA
@@ -584,7 +584,7 @@ fn decode_cursor_images(
             Err(e) => {
                 log::warn!("[CURSOR] Failed to read cursor image {}: {}", id, e);
                 continue;
-            }
+            },
         };
 
         let image = match reader.decode() {
@@ -592,7 +592,7 @@ fn decode_cursor_images(
             Err(e) => {
                 log::warn!("[CURSOR] Failed to decode cursor image {}: {}", id, e);
                 continue;
-            }
+            },
         };
 
         decoded.insert(

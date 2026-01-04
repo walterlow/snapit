@@ -830,7 +830,7 @@ fn run_mouse_hook_loop(
                         delta_x: 0,
                         delta_y: delta,
                     })
-                }
+                },
                 _ => None,
             };
 

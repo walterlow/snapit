@@ -5,7 +5,7 @@
 //!
 //! Communication uses an atomic pending command that the overlay polls.
 
-use std::sync::atomic::{AtomicU8, AtomicU32, AtomicI32, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicIsize, AtomicU32, AtomicU8, Ordering};
 
 use super::types::OverlayCommand;
 
@@ -72,7 +72,7 @@ pub async fn capture_overlay_confirm(action: String) -> Result<(), String> {
                 "Invalid action: '{}'. Expected 'recording' or 'screenshot'.",
                 action
             ))
-        }
+        },
     };
     set_pending_command(cmd);
     Ok(())

@@ -6,14 +6,13 @@
 //! - Frame rendering pipeline
 //! - Event emission to frontend
 
+use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use parking_lot::Mutex;
-use tokio::sync::mpsc;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::mpsc;
 
-use crate::commands::video_recording::video_project::VideoProject;
 use super::compositor::Compositor;
 use super::decoder::VideoDecoder;
 use super::renderer::Renderer;
@@ -21,6 +20,7 @@ use super::types::{
     EditorInstanceInfo, PlaybackEvent, PlaybackState, RenderOptions, RenderedFrame,
 };
 use super::zoom::ZoomInterpolator;
+use crate::commands::video_recording::video_project::VideoProject;
 
 /// Events sent from playback loop to main thread.
 enum PlaybackCommand {
@@ -76,7 +76,7 @@ impl EditorInstance {
         let mut screen_decoder = VideoDecoder::new(screen_path)?;
         log::info!("[GPU_EDITOR] Starting decoder...");
         screen_decoder.start()?;
-        
+
         // Pre-decode frame 0 so it's ready immediately
         log::info!("[GPU_EDITOR] Pre-decoding frame 0...");
         match screen_decoder.seek(0).await {
@@ -242,12 +242,9 @@ impl EditorInstance {
         };
 
         // Composite frame
-        let output_texture = self.compositor.composite(
-            &self.renderer,
-            &frame,
-            &options,
-            timestamp_ms as f32,
-        );
+        let output_texture =
+            self.compositor
+                .composite(&self.renderer, &frame, &options, timestamp_ms as f32);
 
         // Read back to CPU
         let data = self
@@ -256,10 +253,7 @@ impl EditorInstance {
             .await;
 
         // Encode as base64
-        let data_base64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            &data,
-        );
+        let data_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
 
         Ok(RenderedFrame {
             frame: frame_num,
@@ -310,21 +304,21 @@ async fn playback_loop(
                     last_frame_time = Instant::now();
                     let mut s = state.lock();
                     s.state = PlaybackState::Playing;
-                }
+                },
                 PlaybackCommand::Pause => {
                     playing = false;
                     let mut s = state.lock();
                     s.state = PlaybackState::Paused;
-                }
+                },
                 PlaybackCommand::Stop => {
                     break;
-                }
+                },
                 PlaybackCommand::Seek(timestamp_ms) => {
                     let mut s = state.lock();
                     s.current_timestamp_ms = timestamp_ms.min(duration_ms);
                     s.current_frame = ((timestamp_ms as f64 / 1000.0) * fps).floor() as u32;
                     s.state = PlaybackState::Seeking;
-                    
+
                     // Emit seek event
                     let event = PlaybackEvent {
                         frame: s.current_frame,
@@ -332,19 +326,19 @@ async fn playback_loop(
                         state: s.state,
                     };
                     let _ = app_handle.emit(&format!("playback:{}", instance_id), event);
-                }
+                },
                 PlaybackCommand::SetSpeed(speed) => {
                     let mut s = state.lock();
                     s.speed = speed.max(0.1).min(4.0);
-                }
+                },
             },
             Ok(None) => {
                 // Channel closed
                 break;
-            }
+            },
             Err(_) => {
                 // Timeout - continue playback if playing
-            }
+            },
         }
 
         // Advance playback
@@ -376,7 +370,7 @@ async fn playback_loop(
                     state: s.state,
                 };
                 drop(s); // Release lock before emit
-                
+
                 let _ = app_handle.emit(&format!("playback:{}", instance_id), event);
             }
         }

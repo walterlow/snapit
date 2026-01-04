@@ -98,7 +98,7 @@ impl AudioCollector {
                     Err(TryRecvError::Disconnected) => {
                         self.system_rx = None;
                         break;
-                    }
+                    },
                 }
             }
         }
@@ -112,7 +112,7 @@ impl AudioCollector {
                     Err(TryRecvError::Disconnected) => {
                         self.mic_rx = None;
                         break;
-                    }
+                    },
                 }
             }
         }
@@ -151,11 +151,11 @@ impl AudioCollector {
                         }
                     }
                     return Some(frame);
-                }
+                },
                 Err(TryRecvError::Disconnected) => {
                     self.system_rx = None;
-                }
-                Err(TryRecvError::Empty) => {}
+                },
+                Err(TryRecvError::Empty) => {},
             }
         }
 
@@ -165,8 +165,8 @@ impl AudioCollector {
                 Ok(frame) => return Some(frame),
                 Err(TryRecvError::Disconnected) => {
                     self.mic_rx = None;
-                }
-                Err(TryRecvError::Empty) => {}
+                },
+                Err(TryRecvError::Empty) => {},
             }
         }
 
@@ -384,7 +384,7 @@ impl AudioCaptureManager {
                             )
                             .map_err(|e| format!("Failed to build input stream: {}", e))?;
                         stream
-                    }
+                    },
                     cpal::SampleFormat::I16 => {
                         let stream = device
                             .build_input_stream(
@@ -426,10 +426,10 @@ impl AudioCaptureManager {
                             )
                             .map_err(|e| format!("Failed to build input stream: {}", e))?;
                         stream
-                    }
+                    },
                     format => {
                         return Err(format!("Unsupported sample format: {:?}", format));
-                    }
+                    },
                 };
 
                 // Start the stream

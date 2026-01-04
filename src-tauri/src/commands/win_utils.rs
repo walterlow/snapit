@@ -4,7 +4,9 @@
 /// Tries DWMWA_VISIBLE_FRAME_BORDER_THICKNESS (Win11+), falls back to DPI-based calculation.
 #[cfg(target_os = "windows")]
 pub fn get_visible_border_thickness(hwnd: windows::Win32::Foundation::HWND) -> i32 {
-    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_VISIBLE_FRAME_BORDER_THICKNESS};
+    use windows::Win32::Graphics::Dwm::{
+        DwmGetWindowAttribute, DWMWA_VISIBLE_FRAME_BORDER_THICKNESS,
+    };
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
 
     unsafe {

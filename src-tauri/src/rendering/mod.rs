@@ -11,24 +11,24 @@
 //! - `zoom`: Zoom interpolation with bezier easing
 //! - `editor_instance`: Playback state management
 
-pub mod types;
-pub mod decoder;
-pub mod stream_decoder;
-pub mod renderer;
 pub mod compositor;
-pub mod zoom;
-pub mod scene;
 pub mod cursor;
+pub mod decoder;
 pub mod editor_instance;
 pub mod exporter;
+pub mod renderer;
+pub mod scene;
+pub mod stream_decoder;
+pub mod types;
+pub mod zoom;
 
-pub use types::*;
-pub use decoder::VideoDecoder;
-pub use stream_decoder::StreamDecoder;
-pub use renderer::Renderer;
 pub use compositor::Compositor;
-pub use zoom::ZoomInterpolator;
-pub use scene::{InterpolatedScene, SceneInterpolator};
-pub use cursor::{CursorInterpolator, InterpolatedCursor, composite_cursor};
+pub use cursor::{composite_cursor, CursorInterpolator, InterpolatedCursor};
+pub use decoder::VideoDecoder;
 pub use editor_instance::EditorInstance;
 pub use exporter::export_video_gpu;
+pub use renderer::Renderer;
+pub use scene::{InterpolatedScene, SceneInterpolator};
+pub use stream_decoder::StreamDecoder;
+pub use types::*;
+pub use zoom::ZoomInterpolator;

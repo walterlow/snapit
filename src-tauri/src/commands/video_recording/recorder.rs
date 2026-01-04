@@ -46,7 +46,10 @@ impl FrameBufferPool {
         let total_size = row_size * (height as usize);
 
         // Flip from frame_buffer to flip_buffer
-        for (i, row) in self.frame_buffer[..total_size].chunks_exact(row_size).enumerate() {
+        for (i, row) in self.frame_buffer[..total_size]
+            .chunks_exact(row_size)
+            .enumerate()
+        {
             let dest_row = height as usize - 1 - i;
             let dest_start = dest_row * row_size;
             self.flip_buffer[dest_start..dest_start + row_size].copy_from_slice(row);
@@ -60,19 +63,25 @@ use crossbeam_channel::{Receiver, TryRecvError};
 use tauri::AppHandle;
 use windows_capture::{
     dxgi_duplication_api::DxgiDuplicationApi,
-    encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder, VideoSettingsSubType},
+    encoder::{
+        AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
+        VideoSettingsSubType,
+    },
     monitor::Monitor,
 };
 
 use super::audio_multitrack::MultiTrackAudioRecorder;
-use super::cursor::{CursorEventCapture, save_cursor_recording};
+use super::cursor::{save_cursor_recording, CursorEventCapture};
 use super::desktop_icons::{hide_desktop_icons, show_desktop_icons};
 use super::gif_encoder::GifRecorder;
 use super::state::{RecorderCommand, RecordingProgress, RECORDING_CONTROLLER};
 use super::video_project::VideoProject;
 use super::webcam::{stop_capture_service, WebcamEncoderPipe};
 use super::wgc_capture::WgcVideoCapture;
-use super::{emit_state_change, get_webcam_settings, RecordingFormat, RecordingMode, RecordingSettings, RecordingState};
+use super::{
+    emit_state_change, get_webcam_settings, RecordingFormat, RecordingMode, RecordingSettings,
+    RecordingState,
+};
 
 // ============================================================================
 // Video Validation
@@ -82,7 +91,8 @@ use super::{emit_state_change, get_webcam_settings, RecordingFormat, RecordingMo
 /// Returns Ok(()) if valid, Err with message if corrupted.
 fn validate_video_file(path: &PathBuf) -> Result<(), String> {
     // Only validate MP4 files
-    let extension = path.extension()
+    let extension = path
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
@@ -99,9 +109,12 @@ fn validate_video_file(path: &PathBuf) -> Result<(), String> {
     // A corrupted MP4 (missing moov atom) will fail with an error
     let output = std::process::Command::new(&ffprobe_path)
         .args([
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             &path.to_string_lossy().to_string(),
         ])
         .output()
@@ -155,7 +168,7 @@ fn mux_audio_to_video(
 ) -> Result<(), String> {
     let has_system = system_audio_path.map(|p| p.exists()).unwrap_or(false);
     let has_mic = mic_audio_path.map(|p| p.exists()).unwrap_or(false);
-    
+
     if !has_system && !has_mic {
         return Ok(());
     }
@@ -164,54 +177,73 @@ fn mux_audio_to_video(
         .ok_or_else(|| "FFmpeg not found - cannot mux audio".to_string())?;
 
     let temp_video_path = video_path.with_extension("video_only.mp4");
-    
+
     std::fs::rename(video_path, &temp_video_path)
         .map_err(|e| format!("Failed to rename video for muxing: {}", e))?;
 
     let result = if has_system && has_mic {
         let system_path = system_audio_path.unwrap();
         let mic_path = mic_audio_path.unwrap();
-        
+
         std::process::Command::new(&ffmpeg_path)
             .args([
                 "-y",
-                "-i", &temp_video_path.to_string_lossy(),
-                "-i", &system_path.to_string_lossy(),
-                "-i", &mic_path.to_string_lossy(),
-                "-filter_complex", "[1:a][2:a]amix=inputs=2:duration=longest[aout]",
-                "-map", "0:v",
-                "-map", "[aout]",
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
+                "-i",
+                &temp_video_path.to_string_lossy(),
+                "-i",
+                &system_path.to_string_lossy(),
+                "-i",
+                &mic_path.to_string_lossy(),
+                "-filter_complex",
+                "[1:a][2:a]amix=inputs=2:duration=longest[aout]",
+                "-map",
+                "0:v",
+                "-map",
+                "[aout]",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
                 &video_path.to_string_lossy(),
             ])
             .output()
     } else if has_system {
         let system_path = system_audio_path.unwrap();
-        
+
         std::process::Command::new(&ffmpeg_path)
             .args([
                 "-y",
-                "-i", &temp_video_path.to_string_lossy(),
-                "-i", &system_path.to_string_lossy(),
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
+                "-i",
+                &temp_video_path.to_string_lossy(),
+                "-i",
+                &system_path.to_string_lossy(),
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
                 &video_path.to_string_lossy(),
             ])
             .output()
     } else {
         let mic_path = mic_audio_path.unwrap();
-        
+
         std::process::Command::new(&ffmpeg_path)
             .args([
                 "-y",
-                "-i", &temp_video_path.to_string_lossy(),
-                "-i", &mic_path.to_string_lossy(),
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
+                "-i",
+                &temp_video_path.to_string_lossy(),
+                "-i",
+                &mic_path.to_string_lossy(),
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
                 &video_path.to_string_lossy(),
             ])
             .output()
@@ -234,12 +266,12 @@ fn mux_audio_to_video(
                 let _ = std::fs::rename(&temp_video_path, video_path);
                 Err(format!("FFmpeg muxing failed: {}", stderr))
             }
-        }
+        },
         Err(e) => {
             log::error!("[MUX] Failed to run FFmpeg: {}", e);
             let _ = std::fs::rename(&temp_video_path, video_path);
             Err(format!("Failed to run FFmpeg: {}", e))
-        }
+        },
     }
 }
 
@@ -293,10 +325,7 @@ enum FrameAcquireResult {
 }
 
 /// Try to switch from DXGI to WGC capture backend.
-fn switch_to_wgc(
-    monitor_index: usize,
-    include_cursor: bool,
-) -> Result<CaptureBackend, String> {
+fn switch_to_wgc(monitor_index: usize, include_cursor: bool) -> Result<CaptureBackend, String> {
     log::warn!("[CAPTURE] GPU device lost, switching to WGC fallback");
 
     let wgc = WgcVideoCapture::new(monitor_index, include_cursor)
@@ -338,7 +367,8 @@ fn get_window_rect(window_id: u32) -> Result<(i32, i32, u32, u32), String> {
             DWMWA_EXTENDED_FRAME_BOUNDS,
             &mut rect as *mut RECT as *mut std::ffi::c_void,
             std::mem::size_of::<RECT>() as u32,
-        ).map_err(|e| format!("Failed to get window bounds: {:?}", e))?;
+        )
+        .map_err(|e| format!("Failed to get window bounds: {:?}", e))?;
 
         let width = (rect.right - rect.left) as u32;
         let height = (rect.bottom - rect.top) as u32;
@@ -362,8 +392,13 @@ fn resolve_window_to_region(mode: &RecordingMode) -> Result<RecordingMode, Strin
     match mode {
         RecordingMode::Window { window_id } => {
             let (x, y, width, height) = get_window_rect(*window_id)?;
-            Ok(RecordingMode::Region { x, y, width, height })
-        }
+            Ok(RecordingMode::Region {
+                x,
+                y,
+                width,
+                height,
+            })
+        },
         other => Ok(other.clone()),
     }
 }
@@ -386,7 +421,11 @@ pub async fn start_recording(
     settings: RecordingSettings,
     output_path: PathBuf,
 ) -> Result<(), String> {
-    log::debug!("[RECORDING] Starting: format={:?}, countdown={}", settings.format, settings.countdown_secs);
+    log::debug!(
+        "[RECORDING] Starting: format={:?}, countdown={}",
+        settings.format,
+        settings.countdown_secs
+    );
 
     let (progress, command_rx) = {
         let mut controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
@@ -410,7 +449,7 @@ pub async fn start_recording(
             // Brief delay to allow countdown window to initialize its event listener
             // Without this, the first countdown event (3) may be emitted before the window is ready
             tokio::time::sleep(Duration::from_millis(150)).await;
-            
+
             for i in (1..=settings_clone.countdown_secs).rev() {
                 // Check for stop/cancel commands during countdown
                 match command_rx_clone.try_recv() {
@@ -420,17 +459,20 @@ pub async fn start_recording(
                         }
                         emit_state_change(&app_clone, &RecordingState::Idle);
                         return;
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
 
                 if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
                     controller.update_countdown(i);
                 }
 
-                emit_state_change(&app_clone, &RecordingState::Countdown {
-                    seconds_remaining: i,
-                });
+                emit_state_change(
+                    &app_clone,
+                    &RecordingState::Countdown {
+                        seconds_remaining: i,
+                    },
+                );
 
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
@@ -443,8 +485,8 @@ pub async fn start_recording(
                     }
                     emit_state_change(&app_clone, &RecordingState::Idle);
                     return;
-                }
-                _ => {}
+                },
+                _ => {},
             }
 
             // Start actual recording
@@ -455,11 +497,14 @@ pub async fn start_recording(
             // Emit recording state IMMEDIATELY for instant UI feedback (optimistic UI)
             // Border shows right away, init happens in background
             let started_at = chrono::Local::now().to_rfc3339();
-            emit_state_change(&app_clone, &RecordingState::Recording {
-                started_at: started_at.clone(),
-                elapsed_secs: 0.0,
-                frame_count: 0,
-            });
+            emit_state_change(
+                &app_clone,
+                &RecordingState::Recording {
+                    started_at: started_at.clone(),
+                    elapsed_secs: 0.0,
+                    frame_count: 0,
+                },
+            );
 
             // Start capture in background thread
             start_capture_thread(
@@ -475,11 +520,14 @@ pub async fn start_recording(
         // No countdown, start immediately
         // Emit recording state IMMEDIATELY for instant UI feedback
         let started_at = chrono::Local::now().to_rfc3339();
-        emit_state_change(&app, &RecordingState::Recording {
-            started_at: started_at.clone(),
-            elapsed_secs: 0.0,
-            frame_count: 0,
-        });
+        emit_state_change(
+            &app,
+            &RecordingState::Recording {
+                started_at: started_at.clone(),
+                elapsed_secs: 0.0,
+                frame_count: 0,
+            },
+        );
 
         start_capture_thread(app, settings, output_path, progress, command_rx, started_at);
     }
@@ -505,87 +553,102 @@ fn start_capture_thread(
 
         // Catch any panics to ensure we log them
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // Window mode is now handled natively by WGC in run_video_capture/run_gif_capture
+            // No need to resolve to region mode anymore
 
-        // Window mode is now handled natively by WGC in run_video_capture/run_gif_capture
-        // No need to resolve to region mode anymore
+            let result = match settings.format {
+                RecordingFormat::Mp4 => run_video_capture(
+                    &app,
+                    &settings,
+                    &output_path,
+                    progress.clone(),
+                    command_rx,
+                    &started_at,
+                ),
+                RecordingFormat::Gif => run_gif_capture(
+                    &app,
+                    &settings,
+                    &output_path,
+                    progress.clone(),
+                    command_rx,
+                    &started_at,
+                ),
+            };
 
-        let result = match settings.format {
-            RecordingFormat::Mp4 => {
-                run_video_capture(&app, &settings, &output_path, progress.clone(), command_rx, &started_at)
-            }
-            RecordingFormat::Gif => {
-                run_gif_capture(&app, &settings, &output_path, progress.clone(), command_rx, &started_at)
-            }
-        };
+            // Check if recording was cancelled
+            let was_cancelled = RECORDING_CONTROLLER
+                .lock()
+                .map(|c| {
+                    c.active
+                        .as_ref()
+                        .map(|a| a.progress.was_cancelled())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
 
-        // Check if recording was cancelled
-        let was_cancelled = RECORDING_CONTROLLER
-            .lock()
-            .map(|c| {
-                c.active
-                    .as_ref()
-                    .map(|a| a.progress.was_cancelled())
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
-
-        if was_cancelled {
-            let _ = std::fs::remove_file(&output_path_clone);
-            if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                controller.reset();
-            }
-            emit_state_change(&app_clone, &RecordingState::Idle);
-            return;
-        }
-
-        // Handle result
-        match result {
-            Ok(recording_duration) => {
-                // Validate the video file to ensure it's not corrupted
-                // This catches issues like missing moov atom from improper shutdown
-                if let Err(validation_error) = validate_video_file(&output_path_clone) {
-                    log::error!("[RECORDING] Video validation failed: {}", validation_error);
-                    // Delete the corrupted file
-                    let _ = std::fs::remove_file(&output_path_clone);
-                    // Emit error state
-                    let error_msg = format!("Recording failed: {}", validation_error);
-                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                        controller.set_error(error_msg.clone());
-                    }
-                    emit_state_change(&app_clone, &RecordingState::Error { message: error_msg });
-                    return;
-                }
-
-                let file_size = std::fs::metadata(&output_path_clone)
-                    .map(|m| m.len())
-                    .unwrap_or(0);
-
-                if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                    controller.complete(
-                        output_path_clone.to_string_lossy().to_string(),
-                        recording_duration,
-                        file_size,
-                    );
-                }
-
-                emit_state_change(&app_clone, &RecordingState::Completed {
-                    output_path: output_path_clone.to_string_lossy().to_string(),
-                    duration_secs: recording_duration,
-                    file_size_bytes: file_size,
-                });
-            }
-            Err(e) => {
-                log::error!("[RECORDING] Failed: {}", e);
-                // Also try to clean up any partial file on error
+            if was_cancelled {
                 let _ = std::fs::remove_file(&output_path_clone);
                 if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
-                    controller.set_error(e.clone());
+                    controller.reset();
                 }
-                emit_state_change(&app_clone, &RecordingState::Error { message: e });
+                emit_state_change(&app_clone, &RecordingState::Idle);
+                return;
             }
-        }
+
+            // Handle result
+            match result {
+                Ok(recording_duration) => {
+                    // Validate the video file to ensure it's not corrupted
+                    // This catches issues like missing moov atom from improper shutdown
+                    if let Err(validation_error) = validate_video_file(&output_path_clone) {
+                        log::error!("[RECORDING] Video validation failed: {}", validation_error);
+                        // Delete the corrupted file
+                        let _ = std::fs::remove_file(&output_path_clone);
+                        // Emit error state
+                        let error_msg = format!("Recording failed: {}", validation_error);
+                        if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                            controller.set_error(error_msg.clone());
+                        }
+                        emit_state_change(
+                            &app_clone,
+                            &RecordingState::Error { message: error_msg },
+                        );
+                        return;
+                    }
+
+                    let file_size = std::fs::metadata(&output_path_clone)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+
+                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                        controller.complete(
+                            output_path_clone.to_string_lossy().to_string(),
+                            recording_duration,
+                            file_size,
+                        );
+                    }
+
+                    emit_state_change(
+                        &app_clone,
+                        &RecordingState::Completed {
+                            output_path: output_path_clone.to_string_lossy().to_string(),
+                            duration_secs: recording_duration,
+                            file_size_bytes: file_size,
+                        },
+                    );
+                },
+                Err(e) => {
+                    log::error!("[RECORDING] Failed: {}", e);
+                    // Also try to clean up any partial file on error
+                    let _ = std::fs::remove_file(&output_path_clone);
+                    if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
+                        controller.set_error(e.clone());
+                    }
+                    emit_state_change(&app_clone, &RecordingState::Error { message: e });
+                },
+            }
         })); // End of catch_unwind
-        
+
         // Handle panics
         if let Err(panic_info) = result {
             let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
@@ -599,25 +662,27 @@ fn start_capture_thread(
             if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
                 controller.set_error(format!("Capture thread panicked: {}", panic_msg));
             }
-            emit_state_change(&app_clone, &RecordingState::Error { 
-                message: format!("Capture thread panicked: {}", panic_msg) 
-            });
+            emit_state_change(
+                &app_clone,
+                &RecordingState::Error {
+                    message: format!("Capture thread panicked: {}", panic_msg),
+                },
+            );
         }
-        
+
         // Always restore desktop icons when recording ends (success, error, or panic)
         show_desktop_icons();
     });
-    
 }
 
 /// Run video (MP4) capture using DXGI Duplication API.
-/// 
+///
 /// For MP4, `output_path` is a project folder containing:
 ///   - screen.mp4 (main recording)
 ///   - webcam.mp4 (optional)
 ///   - cursor.json (optional)
 ///   - project.json (video project metadata, created after recording)
-/// 
+///
 /// Returns the actual recording duration in seconds.
 fn run_video_capture(
     app: &AppHandle,
@@ -635,10 +700,8 @@ fn run_video_capture(
     // === WEBCAM OUTPUT PATH ===
     // Webcam capture service is already running (pre-warmed during countdown).
     // Just set up the output path here.
-    let webcam_enabled = get_webcam_settings()
-        .map(|s| s.enabled)
-        .unwrap_or(false);
-    
+    let webcam_enabled = get_webcam_settings().map(|s| s.enabled).unwrap_or(false);
+
     let webcam_output_path: Option<PathBuf> = if webcam_enabled {
         Some(output_path.join("webcam.mp4"))
     } else {
@@ -650,7 +713,12 @@ fn run_video_capture(
 
     // Get crop region if in region mode (not used for Window mode)
     let crop_region = match &settings.mode {
-        RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
+        RecordingMode::Region {
+            x,
+            y,
+            width,
+            height,
+        } => Some((*x, *y, *width, *height)),
         _ => None,
     };
 
@@ -675,7 +743,7 @@ fn run_video_capture(
             } else {
                 0
             }
-        }
+        },
         _ => 0,
     };
 
@@ -685,7 +753,7 @@ fn run_video_capture(
     let (mut capture, first_wgc_frame) = if let Some(wid) = window_id {
         let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
             .map_err(|e| format!("Failed to create WGC window capture: {}", e))?;
-        
+
         // Wait for first frame to get actual dimensions (important for DPI scaling)
         let first_frame = wgc.wait_for_first_frame(1000);
         (CaptureBackend::Wgc(wgc), first_frame)
@@ -699,7 +767,7 @@ fn run_video_capture(
                     .get(*monitor_index)
                     .ok_or("Monitor not found")?
                     .clone()
-            }
+            },
             _ => Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?,
         };
 
@@ -721,10 +789,13 @@ fn run_video_capture(
     };
 
     let bitrate = settings.calculate_bitrate(width, height);
-    let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
+    let max_duration = settings
+        .max_duration_secs
+        .map(|s| Duration::from_secs(s as u64));
 
     // Determine if we need audio
-    let _capture_audio = settings.audio.capture_system_audio || settings.audio.microphone_device_index.is_some();
+    let _capture_audio =
+        settings.audio.capture_system_audio || settings.audio.microphone_device_index.is_some();
 
     // Create video encoder with audio enabled if needed
     // Use H.264 codec for better browser/WebView compatibility (HEVC requires paid extension)
@@ -743,7 +814,8 @@ fn run_video_capture(
         audio_settings,
         ContainerSettingsBuilder::default(),
         &screen_video_path,
-    ).map_err(|e| format!("Failed to create encoder: {:?}", e))?;
+    )
+    .map_err(|e| format!("Failed to create encoder: {:?}", e))?;
 
     // === SHARED CONTROL FLAGS ===
     let should_stop = Arc::new(AtomicBool::new(false));
@@ -756,9 +828,9 @@ fn run_video_capture(
     // Try to use pre-spawned FFmpeg pipe (from prepare_recording).
     // Falls back to spawning new one if not available.
     let mut webcam_pipe: Option<WebcamEncoderPipe> = if webcam_output_path.is_some() {
-        use super::webcam::WEBCAM_BUFFER;
         use super::take_prepared_webcam_pipe;
-        
+        use super::webcam::WEBCAM_BUFFER;
+
         // Quick check if webcam is ready (should be, since we pre-warmed)
         if WEBCAM_BUFFER.current_frame_id() == 0 {
             let deadline = Instant::now() + Duration::from_millis(100);
@@ -766,7 +838,7 @@ fn run_video_capture(
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
-        
+
         // Try to use pre-spawned pipe first (instant!)
         if let Some(pipe) = take_prepared_webcam_pipe() {
             Some(pipe)
@@ -779,7 +851,7 @@ fn run_video_capture(
                     log::warn!("Webcam encoder failed: {}", e);
                     stop_capture_service();
                     None
-                }
+                },
             }
         } else {
             None
@@ -792,10 +864,8 @@ fn run_video_capture(
     // Record system audio and microphone to separate WAV files for later mixing.
     // This enables independent volume control in the video editor.
     // Use shared flags so pause/resume affects multi-track audio too.
-    let mut multitrack_audio = MultiTrackAudioRecorder::with_flags(
-        Arc::clone(&should_stop),
-        Arc::clone(&is_paused),
-    );
+    let mut multitrack_audio =
+        MultiTrackAudioRecorder::with_flags(Arc::clone(&should_stop), Arc::clone(&is_paused));
     // Audio files go inside the project folder
     let (system_audio_path, mic_audio_path) = {
         let system_path = if settings.audio.capture_system_audio {
@@ -803,16 +873,16 @@ fn run_video_capture(
         } else {
             None
         };
-        
+
         let mic_path = if settings.audio.microphone_device_index.is_some() {
             Some(output_path.join("mic.wav"))
         } else {
             None
         };
-        
+
         (system_path, mic_path)
     };
-    
+
     // Start multi-track audio recording
     if system_audio_path.is_some() || mic_audio_path.is_some() {
         if let Err(e) = multitrack_audio.start(system_audio_path.clone(), mic_audio_path.clone()) {
@@ -825,13 +895,18 @@ fn run_video_capture(
     let mut cursor_event_capture = CursorEventCapture::new();
     // Cursor data goes inside the project folder
     let cursor_data_path = output_path.join("cursor.json");
-    
+
     // Get region for cursor capture (if region mode)
     let cursor_region = match &settings.mode {
-        RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
+        RecordingMode::Region {
+            x,
+            y,
+            width,
+            height,
+        } => Some((*x, *y, *width, *height)),
         _ => None,
     };
-    
+
     if let Err(e) = cursor_event_capture.start(cursor_region) {
         log::warn!("Failed to start cursor event capture: {}", e);
     }
@@ -850,7 +925,10 @@ fn run_video_capture(
     // Recording state was already emitted before thread started (optimistic UI)
     log::debug!(
         "[RECORDING] Capture loop starting: {}x{} @ {}fps, webcam={}",
-        width, height, settings.fps, webcam_pipe.is_some()
+        width,
+        height,
+        settings.fps,
+        webcam_pipe.is_some()
     );
     let start_time = Instant::now();
     let mut last_frame_time = start_time;
@@ -864,12 +942,12 @@ fn run_video_capture(
             Ok(RecorderCommand::Stop) => {
                 should_stop.store(true, Ordering::SeqCst);
                 break;
-            }
+            },
             Ok(RecorderCommand::Cancel) => {
                 should_stop.store(true, Ordering::SeqCst);
                 progress.mark_cancelled();
                 break;
-            }
+            },
             Ok(RecorderCommand::Pause) => {
                 if !paused {
                     paused = true;
@@ -877,7 +955,7 @@ fn run_video_capture(
                     progress.set_paused(true);
                     is_paused.store(true, Ordering::SeqCst);
                 }
-            }
+            },
             Ok(RecorderCommand::Resume) => {
                 if paused {
                     if let Some(ps) = pause_start.take() {
@@ -887,12 +965,12 @@ fn run_video_capture(
                     progress.set_paused(false);
                     is_paused.store(false, Ordering::SeqCst);
                 }
-            }
-            Err(TryRecvError::Empty) => {}
+            },
+            Err(TryRecvError::Empty) => {},
             Err(TryRecvError::Disconnected) => {
                 should_stop.store(true, Ordering::SeqCst);
                 break;
-            }
+            },
         }
 
         // Skip frame capture while paused
@@ -905,22 +983,22 @@ fn run_video_capture(
                     paused = false;
                     progress.set_paused(false);
                     is_paused.store(false, Ordering::SeqCst);
-                }
+                },
                 Ok(RecorderCommand::Stop) => {
                     should_stop.store(true, Ordering::SeqCst);
                     break;
-                }
+                },
                 Ok(RecorderCommand::Cancel) => {
                     should_stop.store(true, Ordering::SeqCst);
                     progress.mark_cancelled();
                     break;
-                }
-                Ok(RecorderCommand::Pause) => {} // Already paused, ignore
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {} // Normal timeout, continue loop
+                },
+                Ok(RecorderCommand::Pause) => {}, // Already paused, ignore
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}, // Normal timeout, continue loop
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                     should_stop.store(true, Ordering::SeqCst);
                     break;
-                }
+                },
             }
             continue;
         }
@@ -970,38 +1048,47 @@ fn run_video_capture(
                                 let len = pixel_data.len().min(buffer_pool.frame_size);
                                 buffer_pool.frame_buffer[..len].copy_from_slice(&pixel_data[..len]);
                                 true
-                            }
+                            },
                             Err(e) => {
                                 let err_str = format!("{:?}", e);
-                                if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") || err_str.contains("suspended") {
+                                if err_str.contains("0x887A0005")
+                                    || err_str.contains("DEVICE_REMOVED")
+                                    || err_str.contains("suspended")
+                                {
                                     // GPU device lost - switch to WGC
                                     match switch_to_wgc(monitor_index, settings.include_cursor) {
                                         Ok(new_backend) => {
                                             capture = new_backend;
                                             continue;
-                                        }
+                                        },
                                         Err(e) => {
-                                            return Err(format!("DXGI failed and WGC fallback also failed: {}", e));
-                                        }
+                                            return Err(format!(
+                                                "DXGI failed and WGC fallback also failed: {}",
+                                                e
+                                            ));
+                                        },
                                     }
                                 } else {
                                     false
                                 }
-                            }
+                            },
                         }
-                    }
+                    },
                     Err(windows_capture::dxgi_duplication_api::Error::Timeout) => false,
                     Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
                         match switch_to_wgc(monitor_index, settings.include_cursor) {
                             Ok(new_backend) => {
                                 capture = new_backend;
                                 continue;
-                            }
+                            },
                             Err(e) => {
-                                return Err(format!("DXGI access lost and WGC fallback failed: {}", e));
-                            }
+                                return Err(format!(
+                                    "DXGI access lost and WGC fallback failed: {}",
+                                    e
+                                ));
+                            },
                         }
-                    }
+                    },
                     Err(e) => {
                         let err_str = format!("{:?}", e);
                         if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") {
@@ -1009,18 +1096,21 @@ fn run_video_capture(
                                 Ok(new_backend) => {
                                     capture = new_backend;
                                     continue;
-                                }
+                                },
                                 Err(e) => {
-                                    return Err(format!("DXGI error and WGC fallback failed: {}", e));
-                                }
+                                    return Err(format!(
+                                        "DXGI error and WGC fallback failed: {}",
+                                        e
+                                    ));
+                                },
                             }
                         } else {
                             std::thread::sleep(Duration::from_millis(50));
                             false
                         }
-                    }
+                    },
                 }
-            }
+            },
             CaptureBackend::Wgc(wgc) => {
                 // WGC frame acquisition - use pending first frame if available, else get new one
                 let frame_data = if let Some(data) = pending_first_frame.take() {
@@ -1028,16 +1118,16 @@ fn run_video_capture(
                 } else {
                     wgc.get_frame(100).map(|f| f.data)
                 };
-                
+
                 match frame_data {
                     Some(data) => {
                         let len = data.len().min(buffer_pool.frame_size);
                         buffer_pool.frame_buffer[..len].copy_from_slice(&data[..len]);
                         true
-                    }
+                    },
                     None => false, // Timeout or no frame
                 }
-            }
+            },
         };
 
         // Skip if no frame was acquired
@@ -1078,18 +1168,24 @@ fn run_video_capture(
 
         // Emit progress periodically
         if frame_count % 30 == 0 {
-            emit_state_change(app, &RecordingState::Recording {
-                started_at: started_at.to_string(),
-                elapsed_secs: actual_elapsed.as_secs_f64(),
-                frame_count,
-            });
+            emit_state_change(
+                app,
+                &RecordingState::Recording {
+                    started_at: started_at.to_string(),
+                    elapsed_secs: actual_elapsed.as_secs_f64(),
+                    frame_count,
+                },
+            );
         }
     }
 
     // Calculate recording stats
     let total_elapsed = start_time.elapsed();
     let recording_duration = total_elapsed - pause_time;
-    let webcam_frames = webcam_pipe.as_ref().map(|p| p.frames_written()).unwrap_or(0);
+    let webcam_frames = webcam_pipe
+        .as_ref()
+        .map(|p| p.frames_written())
+        .unwrap_or(0);
     log::debug!(
         "[RECORDING] Complete: {:.2}s, {} frames ({:.1} fps), webcam: {} frames",
         recording_duration.as_secs_f64(),
@@ -1100,7 +1196,7 @@ fn run_video_capture(
 
     // Check if recording was cancelled
     let was_cancelled = progress.was_cancelled();
-    
+
     // Finish webcam encoder BEFORE stopping capture service
     // Pass the actual recording duration so webcam syncs perfectly with screen
     if let Some(pipe) = webcam_pipe {
@@ -1113,7 +1209,7 @@ fn run_video_capture(
             log::warn!("Webcam encoding failed: {}", e);
         }
     }
-    
+
     // Stop capture services
     stop_capture_service();
     let _ = multitrack_audio.stop();
@@ -1131,7 +1227,9 @@ fn run_video_capture(
     }
 
     // Finish main video encoder (video-only, no audio)
-    encoder.finish().map_err(|e| format!("Failed to finish encoding: {:?}", e))?;
+    encoder
+        .finish()
+        .map_err(|e| format!("Failed to finish encoding: {:?}", e))?;
 
     // Mux audio with video using FFmpeg (bypasses windows-capture audio jitter)
     if let Err(e) = mux_audio_to_video(
@@ -1161,11 +1259,12 @@ fn run_video_capture(
 
 /// Sync webcam video duration to match screen video duration.
 /// Uses FFmpeg to stretch or pad the webcam video.
-fn sync_webcam_to_screen_duration(screen_path: &PathBuf, webcam_path: &PathBuf) -> Result<(), String> {
-    let ffprobe_path = crate::commands::storage::find_ffprobe()
-        .ok_or("ffprobe not found")?;
-    let ffmpeg_path = crate::commands::storage::find_ffmpeg()
-        .ok_or("ffmpeg not found")?;
+fn sync_webcam_to_screen_duration(
+    screen_path: &PathBuf,
+    webcam_path: &PathBuf,
+) -> Result<(), String> {
+    let ffprobe_path = crate::commands::storage::find_ffprobe().ok_or("ffprobe not found")?;
+    let ffmpeg_path = crate::commands::storage::find_ffmpeg().ok_or("ffmpeg not found")?;
 
     // Get screen video duration
     let screen_duration = get_video_duration(&ffprobe_path, screen_path)?;
@@ -1179,7 +1278,8 @@ fn sync_webcam_to_screen_duration(screen_path: &PathBuf, webcam_path: &PathBuf) 
 
     log::debug!(
         "[SYNC] Adjusting webcam: {:.3}s -> {:.3}s",
-        webcam_duration, screen_duration
+        webcam_duration,
+        screen_duration
     );
 
     // Create temp file for synced webcam
@@ -1193,12 +1293,17 @@ fn sync_webcam_to_screen_duration(screen_path: &PathBuf, webcam_path: &PathBuf) 
     let output = std::process::Command::new(&ffmpeg_path)
         .args([
             "-y",
-            "-i", &webcam_path.to_string_lossy(),
-            "-vf", &pts_filter,
+            "-i",
+            &webcam_path.to_string_lossy(),
+            "-vf",
+            &pts_filter,
             "-an", // No audio in webcam
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "18",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "18",
         ])
         .arg(&synced_path)
         .output()
@@ -1222,9 +1327,12 @@ fn sync_webcam_to_screen_duration(screen_path: &PathBuf, webcam_path: &PathBuf) 
 fn get_video_duration(ffprobe_path: &PathBuf, video_path: &PathBuf) -> Result<f64, String> {
     let output = std::process::Command::new(ffprobe_path)
         .args([
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
         ])
         .arg(video_path)
         .output()
@@ -1260,7 +1368,12 @@ fn run_gif_capture(
 
     // Get crop region if in region mode (not used for Window mode)
     let crop_region = match &settings.mode {
-        RecordingMode::Region { x, y, width, height } => Some((*x, *y, *width, *height)),
+        RecordingMode::Region {
+            x,
+            y,
+            width,
+            height,
+        } => Some((*x, *y, *width, *height)),
         _ => None,
     };
 
@@ -1270,7 +1383,7 @@ fn run_gif_capture(
         log::debug!("[GIF] Using window capture for hwnd={}", wid);
         let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
             .map_err(|e| format!("Failed to start WGC window capture: {}", e))?;
-        
+
         // Wait for first frame to get actual dimensions (important for DPI scaling)
         let first_frame = wgc.wait_for_first_frame(1000);
         if first_frame.is_none() {
@@ -1291,15 +1404,17 @@ fn run_gif_capture(
     };
 
     // Get capture dimensions - prefer first frame dims for window capture (DPI accuracy)
-    let (capture_width, capture_height) = first_frame_dims
-        .unwrap_or_else(|| (wgc.width(), wgc.height()));
+    let (capture_width, capture_height) =
+        first_frame_dims.unwrap_or_else(|| (wgc.width(), wgc.height()));
     let (width, height) = if let Some((_, _, w, h)) = crop_region {
         (w, h)
     } else {
         (capture_width, capture_height)
     };
 
-    let max_duration = settings.max_duration_secs.map(|s| Duration::from_secs(s as u64));
+    let max_duration = settings
+        .max_duration_secs
+        .map(|s| Duration::from_secs(s as u64));
     let max_frames = settings.fps as usize * settings.max_duration_secs.unwrap_or(30) as usize;
 
     // Create GIF recorder
@@ -1314,7 +1429,7 @@ fn run_gif_capture(
     // Recording loop - consume frames from WGC as they arrive
     let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
     let frame_timeout_ms = (frame_duration.as_millis() as u64).max(50);
-    
+
     // Recording state was already emitted before thread started (optimistic UI)
     let start_time = Instant::now();
     let mut last_frame_time = start_time;
@@ -1327,8 +1442,8 @@ fn run_gif_capture(
                     progress.mark_cancelled();
                 }
                 break;
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         // Check max duration
@@ -1397,11 +1512,14 @@ fn run_gif_capture(
 
         let frame_count = progress.get_frame_count();
         if frame_count % 30 == 0 {
-            emit_state_change(app, &RecordingState::Recording {
-                started_at: started_at.to_string(),
-                elapsed_secs: elapsed.as_secs_f64(),
-                frame_count,
-            });
+            emit_state_change(
+                app,
+                &RecordingState::Recording {
+                    started_at: started_at.to_string(),
+                    elapsed_secs: elapsed.as_secs_f64(),
+                    frame_count,
+                },
+            );
         }
     }
 
@@ -1413,7 +1531,7 @@ fn run_gif_capture(
 
     // Check if cancelled
     if progress.was_cancelled() {
-        return Ok(recording_duration);  // Return duration even if cancelled
+        return Ok(recording_duration); // Return duration even if cancelled
     }
 
     // Encode GIF
@@ -1425,7 +1543,8 @@ fn run_gif_capture(
 
     log::debug!(
         "[GIF] Capture complete: {} frames in {:.2}s ({:.1} fps)",
-        frame_count, total_duration.as_secs_f64(),
+        frame_count,
+        total_duration.as_secs_f64(),
         frame_count as f64 / total_duration.as_secs_f64()
     );
 
@@ -1436,9 +1555,12 @@ fn run_gif_capture(
     let app_clone = app.clone();
     recorder_guard
         .encode_to_file(output_path, move |encoding_progress| {
-            emit_state_change(&app_clone, &RecordingState::Processing {
-                progress: encoding_progress,
-            });
+            emit_state_change(
+                &app_clone,
+                &RecordingState::Processing {
+                    progress: encoding_progress,
+                },
+            );
         })
         .map_err(|e| format!("Failed to encode GIF: {}", e))?;
 
@@ -1446,7 +1568,7 @@ fn run_gif_capture(
 }
 
 /// Stop the current recording.
-/// 
+///
 /// This sends the stop command and returns immediately.
 /// The UI immediately transitions to "Processing" state (optimistic update).
 /// The actual completion is signaled via the 'recording-state-changed' event
@@ -1459,7 +1581,7 @@ pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
     }
 
     controller.send_command(RecorderCommand::Stop)?;
-    
+
     // Immediately emit Processing state so UI feels responsive
     // Timer stops, user sees "Saving..." or similar
     emit_state_change(&app, &RecordingState::Processing { progress: 0.0 });
@@ -1520,7 +1642,7 @@ pub async fn resume_recording(app: AppHandle) -> Result<(), String> {
 // ============================================================================
 
 /// Create a project.json file in the video project folder.
-/// 
+///
 /// This creates the VideoProject metadata file that allows the video editor
 /// to load and edit the recording with all its associated files.
 fn create_video_project_file(
@@ -1534,29 +1656,29 @@ fn create_video_project_file(
 ) -> Result<(), String> {
     // Create the VideoProject with relative paths (files are in the same folder)
     let screen_video = "screen.mp4".to_string();
-    
+
     let mut project = VideoProject::new(&screen_video, width, height, duration_ms, fps);
-    
+
     // Set project name from folder name
     if let Some(folder_name) = project_folder.file_name() {
         project.name = folder_name.to_string_lossy().to_string();
     }
-    
+
     // Update sources with relative paths for files that exist
     if has_webcam {
         project.sources.webcam_video = Some("webcam.mp4".to_string());
         project.webcam.enabled = true;
     }
-    
+
     if has_cursor_data {
         project.sources.cursor_data = Some("cursor.json".to_string());
     }
-    
+
     // Save project.json to the folder
     let project_file = project_folder.join("project.json");
     project.save(&project_file)?;
-    
+
     log::info!("[PROJECT] Created project.json in {:?}", project_folder);
-    
+
     Ok(())
 }

@@ -17,14 +17,13 @@ use windows::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{
         Input::KeyboardAndMouse::{
-            RegisterHotKey, UnregisterHotKey,
-            MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, HOT_KEY_MODIFIERS,
+            RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL,
+            MOD_NOREPEAT, MOD_SHIFT,
         },
         WindowsAndMessaging::{
-            CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
-            PostMessageW, PostQuitMessage, RegisterClassW, TranslateMessage,
-            CS_HREDRAW, CS_VREDRAW, HMENU, MSG, WM_USER,
-            WINDOW_EX_STYLE, WM_DESTROY, WM_HOTKEY, WNDCLASSW, WS_OVERLAPPED,
+            CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostMessageW,
+            PostQuitMessage, RegisterClassW, TranslateMessage, CS_HREDRAW, CS_VREDRAW, HMENU, MSG,
+            WINDOW_EX_STYLE, WM_DESTROY, WM_HOTKEY, WM_USER, WNDCLASSW, WS_OVERLAPPED,
         },
     },
 };
@@ -106,7 +105,7 @@ fn parse_shortcut(shortcut: &str) -> Option<(u32, u32)> {
             "ctrl" | "control" | "commandorcontrol" => modifiers |= MOD_CONTROL.0,
             "alt" => modifiers |= MOD_ALT.0,
             "shift" => modifiers |= MOD_SHIFT.0,
-            _ => {}
+            _ => {},
         }
     }
 
@@ -120,21 +119,69 @@ fn parse_shortcut(shortcut: &str) -> Option<(u32, u32)> {
 
 fn parse_key_code(key: &str) -> u32 {
     match key {
-        "a" => 0x41, "b" => 0x42, "c" => 0x43, "d" => 0x44, "e" => 0x45,
-        "f" => 0x46, "g" => 0x47, "h" => 0x48, "i" => 0x49, "j" => 0x4A,
-        "k" => 0x4B, "l" => 0x4C, "m" => 0x4D, "n" => 0x4E, "o" => 0x4F,
-        "p" => 0x50, "q" => 0x51, "r" => 0x52, "s" => 0x53, "t" => 0x54,
-        "u" => 0x55, "v" => 0x56, "w" => 0x57, "x" => 0x58, "y" => 0x59, "z" => 0x5A,
-        "0" => 0x30, "1" => 0x31, "2" => 0x32, "3" => 0x33, "4" => 0x34,
-        "5" => 0x35, "6" => 0x36, "7" => 0x37, "8" => 0x38, "9" => 0x39,
-        "f1" => 0x70, "f2" => 0x71, "f3" => 0x72, "f4" => 0x73, "f5" => 0x74,
-        "f6" => 0x75, "f7" => 0x76, "f8" => 0x77, "f9" => 0x78, "f10" => 0x79,
-        "f11" => 0x7A, "f12" => 0x7B,
-        "space" => 0x20, "enter" | "return" => 0x0D, "escape" | "esc" => 0x1B,
-        "tab" => 0x09, "backspace" => 0x08, "delete" => 0x2E, "insert" => 0x2D,
-        "home" => 0x24, "end" => 0x23, "pageup" => 0x21, "pagedown" => 0x22,
-        "arrowup" | "up" => 0x26, "arrowdown" | "down" => 0x28,
-        "arrowleft" | "left" => 0x25, "arrowright" | "right" => 0x27,
+        "a" => 0x41,
+        "b" => 0x42,
+        "c" => 0x43,
+        "d" => 0x44,
+        "e" => 0x45,
+        "f" => 0x46,
+        "g" => 0x47,
+        "h" => 0x48,
+        "i" => 0x49,
+        "j" => 0x4A,
+        "k" => 0x4B,
+        "l" => 0x4C,
+        "m" => 0x4D,
+        "n" => 0x4E,
+        "o" => 0x4F,
+        "p" => 0x50,
+        "q" => 0x51,
+        "r" => 0x52,
+        "s" => 0x53,
+        "t" => 0x54,
+        "u" => 0x55,
+        "v" => 0x56,
+        "w" => 0x57,
+        "x" => 0x58,
+        "y" => 0x59,
+        "z" => 0x5A,
+        "0" => 0x30,
+        "1" => 0x31,
+        "2" => 0x32,
+        "3" => 0x33,
+        "4" => 0x34,
+        "5" => 0x35,
+        "6" => 0x36,
+        "7" => 0x37,
+        "8" => 0x38,
+        "9" => 0x39,
+        "f1" => 0x70,
+        "f2" => 0x71,
+        "f3" => 0x72,
+        "f4" => 0x73,
+        "f5" => 0x74,
+        "f6" => 0x75,
+        "f7" => 0x76,
+        "f8" => 0x77,
+        "f9" => 0x78,
+        "f10" => 0x79,
+        "f11" => 0x7A,
+        "f12" => 0x7B,
+        "space" => 0x20,
+        "enter" | "return" => 0x0D,
+        "escape" | "esc" => 0x1B,
+        "tab" => 0x09,
+        "backspace" => 0x08,
+        "delete" => 0x2E,
+        "insert" => 0x2D,
+        "home" => 0x24,
+        "end" => 0x23,
+        "pageup" => 0x21,
+        "pagedown" => 0x22,
+        "arrowup" | "up" => 0x26,
+        "arrowdown" | "down" => 0x28,
+        "arrowleft" | "left" => 0x25,
+        "arrowright" | "right" => 0x27,
         "printscreen" => VK_SNAPSHOT,
         _ => 0,
     }
@@ -169,7 +216,7 @@ unsafe extern "system" fn wnd_proc(
                 }
             }
             LRESULT(0)
-        }
+        },
         x if x == WM_REGISTER_HOTKEY => {
             // Process pending registrations from the message loop thread
             if let Ok(mut state) = get_state().try_lock() {
@@ -182,16 +229,22 @@ unsafe extern "system" fn wnd_proc(
                 // Then process registrations
                 let pending = std::mem::take(&mut state.pending_registrations);
                 for reg in pending {
-                    let (actual_id, actual_mods) = if reg.key_code == VK_SNAPSHOT && reg.modifiers == 0 {
-                        (IDHOT_SNAPDESKTOP, 0)
-                    } else {
-                        (reg.hotkey_id, reg.modifiers | MOD_NOREPEAT.0)
-                    };
-                    let _ = RegisterHotKey(hwnd, actual_id, HOT_KEY_MODIFIERS(actual_mods), reg.key_code);
+                    let (actual_id, actual_mods) =
+                        if reg.key_code == VK_SNAPSHOT && reg.modifiers == 0 {
+                            (IDHOT_SNAPDESKTOP, 0)
+                        } else {
+                            (reg.hotkey_id, reg.modifiers | MOD_NOREPEAT.0)
+                        };
+                    let _ = RegisterHotKey(
+                        hwnd,
+                        actual_id,
+                        HOT_KEY_MODIFIERS(actual_mods),
+                        reg.key_code,
+                    );
                 }
             }
             LRESULT(0)
-        }
+        },
         x if x == WM_UNREGISTER_HOTKEY => {
             // Process pending unregistrations from the message loop thread
             if let Ok(mut state) = get_state().try_lock() {
@@ -201,11 +254,11 @@ unsafe extern "system" fn wnd_proc(
                 }
             }
             LRESULT(0)
-        }
+        },
         WM_DESTROY => {
             PostQuitMessage(0);
             LRESULT(0)
-        }
+        },
         _ => DefWindowProcW(hwnd, msg, w_param, l_param),
     }
 }
@@ -213,8 +266,8 @@ unsafe extern "system" fn wnd_proc(
 #[cfg(target_os = "windows")]
 fn create_message_window() -> Result<HWND, String> {
     unsafe {
-        let hinstance = GetModuleHandleW(None)
-            .map_err(|e| format!("GetModuleHandleW failed: {}", e))?;
+        let hinstance =
+            GetModuleHandleW(None).map_err(|e| format!("GetModuleHandleW failed: {}", e))?;
 
         let class_name = windows::core::w!("SnapItHotkeyClass");
 
@@ -236,12 +289,16 @@ fn create_message_window() -> Result<HWND, String> {
             class_name,
             windows::core::w!("SnapIt Hotkey Window"),
             WS_OVERLAPPED,
-            0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
             HWND::default(),
             HMENU::default(),
             hinstance,
             None,
-        ).map_err(|e| format!("CreateWindowExW failed: {}", e))?;
+        )
+        .map_err(|e| format!("CreateWindowExW failed: {}", e))?;
 
         if hwnd.0.is_null() {
             return Err("CreateWindowExW returned null HWND".to_string());
@@ -282,7 +339,12 @@ fn start_message_loop(app: AppHandle) -> Result<(), String> {
                         for (_, hotkey) in &s.hotkeys {
                             let _ = if hotkey.key_code == VK_SNAPSHOT && hotkey.modifiers == 0 {
                                 // Use IDHOT_SNAPDESKTOP for bare PrintScreen
-                                RegisterHotKey(hwnd, IDHOT_SNAPDESKTOP, HOT_KEY_MODIFIERS(0), VK_SNAPSHOT)
+                                RegisterHotKey(
+                                    hwnd,
+                                    IDHOT_SNAPDESKTOP,
+                                    HOT_KEY_MODIFIERS(0),
+                                    VK_SNAPSHOT,
+                                )
                             } else {
                                 RegisterHotKey(
                                     hwnd,
@@ -300,8 +362,8 @@ fn start_message_loop(app: AppHandle) -> Result<(), String> {
                         let _ = TranslateMessage(&msg);
                         DispatchMessageW(&msg);
                     }
-                }
-                Err(_) => {}
+                },
+                Err(_) => {},
             }
 
             // Cleanup
@@ -326,8 +388,8 @@ pub async fn register_shortcut_with_hook(
 ) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        let (modifiers, key) = parse_shortcut(&shortcut)
-            .ok_or_else(|| format!("Invalid shortcut: {}", shortcut))?;
+        let (modifiers, key) =
+            parse_shortcut(&shortcut).ok_or_else(|| format!("Invalid shortcut: {}", shortcut))?;
 
         if key == 0 {
             return Err(format!("Unknown key: {}", shortcut));
@@ -356,12 +418,15 @@ pub async fn register_shortcut_with_hook(
         }
 
         // Store the hotkey info
-        state.hotkeys.insert(id.clone(), RegisteredHotkey {
-            id: id.clone(),
-            hotkey_id,
-            modifiers,
-            key_code: key,
-        });
+        state.hotkeys.insert(
+            id.clone(),
+            RegisteredHotkey {
+                id: id.clone(),
+                hotkey_id,
+                modifiers,
+                key_code: key,
+            },
+        );
 
         // If we have a window, queue registration to be processed by the message loop thread
         if let Some(hwnd_val) = state.hwnd {

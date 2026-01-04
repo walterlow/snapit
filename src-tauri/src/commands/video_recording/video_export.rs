@@ -378,7 +378,7 @@ impl VideoExporter {
                 args.push("aac".to_string());
                 args.push("-b:a".to_string());
                 args.push("128k".to_string());
-            }
+            },
             ExportFormat::Webm => {
                 args.push("-c:v".to_string());
                 args.push("libvpx-vp9".to_string());
@@ -389,12 +389,12 @@ impl VideoExporter {
                 args.push("0".to_string());
                 args.push("-c:a".to_string());
                 args.push("libopus".to_string());
-            }
+            },
             ExportFormat::Gif => {
                 // GIF handled in filter graph with palette generation
                 args.push("-loop".to_string());
                 args.push("0".to_string());
-            }
+            },
         }
 
         // FPS
@@ -582,10 +582,10 @@ impl VideoExporter {
             WebcamOverlayPosition::TopLeft | WebcamOverlayPosition::BottomLeft => margin,
             WebcamOverlayPosition::TopRight | WebcamOverlayPosition::BottomRight => {
                 screen_width as i32 - webcam_size - margin
-            }
+            },
             WebcamOverlayPosition::Custom => {
                 (screen_width as f32 * webcam_cfg.custom_x) as i32 - webcam_size / 2
-            }
+            },
         }
     }
 
@@ -600,10 +600,10 @@ impl VideoExporter {
             WebcamOverlayPosition::TopLeft | WebcamOverlayPosition::TopRight => margin,
             WebcamOverlayPosition::BottomLeft | WebcamOverlayPosition::BottomRight => {
                 screen_height as i32 - webcam_size - margin
-            }
+            },
             WebcamOverlayPosition::Custom => {
                 (screen_height as f32 * webcam_cfg.custom_y) as i32 - webcam_size / 2
-            }
+            },
         }
     }
 
@@ -820,21 +820,21 @@ fn apply_easing(t: f64, easing: EasingFunction) -> f64 {
             } else {
                 1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
             }
-        }
+        },
         EasingFunction::Smooth => {
             // Smoothstep
             t * t * (3.0 - 2.0 * t)
-        }
+        },
         EasingFunction::Snappy => {
             // Quick start, gradual end
             1.0 - (1.0 - t).powi(3)
-        }
+        },
         EasingFunction::Bouncy => {
             // Slight overshoot
             let c1 = 1.70158;
             let c3 = c1 + 1.0;
             1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2)
-        }
+        },
     }
 }
 

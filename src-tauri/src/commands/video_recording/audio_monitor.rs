@@ -90,10 +90,10 @@ fn calculate_rms(samples: &[f32]) -> f32 {
     if samples.is_empty() {
         return 0.0;
     }
-    
+
     let sum_squares: f32 = samples.iter().map(|s| s * s).sum();
     let rms = (sum_squares / samples.len() as f32).sqrt();
-    
+
     // Normalize to 0-1 range (audio samples are typically -1.0 to 1.0)
     // Apply some scaling to make the meter more responsive
     (rms * 2.0).min(1.0)
@@ -103,14 +103,14 @@ fn calculate_rms(samples: &[f32]) -> f32 {
 fn bytes_to_f32_samples(bytes: &VecDeque<u8>) -> Vec<f32> {
     let mut samples = Vec::with_capacity(bytes.len() / 4);
     let bytes_slice: Vec<u8> = bytes.iter().copied().collect();
-    
+
     for chunk in bytes_slice.chunks(4) {
         if chunk.len() == 4 {
             let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
             samples.push(sample);
         }
     }
-    
+
     samples
 }
 
@@ -131,9 +131,12 @@ fn monitor_microphone(
     let enumerator = match DeviceEnumerator::new() {
         Ok(e) => e,
         Err(e) => {
-            log::error!("[AUDIO_MONITOR] Failed to create device enumerator: {:?}", e);
+            log::error!(
+                "[AUDIO_MONITOR] Failed to create device enumerator: {:?}",
+                e
+            );
             return;
-        }
+        },
     };
 
     // Get capture devices and select by index
@@ -143,22 +146,27 @@ fn monitor_microphone(
             (0..count)
                 .filter_map(|i| collection.get_device_at_index(i).ok())
                 .collect()
-        }
+        },
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get capture devices: {:?}", e);
             return;
-        }
+        },
     };
 
     let device: &Device = match devices.get(device_index) {
         Some(d) => d,
         None => {
-            log::error!("[AUDIO_MONITOR] Microphone device index {} not found", device_index);
+            log::error!(
+                "[AUDIO_MONITOR] Microphone device index {} not found",
+                device_index
+            );
             return;
-        }
+        },
     };
 
-    let device_name = device.get_friendlyname().unwrap_or_else(|_| "Unknown".to_string());
+    let device_name = device
+        .get_friendlyname()
+        .unwrap_or_else(|_| "Unknown".to_string());
     log::info!("[AUDIO_MONITOR] Monitoring microphone: '{}'", device_name);
 
     // Get audio client
@@ -167,7 +175,7 @@ fn monitor_microphone(
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get audio client: {:?}", e);
             return;
-        }
+        },
     };
 
     // Define format: 32-bit float, 48kHz, stereo
@@ -179,7 +187,7 @@ fn monitor_microphone(
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get device period: {:?}", e);
             return;
-        }
+        },
     };
 
     // Initialize for capture
@@ -198,7 +206,7 @@ fn monitor_microphone(
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get event handle: {:?}", e);
             return;
-        }
+        },
     };
 
     let capture_client = match audio_client.get_audiocaptureclient() {
@@ -206,7 +214,7 @@ fn monitor_microphone(
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get capture client: {:?}", e);
             return;
-        }
+        },
     };
 
     // Start capture
@@ -233,12 +241,12 @@ fn monitor_microphone(
             if sample_queue.len() >= 4 {
                 let samples = bytes_to_f32_samples(&sample_queue);
                 let rms = calculate_rms(&samples);
-                
+
                 if let Ok(mut lvl) = level.lock() {
                     // Smooth the level with exponential moving average
                     *lvl = *lvl * 0.7 + rms * 0.3;
                 }
-                
+
                 sample_queue.clear();
             }
         }
@@ -261,7 +269,10 @@ fn monitor_system_audio(
 ) {
     // Initialize COM for this thread (HRESULT.ok() converts to Result)
     if let Err(e) = initialize_mta().ok() {
-        log::error!("[AUDIO_MONITOR] Failed to initialize COM for system audio: {:?}", e);
+        log::error!(
+            "[AUDIO_MONITOR] Failed to initialize COM for system audio: {:?}",
+            e
+        );
         return;
     }
 
@@ -269,20 +280,28 @@ fn monitor_system_audio(
     let enumerator = match DeviceEnumerator::new() {
         Ok(e) => e,
         Err(e) => {
-            log::error!("[AUDIO_MONITOR] Failed to create device enumerator: {:?}", e);
+            log::error!(
+                "[AUDIO_MONITOR] Failed to create device enumerator: {:?}",
+                e
+            );
             return;
-        }
+        },
     };
 
     let device = match enumerator.get_default_device(&Direction::Render) {
         Ok(d) => d,
         Err(e) => {
-            log::error!("[AUDIO_MONITOR] Failed to get default audio device: {:?}", e);
+            log::error!(
+                "[AUDIO_MONITOR] Failed to get default audio device: {:?}",
+                e
+            );
             return;
-        }
+        },
     };
 
-    let device_name = device.get_friendlyname().unwrap_or_else(|_| "Unknown".to_string());
+    let device_name = device
+        .get_friendlyname()
+        .unwrap_or_else(|_| "Unknown".to_string());
     log::info!("[AUDIO_MONITOR] Monitoring system audio: '{}'", device_name);
 
     // Get audio client
@@ -291,7 +310,7 @@ fn monitor_system_audio(
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get audio client: {:?}", e);
             return;
-        }
+        },
     };
 
     // Define format: 32-bit float, 48kHz, stereo
@@ -303,7 +322,7 @@ fn monitor_system_audio(
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get device period: {:?}", e);
             return;
-        }
+        },
     };
 
     // Initialize for loopback capture (capture from render device)
@@ -313,7 +332,10 @@ fn monitor_system_audio(
     };
 
     if let Err(e) = audio_client.initialize_client(&wave_format, &Direction::Capture, &mode) {
-        log::error!("[AUDIO_MONITOR] Failed to initialize loopback client: {:?}", e);
+        log::error!(
+            "[AUDIO_MONITOR] Failed to initialize loopback client: {:?}",
+            e
+        );
         return;
     }
 
@@ -322,7 +344,7 @@ fn monitor_system_audio(
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get event handle: {:?}", e);
             return;
-        }
+        },
     };
 
     let capture_client = match audio_client.get_audiocaptureclient() {
@@ -330,7 +352,7 @@ fn monitor_system_audio(
         Err(e) => {
             log::error!("[AUDIO_MONITOR] Failed to get capture client: {:?}", e);
             return;
-        }
+        },
     };
 
     // Start capture
@@ -357,12 +379,12 @@ fn monitor_system_audio(
             if sample_queue.len() >= 4 {
                 let samples = bytes_to_f32_samples(&sample_queue);
                 let rms = calculate_rms(&samples);
-                
+
                 if let Ok(mut lvl) = level.lock() {
                     // Smooth the level with exponential moving average
                     *lvl = *lvl * 0.7 + rms * 0.3;
                 }
-                
+
                 sample_queue.clear();
             }
         }
@@ -387,10 +409,10 @@ pub fn start_monitoring(
     enable_system_audio: bool,
 ) -> Result<(), String> {
     let mut state = AUDIO_MONITOR.lock().map_err(|e| e.to_string())?;
-    
+
     // Stop any existing monitoring
     state.should_stop.store(true, Ordering::SeqCst);
-    
+
     // Wait for threads to stop
     if let Some(handle) = state.mic_thread.take() {
         let _ = handle.join();
@@ -398,49 +420,49 @@ pub fn start_monitoring(
     if let Some(handle) = state.system_thread.take() {
         let _ = handle.join();
     }
-    
+
     // Reset state
     state.should_stop = Arc::new(AtomicBool::new(false));
     state.mic_level = Arc::new(Mutex::new(0.0));
     state.system_level = Arc::new(Mutex::new(0.0));
     state.mic_active = Arc::new(AtomicBool::new(false));
     state.system_active = Arc::new(AtomicBool::new(false));
-    
+
     let should_stop = Arc::clone(&state.should_stop);
     let mic_level = Arc::clone(&state.mic_level);
     let system_level = Arc::clone(&state.system_level);
     let mic_active = Arc::clone(&state.mic_active);
     let system_active = Arc::clone(&state.system_active);
-    
+
     // Start microphone monitoring thread
     if let Some(device_index) = mic_device_index {
         let stop = Arc::clone(&should_stop);
         let level = Arc::clone(&mic_level);
         let active = Arc::clone(&mic_active);
-        
+
         state.mic_thread = Some(thread::spawn(move || {
             monitor_microphone(device_index, stop, level, active);
         }));
     }
-    
+
     // Start system audio monitoring thread
     if enable_system_audio {
         let stop = Arc::clone(&should_stop);
         let level = Arc::clone(&system_level);
         let active = Arc::clone(&system_active);
-        
+
         state.system_thread = Some(thread::spawn(move || {
             monitor_system_audio(stop, level, active);
         }));
     }
-    
+
     // Start emitter thread that sends levels to frontend
     let stop_emitter = Arc::clone(&should_stop);
     let mic_lvl = Arc::clone(&mic_level);
     let sys_lvl = Arc::clone(&system_level);
     let mic_act = Arc::clone(&mic_active);
     let sys_act = Arc::clone(&system_active);
-    
+
     thread::spawn(move || {
         while !stop_emitter.load(Ordering::Relaxed) {
             let levels = AudioLevels {
@@ -449,31 +471,31 @@ pub fn start_monitoring(
                 mic_active: mic_act.load(Ordering::Relaxed),
                 system_active: sys_act.load(Ordering::Relaxed),
             };
-            
+
             if let Err(e) = app.emit("audio-levels", &levels) {
                 log::trace!("[AUDIO_MONITOR] Failed to emit audio levels: {}", e);
             }
-            
+
             // Emit at ~20Hz for smooth UI updates
             thread::sleep(Duration::from_millis(50));
         }
     });
-    
+
     log::info!(
         "[AUDIO_MONITOR] Monitoring started: mic={:?}, system={}",
         mic_device_index,
         enable_system_audio
     );
-    
+
     Ok(())
 }
 
 /// Stop audio level monitoring.
 pub fn stop_monitoring() -> Result<(), String> {
     let mut state = AUDIO_MONITOR.lock().map_err(|e| e.to_string())?;
-    
+
     state.should_stop.store(true, Ordering::SeqCst);
-    
+
     // Wait for threads to stop (with timeout)
     if let Some(handle) = state.mic_thread.take() {
         let _ = handle.join();
@@ -481,7 +503,7 @@ pub fn stop_monitoring() -> Result<(), String> {
     if let Some(handle) = state.system_thread.take() {
         let _ = handle.join();
     }
-    
+
     log::info!("[AUDIO_MONITOR] Monitoring stopped");
     Ok(())
 }
@@ -491,8 +513,7 @@ pub fn is_monitoring() -> bool {
     AUDIO_MONITOR
         .lock()
         .map(|state| {
-            state.mic_active.load(Ordering::Relaxed) 
-                || state.system_active.load(Ordering::Relaxed)
+            state.mic_active.load(Ordering::Relaxed) || state.system_active.load(Ordering::Relaxed)
         })
         .unwrap_or(false)
 }
@@ -506,11 +527,11 @@ mod tests {
         // Silent audio
         let silent = vec![0.0; 100];
         assert!(calculate_rms(&silent) < 0.01);
-        
+
         // Full amplitude sine approximation (simple test)
         let loud = vec![1.0, -1.0, 1.0, -1.0];
         assert!(calculate_rms(&loud) > 0.5);
-        
+
         // Empty
         assert_eq!(calculate_rms(&[]), 0.0);
     }
@@ -520,7 +541,7 @@ mod tests {
         let mut bytes = VecDeque::new();
         bytes.extend(&0.5f32.to_le_bytes());
         bytes.extend(&(-0.25f32).to_le_bytes());
-        
+
         let samples = bytes_to_f32_samples(&bytes);
         assert_eq!(samples.len(), 2);
         assert!((samples[0] - 0.5).abs() < 0.001);

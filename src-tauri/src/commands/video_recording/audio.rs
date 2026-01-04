@@ -54,23 +54,22 @@ impl AudioCapture {
     /// Create a new audio capture for the specified source.
     pub fn new(source: AudioSource) -> Result<Self, String> {
         let host = cpal::default_host();
-        
+
         let device = match source {
             AudioSource::SystemAudio => {
                 // Try to get output device for loopback capture
                 // Note: On Windows, this requires WASAPI loopback which may need special handling
                 host.default_output_device()
                     .ok_or("No output device available for system audio capture")?
-            }
-            AudioSource::Microphone => {
-                host.default_input_device()
-                    .ok_or("No microphone available")?
-            }
+            },
+            AudioSource::Microphone => host
+                .default_input_device()
+                .ok_or("No microphone available")?,
         };
-        
+
         Self::from_device(device, source)
     }
-    
+
     /// Create audio capture from a specific device.
     fn from_device(device: Device, source: AudioSource) -> Result<Self, String> {
         let supported_config = if source == AudioSource::SystemAudio {
@@ -83,35 +82,41 @@ impl AudioCapture {
                 .default_input_config()
                 .map_err(|e| format!("Failed to get input config: {}", e))?
         };
-        
+
         let sample_format = supported_config.sample_format();
         let config: StreamConfig = supported_config.into();
-        
+
         let audio_config = AudioConfig {
             sample_rate: config.sample_rate,
             channels: config.channels,
         };
-        
+
         let samples = Arc::new(Mutex::new(Vec::new()));
         let samples_clone = Arc::clone(&samples);
-        
+
         let err_fn = |err| eprintln!("Audio capture error: {}", err);
-        
+
         // Build the appropriate stream based on sample format
         let stream = match sample_format {
-            SampleFormat::F32 => Self::build_stream::<f32>(&device, &config, samples_clone, err_fn, source)?,
-            SampleFormat::I16 => Self::build_stream::<i16>(&device, &config, samples_clone, err_fn, source)?,
-            SampleFormat::U16 => Self::build_stream::<u16>(&device, &config, samples_clone, err_fn, source)?,
+            SampleFormat::F32 => {
+                Self::build_stream::<f32>(&device, &config, samples_clone, err_fn, source)?
+            },
+            SampleFormat::I16 => {
+                Self::build_stream::<i16>(&device, &config, samples_clone, err_fn, source)?
+            },
+            SampleFormat::U16 => {
+                Self::build_stream::<u16>(&device, &config, samples_clone, err_fn, source)?
+            },
             _ => return Err(format!("Unsupported sample format: {:?}", sample_format)),
         };
-        
+
         Ok(Self {
             _stream: stream,
             samples,
             config: audio_config,
         })
     }
-    
+
     /// Build an input stream for the specified sample type.
     fn build_stream<T>(
         device: &Device,
@@ -132,7 +137,7 @@ impl AudioCapture {
                 }
             }
         };
-        
+
         if source == AudioSource::SystemAudio {
             // For system audio, we need to use input stream on the output device (loopback)
             // This is platform-specific and may require additional setup on Windows
@@ -145,39 +150,39 @@ impl AudioCapture {
                 .map_err(|e| format!("Failed to build input stream: {}", e))
         }
     }
-    
+
     /// Start capturing audio.
     pub fn start(&self) -> Result<(), String> {
         self._stream
             .play()
             .map_err(|e| format!("Failed to start audio capture: {}", e))
     }
-    
+
     /// Stop capturing and return the collected samples.
     pub fn stop(&self) -> Result<Vec<f32>, String> {
         self._stream
             .pause()
             .map_err(|e| format!("Failed to stop audio capture: {}", e))?;
-        
+
         let samples = self
             .samples
             .lock()
             .map_err(|e| format!("Failed to lock samples: {}", e))?
             .clone();
-        
+
         Ok(samples)
     }
-    
+
     /// Get the audio configuration.
     pub fn config(&self) -> &AudioConfig {
         &self.config
     }
-    
+
     /// Get the current number of captured samples.
     pub fn sample_count(&self) -> usize {
         self.samples.lock().map(|s| s.len()).unwrap_or(0)
     }
-    
+
     /// Clear the sample buffer.
     pub fn clear(&self) {
         if let Ok(mut samples) = self.samples.lock() {
@@ -201,30 +206,30 @@ impl CombinedAudioCapture {
                 Err(e) => {
                     eprintln!("Warning: Failed to initialize system audio capture: {}", e);
                     None
-                }
+                },
             }
         } else {
             None
         };
-        
+
         let microphone = if capture_microphone {
             match AudioCapture::new(AudioSource::Microphone) {
                 Ok(capture) => Some(capture),
                 Err(e) => {
                     eprintln!("Warning: Failed to initialize microphone capture: {}", e);
                     None
-                }
+                },
             }
         } else {
             None
         };
-        
+
         Ok(Self {
             system_audio,
             microphone,
         })
     }
-    
+
     /// Start all audio captures.
     pub fn start(&self) -> Result<(), String> {
         if let Some(ref capture) = self.system_audio {
@@ -235,7 +240,7 @@ impl CombinedAudioCapture {
         }
         Ok(())
     }
-    
+
     /// Stop all audio captures and return mixed samples.
     pub fn stop(&self) -> Result<Vec<f32>, String> {
         let system_samples = self
@@ -244,14 +249,14 @@ impl CombinedAudioCapture {
             .map(|c| c.stop())
             .transpose()?
             .unwrap_or_default();
-        
+
         let mic_samples = self
             .microphone
             .as_ref()
             .map(|c| c.stop())
             .transpose()?
             .unwrap_or_default();
-        
+
         // If we have both, mix them together
         if !system_samples.is_empty() && !mic_samples.is_empty() {
             Ok(mix_audio_samples(&system_samples, &mic_samples))
@@ -261,7 +266,7 @@ impl CombinedAudioCapture {
             Ok(mic_samples)
         }
     }
-    
+
     /// Check if any audio is being captured.
     pub fn is_capturing(&self) -> bool {
         self.system_audio.is_some() || self.microphone.is_some()
@@ -272,23 +277,23 @@ impl CombinedAudioCapture {
 fn mix_audio_samples(a: &[f32], b: &[f32]) -> Vec<f32> {
     let len = a.len().max(b.len());
     let mut result = Vec::with_capacity(len);
-    
+
     for i in 0..len {
         let sample_a = a.get(i).copied().unwrap_or(0.0);
         let sample_b = b.get(i).copied().unwrap_or(0.0);
-        
+
         // Simple additive mixing with clipping prevention
         let mixed = (sample_a + sample_b) * 0.5;
         result.push(mixed.clamp(-1.0, 1.0));
     }
-    
+
     result
 }
 
 /// List available audio input devices.
 pub fn list_input_devices() -> Vec<String> {
     let host = cpal::default_host();
-    
+
     host.input_devices()
         .map(|devices| {
             devices
@@ -301,7 +306,7 @@ pub fn list_input_devices() -> Vec<String> {
 /// List available audio output devices (for system audio loopback).
 pub fn list_output_devices() -> Vec<String> {
     let host = cpal::default_host();
-    
+
     host.output_devices()
         .map(|devices| {
             devices
@@ -314,21 +319,21 @@ pub fn list_output_devices() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_mix_audio_samples() {
         let a = vec![0.5, 0.3, 0.1];
         let b = vec![0.2, 0.4, 0.6, 0.8];
-        
+
         let mixed = mix_audio_samples(&a, &b);
-        
+
         assert_eq!(mixed.len(), 4);
         assert!((mixed[0] - 0.35).abs() < 0.001);
         assert!((mixed[1] - 0.35).abs() < 0.001);
         assert!((mixed[2] - 0.35).abs() < 0.001);
         assert!((mixed[3] - 0.4).abs() < 0.001); // 0.0 + 0.8 * 0.5
     }
-    
+
     #[test]
     fn test_list_devices() {
         // These should not panic

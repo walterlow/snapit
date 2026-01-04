@@ -49,7 +49,7 @@ impl<'a> SceneSegmentsCursor<'a> {
                     prev_segment: prev,
                     segments,
                 }
-            }
+            },
         }
     }
 

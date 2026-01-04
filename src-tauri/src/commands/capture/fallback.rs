@@ -7,7 +7,9 @@ use image::{DynamicImage, RgbaImage};
 use std::io::Cursor;
 use xcap::{Monitor, Window};
 
-use super::types::{CaptureError, CaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection, WindowInfo};
+use super::types::{
+    CaptureError, CaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection, WindowInfo,
+};
 
 // ============================================================================
 // Monitor Functions
@@ -33,23 +35,6 @@ pub fn get_monitors() -> Result<Vec<MonitorInfo>, CaptureError> {
     }
 
     Ok(infos)
-}
-
-/// Capture the primary monitor (fullscreen).
-pub fn capture_fullscreen() -> Result<CaptureResult, CaptureError> {
-    let monitors = Monitor::all()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get monitors: {}", e)))?;
-
-    let primary = monitors
-        .into_iter()
-        .find(|m| m.is_primary().unwrap_or(false))
-        .ok_or(CaptureError::MonitorNotFound)?;
-
-    let image = primary
-        .capture_image()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture: {}", e)))?;
-
-    encode_image_to_result(image, false)
 }
 
 /// Capture the primary monitor and return raw RGBA data.
@@ -119,8 +104,9 @@ pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
     let (rgba_data, width, height) = capture_window_raw(hwnd)?;
 
     // Convert to image and encode
-    let image = image::RgbaImage::from_raw(width, height, rgba_data)
-        .ok_or_else(|| CaptureError::CaptureFailed("Failed to create image from raw data".into()))?;
+    let image = image::RgbaImage::from_raw(width, height, rgba_data).ok_or_else(|| {
+        CaptureError::CaptureFailed("Failed to create image from raw data".into())
+    })?;
 
     encode_image_to_result(image, false)
 }
@@ -138,10 +124,15 @@ pub fn capture_window_xcap(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), Cap
         .find(|w| w.id().unwrap_or(0) as isize == hwnd_value)
         .ok_or(CaptureError::WindowNotFound)?;
 
-    println!("[CAPTURE] Window capture using xcap native: hwnd={} (0x{:X}), title={}",
-        hwnd_value, hwnd_value, window.title().unwrap_or_default());
+    println!(
+        "[CAPTURE] Window capture using xcap native: hwnd={} (0x{:X}), title={}",
+        hwnd_value,
+        hwnd_value,
+        window.title().unwrap_or_default()
+    );
 
-    let image = window.capture_image()
+    let image = window
+        .capture_image()
         .map_err(|e| CaptureError::CaptureFailed(format!("xcap capture failed: {}", e)))?;
 
     let width = image.width();
@@ -161,7 +152,8 @@ pub fn capture_window_xcap(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), Cap
         .find(|w| w.id().unwrap_or(0) == target_id)
         .ok_or(CaptureError::WindowNotFound)?;
 
-    let image = window.capture_image()
+    let image = window
+        .capture_image()
         .map_err(|e| CaptureError::CaptureFailed(format!("xcap capture failed: {}", e)))?;
 
     Ok((image.into_raw(), image.width(), image.height()))
@@ -200,10 +192,15 @@ pub fn capture_window_raw(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), Capt
     let width = (dwm_rect.right - dwm_rect.left) as u32;
     let height = (dwm_rect.bottom - dwm_rect.top) as u32;
 
-    println!("[CAPTURE] Capturing region: x={}, y={}, w={}, h={}", x, y, width, height);
+    println!(
+        "[CAPTURE] Capturing region: x={}, y={}, w={}, h={}",
+        x, y, width, height
+    );
 
     if width == 0 || height == 0 {
-        return Err(CaptureError::CaptureFailed("Window has zero dimensions".into()));
+        return Err(CaptureError::CaptureFailed(
+            "Window has zero dimensions".into(),
+        ));
     }
 
     // Use screen region capture instead of PrintWindow (avoids DWM artifacts)
@@ -266,7 +263,9 @@ pub fn capture_region(selection: RegionSelection) -> Result<CaptureResult, Captu
 }
 
 /// Capture a region using absolute screen coordinates (can span multiple monitors).
-pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Vec<u8>, u32, u32), CaptureError> {
+pub fn capture_screen_region_raw(
+    selection: ScreenRegionSelection,
+) -> Result<(Vec<u8>, u32, u32), CaptureError> {
     let monitors = Monitor::all()
         .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get monitors: {}", e)))?;
 
@@ -310,8 +309,14 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
         let rel_x = (sel_x - mon_x).max(0) as u32;
         let rel_y = (sel_y - mon_y).max(0) as u32;
 
-        println!("[CAPTURE] Selection: x={}, y={}, w={}, h={}", sel_x, sel_y, selection.width, selection.height);
-        println!("[CAPTURE] Monitor: x={}, y={}, scale={}", mon_x, mon_y, mon_scale);
+        println!(
+            "[CAPTURE] Selection: x={}, y={}, w={}, h={}",
+            sel_x, sel_y, selection.width, selection.height
+        );
+        println!(
+            "[CAPTURE] Monitor: x={}, y={}, scale={}",
+            mon_x, mon_y, mon_scale
+        );
         println!("[CAPTURE] Relative: x={}, y={}", rel_x, rel_y);
 
         let image = mon
@@ -365,11 +370,15 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
         let dst_y = (inter_top - sel_y) as usize;
 
         // Use the smaller of expected vs actual dimensions to avoid out-of-bounds
-        let copy_w = (cap_w as usize).min(actual_cap_w).min(out_w.saturating_sub(dst_x));
-        let copy_h = (cap_h as usize).min(actual_cap_h).min(out_h.saturating_sub(dst_y));
+        let copy_w = (cap_w as usize)
+            .min(actual_cap_w)
+            .min(out_w.saturating_sub(dst_x));
+        let copy_h = (cap_h as usize)
+            .min(actual_cap_h)
+            .min(out_h.saturating_sub(dst_y));
 
         for row in 0..copy_h {
-            let src_offset = row * actual_cap_w * 4;  // Use actual stride
+            let src_offset = row * actual_cap_w * 4; // Use actual stride
             let dst_offset = ((dst_y + row) * out_w + dst_x) * 4;
             let row_bytes = copy_w * 4;
 
@@ -388,7 +397,10 @@ pub fn capture_screen_region_raw(selection: ScreenRegionSelection) -> Result<(Ve
 // ============================================================================
 
 /// Encode an RGBA image to base64 PNG for the frontend.
-fn encode_image_to_result(image: RgbaImage, has_transparency: bool) -> Result<CaptureResult, CaptureError> {
+fn encode_image_to_result(
+    image: RgbaImage,
+    has_transparency: bool,
+) -> Result<CaptureResult, CaptureError> {
     let width = image.width();
     let height = image.height();
 

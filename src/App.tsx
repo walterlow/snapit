@@ -79,6 +79,7 @@ function App() {
   const eventCallbacks = useMemo(
     () => ({
       onRecordingComplete: loadCaptures,
+      onThumbnailReady: useCaptureStore.getState().updateCaptureThumbnail,
       onCaptureCompleteFast: async (data: { file_path: string; width: number; height: number }) => {
         clearEditor();
         clearHistory();

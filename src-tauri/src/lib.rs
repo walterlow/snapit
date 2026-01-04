@@ -202,6 +202,7 @@ pub fn run() {
             commands::video_recording::set_recording_quality,
             commands::video_recording::set_gif_quality_preset,
             commands::video_recording::set_recording_include_cursor,
+            commands::video_recording::set_recording_quick_capture,
             commands::video_recording::set_recording_max_duration,
             commands::video_recording::set_recording_microphone_device,
             commands::video_recording::set_hide_desktop_icons,

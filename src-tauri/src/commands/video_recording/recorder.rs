@@ -692,19 +692,33 @@ fn run_video_capture(
     command_rx: Receiver<RecorderCommand>,
     started_at: &str,
 ) -> Result<f64, String> {
-    log::debug!("[CAPTURE] Starting video capture, mode={:?}", settings.mode);
+    log::debug!(
+        "[CAPTURE] Starting video capture, mode={:?}, quick_capture={}",
+        settings.mode,
+        settings.quick_capture
+    );
 
-    // For MP4, output_path is a folder - main video goes to screen.mp4 inside
-    let screen_video_path = output_path.join("screen.mp4");
+    // Determine video output path based on capture mode:
+    // - Quick capture: output_path IS the final MP4 file
+    // - Editor flow: output_path is a folder, video goes to screen.mp4 inside
+    let screen_video_path = if settings.quick_capture {
+        output_path.clone()
+    } else {
+        output_path.join("screen.mp4")
+    };
 
     // === WEBCAM OUTPUT PATH ===
+    // Webcam is only supported in editor flow (not quick capture).
     // Webcam capture service is already running (pre-warmed during countdown).
-    // Just set up the output path here.
-    let webcam_enabled = get_webcam_settings().map(|s| s.enabled).unwrap_or(false);
-
-    let webcam_output_path: Option<PathBuf> = if webcam_enabled {
-        Some(output_path.join("webcam.mp4"))
+    let webcam_output_path: Option<PathBuf> = if !settings.quick_capture {
+        let webcam_enabled = get_webcam_settings().map(|s| s.enabled).unwrap_or(false);
+        if webcam_enabled {
+            Some(output_path.join("webcam.mp4"))
+        } else {
+            None
+        }
     } else {
+        // Quick capture: no webcam support
         None
     };
 
@@ -891,10 +905,14 @@ fn run_video_capture(
     }
 
     // === CURSOR EVENT CAPTURE ===
-    // Record cursor positions and clicks for auto-zoom in video editor
+    // Record cursor positions and clicks for auto-zoom in video editor.
+    // Only used in editor flow (not quick capture) since cursor is baked into video for quick capture.
     let mut cursor_event_capture = CursorEventCapture::new();
-    // Cursor data goes inside the project folder
-    let cursor_data_path = output_path.join("cursor.json");
+    let cursor_data_path = if !settings.quick_capture {
+        Some(output_path.join("cursor.json"))
+    } else {
+        None
+    };
 
     // Get region for cursor capture (if region mode)
     let cursor_region = match &settings.mode {
@@ -907,8 +925,11 @@ fn run_video_capture(
         _ => None,
     };
 
-    if let Err(e) = cursor_event_capture.start(cursor_region) {
-        log::warn!("Failed to start cursor event capture: {}", e);
+    // Only start cursor capture for editor flow
+    if !settings.quick_capture {
+        if let Err(e) = cursor_event_capture.start(cursor_region) {
+            log::warn!("Failed to start cursor event capture: {}", e);
+        }
     }
 
     // Pre-allocate frame buffers to avoid per-frame allocations
@@ -1221,9 +1242,13 @@ fn run_video_capture(
         return Ok(recording_duration.as_secs_f64());
     }
 
-    // Save cursor data
-    if !cursor_recording.events.is_empty() {
-        let _ = save_cursor_recording(&cursor_recording, &cursor_data_path);
+    // Save cursor data (editor flow only)
+    if !settings.quick_capture {
+        if let Some(ref path) = cursor_data_path {
+            if !cursor_recording.events.is_empty() {
+                let _ = save_cursor_recording(&cursor_recording, path);
+            }
+        }
     }
 
     // Finish main video encoder (video-only, no audio)
@@ -1243,16 +1268,21 @@ fn run_video_capture(
     // NOTE: Webcam sync is now handled in finish_with_duration() above.
     // The webcam encoder remuxes with correct FPS to match screen duration.
 
-    // Create project.json with video project metadata
-    create_video_project_file(
-        output_path,
-        width,
-        height,
-        recording_duration.as_millis() as u64,
-        settings.fps,
-        webcam_output_path.is_some(),
-        !cursor_recording.events.is_empty(),
-    )?;
+    // Create project.json with video project metadata (editor flow only)
+    if !settings.quick_capture {
+        create_video_project_file(
+            output_path,
+            width,
+            height,
+            recording_duration.as_millis() as u64,
+            settings.fps,
+            webcam_output_path.is_some(),
+            cursor_data_path
+                .as_ref()
+                .map(|_| !cursor_recording.events.is_empty())
+                .unwrap_or(false),
+        )?;
+    }
 
     Ok(recording_duration.as_secs_f64())
 }

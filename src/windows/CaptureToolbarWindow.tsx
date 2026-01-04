@@ -187,18 +187,25 @@ const CaptureToolbarWindow: React.FC = () => {
         recordingInitiatedRef.current = true;
         setMode('starting');
 
-        const countdownSecs = captureType === 'video' ? settings.video.countdownSecs : settings.gif.countdownSecs;
         const systemAudioEnabled = captureType === 'video' ? settings.video.captureSystemAudio : false;
         const fps = captureType === 'video' ? settings.video.fps : settings.gif.fps;
         const quality = captureType === 'video' ? settings.video.quality : 80;
         const gifQualityPreset = settings.gif.qualityPreset;
-        const includeCursor = captureType === 'video' ? settings.video.includeCursor : settings.gif.includeCursor;
+        const quickCapture = captureType === 'video' ? settings.video.quickCapture : true; // GIF is always "quick"
+        // Quick capture skips countdown for faster recording start
+        const countdownSecs = quickCapture ? 0 : (captureType === 'video' ? settings.video.countdownSecs : settings.gif.countdownSecs);
+        // For video: if quick capture, use user's cursor preference; if editor flow, always capture without cursor
+        // For GIF: always use user's cursor preference (GIF is always quick capture)
+        const includeCursor = captureType === 'video'
+          ? (quickCapture ? settings.video.includeCursor : false)
+          : settings.gif.includeCursor;
         const maxDurationSecs = captureType === 'video' ? settings.video.maxDurationSecs : settings.gif.maxDurationSecs;
         const microphoneDeviceIndex = settings.video.microphoneDeviceIndex;
 
         if (captureType === 'video') {
           await invoke('set_hide_desktop_icons', { enabled: settings.video.hideDesktopIcons });
-          await invoke('set_webcam_enabled', { enabled: webcamSettings.enabled });
+          // Webcam only for editor flow, not quick capture
+          await invoke('set_webcam_enabled', { enabled: !quickCapture && webcamSettings.enabled });
         } else {
           // GIF mode: no webcam support
           await invoke('set_webcam_enabled', { enabled: false });
@@ -256,6 +263,7 @@ const CaptureToolbarWindow: React.FC = () => {
           quality,
           gifQualityPreset,
           countdownSecs,
+          quickCapture,
         };
 
         await invoke('start_recording', { settings: recordingSettings });

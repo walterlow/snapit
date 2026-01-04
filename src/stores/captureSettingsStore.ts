@@ -44,6 +44,7 @@ const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
   captureWebcam: false, // Placeholder - always false for now
   countdownSecs: 3,
   hideDesktopIcons: false,
+  quickCapture: false, // Default to editor flow
 };
 
 const DEFAULT_GIF_SETTINGS: GifSettings = {

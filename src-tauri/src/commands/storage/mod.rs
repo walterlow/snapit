@@ -10,9 +10,17 @@ use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{command, AppHandle, Manager};
+use tauri::{command, AppHandle, Emitter, Manager};
 use tokio::fs as async_fs;
 use ts_rs::TS;
+
+/// Event emitted when a thumbnail is generated
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbnailReadyEvent {
+    pub capture_id: String,
+    pub thumbnail_path: String,
+}
 
 /// Get the user's configured save directory from settings, falling back to Pictures/SnapIt
 fn get_captures_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -731,6 +739,7 @@ async fn load_project_item(
 async fn load_video_project_folder(
     folder_path: PathBuf,
     thumbnails_dir: PathBuf,
+    app: AppHandle,
 ) -> Option<CaptureListItem> {
     // Check if this is a video project folder
     let project_json = folder_path.join("project.json");
@@ -830,12 +839,24 @@ async fn load_video_project_folder(
     if !thumb_exists {
         let video_path = screen_mp4.clone();
         let thumb_path = thumbnail_path.clone();
-        std::thread::spawn(
-            move || match generate_video_thumbnail(&video_path, &thumb_path) {
-                Ok(()) => log::debug!("[THUMB] Video project OK: {:?}", thumb_path),
+        let capture_id = id.clone();
+        let app_clone = app.clone();
+        std::thread::spawn(move || {
+            match generate_video_thumbnail(&video_path, &thumb_path) {
+                Ok(()) => {
+                    log::debug!("[THUMB] Video project OK: {:?}", thumb_path);
+                    // Emit event to notify frontend
+                    let _ = app_clone.emit(
+                        "thumbnail-ready",
+                        ThumbnailReadyEvent {
+                            capture_id,
+                            thumbnail_path: thumb_path.to_string_lossy().to_string(),
+                        },
+                    );
+                },
                 Err(e) => log::warn!("[THUMB] Video project FAILED: {}", e),
-            },
-        );
+            }
+        });
     }
 
     let thumbnail_path_str = if thumb_exists {
@@ -865,7 +886,11 @@ async fn load_video_project_folder(
 ///
 /// Note: New MP4 recordings are stored in project folders, but we still support
 /// legacy flat MP4 files for backward compatibility.
-async fn load_media_item(path: PathBuf, thumbnails_dir: PathBuf) -> Option<CaptureListItem> {
+async fn load_media_item(
+    path: PathBuf,
+    thumbnails_dir: PathBuf,
+    app: AppHandle,
+) -> Option<CaptureListItem> {
     let metadata = async_fs::metadata(&path).await.ok()?;
     if !metadata.is_file() {
         return None;
@@ -924,17 +949,35 @@ async fn load_media_item(path: PathBuf, thumbnails_dir: PathBuf) -> Option<Captu
         let video_path = path.clone();
         let thumb_path = thumbnail_path.clone();
         let is_gif = extension == "gif";
+        let capture_id = id.clone();
+        let app_clone = app.clone();
         std::thread::spawn(move || {
-            if is_gif {
-                match generate_gif_thumbnail(&video_path, &thumb_path) {
-                    Ok(()) => log::debug!("[THUMB] GIF OK: {:?}", thumb_path),
-                    Err(e) => log::warn!("[THUMB] GIF FAILED: {}", e),
-                }
+            let result = if is_gif {
+                generate_gif_thumbnail(&video_path, &thumb_path)
             } else {
-                match generate_video_thumbnail(&video_path, &thumb_path) {
-                    Ok(()) => log::debug!("[THUMB] Video OK: {:?}", thumb_path),
-                    Err(e) => log::warn!("[THUMB] Video FAILED: {}", e),
-                }
+                generate_video_thumbnail(&video_path, &thumb_path)
+            };
+            match result {
+                Ok(()) => {
+                    log::debug!(
+                        "[THUMB] {} OK: {:?}",
+                        if is_gif { "GIF" } else { "Video" },
+                        thumb_path
+                    );
+                    // Emit event to notify frontend
+                    let _ = app_clone.emit(
+                        "thumbnail-ready",
+                        ThumbnailReadyEvent {
+                            capture_id,
+                            thumbnail_path: thumb_path.to_string_lossy().to_string(),
+                        },
+                    );
+                },
+                Err(e) => log::warn!(
+                    "[THUMB] {} FAILED: {}",
+                    if is_gif { "GIF" } else { "Video" },
+                    e
+                ),
             }
         });
     }
@@ -1035,7 +1078,8 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
             .into_iter()
             .map(|path| {
                 let thumbs = thumbnails_dir.clone();
-                load_video_project_folder(path, thumbs)
+                let app_clone = app.clone();
+                load_video_project_folder(path, thumbs, app_clone)
             })
             .collect();
 
@@ -1044,7 +1088,8 @@ pub async fn get_capture_list(app: AppHandle) -> Result<Vec<CaptureListItem>, St
             .into_iter()
             .map(|path| {
                 let thumbs = thumbnails_dir.clone();
-                load_media_item(path, thumbs)
+                let app_clone = app.clone();
+                load_media_item(path, thumbs, app_clone)
             })
             .collect();
 

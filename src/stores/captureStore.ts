@@ -106,6 +106,9 @@ interface CaptureState {
   deleteCapture: (id: string) => Promise<void>;
   deleteCaptures: (ids: string[]) => Promise<void>;
   getStorageStats: () => Promise<StorageStats>;
+  
+  // Thumbnail update (called when background thumbnail generation completes)
+  updateCaptureThumbnail: (id: string, thumbnailPath: string) => void;
 
   // UI actions
   setSearchQuery: (query: string) => void;
@@ -515,6 +518,17 @@ export const useCaptureStore = create<CaptureState>()(
 
   getStorageStats: async () => {
     return invoke<StorageStats>('get_storage_stats');
+  },
+
+  updateCaptureThumbnail: (id: string, thumbnailPath: string) => {
+    set((state) => ({
+      captures: state.captures.map((capture) =>
+        capture.id === id ? { ...capture, thumbnail_path: thumbnailPath } : capture
+      ),
+    }));
+    // Update cache with new thumbnail
+    saveToCache(get().captures);
+    libraryLogger.debug(`Thumbnail updated for capture ${id}`);
   },
 
   setSearchQuery: (query: string) => set({ searchQuery: query }),

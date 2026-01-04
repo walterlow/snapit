@@ -14,9 +14,16 @@ import { toast } from 'sonner';
 import { useSettingsStore } from '../stores/settingsStore';
 import { libraryLogger } from '../utils/logger';
 
+interface ThumbnailReadyEvent {
+  captureId: string;
+  thumbnailPath: string;
+}
+
 interface AppEventCallbacks {
   /** Called when a recording completes - should refresh the library */
   onRecordingComplete: () => void;
+  /** Called when a thumbnail is generated for a capture */
+  onThumbnailReady: (captureId: string, thumbnailPath: string) => void;
   /** Called when a fast capture completes (file path) */
   onCaptureCompleteFast: (data: {
     file_path: string;
@@ -30,6 +37,7 @@ interface AppEventCallbacks {
  *
  * Consolidates these listeners:
  * - recording-state-changed: Refresh library on recording complete
+ * - thumbnail-ready: Update specific capture's thumbnail when generated
  * - open-settings: Open settings modal from tray
  * - create-capture-toolbar: Create selection toolbar window
  * - capture-complete-fast: Handle screenshot capture (raw RGBA file path)
@@ -44,15 +52,21 @@ export function useAppEventListeners(callbacks: AppEventCallbacks) {
       listen<{ status: string }>('recording-state-changed', (event) => {
         if (event.payload.status === 'completed') {
           libraryLogger.info('Recording completed, refreshing library...');
-          // Delay to ensure file is fully written
+          // Small delay to ensure file is fully written
           const t1 = setTimeout(() => {
             callbacks.onRecordingComplete();
-            // Refresh again after thumbnails might be generated
-            const t2 = setTimeout(() => callbacks.onRecordingComplete(), 2000);
-            timeoutIds.push(t2);
           }, 500);
           timeoutIds.push(t1);
         }
+      })
+    );
+
+    // Thumbnail ready - update specific capture's thumbnail
+    unlisteners.push(
+      listen<ThumbnailReadyEvent>('thumbnail-ready', (event) => {
+        const { captureId, thumbnailPath } = event.payload;
+        libraryLogger.info(`Thumbnail ready for ${captureId}`);
+        callbacks.onThumbnailReady(captureId, thumbnailPath);
       })
     );
 

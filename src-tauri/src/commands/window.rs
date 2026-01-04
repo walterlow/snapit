@@ -243,6 +243,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                             let max_duration_secs = crate::commands::video_recording::get_max_duration_secs();
 
                             // Start the recording with the selected region
+                            let quick_capture = crate::commands::video_recording::get_quick_capture();
                             let settings = crate::commands::video_recording::RecordingSettings {
                                 format,
                                 mode: crate::commands::video_recording::RecordingMode::Region {
@@ -258,6 +259,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                 quality,
                                 gif_quality_preset: crate::commands::video_recording::get_gif_quality_preset(),
                                 countdown_secs,
+                                quick_capture,
                             };
                             
                             if let Err(e) = crate::commands::video_recording::recorder::start_recording(

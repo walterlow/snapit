@@ -43,4 +43,10 @@ gifQualityPreset: GifQualityPreset,
 /**
  * Countdown duration before recording starts (0-10 seconds).
  */
-countdownSecs: number, };
+countdownSecs: number, 
+/**
+ * Quick capture mode - saves directly to file, skips video editor.
+ * When true, cursor is baked into video based on include_cursor setting.
+ * When false, cursor is captured separately for editor flexibility.
+ */
+quickCapture: boolean, };

@@ -69,6 +69,7 @@ const defaultSettings: RecordingSettings = {
   quality: 80,
   gifQualityPreset: 'balanced',
   countdownSecs: 3,
+  quickCapture: false,
 };
 
 // Event listener cleanup function

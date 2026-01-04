@@ -8,7 +8,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { X, Square, Pause, Circle } from 'lucide-react';
+import { X, Square, Pause, Circle, Zap } from 'lucide-react';
 import type { CaptureType, RecordingFormat } from '../../types';
 import { ModeSelector } from './ModeSelector';
 import { SourceSelector, type CaptureSource } from './SourceSelector';
@@ -359,9 +359,12 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         <button
           onClick={onCapture}
           className="glass-capture-btn-pill"
-          title={captureType === 'screenshot' ? 'Take screenshot' : 'Start recording'}
+          title={captureType === 'screenshot' ? 'Take screenshot' : (isVideoMode && settings.video.quickCapture ? 'Start quick recording' : 'Start recording')}
           disabled={!selectionConfirmed}
         >
+          {isVideoMode && settings.video.quickCapture && (
+            <Zap size={12} strokeWidth={2.5} className="glass-capture-btn-icon" />
+          )}
           <span className="glass-capture-btn-label">{getCaptureLabel()}</span>
         </button>
       </div>

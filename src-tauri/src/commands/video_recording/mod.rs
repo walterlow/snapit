@@ -61,6 +61,7 @@ static GIF_QUALITY_PRESET: AtomicU8 = AtomicU8::new(1); // 0=Fast, 1=Balanced, 2
 static INCLUDE_CURSOR: AtomicBool = AtomicBool::new(true);
 static MAX_DURATION_SECS: AtomicU32 = AtomicU32::new(0); // 0 = unlimited
 static MICROPHONE_DEVICE_INDEX: AtomicU32 = AtomicU32::new(u32::MAX); // u32::MAX = no microphone
+static QUICK_CAPTURE: AtomicBool = AtomicBool::new(false); // false = editor flow, true = quick capture
 
 /// Reset all recording settings to their default values.
 /// Useful when starting a fresh recording session or after errors.
@@ -73,6 +74,7 @@ pub fn reset_recording_settings() {
     INCLUDE_CURSOR.store(true, Ordering::SeqCst);
     MAX_DURATION_SECS.store(0, Ordering::SeqCst); // unlimited
     MICROPHONE_DEVICE_INDEX.store(u32::MAX, Ordering::SeqCst); // no microphone
+    QUICK_CAPTURE.store(false, Ordering::SeqCst); // editor flow
     log::debug!("[SETTINGS] Recording settings reset to defaults");
 }
 
@@ -158,6 +160,19 @@ pub fn get_include_cursor() -> bool {
 pub fn set_recording_include_cursor(include: bool) {
     log::debug!("[SETTINGS] set_recording_include_cursor({})", include);
     INCLUDE_CURSOR.store(include, Ordering::SeqCst);
+}
+
+/// Get the current quick capture setting
+pub fn get_quick_capture() -> bool {
+    QUICK_CAPTURE.load(Ordering::SeqCst)
+}
+
+/// Set whether to use quick capture mode (called from frontend before starting recording)
+/// Quick capture saves directly to file, skipping the video editor.
+#[command]
+pub fn set_recording_quick_capture(quick: bool) {
+    log::debug!("[SETTINGS] set_recording_quick_capture({})", quick);
+    QUICK_CAPTURE.store(quick, Ordering::SeqCst);
 }
 
 /// Get the current max duration setting (0 = unlimited)
@@ -1000,6 +1015,10 @@ pub struct RecordingSettings {
     pub gif_quality_preset: GifQualityPreset,
     /// Countdown duration before recording starts (0-10 seconds).
     pub countdown_secs: u32,
+    /// Quick capture mode - saves directly to file, skips video editor.
+    /// When true, cursor is baked into video based on include_cursor setting.
+    /// When false, cursor is captured separately for editor flexibility.
+    pub quick_capture: bool,
 }
 
 impl Default for RecordingSettings {
@@ -1016,6 +1035,7 @@ impl Default for RecordingSettings {
             quality: 80,
             gif_quality_preset: GifQualityPreset::default(),
             countdown_secs: 3,
+            quick_capture: false, // Default to editor flow
         }
     }
 }
@@ -1174,20 +1194,33 @@ pub async fn start_recording(
     }
 
     // Use prepared output path if available (from prepare_recording), else generate new one
-    let output_path = take_prepared_output_path().unwrap_or_else(|| {
+    // NOTE: For quick capture, always regenerate path since prepare_recording doesn't know about quick_capture
+    let output_path = if settings.quick_capture {
+        // Quick capture: always generate fresh path (flat file, not folder)
+        let _ = take_prepared_output_path(); // Discard any prepared path
         generate_output_path(&settings).unwrap_or_else(|_| {
-            // Fallback to temp dir if generation fails - respect format
-            let ext = match settings.format {
-                RecordingFormat::Gif => "gif",
-                RecordingFormat::Mp4 => "mp4",
-            };
             std::env::temp_dir().join(format!(
-                "recording_{}.{}",
-                chrono::Local::now().format("%Y%m%d_%H%M%S"),
-                ext
+                "recording_{}.mp4",
+                chrono::Local::now().format("%Y%m%d_%H%M%S")
             ))
         })
-    });
+    } else {
+        // Editor flow: use prepared path if available
+        take_prepared_output_path().unwrap_or_else(|| {
+            generate_output_path(&settings).unwrap_or_else(|_| {
+                // Fallback to temp dir if generation fails - respect format
+                let ext = match settings.format {
+                    RecordingFormat::Gif => "gif",
+                    RecordingFormat::Mp4 => "mp4",
+                };
+                std::env::temp_dir().join(format!(
+                    "recording_{}.{}",
+                    chrono::Local::now().format("%Y%m%d_%H%M%S"),
+                    ext
+                ))
+            })
+        })
+    };
 
     log::info!("[RECORDING] Using output path: {:?}", output_path);
 
@@ -1565,7 +1598,12 @@ pub async fn export_video(
 ///   - system.wav, mic.wav (optional, deleted after muxing)
 ///   - project.json (video project metadata)
 ///
-/// For GIF, returns a file path directly (no folder structure needed).
+/// For GIF or quick capture MP4, returns a file path directly (no folder structure needed).
+/// For editor MP4 (quick_capture = false), returns a folder path containing:
+///   - screen.mp4 (main recording)
+///   - webcam.mp4 (optional)
+///   - cursor.json (optional)
+///   - project.json (video project metadata)
 pub fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, String> {
     // Get the default save directory from settings
     let save_dir = crate::commands::settings::get_default_save_dir_sync().unwrap_or_else(|_| {
@@ -1583,12 +1621,18 @@ pub fn generate_output_path(settings: &RecordingSettings) -> Result<PathBuf, Str
 
     match settings.format {
         RecordingFormat::Mp4 => {
-            // For video, create a project folder
-            let folder_name = format!("recording_{}_{}", timestamp, rand::random::<u16>());
-            let folder_path = save_dir.join(&folder_name);
-            std::fs::create_dir_all(&folder_path)
-                .map_err(|e| format!("Failed to create recording folder: {}", e))?;
-            Ok(folder_path)
+            if settings.quick_capture {
+                // Quick capture: flat file, skip editor
+                let filename = format!("recording_{}_{}.mp4", timestamp, rand::random::<u16>());
+                Ok(save_dir.join(filename))
+            } else {
+                // Editor flow: create a project folder
+                let folder_name = format!("recording_{}_{}", timestamp, rand::random::<u16>());
+                let folder_path = save_dir.join(&folder_name);
+                std::fs::create_dir_all(&folder_path)
+                    .map_err(|e| format!("Failed to create recording folder: {}", e))?;
+                Ok(folder_path)
+            }
         },
         RecordingFormat::Gif => {
             // For GIF, use flat file (no complex artifacts)

@@ -105,6 +105,10 @@ pub struct VideoSettings {
     pub countdown_secs: u32,
     /// Hide desktop icons during recording for cleaner videos.
     pub hide_desktop_icons: bool,
+    /// Quick capture mode - saves directly to file, skips video editor.
+    /// When true, cursor is baked into video based on include_cursor setting.
+    /// When false, cursor is captured separately for editor flexibility.
+    pub quick_capture: bool,
 }
 
 impl Default for VideoSettings {
@@ -120,6 +124,7 @@ impl Default for VideoSettings {
             capture_webcam: false, // Placeholder - always false for now
             countdown_secs: 3,
             hide_desktop_icons: false,
+            quick_capture: false, // Default to editor flow
         }
     }
 }

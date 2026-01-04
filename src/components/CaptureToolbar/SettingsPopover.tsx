@@ -179,6 +179,16 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         menuItems.push(await PredefinedMenuItem.new({ item: 'Separator' }));
       }
 
+      // Quick Capture toggle (video only) - saves directly, skips editor
+      if (mode === 'video') {
+        menuItems.push(await CheckMenuItem.new({
+          id: 'quick-capture',
+          text: 'Quick Capture (Skip Editor)',
+          checked: settings.video.quickCapture,
+          action: () => updateVideoSettings({ quickCapture: !settings.video.quickCapture }),
+        }));
+      }
+
       // Cursor capture toggle
       menuItems.push(await CheckMenuItem.new({
         id: 'cursor',

@@ -46,7 +46,7 @@ pub fn run() {
             // Show the startup toolbar (or bring it to front if already visible)
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = commands::window::show_startup_toolbar(app_handle).await {
+                if let Err(e) = commands::window::toolbar::show_startup_toolbar(app_handle).await {
                     log::error!("Failed to show startup toolbar on second instance: {}", e);
                 }
             });
@@ -83,27 +83,29 @@ pub fn run() {
             commands::capture::capture_fullscreen_fast,
             commands::capture::read_rgba_file,
             commands::capture::cleanup_rgba_file,
-            // Window commands
-            commands::window::show_overlay,
-            commands::window::hide_overlay,
-            commands::window::open_editor_fast,
-            commands::window::show_recording_border,
-            commands::window::hide_recording_border,
-            commands::window::show_capture_toolbar,
-            commands::window::update_capture_toolbar,
-            commands::window::hide_capture_toolbar,
-            commands::window::close_capture_toolbar,
-            commands::window::bring_capture_toolbar_to_front,
-            commands::window::resize_capture_toolbar,
-            commands::window::set_capture_toolbar_bounds,
-            commands::window::set_capture_toolbar_position,
-            commands::window::set_capture_toolbar_ignore_cursor,
-            commands::window::restore_main_window,
-            commands::window::show_library_window,
-            commands::window::show_countdown_window,
-            commands::window::hide_countdown_window,
-            commands::window::show_startup_toolbar,
-            commands::window::hide_startup_toolbar,
+            // Window commands - capture flow
+            commands::window::capture::show_overlay,
+            commands::window::capture::hide_overlay,
+            commands::window::capture::open_editor_fast,
+            commands::window::capture::restore_main_window,
+            commands::window::capture::show_library_window,
+            // Window commands - recording
+            commands::window::recording::show_recording_border,
+            commands::window::recording::hide_recording_border,
+            commands::window::recording::show_countdown_window,
+            commands::window::recording::hide_countdown_window,
+            // Window commands - toolbar
+            commands::window::toolbar::show_capture_toolbar,
+            commands::window::toolbar::update_capture_toolbar,
+            commands::window::toolbar::hide_capture_toolbar,
+            commands::window::toolbar::close_capture_toolbar,
+            commands::window::toolbar::bring_capture_toolbar_to_front,
+            commands::window::toolbar::resize_capture_toolbar,
+            commands::window::toolbar::set_capture_toolbar_bounds,
+            commands::window::toolbar::set_capture_toolbar_position,
+            commands::window::toolbar::set_capture_toolbar_ignore_cursor,
+            commands::window::toolbar::show_startup_toolbar,
+            commands::window::toolbar::hide_startup_toolbar,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands
@@ -295,7 +297,7 @@ pub fn run() {
             // Show floating startup toolbar on app launch
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = commands::window::show_startup_toolbar(app_handle).await {
+                if let Err(e) = commands::window::toolbar::show_startup_toolbar(app_handle).await {
                     log::error!("Failed to show startup toolbar: {}", e);
                 }
             });

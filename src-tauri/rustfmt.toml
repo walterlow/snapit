@@ -1,0 +1,42 @@
+# Rust formatting configuration for SnapIt
+# https://rust-lang.github.io/rustfmt/
+
+# Use Rust 2021 edition style
+edition = "2021"
+
+# Maximum line width
+max_width = 100
+
+# Use spaces, not tabs
+hard_tabs = false
+tab_spaces = 4
+
+# Imports
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# Comments
+wrap_comments = false
+normalize_comments = false
+
+# Control flow
+use_small_heuristics = "Default"
+
+# Match arms
+match_block_trailing_comma = true
+
+# Function signatures
+fn_params_layout = "Tall"
+
+# Struct/enum definitions
+struct_lit_single_line = true
+
+# Use field init shorthand where possible
+use_field_init_shorthand = true
+
+# Format strings in macros
+format_strings = false
+
+# Newlines
+newline_style = "Auto"

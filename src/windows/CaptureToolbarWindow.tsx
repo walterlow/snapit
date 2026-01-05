@@ -5,168 +5,45 @@
  * - Frontend creates window via App.tsx listener
  * - Frontend measures content, calculates position (with multi-monitor support)
  * - Frontend calls Rust to set bounds and show window
+ *
+ * Hooks handle the complexity:
+ * - useToolbarPositioning: Window sizing and multi-monitor placement
+ * - useRecordingEvents: Recording state machine
+ * - useSelectionEvents: Selection bounds updates
+ * - useWebcamCoordination: Webcam preview lifecycle
  */
 
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { availableMonitors, type Monitor } from '@tauri-apps/api/window';
-import { toast, Toaster } from 'sonner';
-import { CaptureToolbar, type ToolbarMode } from '../components/CaptureToolbar/CaptureToolbar';
+import { Toaster } from 'sonner';
+import { Titlebar } from '../components/Titlebar/Titlebar';
+import { CaptureToolbar } from '../components/CaptureToolbar/CaptureToolbar';
+import type { CaptureSource } from '../components/CaptureToolbar/SourceSelector';
 import { useCaptureSettingsStore } from '../stores/captureSettingsStore';
 import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
-import { createErrorHandler } from '../utils/errorReporting';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useTheme } from '../hooks/useTheme';
-import type { RecordingState, RecordingFormat } from '../types';
-
-interface WebcamErrorEvent {
-  message: string;
-  is_fatal: boolean;
-}
-
-interface SelectionBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface ToolbarPosition {
-  x: number;
-  y: number;
-}
-
-const MARGIN = 8;
-const DROPDOWN_BUFFER = 200; // Extra space for dropdown menus
-
-/**
- * Calculate optimal toolbar position with multi-monitor support.
- *
- * Algorithm:
- * 1. Find which monitor contains the selection center
- * 2. Try positioning below selection (preferred)
- * 3. If doesn't fit below, try above selection
- * 4. If doesn't fit on current monitor, switch to alternate monitor (centered)
- * 5. Clamp to monitor bounds as final fallback
- */
-async function calculateToolbarPosition(
-  selection: SelectionBounds,
-  toolbarWidth: number,
-  toolbarHeight: number
-): Promise<ToolbarPosition> {
-  const monitors = await availableMonitors();
-
-  const selectionCenterX = selection.x + selection.width / 2;
-  const selectionCenterY = selection.y + selection.height / 2;
-
-  // Find monitor containing selection center
-  const currentMonitor = monitors.find(m => {
-    const pos = m.position;
-    const size = m.size;
-    return (
-      selectionCenterX >= pos.x &&
-      selectionCenterX < pos.x + size.width &&
-      selectionCenterY >= pos.y &&
-      selectionCenterY < pos.y + size.height
-    );
-  });
-
-  // Calculate centered X position
-  const centeredX = Math.floor(selectionCenterX - toolbarWidth / 2);
-
-  // Position below selection
-  const belowY = selection.y + selection.height + MARGIN;
-
-  // Position above selection
-  const aboveY = selection.y - toolbarHeight - MARGIN;
-
-  // Helper to check if toolbar fits at position within a monitor
-  const fitsInMonitor = (x: number, y: number, monitor: Monitor): boolean => {
-    const pos = monitor.position;
-    const size = monitor.size;
-    return (
-      x >= pos.x + MARGIN &&
-      x + toolbarWidth <= pos.x + size.width - MARGIN &&
-      y >= pos.y + MARGIN &&
-      y + toolbarHeight <= pos.y + size.height - MARGIN
-    );
-  };
-
-  // Helper to clamp position within monitor bounds
-  const clampToMonitor = (x: number, y: number, monitor: Monitor): ToolbarPosition => {
-    const pos = monitor.position;
-    const size = monitor.size;
-    return {
-      x: Math.max(pos.x + MARGIN, Math.min(x, pos.x + size.width - MARGIN - toolbarWidth)),
-      y: Math.max(pos.y + MARGIN, Math.min(y, pos.y + size.height - MARGIN - toolbarHeight)),
-    };
-  };
-
-  // Helper to get centered position on a monitor
-  const centerOnMonitor = (monitor: Monitor): ToolbarPosition => {
-    const pos = monitor.position;
-    const size = monitor.size;
-    return {
-      x: pos.x + Math.floor((size.width - toolbarWidth) / 2),
-      y: pos.y + Math.floor((size.height - toolbarHeight) / 2),
-    };
-  };
-
-  if (currentMonitor) {
-    // Try 1: Below selection
-    if (fitsInMonitor(centeredX, belowY, currentMonitor)) {
-      return { x: centeredX, y: belowY };
-    }
-
-    // Try 2: Above selection
-    if (fitsInMonitor(centeredX, aboveY, currentMonitor)) {
-      return { x: centeredX, y: aboveY };
-    }
-
-    // Try 3: Alternate monitor (primary ↔ secondary)
-    const isPrimary = currentMonitor.name === monitors.find(m => {
-      // Check if this is the primary monitor (position 0,0 is often primary)
-      return m.position.x === 0 && m.position.y === 0;
-    })?.name;
-
-    const alternateMonitor = isPrimary
-      ? monitors.find(m => m.name !== currentMonitor.name)
-      : monitors.find(m => m.position.x === 0 && m.position.y === 0) || monitors[0];
-
-    if (alternateMonitor && alternateMonitor.name !== currentMonitor.name) {
-      return centerOnMonitor(alternateMonitor);
-    }
-
-    // Try 4: Clamp to current monitor
-    return clampToMonitor(centeredX, belowY, currentMonitor);
-  }
-
-  // Fallback: Use first monitor or screen origin
-  if (monitors.length > 0) {
-    return clampToMonitor(centeredX, belowY, monitors[0]);
-  }
-
-  // Ultimate fallback
-  return { x: centeredX, y: belowY };
-}
+import { useRecordingEvents } from '../hooks/useRecordingEvents';
+import { useSelectionEvents } from '../hooks/useSelectionEvents';
+import { useWebcamCoordination } from '../hooks/useWebcamCoordination';
+import { useToolbarPositioning } from '../hooks/useToolbarPositioning';
+import { toolbarLogger } from '../utils/logger';
 
 const CaptureToolbarWindow: React.FC = () => {
-  // Parse initial selection bounds from URL
-  const initialBounds = useMemo((): SelectionBounds => {
-    const params = new URLSearchParams(window.location.search);
-    return {
-      x: parseInt(params.get('x') || '0', 10),
-      y: parseInt(params.get('y') || '0', 10),
-      width: parseInt(params.get('width') || '0', 10),
-      height: parseInt(params.get('height') || '0', 10),
-    };
-  }, []);
+  // No URL params - toolbar always starts in "startup" state (no selection)
+  // Bounds come from events: confirm-selection, selection-updated, reset-to-startup
 
-  // Apply theme to this window
+  // Apply theme
   useTheme();
 
-  // Capture settings from store
+  // Refs for layout
+  const containerRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Capture settings
   const {
     settings,
     activeMode: captureType,
@@ -176,24 +53,10 @@ const CaptureToolbarWindow: React.FC = () => {
   } = useCaptureSettingsStore();
 
   // Webcam settings
-  const { settings: webcamSettings, closePreview: closeWebcamPreview } = useWebcamSettingsStore();
+  const { settings: webcamSettings } = useWebcamSettingsStore();
 
   // UI state
-  const [selectionBounds, setSelectionBounds] = useState<SelectionBounds>(initialBounds);
-  const selectionBoundsRef = useRef<SelectionBounds>(initialBounds);
-  const [mode, setMode] = useState<ToolbarMode>('selection');
-  const [format, setFormat] = useState<RecordingFormat>('mp4');
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [errorMessage, setErrorMessage] = useState<string | undefined>();
-  const [countdownSeconds, setCountdownSeconds] = useState<number | undefined>();
-
-  // Refs
-  const isRecordingActiveRef = useRef(false);
-  const recordingInitiatedRef = useRef(false);
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-
+  const [captureSource, setCaptureSource] = useState<CaptureSource>('area');
 
   // Load settings on mount
   useEffect(() => {
@@ -202,483 +65,434 @@ const CaptureToolbarWindow: React.FC = () => {
     }
   }, [isInitialized, loadSettings]);
 
-  // Load webcam settings from Rust and restore preview state on mount
+  // Pre-warm capture resources when toolbar appears
+  // This initializes webcam and screen capture so recording starts instantly
   useEffect(() => {
-    const initWebcam = async () => {
-      // Load settings from Rust (source of truth, shared across windows)
-      const { loadSettings } = useWebcamSettingsStore.getState();
-      await loadSettings();
-
-      const { settings, previewOpen, togglePreview } = useWebcamSettingsStore.getState();
-      console.log('[Toolbar] After loading - webcam state:', { enabled: settings.enabled, previewOpen });
-
-      // If webcam was enabled but preview isn't open, open it
-      if (settings.enabled && !previewOpen) {
-        console.log('[Toolbar] Reopening webcam preview');
-        await togglePreview();
-      } else if (settings.enabled && previewOpen) {
-        // Just bring existing preview to front
-        try {
-          await invoke('bring_webcam_preview_to_front');
-        } catch {
-          // Ignore - webcam preview might not exist
-        }
-      }
-    };
-
-    // Delay to ensure overlay is created first
-    const timeoutId = setTimeout(initWebcam, 200);
-    return () => clearTimeout(timeoutId);
-  }, []);
-
-  // Track if window has been shown (to avoid re-showing on mode change)
-  const windowShownRef = useRef(false);
-
-  // Initial measurement and positioning on mount
-  // Measures content, calculates position (with multi-monitor support), sets bounds, and shows window
-  useEffect(() => {
-    if (!contentRef.current || windowShownRef.current) return;
-
-    const measureAndShow = async () => {
-      const rect = contentRef.current?.getBoundingClientRect();
-      if (!rect || rect.width <= 0 || rect.height <= 0) return;
-
-      const contentWidth = Math.ceil(rect.width);
-      const contentHeight = Math.ceil(rect.height);
-
-      // Calculate window dimensions (include buffer for dropdown menus)
-      const windowWidth = contentWidth;
-      const windowHeight = contentHeight + DROPDOWN_BUFFER;
-
-      // Use multi-monitor positioning algorithm
-      // This tries: below selection → above selection → alternate monitor → clamp
-      const pos = await calculateToolbarPosition(initialBounds, windowWidth, windowHeight);
-
-      try {
-        // Set bounds and show window
-        await invoke('set_capture_toolbar_bounds', {
-          x: pos.x,
-          y: pos.y,
-          width: windowWidth,
-          height: windowHeight,
-        });
-        windowShownRef.current = true;
-      } catch (e) {
-        console.error('Failed to set toolbar bounds:', e);
-      }
-    };
-
-    // Delay to ensure content has rendered
-    const timeoutId = setTimeout(measureAndShow, 50);
-    return () => clearTimeout(timeoutId);
-  }, [initialBounds]);
-
-
-  // ResizeObserver - resize Tauri window when content changes
-  useEffect(() => {
-    if (!contentRef.current) return;
-
-    let lastWidth = 0;
-    let lastHeight = 0;
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) {
-          const newWidth = Math.ceil(width);
-          const newHeight = Math.ceil(height);
-
-          // Only resize if dimensions actually changed
-          if (newWidth !== lastWidth || newHeight !== lastHeight) {
-            lastWidth = newWidth;
-            lastHeight = newHeight;
-            // Include dropdown buffer to prevent clipping dropdown menus
-            invoke('resize_capture_toolbar', { width: newWidth, height: newHeight + DROPDOWN_BUFFER }).catch(
-              createErrorHandler({ operation: 'resize capture toolbar', silent: true })
-            );
-          }
-        }
-      }
+    invoke('prewarm_capture').catch((e) => {
+      toolbarLogger.warn('Failed to pre-warm capture:', e);
     });
-
-    resizeObserver.observe(contentRef.current);
-    return () => resizeObserver.disconnect();
   }, []);
 
-  // Helper to move webcam to its current anchor position
-  const moveWebcamToCurrentAnchor = useCallback(async (bounds: SelectionBounds) => {
-    const { settings, previewOpen } = useWebcamSettingsStore.getState();
-    if (!previewOpen || !settings.enabled) return;
+  // --- Hooks for window management ---
 
-    // Only reposition for preset anchors, not custom positions
-    if (settings.position.type === 'custom') return;
+  // Webcam coordination (errors, preview lifecycle)
+  const { closeWebcamPreview, openWebcamPreviewIfEnabled } = useWebcamCoordination();
 
-    try {
-      await invoke('move_webcam_to_anchor', {
-        anchor: settings.position.type,
-        selX: bounds.x,
-        selY: bounds.y,
-        selWidth: bounds.width,
-        selHeight: bounds.height,
-      });
-    } catch (e) {
-      console.error('Failed to move webcam to anchor:', e);
-    }
-  }, []);
+  // Recording state machine
+  const {
+    mode,
+    setMode,
+    format,
+    elapsedTime,
+    progress,
+    errorMessage,
+    countdownSeconds,
+    recordingInitiatedRef,
+  } = useRecordingEvents();
 
-  // Listen for selection updates (dimension display + webcam positioning)
+  // Selection bounds tracking
+  const {
+    selectionBounds,
+    selectionBoundsRef,
+    selectionConfirmed,
+  } = useSelectionEvents();
+
+  // Measure content and resize window to fit
+  useToolbarPositioning({ containerRef, contentRef, selectionConfirmed, mode });
+
+  // Ensure webcam preview is visible when in video mode with webcam enabled
+  // This handles edge cases where preview was closed but settings still show webcam enabled
   useEffect(() => {
-    let unlistenSelection: UnlistenFn | null = null;
-    let unlistenAnchor: UnlistenFn | null = null;
-    let unlistenDragged: UnlistenFn | null = null;
+    if (captureType === 'video') {
+      openWebcamPreviewIfEnabled();
+    }
+  }, [captureType, openWebcamPreviewIfEnabled]);
 
-    const setup = async () => {
-      // Listen for selection bounds updates (for dimension display and webcam positioning)
-      // Note: Toolbar does NOT reposition on drag - only on init/reselection
-      unlistenSelection = await listen<SelectionBounds>('selection-updated', async (event) => {
-        const bounds = event.payload;
-        setSelectionBounds(bounds);
-        selectionBoundsRef.current = bounds;
+  // Restore webcam preview when toolbar window is focused/unminimized/becomes visible
+  useEffect(() => {
+    const currentWindow = getCurrentWebviewWindow();
+    let unlistenFocus: (() => void) | null = null;
 
-        // Reposition webcam to follow selection (only if using anchor preset)
-        await moveWebcamToCurrentAnchor(bounds);
-      });
+    const checkAndRestoreWebcam = () => {
+      toolbarLogger.debug('checkAndRestoreWebcam called', { captureType });
+      if (captureType === 'video') {
+        openWebcamPreviewIfEnabled();
+      }
+    };
 
-      // Listen for webcam anchor changes (also triggered on webcam preview init)
-      unlistenAnchor = await listen<{ anchor: string }>('webcam-anchor-changed', async (event) => {
-        const { anchor } = event.payload;
-        const bounds = selectionBoundsRef.current;
-        try {
-          // Move webcam to anchor position
-          await invoke('move_webcam_to_anchor', {
-            anchor,
-            selX: bounds.x,
-            selY: bounds.y,
-            selWidth: bounds.width,
-            selHeight: bounds.height,
-          });
-          // Also emit selection bounds so webcam preview knows the bounds for clamping
-          await emit('selection-updated', bounds);
-        } catch (e) {
-          console.error('Failed to move webcam to anchor:', e);
+    // Handle Tauri window focus change
+    const setupFocusListener = async () => {
+      unlistenFocus = await currentWindow.onFocusChanged(({ payload: focused }) => {
+        toolbarLogger.debug('Tauri onFocusChanged', { focused });
+        if (focused) {
+          checkAndRestoreWebcam();
         }
       });
-
-      // Listen for webcam being dragged (switches to "None"/custom anchor)
-      unlistenDragged = await listen<{ type: 'custom'; x: number; y: number }>('webcam-position-dragged', () => {
-        // Update store to show "None" in dropdown
-        const store = useWebcamSettingsStore.getState();
-        store.settings.position = { type: 'custom', x: 0, y: 0 };
-        // Force re-render by updating via setState pattern
-        useWebcamSettingsStore.setState({
-          settings: { ...store.settings, position: { type: 'custom', x: 0, y: 0 } }
-        });
-      });
     };
 
-    setup();
+    // Handle document visibility change (covers minimize/restore)
+    const handleVisibilityChange = () => {
+      toolbarLogger.debug('visibilitychange', { state: document.visibilityState });
+      if (document.visibilityState === 'visible') {
+        checkAndRestoreWebcam();
+      }
+    };
+
+    // Handle window focus (browser-level)
+    const handleWindowFocus = () => {
+      toolbarLogger.debug('window focus event');
+      checkAndRestoreWebcam();
+    };
+
+    setupFocusListener();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
     return () => {
-      unlistenSelection?.();
-      unlistenAnchor?.();
-      unlistenDragged?.();
+      unlistenFocus?.();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [moveWebcamToCurrentAnchor]);
+  }, [captureType, openWebcamPreviewIfEnabled]);
 
-  // Position webcam on initial mount (after a delay for window creation)
+  // --- Event handlers ---
+
+  // Close popovers when window loses focus
   useEffect(() => {
-    const initWebcamPosition = async () => {
-      // Wait a bit for webcam preview to be created
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await moveWebcamToCurrentAnchor(initialBounds);
+    const handleBlur = () => {
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     };
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
+  }, []);
 
-    initWebcamPosition();
-  }, [initialBounds, moveWebcamToCurrentAnchor]);
+  // ESC key handler - use ref to prevent key repeat from closing after reset
+  const escHandledRef = useRef(false);
 
-  // Note: We do NOT close webcam on unmount - it stays open during reselection
-  // Webcam is only closed via handleCancel or when recording completes
-
-  // Listen for recording state changes
   useEffect(() => {
-    let unlistenClosed: UnlistenFn | null = null;
-    let unlistenReselecting: UnlistenFn | null = null;
-    let unlistenState: UnlistenFn | null = null;
-    let unlistenFormat: UnlistenFn | null = null;
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && mode === 'selection' && !e.repeat) {
+        e.preventDefault();
 
-    const setupListeners = async () => {
-      const currentWindow = getCurrentWebviewWindow();
+        // Prevent key repeat from triggering close after reset
+        if (escHandledRef.current) return;
 
-      unlistenClosed = await listen('capture-overlay-closed', async () => {
-        // Close webcam preview when overlay closes (actual cancel/close)
         await closeWebcamPreview();
 
-        if (!recordingInitiatedRef.current) {
-          currentWindow.close().catch(
-            createErrorHandler({ operation: 'close toolbar on overlay closed', silent: true })
-          );
-        }
-      });
-
-      // Listen for reselection - close preview during selection, but remember enabled state
-      unlistenReselecting = await listen('capture-overlay-reselecting', async () => {
-        console.log('[Toolbar] Received capture-overlay-reselecting event');
-
-        // Close the preview window during selection (but enabled setting is preserved in Rust)
-        const { previewOpen } = useWebcamSettingsStore.getState();
-        if (previewOpen) {
-          // Just close the window, don't change enabled setting
+        if (selectionConfirmed) {
+          // Has active selection - reset to startup state
+          escHandledRef.current = true;
           try {
-            await invoke('close_webcam_preview');
+            await invoke('capture_overlay_cancel');
           } catch {
-            // Ignore
+            // Overlay may already be closed - that's fine
           }
-          useWebcamSettingsStore.setState({ previewOpen: false });
-        }
-
-        currentWindow.close().catch(
-          createErrorHandler({ operation: 'close toolbar on reselecting', silent: true })
-        );
-      });
-
-      unlistenState = await listen<RecordingState>('recording-state-changed', (event) => {
-        const state = event.payload;
-        
-        switch (state.status) {
-          case 'countdown':
-            isRecordingActiveRef.current = false;
-            setMode('starting');
-            setElapsedTime(0);
-            setProgress(0);
-            setErrorMessage(undefined);
-            setCountdownSeconds(state.secondsRemaining);
-            break;
-          case 'recording':
-            if (!isRecordingActiveRef.current) {
-              isRecordingActiveRef.current = true;
-              setElapsedTime(state.elapsedSecs);
-            }
-            setMode('recording');
-            break;
-          case 'paused':
-            setMode('paused');
-            setElapsedTime(state.elapsedSecs);
-            break;
-          case 'processing':
-            setMode('processing');
-            setProgress(state.progress);
-            break;
-          case 'completed':
-          case 'idle':
-            isRecordingActiveRef.current = false;
-            setMode('selection');
-            setElapsedTime(0);
-            setProgress(0);
-            Promise.all([
-              invoke('hide_recording_border').catch(
-                createErrorHandler({ operation: 'hide recording border', silent: true })
-              ),
-              invoke('hide_countdown_window').catch(
-                createErrorHandler({ operation: 'hide countdown window', silent: true })
-              ),
-              invoke('restore_main_window').catch(
-                createErrorHandler({ operation: 'restore main window', silent: true })
-              ),
-              // Close webcam preview when recording ends
-              closeWebcamPreview().catch(
-                createErrorHandler({ operation: 'close webcam preview', silent: true })
-              ),
-            ]).finally(() => {
-              currentWindow.close().catch(
-                createErrorHandler({ operation: 'close toolbar window', silent: true })
-              );
-            });
-            break;
-          case 'error':
-            isRecordingActiveRef.current = false;
-            setErrorMessage(state.message);
-            setMode('error');
-            invoke('hide_recording_border').catch(
-              createErrorHandler({ operation: 'hide recording border', silent: true })
-            );
-            invoke('hide_countdown_window').catch(
-              createErrorHandler({ operation: 'hide countdown window', silent: true })
-            );
-            // Close webcam preview on recording error
-            closeWebcamPreview().catch(
-              createErrorHandler({ operation: 'close webcam preview', silent: true })
-            );
-            setTimeout(() => {
-              setMode('selection');
-              setElapsedTime(0);
-              setProgress(0);
-              setErrorMessage(undefined);
-              invoke('restore_main_window').catch(
-                createErrorHandler({ operation: 'restore main window', silent: true })
-              ).finally(() => {
-                currentWindow.close().catch(
-                  createErrorHandler({ operation: 'close toolbar window', silent: true })
-                );
-              });
-            }, 3000);
-            break;
-        }
-      });
-
-      unlistenFormat = await listen<RecordingFormat>('recording-format', (event) => {
-        setFormat(event.payload);
-      });
-    };
-
-    setupListeners();
-    return () => {
-      unlistenClosed?.();
-      unlistenReselecting?.();
-      unlistenState?.();
-      unlistenFormat?.();
-    };
-  }, []);
-
-  // Listen for webcam errors during recording
-  useEffect(() => {
-    let unlistenWebcamError: UnlistenFn | null = null;
-
-    const setupWebcamErrorListener = async () => {
-      unlistenWebcamError = await listen<WebcamErrorEvent>('webcam-error', (event) => {
-        const { message, is_fatal } = event.payload;
-        console.error('[WEBCAM ERROR]', message, 'Fatal:', is_fatal);
-
-        // Show toast notification
-        if (is_fatal) {
-          toast.error('Webcam disconnected', {
-            description: 'Webcam capture has stopped. Recording will continue without webcam.',
-            duration: 5000,
-          });
+          await emit('reset-to-startup', null);
+          // Allow ESC again after a short delay
+          setTimeout(() => { escHandledRef.current = false; }, 200);
         } else {
-          toast.warning('Webcam issue', {
-            description: message,
-            duration: 3000,
-          });
+          // No selection (startup mode) - close the toolbar
+          const currentWindow = getCurrentWebviewWindow();
+          await currentWindow.close();
         }
-      });
+      }
     };
 
-    setupWebcamErrorListener();
-    return () => {
-      unlistenWebcamError?.();
-    };
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mode, selectionConfirmed, closeWebcamPreview]);
 
-  // Timer for elapsed time during recording
-  useEffect(() => {
-    if (mode !== 'recording') return;
-    const interval = setInterval(() => setElapsedTime(t => t + 0.1), 100);
-    return () => clearInterval(interval);
-  }, [mode]);
+  // --- Action handlers ---
 
-  // Handlers
   const handleCapture = useCallback(async () => {
     try {
+      // No selection confirmed - trigger overlay first
+      if (!selectionConfirmed) {
+        const currentWindow = getCurrentWebviewWindow();
+
+        if (captureSource === 'display') {
+          await currentWindow.hide();
+
+          if (captureType === 'screenshot') {
+            const result = await invoke<{ file_path: string; width: number; height: number }>('capture_fullscreen_fast');
+            await invoke('open_editor_fast', {
+              filePath: result.file_path,
+              width: result.width,
+              height: result.height,
+            });
+            await currentWindow.close();
+          } else {
+            const ctStr = captureType === 'gif' ? 'gif' : 'video';
+            await invoke('show_overlay', { captureType: ctStr });
+            // Toolbar stays hidden, overlay will show it when selection is made
+          }
+        } else {
+          const ctStr = captureType === 'screenshot' ? 'screenshot' : captureType === 'gif' ? 'gif' : 'video';
+          await currentWindow.hide();
+          await invoke('show_overlay', { captureType: ctStr });
+          // Toolbar stays hidden, overlay will show it when selection is made
+        }
+        return;
+      }
+
+      // Capture mode with active selection
       if (captureType === 'screenshot') {
-        // Screenshot capture
         await invoke('capture_overlay_confirm', { action: 'screenshot' });
       } else {
         // Video or GIF recording
         recordingInitiatedRef.current = true;
         setMode('starting');
 
-        // Get settings based on capture type
-        const countdownSecs = captureType === 'video' ? settings.video.countdownSecs : settings.gif.countdownSecs;
         const systemAudioEnabled = captureType === 'video' ? settings.video.captureSystemAudio : false;
         const fps = captureType === 'video' ? settings.video.fps : settings.gif.fps;
-        const includeCursor = captureType === 'video' ? settings.video.includeCursor : settings.gif.includeCursor;
+        const quality = captureType === 'video' ? settings.video.quality : 80;
+        const gifQualityPreset = settings.gif.qualityPreset;
+        const quickCapture = captureType === 'video' ? settings.video.quickCapture : true; // GIF is always "quick"
+        // Quick capture skips countdown for faster recording start
+        const countdownSecs = quickCapture ? 0 : (captureType === 'video' ? settings.video.countdownSecs : settings.gif.countdownSecs);
+        // For video: if quick capture, use user's cursor preference; if editor flow, always capture without cursor
+        // For GIF: always use user's cursor preference (GIF is always quick capture)
+        const includeCursor = captureType === 'video'
+          ? (quickCapture ? settings.video.includeCursor : false)
+          : settings.gif.includeCursor;
         const maxDurationSecs = captureType === 'video' ? settings.video.maxDurationSecs : settings.gif.maxDurationSecs;
+        const microphoneDeviceIndex = settings.video.microphoneDeviceIndex;
 
-        // Pass all recording settings to Rust before starting
-        await invoke('set_recording_countdown', { secs: countdownSecs });
-        await invoke('set_recording_system_audio', { enabled: systemAudioEnabled });
-        await invoke('set_recording_microphone_device', { index: settings.video.microphoneDeviceIndex });
-        await invoke('set_recording_fps', { fps });
-        await invoke('set_recording_include_cursor', { include: includeCursor });
-        await invoke('set_recording_max_duration', { secs: maxDurationSecs ?? 0 });
-
-        // Video uses quality percentage, GIF uses quality preset
         if (captureType === 'video') {
-          await invoke('set_recording_quality', { quality: settings.video.quality });
+          await invoke('set_hide_desktop_icons', { enabled: settings.video.hideDesktopIcons });
+          // Webcam only for editor flow, not quick capture
+          await invoke('set_webcam_enabled', { enabled: !quickCapture && webcamSettings.enabled });
         } else {
-          await invoke('set_gif_quality_preset', { preset: settings.gif.qualityPreset });
+          // GIF mode: no webcam support
+          await invoke('set_webcam_enabled', { enabled: false });
         }
 
-        // Sync webcam enabled state to Rust before recording
-        await invoke('set_webcam_enabled', { enabled: webcamSettings.enabled });
+        const overlayReadyPromise = new Promise<void>((resolve) => {
+          const timeoutId = setTimeout(resolve, 500);
+          import('@tauri-apps/api/event').then(({ listen }) => {
+            listen('overlay-ready-for-recording', () => {
+              clearTimeout(timeoutId);
+              resolve();
+            });
+          });
+        });
 
         await invoke('capture_overlay_confirm', { action: 'recording' });
+        await overlayReadyPromise;
+
+        const bounds = selectionBoundsRef.current;
+
+        await invoke('show_recording_border', {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+        });
+
+        const formatStr = captureType === 'gif' ? 'gif' : 'mp4';
+        await emit('recording-format', formatStr);
+
+        if (countdownSecs > 0) {
+          await invoke('show_countdown_window', {
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+          });
+        }
+
+        // Use window mode if we have a windowId, otherwise use region mode
+        const mode = bounds.windowId
+          ? { type: 'window' as const, windowId: bounds.windowId }
+          : { type: 'region' as const, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+
+        const recordingSettings = {
+          format: captureType === 'gif' ? 'gif' : 'mp4',
+          mode,
+          fps,
+          maxDurationSecs: maxDurationSecs ?? null,
+          includeCursor,
+          audio: {
+            captureSystemAudio: systemAudioEnabled,
+            microphoneDeviceIndex: microphoneDeviceIndex ?? null,
+          },
+          quality,
+          gifQualityPreset,
+          countdownSecs,
+          quickCapture,
+        };
+
+        await invoke('start_recording', { settings: recordingSettings });
       }
     } catch (e) {
-      console.error('Failed to capture:', e);
+      toolbarLogger.error('Failed to capture:', e);
       recordingInitiatedRef.current = false;
       setMode('selection');
     }
-  }, [captureType, settings, webcamSettings.enabled]);
+  }, [captureType, captureSource, selectionConfirmed, settings, webcamSettings.enabled, selectionBoundsRef, recordingInitiatedRef, setMode]);
 
   const handleRedo = useCallback(async () => {
-    console.log('[Toolbar] handleRedo called');
     try {
-      await invoke('capture_overlay_reselect');
-      console.log('[Toolbar] capture_overlay_reselect invoked');
+      // Cancel overlay and reset to startup (source selector view)
+      try {
+        await invoke('capture_overlay_cancel');
+      } catch {
+        // Overlay may already be closed - that's fine
+      }
+      await emit('reset-to-startup', null);
     } catch (e) {
-      console.error('Failed to reselect:', e);
+      toolbarLogger.error('Failed to go back:', e);
     }
   }, []);
 
   const handleCancel = useCallback(async () => {
     try {
-      // Close webcam preview if open
       await closeWebcamPreview();
 
       if (mode !== 'selection') {
+        // During recording - cancel the recording
         await invoke('cancel_recording');
+      } else if (selectionConfirmed) {
+        // Has active selection - try to cancel overlay (may already be closed)
+        try {
+          await invoke('capture_overlay_cancel');
+        } catch {
+          // Overlay may already be closed - that's fine
+        }
+        // Emit reset event directly since overlay may not be running
+        await emit('reset-to-startup', null);
       } else {
-        await invoke('capture_overlay_cancel');
+        // No selection (startup mode) - close the toolbar
+        const currentWindow = getCurrentWebviewWindow();
+        await currentWindow.close();
       }
     } catch (e) {
-      console.error('Failed to cancel:', e);
+      toolbarLogger.error('Failed to cancel:', e);
     }
-  }, [mode, closeWebcamPreview]);
+  }, [mode, selectionConfirmed, closeWebcamPreview]);
 
   const handlePause = useCallback(async () => {
-    try { await invoke('pause_recording'); } catch (e) { console.error('Failed to pause:', e); }
+    try { await invoke('pause_recording'); } catch (e) { toolbarLogger.error('Failed to pause:', e); }
   }, []);
 
   const handleResume = useCallback(async () => {
-    try { await invoke('resume_recording'); } catch (e) { console.error('Failed to resume:', e); }
+    try { await invoke('resume_recording'); } catch (e) { toolbarLogger.error('Failed to resume:', e); }
   }, []);
 
   const handleStop = useCallback(async () => {
-    try { await invoke('stop_recording'); } catch (e) { console.error('Failed to stop:', e); }
+    try { await invoke('stop_recording'); } catch (e) { toolbarLogger.error('Failed to stop:', e); }
   }, []);
 
   const handleDimensionChange = useCallback(async (width: number, height: number) => {
     try {
       await invoke('capture_overlay_set_dimensions', { width, height });
     } catch (e) {
-      console.error('Failed to set dimensions:', e);
+      toolbarLogger.error('Failed to set dimensions:', e);
     }
   }, []);
 
+  const handleCaptureSourceChange = useCallback(async (source: CaptureSource) => {
+    setCaptureSource(source);
+
+    // Trigger overlay when no selection is confirmed (startup state)
+    if (!selectionConfirmed) {
+      const currentWindow = getCurrentWebviewWindow();
+
+      try {
+        if (source === 'display') {
+          await currentWindow.hide();
+
+          if (captureType === 'screenshot') {
+            const result = await invoke<{ file_path: string; width: number; height: number }>('capture_fullscreen_fast');
+            await invoke('open_editor_fast', {
+              filePath: result.file_path,
+              width: result.width,
+              height: result.height,
+            });
+            // Close toolbar after screenshot complete
+            await currentWindow.close();
+          } else {
+            const ctStr = captureType === 'gif' ? 'gif' : 'video';
+            await invoke('show_overlay', { captureType: ctStr });
+            // Toolbar stays hidden, overlay will show it when selection is made
+          }
+        } else {
+          const ctStr = captureType === 'screenshot' ? 'screenshot' : captureType === 'gif' ? 'gif' : 'video';
+          await currentWindow.hide();
+          await invoke('show_overlay', { captureType: ctStr });
+          // Toolbar stays hidden, overlay will show it when selection is made
+        }
+      } catch (e) {
+        toolbarLogger.error('Failed to trigger capture:', e);
+        await currentWindow.show();
+      }
+    }
+  }, [selectionConfirmed, captureType]);
+
+  const handleOpenSettings = useCallback(() => {
+    useSettingsStore.getState().openSettingsModal();
+  }, []);
+
+  const handleCaptureComplete = useCallback(async () => {
+    const currentWindow = getCurrentWebviewWindow();
+    await currentWindow.close();
+  }, []);
+
+  const handleModeChange = useCallback(async (newMode: typeof captureType) => {
+    if (mode === 'selection') {
+      // Close webcam when switching away from video mode
+      if (captureType === 'video' && newMode !== 'video') {
+        await closeWebcamPreview();
+      }
+      // Re-open webcam when switching back to video mode (if it was enabled)
+      if (captureType !== 'video' && newMode === 'video') {
+        await openWebcamPreviewIfEnabled();
+      }
+      setCaptureType(newMode);
+    }
+  }, [mode, captureType, setCaptureType, closeWebcamPreview, openWebcamPreviewIfEnabled]);
+
+  const handleTitlebarClose = useCallback(async () => {
+    // Cancel overlay when toolbar is closed
+    try {
+      await invoke('capture_overlay_cancel');
+    } catch {
+      // Overlay may not be running
+    }
+    await closeWebcamPreview();
+  }, [closeWebcamPreview]);
+
+  const handleOpenLibrary = useCallback(async () => {
+    try {
+      await invoke('show_library_window');
+    } catch (e) {
+      toolbarLogger.error('Failed to open library:', e);
+    }
+  }, []);
+
+  // --- Render ---
+
   return (
-    <>
+    <div ref={containerRef} className="app-container">
+      <Titlebar title="SnapIt Capture" showMaximize={false} onClose={handleTitlebarClose} onOpenLibrary={handleOpenLibrary} />
       <div ref={toolbarRef} className="toolbar-container">
-        {/* Wrapper - window resizes to fit content */}
         <div className="toolbar-animated-wrapper">
-          {/* Content measurement ref - used to resize Tauri window */}
           <div ref={contentRef} className="toolbar-content-measure">
             <CaptureToolbar
               mode={mode}
               captureType={captureType}
+              captureSource={captureSource}
               width={selectionBounds.width}
               height={selectionBounds.height}
+              sourceType={selectionBounds.sourceType}
+              sourceTitle={selectionBounds.sourceTitle}
+              monitorName={selectionBounds.monitorName}
+              monitorIndex={selectionBounds.monitorIndex}
+              selectionConfirmed={selectionConfirmed}
               onCapture={handleCapture}
-              onCaptureTypeChange={setCaptureType}
+              onCaptureTypeChange={handleModeChange}
+              onCaptureSourceChange={handleCaptureSourceChange}
+              onCaptureComplete={handleCaptureComplete}
               onRedo={handleRedo}
               onCancel={handleCancel}
               format={format}
@@ -690,11 +504,11 @@ const CaptureToolbarWindow: React.FC = () => {
               onStop={handleStop}
               countdownSeconds={countdownSeconds}
               onDimensionChange={handleDimensionChange}
+              onOpenSettings={handleOpenSettings}
             />
           </div>
         </div>
       </div>
-      {/* Toast notifications for webcam errors */}
       <Toaster
         position="top-center"
         toastOptions={{
@@ -706,7 +520,7 @@ const CaptureToolbarWindow: React.FC = () => {
           },
         }}
       />
-    </>
+    </div>
   );
 };
 

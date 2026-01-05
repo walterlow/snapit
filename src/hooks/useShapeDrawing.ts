@@ -246,7 +246,6 @@ export const useShapeDrawing = ({
       strokeColor,
       shapes,
       onShapesChange,
-      onToolChange,
       stageRef,
       getCanvasPosition,
       setSelectedIds,

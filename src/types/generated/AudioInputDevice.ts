@@ -5,11 +5,11 @@
  */
 export type AudioInputDevice = { 
 /**
- * Device index for selection (matches cpal enumeration order).
+ * Device index for selection (matches wasapi enumeration order).
  */
 index: number, 
 /**
- * Human-readable device name.
+ * Human-readable device name (full friendly name from Windows, e.g., "Headset (WH-1000XM3 Hands-Free AG Audio)").
  */
 name: string, 
 /**

@@ -2,6 +2,12 @@
 //!
 //! These types define the settings for each capture mode (screenshot, video, GIF).
 //! They are exported to TypeScript via ts-rs for use in the frontend settings store.
+//!
+//! **NOTE**: These types exist for TypeScript generation only.
+//! Settings are stored in the frontend via Zustand; Rust receives individual
+//! values via commands rather than these composite structs.
+
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -103,6 +109,12 @@ pub struct VideoSettings {
     /// Countdown duration before recording starts (0-10 seconds).
     #[ts(type = "number")]
     pub countdown_secs: u32,
+    /// Hide desktop icons during recording for cleaner videos.
+    pub hide_desktop_icons: bool,
+    /// Quick capture mode - saves directly to file, skips video editor.
+    /// When true, cursor is baked into video based on include_cursor setting.
+    /// When false, cursor is captured separately for editor flexibility.
+    pub quick_capture: bool,
 }
 
 impl Default for VideoSettings {
@@ -117,6 +129,8 @@ impl Default for VideoSettings {
             microphone_device_index: None,
             capture_webcam: false, // Placeholder - always false for now
             countdown_secs: 3,
+            hide_desktop_icons: false,
+            quick_capture: false, // Default to editor flow
         }
     }
 }

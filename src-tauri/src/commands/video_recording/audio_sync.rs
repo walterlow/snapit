@@ -98,7 +98,7 @@ impl AudioCollector {
                     Err(TryRecvError::Disconnected) => {
                         self.system_rx = None;
                         break;
-                    }
+                    },
                 }
             }
         }
@@ -112,7 +112,7 @@ impl AudioCollector {
                     Err(TryRecvError::Disconnected) => {
                         self.mic_rx = None;
                         break;
-                    }
+                    },
                 }
             }
         }
@@ -135,12 +135,42 @@ impl AudioCollector {
         }
     }
 
-    /// Try to get audio for a specific video timestamp.
+    /// Try to get the next audio frame.
     ///
-    /// This is a simpler interface that just returns whatever audio is available.
-    /// The VideoEncoder handles the actual A/V synchronization.
+    /// Returns frames one at a time with original timestamps to avoid jitter.
+    /// When both system and mic audio are active, alternates between them.
     pub fn try_get_audio(&mut self) -> Option<AudioFrame> {
-        self.collect()
+        // Try system audio first
+        if let Some(ref rx) = self.system_rx {
+            match rx.try_recv() {
+                Ok(frame) => {
+                    // If mic is also available, try to mix
+                    if let Some(ref mic_rx) = self.mic_rx {
+                        if let Ok(mic_frame) = mic_rx.try_recv() {
+                            return Some(Self::mix_frames(&frame, &mic_frame));
+                        }
+                    }
+                    return Some(frame);
+                },
+                Err(TryRecvError::Disconnected) => {
+                    self.system_rx = None;
+                },
+                Err(TryRecvError::Empty) => {},
+            }
+        }
+
+        // Fall back to mic only
+        if let Some(ref rx) = self.mic_rx {
+            match rx.try_recv() {
+                Ok(frame) => return Some(frame),
+                Err(TryRecvError::Disconnected) => {
+                    self.mic_rx = None;
+                },
+                Err(TryRecvError::Empty) => {},
+            }
+        }
+
+        None
     }
 
     /// Merge multiple frames from the same source into one.
@@ -212,10 +242,7 @@ pub struct AudioCaptureManager {
 
 impl AudioCaptureManager {
     /// Create a new audio capture manager.
-    pub fn new(
-        should_stop: Arc<AtomicBool>,
-        is_paused: Arc<AtomicBool>,
-    ) -> Self {
+    pub fn new(should_stop: Arc<AtomicBool>, is_paused: Arc<AtomicBool>) -> Self {
         Self {
             system_handle: None,
             mic_handle: None,
@@ -253,7 +280,11 @@ impl AudioCaptureManager {
     /// # Arguments
     /// * `device_index` - Index of the audio input device to use
     /// * `start_time` - Recording start time for timestamp calculation
-    pub fn start_microphone(&mut self, device_index: usize, start_time: Instant) -> Result<(), String> {
+    pub fn start_microphone(
+        &mut self,
+        device_index: usize,
+        start_time: Instant,
+    ) -> Result<(), String> {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
         let (tx, rx) = bounded::<AudioFrame>(AUDIO_CHANNEL_SIZE);
@@ -273,7 +304,11 @@ impl AudioCaptureManager {
                     .nth(device_index)
                     .ok_or_else(|| format!("Audio input device {} not found", device_index))?;
 
-                log::info!("Using microphone [{}]: {}", device_index, device.name().unwrap_or_default());
+                log::info!(
+                    "Using microphone [{}]: {:?}",
+                    device_index,
+                    device.description()
+                );
 
                 // Get supported config
                 let config = device
@@ -299,7 +334,10 @@ impl AudioCaptureManager {
 
                 log::info!(
                     "Microphone: will resample from {} Hz {} ch -> {} Hz {} ch",
-                    src_sample_rate, src_channels, TARGET_SAMPLE_RATE, TARGET_CHANNELS
+                    src_sample_rate,
+                    src_channels,
+                    TARGET_SAMPLE_RATE,
+                    TARGET_CHANNELS
                 );
 
                 // Build the stream based on sample format
@@ -331,8 +369,7 @@ impl AudioCaptureManager {
 
                                     // Calculate timestamp relative to start
                                     let elapsed = start_time.elapsed();
-                                    let timestamp_100ns =
-                                        (elapsed.as_nanos() / 100) as i64;
+                                    let timestamp_100ns = (elapsed.as_nanos() / 100) as i64;
 
                                     let frame = AudioFrame {
                                         samples: processed,
@@ -347,7 +384,7 @@ impl AudioCaptureManager {
                             )
                             .map_err(|e| format!("Failed to build input stream: {}", e))?;
                         stream
-                    }
+                    },
                     cpal::SampleFormat::I16 => {
                         let stream = device
                             .build_input_stream(
@@ -361,10 +398,8 @@ impl AudioCaptureManager {
                                     }
 
                                     // Convert i16 to f32
-                                    let f32_samples: Vec<f32> = data
-                                        .iter()
-                                        .map(|&s| s as f32 / i16::MAX as f32)
-                                        .collect();
+                                    let f32_samples: Vec<f32> =
+                                        data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
 
                                     // Convert and resample the audio
                                     let processed = process_mic_audio(
@@ -376,8 +411,7 @@ impl AudioCaptureManager {
                                     );
 
                                     let elapsed = start_time.elapsed();
-                                    let timestamp_100ns =
-                                        (elapsed.as_nanos() / 100) as i64;
+                                    let timestamp_100ns = (elapsed.as_nanos() / 100) as i64;
 
                                     let frame = AudioFrame {
                                         samples: processed,
@@ -392,10 +426,10 @@ impl AudioCaptureManager {
                             )
                             .map_err(|e| format!("Failed to build input stream: {}", e))?;
                         stream
-                    }
+                    },
                     format => {
                         return Err(format!("Unsupported sample format: {:?}", format));
-                    }
+                    },
                 };
 
                 // Start the stream
@@ -484,7 +518,10 @@ fn process_mic_audio(
         samples.to_vec()
     } else if src_channels == 2 && target_channels == 1 {
         // Stereo to mono: average channels
-        samples.chunks(2).map(|c| (c[0] + c.get(1).unwrap_or(&0.0)) / 2.0).collect()
+        samples
+            .chunks(2)
+            .map(|c| (c[0] + c.get(1).unwrap_or(&0.0)) / 2.0)
+            .collect()
     } else {
         // Unsupported conversion, just use as-is
         samples.to_vec()

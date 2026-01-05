@@ -1,6 +1,12 @@
 //! Cursor compositing onto frame buffer.
 //!
 //! Alpha blends the cursor bitmap onto the captured frame.
+//! Supports cursor scaling for video editor cursor size adjustment.
+//!
+//! **DEPRECATED**: This CPU-based compositing is replaced by GPU rendering
+//! in `rendering/cursor.rs`. Kept for reference and potential fallback.
+
+#![allow(dead_code)]
 
 use super::CursorState;
 
@@ -21,65 +27,131 @@ pub fn composite_cursor(
     capture_x: i32,
     capture_y: i32,
 ) {
+    // Use default scale (1.0 = native size)
+    composite_cursor_scaled(
+        frame,
+        frame_width,
+        frame_height,
+        cursor,
+        capture_x,
+        capture_y,
+        1.0,
+    );
+}
+
+/// Composite cursor onto frame buffer with alpha blending and scaling.
+///
+/// # Arguments
+/// * `frame` - Mutable BGRA frame buffer
+/// * `frame_width` - Frame width in pixels
+/// * `frame_height` - Frame height in pixels
+/// * `cursor` - Cursor state with position and bitmap
+/// * `capture_x` - Capture region left edge in screen coordinates
+/// * `capture_y` - Capture region top edge in screen coordinates
+/// * `scale` - Cursor scale factor (1.0 = native, 2.0 = double size)
+pub fn composite_cursor_scaled(
+    frame: &mut [u8],
+    frame_width: u32,
+    frame_height: u32,
+    cursor: &CursorState,
+    capture_x: i32,
+    capture_y: i32,
+    scale: f32,
+) {
     if !cursor.visible || cursor.width == 0 || cursor.height == 0 {
         return;
     }
 
-    // Calculate cursor draw position relative to capture region
-    let cursor_draw_x = cursor.screen_x - cursor.hotspot_x - capture_x;
-    let cursor_draw_y = cursor.screen_y - cursor.hotspot_y - capture_y;
+    // Clamp scale to reasonable range
+    let scale = scale.clamp(0.5, 4.0);
 
-    // Calculate visible region (clip to frame bounds)
+    // Calculate scaled dimensions
+    let scaled_width = ((cursor.width as f32) * scale).round() as u32;
+    let scaled_height = ((cursor.height as f32) * scale).round() as u32;
+    let scaled_hotspot_x = ((cursor.hotspot_x as f32) * scale).round() as i32;
+    let scaled_hotspot_y = ((cursor.hotspot_y as f32) * scale).round() as i32;
+
+    // Calculate cursor draw position relative to capture region (using scaled hotspot)
+    let cursor_draw_x = cursor.screen_x - scaled_hotspot_x - capture_x;
+    let cursor_draw_y = cursor.screen_y - scaled_hotspot_y - capture_y;
+
+    // Calculate visible region (clip to frame bounds) using scaled dimensions
     let clip = match clip_rect(
         cursor_draw_x,
         cursor_draw_y,
-        cursor.width,
-        cursor.height,
+        scaled_width,
+        scaled_height,
         frame_width,
         frame_height,
     ) {
         Some(c) => {
             // Debug: log on first successful clip
-            static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static LOGGED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                eprintln!("[COMPOSITE] Drawing cursor at draw_pos ({}, {}), clip: src({},{}) dst({},{}) size {}x{}",
-                    cursor_draw_x, cursor_draw_y,
+                eprintln!("[COMPOSITE] Drawing cursor at draw_pos ({}, {}), scale={:.2}, clip: src({},{}) dst({},{}) size {}x{}",
+                    cursor_draw_x, cursor_draw_y, scale,
                     c.src_x, c.src_y, c.dst_x, c.dst_y, c.width, c.height);
             }
             c
-        }
+        },
         None => {
             // Debug: cursor outside frame
-            static LOGGED_OUTSIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static LOGGED_OUTSIDE: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             if !LOGGED_OUTSIDE.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                eprintln!("[COMPOSITE] Cursor outside frame: draw_pos ({}, {}), cursor {}x{}, frame {}x{}",
-                    cursor_draw_x, cursor_draw_y, cursor.width, cursor.height, frame_width, frame_height);
+                eprintln!("[COMPOSITE] Cursor outside frame: draw_pos ({}, {}), cursor {}x{} (scaled), frame {}x{}",
+                    cursor_draw_x, cursor_draw_y, scaled_width, scaled_height, frame_width, frame_height);
             }
             return;
-        }
+        },
     };
 
-    // Blend each visible pixel
+    // Blend each visible pixel with bilinear interpolation for scaling
+    let inv_scale = 1.0 / scale;
+
     for row in 0..clip.height {
         for col in 0..clip.width {
-            let src_x = clip.src_x + col;
-            let src_y = clip.src_y + row;
+            // Destination position in frame
             let dst_x = clip.dst_x + col;
             let dst_y = clip.dst_y + row;
 
-            let src_idx = ((src_y * cursor.width + src_x) * 4) as usize;
-            let dst_idx = ((dst_y * frame_width + dst_x) * 4) as usize;
+            // Source position in scaled space
+            let scaled_src_x = clip.src_x + col;
+            let scaled_src_y = clip.src_y + row;
 
-            // Get source (cursor) pixel
-            let src_b = cursor.bgra_data.get(src_idx).copied().unwrap_or(0);
-            let src_g = cursor.bgra_data.get(src_idx + 1).copied().unwrap_or(0);
-            let src_r = cursor.bgra_data.get(src_idx + 2).copied().unwrap_or(0);
-            let src_a = cursor.bgra_data.get(src_idx + 3).copied().unwrap_or(0);
+            // Map back to original cursor bitmap coordinates
+            let orig_x = (scaled_src_x as f32) * inv_scale;
+            let orig_y = (scaled_src_y as f32) * inv_scale;
+
+            // Get source pixel with bilinear interpolation
+            let (src_b, src_g, src_r, src_a) = if scale == 1.0 {
+                // No scaling - direct lookup
+                let src_idx = ((orig_y as u32) * cursor.width + (orig_x as u32)) * 4;
+                let src_idx = src_idx as usize;
+                (
+                    cursor.bgra_data.get(src_idx).copied().unwrap_or(0),
+                    cursor.bgra_data.get(src_idx + 1).copied().unwrap_or(0),
+                    cursor.bgra_data.get(src_idx + 2).copied().unwrap_or(0),
+                    cursor.bgra_data.get(src_idx + 3).copied().unwrap_or(0),
+                )
+            } else {
+                // Bilinear interpolation for smooth scaling
+                sample_bilinear(
+                    &cursor.bgra_data,
+                    cursor.width,
+                    cursor.height,
+                    orig_x,
+                    orig_y,
+                )
+            };
 
             // Skip fully transparent pixels
             if src_a == 0 {
                 continue;
             }
+
+            let dst_idx = ((dst_y * frame_width + dst_x) * 4) as usize;
 
             // Bounds check destination
             if dst_idx + 3 >= frame.len() {
@@ -107,6 +179,59 @@ pub fn composite_cursor(
             }
         }
     }
+}
+
+/// Sample a BGRA pixel using bilinear interpolation.
+///
+/// Returns (B, G, R, A) tuple.
+fn sample_bilinear(data: &[u8], width: u32, height: u32, x: f32, y: f32) -> (u8, u8, u8, u8) {
+    // Clamp coordinates to valid range
+    let x = x.clamp(0.0, (width - 1) as f32);
+    let y = y.clamp(0.0, (height - 1) as f32);
+
+    let x0 = x.floor() as u32;
+    let y0 = y.floor() as u32;
+    let x1 = (x0 + 1).min(width - 1);
+    let y1 = (y0 + 1).min(height - 1);
+
+    let fx = x - x0 as f32;
+    let fy = y - y0 as f32;
+
+    // Get four neighboring pixels
+    let idx00 = ((y0 * width + x0) * 4) as usize;
+    let idx10 = ((y0 * width + x1) * 4) as usize;
+    let idx01 = ((y1 * width + x0) * 4) as usize;
+    let idx11 = ((y1 * width + x1) * 4) as usize;
+
+    // Helper to safely get pixel
+    let get_pixel = |idx: usize| -> (f32, f32, f32, f32) {
+        (
+            data.get(idx).copied().unwrap_or(0) as f32,
+            data.get(idx + 1).copied().unwrap_or(0) as f32,
+            data.get(idx + 2).copied().unwrap_or(0) as f32,
+            data.get(idx + 3).copied().unwrap_or(0) as f32,
+        )
+    };
+
+    let p00 = get_pixel(idx00);
+    let p10 = get_pixel(idx10);
+    let p01 = get_pixel(idx01);
+    let p11 = get_pixel(idx11);
+
+    // Bilinear interpolation for each channel
+    let interpolate = |c00: f32, c10: f32, c01: f32, c11: f32| -> u8 {
+        let top = c00 * (1.0 - fx) + c10 * fx;
+        let bottom = c01 * (1.0 - fx) + c11 * fx;
+        let result = top * (1.0 - fy) + bottom * fy;
+        result.round() as u8
+    };
+
+    (
+        interpolate(p00.0, p10.0, p01.0, p11.0), // B
+        interpolate(p00.1, p10.1, p01.1, p11.1), // G
+        interpolate(p00.2, p10.2, p01.2, p11.2), // R
+        interpolate(p00.3, p10.3, p01.3, p11.3), // A
+    )
 }
 
 /// Clipped rectangle for cursor compositing.

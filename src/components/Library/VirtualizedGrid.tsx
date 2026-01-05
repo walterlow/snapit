@@ -29,6 +29,7 @@ interface VirtualizedGridProps {
   onOpenInFolder: (capture: CaptureListItem) => void;
   onCopyToClipboard: (capture: CaptureListItem) => void;
   onPlayMedia: (capture: CaptureListItem) => void;
+  onEditVideo?: (capture: CaptureListItem) => void;
   formatDate: (dateStr: string) => string;
   // Marquee selection props
   containerRef?: React.RefObject<HTMLDivElement>;
@@ -96,6 +97,7 @@ export function VirtualizedGrid({
   onOpenInFolder,
   onCopyToClipboard,
   onPlayMedia,
+  onEditVideo,
   formatDate,
   containerRef: externalContainerRef,
   onMouseDown,
@@ -234,6 +236,7 @@ export function VirtualizedGrid({
               onOpenInFolder={() => onOpenInFolder(capture)}
               onCopyToClipboard={() => onCopyToClipboard(capture)}
               onPlayMedia={() => onPlayMedia(capture)}
+              onEditVideo={capture.capture_type === 'video' && onEditVideo ? () => onEditVideo(capture) : undefined}
               formatDate={formatDate}
             />
           </div>
@@ -259,6 +262,7 @@ export function VirtualizedGrid({
                 onOpenInFolder={() => onOpenInFolder(capture)}
                 onCopyToClipboard={() => onCopyToClipboard(capture)}
                 onPlayMedia={() => onPlayMedia(capture)}
+                onEditVideo={capture.capture_type === 'video' && onEditVideo ? () => onEditVideo(capture) : undefined}
                 formatDate={formatDate}
               />
             </div>
@@ -282,6 +286,7 @@ export function VirtualizedGrid({
       onOpenInFolder,
       onCopyToClipboard,
       onPlayMedia,
+      onEditVideo,
       formatDate,
     ]
   );

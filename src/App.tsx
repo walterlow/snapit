@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo, Activity } from 'react';
 import { Toaster } from 'sonner';
+import { invoke } from '@tauri-apps/api/core';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { LibraryErrorBoundary, EditorErrorBoundary } from './components/ErrorBoundary';
@@ -8,6 +9,7 @@ import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { SettingsModalContainer } from './components/Settings/SettingsModalContainer';
 import { EditorView } from './views/EditorView';
 import type { EditorViewRef } from './views/EditorView';
+import { VideoEditorView } from './views/VideoEditorView';
 import { useCaptureStore } from './stores/captureStore';
 import { useEditorStore, clearHistory } from './stores/editorStore';
 import { useSettingsStore } from './stores/settingsStore';
@@ -78,6 +80,7 @@ function App() {
   const eventCallbacks = useMemo(
     () => ({
       onRecordingComplete: loadCaptures,
+      onThumbnailReady: useCaptureStore.getState().updateCaptureThumbnail,
       onCaptureCompleteFast: async (data: { file_path: string; width: number; height: number }) => {
         clearEditor();
         clearHistory();
@@ -143,6 +146,11 @@ function App() {
 
   const handleOpenSettings = useCallback(() => {
     useSettingsStore.getState().openSettingsModal();
+  }, []);
+
+  // Show capture toolbar window (startup mode)
+  const handleShowCaptureToolbar = useCallback(async () => {
+    await invoke('show_startup_toolbar');
   }, []);
 
   // Get selected tool from EditorView ref (with fallback for when ref not set)
@@ -214,7 +222,11 @@ function App() {
       <SettingsModalContainer />
       
       {/* Custom Titlebar */}
-      <Titlebar />
+      <Titlebar
+        title="SnapIt Library"
+        onCapture={handleShowCaptureToolbar}
+        onOpenSettings={handleOpenSettings}
+      />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0">
@@ -230,6 +242,11 @@ function App() {
           <EditorErrorBoundary projectId={currentProject?.id} onBack={handleBackToLibrary}>
             <EditorView ref={editorViewRef} />
           </EditorErrorBoundary>
+        </Activity>
+
+        {/* Video Editor */}
+        <Activity mode={view === 'videoEditor' ? 'visible' : 'hidden'}>
+          <VideoEditorView />
         </Activity>
       </div>
     </div>

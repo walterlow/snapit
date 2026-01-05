@@ -12,6 +12,20 @@ import { useState, useEffect, useRef } from 'react';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 
+/**
+ * Clean up temp RGBA file after successful load.
+ * Uses a small delay to ensure save_capture_from_file has finished reading.
+ */
+async function cleanupTempFile(filePath: string): Promise<void> {
+  // Small delay to ensure Rust save operation has finished reading the file
+  await new Promise(resolve => setTimeout(resolve, 500));
+  try {
+    await invoke('cleanup_rgba_file', { filePath });
+  } catch {
+    // Ignore cleanup errors - file might already be deleted or in use
+  }
+}
+
 type ImageSource = HTMLImageElement | HTMLCanvasElement;
 
 interface FastImageState {
@@ -97,6 +111,9 @@ export function useFastImage(
 
           if (isMounted) {
             setState({ image: canvas, status: 'loaded', width, height });
+            // Clean up the temp file after successful load
+            // This runs async in background - doesn't block rendering
+            cleanupTempFile(source);
           }
         } else {
           // Standard path: load from base64/data URL

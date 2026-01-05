@@ -37,3 +37,10 @@ nul
 # Environment files
 .env
 .env.*
+
+# Test output media files
+src-tauri/src/tests/*
+!src-tauri/src/tests/.gitkeep
+
+# Test coverage output
+coverage/

@@ -3,14 +3,9 @@ import {
   Star,
   LayoutGrid,
   List,
-  Camera,
-  Film,
-  ImagePlay,
   FolderOpen,
-  Settings,
   Search,
   X,
-  ScreenShare,
   Trash2,
 } from 'lucide-react';
 import {
@@ -34,11 +29,6 @@ interface GlassBlobToolbarProps {
   onDeleteSelected: () => void;
   onClearSelection: () => void;
   onOpenLibraryFolder: () => void;
-  onAllMonitorsCapture: () => void;
-  onNewImage: () => void;
-  onNewVideo: () => void;
-  onNewGif: () => void;
-  onOpenSettings?: () => void;
 }
 
 export const GlassBlobToolbar: React.FC<GlassBlobToolbarProps> = ({
@@ -55,11 +45,6 @@ export const GlassBlobToolbar: React.FC<GlassBlobToolbarProps> = ({
   onDeleteSelected,
   onClearSelection,
   onOpenLibraryFolder,
-  onAllMonitorsCapture,
-  onNewImage,
-  onNewVideo,
-  onNewGif,
-  onOpenSettings,
 }) => {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -161,54 +146,7 @@ export const GlassBlobToolbar: React.FC<GlassBlobToolbarProps> = ({
 
         <div className="cloud-divider" />
 
-        {/* CENTER: Capture buttons */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={onNewVideo} className="cloud-btn cloud-btn--medium">
-              <Film className="w-[24px] h-[24px]" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p className="text-xs">New Video</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={onNewImage} className="cloud-btn cloud-btn--large cloud-btn--coral">
-              <Camera className="w-[32px] h-[32px]" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p className="text-xs">New Screenshot</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={onNewGif} className="cloud-btn cloud-btn--medium">
-              <ImagePlay className="w-[24px] h-[24px]" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p className="text-xs">New GIF</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={onAllMonitorsCapture} className="cloud-btn cloud-btn--medium">
-              <ScreenShare className="w-[18px] h-[18px]" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p className="text-xs">All Monitors</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <div className="cloud-divider" />
-
-        {/* RIGHT: View modes */}
+        {/* View modes */}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -234,19 +172,6 @@ export const GlassBlobToolbar: React.FC<GlassBlobToolbarProps> = ({
           </TooltipTrigger>
           <TooltipContent side="top">
             <p className="text-xs">List View</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <div className="cloud-divider" />
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={onOpenSettings} className="cloud-btn cloud-btn--small">
-              <Settings className="w-[15px] h-[15px]" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p className="text-xs">Settings</p>
           </TooltipContent>
         </Tooltip>
 

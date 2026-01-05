@@ -12,10 +12,18 @@ import { listen } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { toast } from 'sonner';
 import { useSettingsStore } from '../stores/settingsStore';
+import { libraryLogger } from '../utils/logger';
+
+interface ThumbnailReadyEvent {
+  captureId: string;
+  thumbnailPath: string;
+}
 
 interface AppEventCallbacks {
   /** Called when a recording completes - should refresh the library */
   onRecordingComplete: () => void;
+  /** Called when a thumbnail is generated for a capture */
+  onThumbnailReady: (captureId: string, thumbnailPath: string) => void;
   /** Called when a fast capture completes (file path) */
   onCaptureCompleteFast: (data: {
     file_path: string;
@@ -29,6 +37,7 @@ interface AppEventCallbacks {
  *
  * Consolidates these listeners:
  * - recording-state-changed: Refresh library on recording complete
+ * - thumbnail-ready: Update specific capture's thumbnail when generated
  * - open-settings: Open settings modal from tray
  * - create-capture-toolbar: Create selection toolbar window
  * - capture-complete-fast: Handle screenshot capture (raw RGBA file path)
@@ -42,16 +51,22 @@ export function useAppEventListeners(callbacks: AppEventCallbacks) {
     unlisteners.push(
       listen<{ status: string }>('recording-state-changed', (event) => {
         if (event.payload.status === 'completed') {
-          console.log('[App] Recording completed, refreshing library...');
-          // Delay to ensure file is fully written
+          libraryLogger.info('Recording completed, refreshing library...');
+          // Small delay to ensure file is fully written
           const t1 = setTimeout(() => {
             callbacks.onRecordingComplete();
-            // Refresh again after thumbnails might be generated
-            const t2 = setTimeout(() => callbacks.onRecordingComplete(), 2000);
-            timeoutIds.push(t2);
           }, 500);
           timeoutIds.push(t1);
         }
+      })
+    );
+
+    // Thumbnail ready - update specific capture's thumbnail
+    unlisteners.push(
+      listen<ThumbnailReadyEvent>('thumbnail-ready', (event) => {
+        const { captureId, thumbnailPath } = event.payload;
+        libraryLogger.info(`Thumbnail ready for ${captureId}`);
+        callbacks.onThumbnailReady(captureId, thumbnailPath);
       })
     );
 
@@ -62,46 +77,30 @@ export function useAppEventListeners(callbacks: AppEventCallbacks) {
       })
     );
 
-    // Create capture toolbar window from D2D overlay
+    // Update capture toolbar bounds from D2D overlay
+    // If toolbar exists, confirm selection and update; if not, let Rust create it
     unlisteners.push(
       listen<{ x: number; y: number; width: number; height: number }>(
         'create-capture-toolbar',
         async (event) => {
           const { x, y, width, height } = event.payload;
 
-          // Close any existing toolbar window first
+          // Check if toolbar already exists
           const existing = await WebviewWindow.getByLabel('capture-toolbar');
           if (existing) {
-            try {
-              await existing.close();
-            } catch {
-              // Ignore
-            }
-            await new Promise((r) => setTimeout(r, 50));
+            // Toolbar exists - emit confirm-selection to mark selection confirmed and reposition
+            // This is a NEW selection from overlay, not an adjustment update
+            await existing.emit('confirm-selection', { x, y, width, height });
+            // Bring to front
+            await existing.show();
+            await existing.setFocus();
+            return;
           }
 
-          // Create toolbar window - starts hidden, frontend will position and show
-          const url = `/capture-toolbar.html?x=${x}&y=${y}&width=${width}&height=${height}`;
-          const win = new WebviewWindow('capture-toolbar', {
-            url,
-            title: 'Selection Toolbar',
-            width: 900,
-            height: 300,
-            x: x + Math.floor(width / 2) - 450,
-            y: y + height + 8,
-            resizable: false,
-            decorations: false,
-            alwaysOnTop: true,
-            transparent: true,
-            skipTaskbar: true,
-            shadow: false,
-            visible: false,
-            focus: false,
-          });
-
-          win.once('tauri://error', (e) => {
-            console.error('Failed to create capture toolbar:', e);
-          });
+          // Toolbar doesn't exist - create it via Rust command
+          // This ensures consistent window creation
+          const { invoke } = await import('@tauri-apps/api/core');
+          await invoke('show_capture_toolbar', { x, y, width, height });
         }
       )
     );

@@ -19,7 +19,7 @@ const TOOL_SHORTCUTS: Record<string, Tool> = {
 };
 
 interface UseEditorKeyboardShortcutsProps {
-  view: 'library' | 'editor';
+  view: 'library' | 'editor' | 'videoEditor';
   selectedTool: Tool;
   selectedIds: string[];
   compositorEnabled: boolean;

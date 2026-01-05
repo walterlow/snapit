@@ -5,6 +5,14 @@ export interface Region {
   height: number;
 }
 
+// Canvas bounds for non-destructive crop/expand operations
+export interface CanvasBounds {
+  width: number;
+  height: number;
+  imageOffsetX: number;
+  imageOffsetY: number;
+}
+
 export interface Dimensions {
   width: number;
   height: number;
@@ -122,6 +130,17 @@ export interface MonitorInfo {
   height: number;
   is_primary: boolean;
   scale_factor: number;
+}
+
+export interface WindowInfo {
+  id: number;
+  title: string;
+  app_name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  is_minimized: boolean;
 }
 
 export interface StorageStats {
@@ -338,7 +357,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   defaultSaveDir: null,
   imageFormat: 'png',
   jpgQuality: 85,
-  allowOverride: false,
+  allowOverride: true, // Override shortcuts from other apps by default
   theme: 'system', // Follow OS preference by default
 };
 
@@ -372,6 +391,68 @@ export type {
   VideoFormat,
 } from './generated';
 
+// ============================================
+// Video Editor Types (generated from Rust via ts-rs)
+// ============================================
+
+// Cursor event types for auto-zoom
+export type {
+  CursorEvent,
+  CursorEventType,
+  CursorImage,
+  CursorRecording,
+  WindowsCursorShape,
+} from './generated';
+
+// Video project types
+export type {
+  AutoZoomConfig,
+  VideoProject,
+  VideoSources,
+  TimelineState,
+  ZoomConfig,
+  ZoomMode,
+  ZoomRegion,
+  ZoomTransition,
+  EasingFunction,
+  CursorConfig,
+  CursorType,
+  CursorAnimationStyle,
+  ClickHighlightConfig,
+  ClickHighlightStyle,
+  WebcamConfig,
+  WebcamOverlayPosition,
+  WebcamOverlayShape,
+  WebcamBorder,
+  VisibilitySegment,
+  ExportConfig,
+  ExportFormat,
+  ExportResolution,
+  ExportPreset,
+  AspectRatio,
+  BackgroundType as VideoBackgroundType,
+  BackgroundConfig,
+  ExportProgress,
+  ExportResult,
+  ExportStage,
+  AudioTrackSettings,
+  AudioWaveform,
+  SceneMode,
+  SceneSegment,
+  SceneConfig,
+  TextAnimation,
+  TextSegment,
+  TextConfig,
+} from './generated';
+
+// GPU Video Editor types (wgpu-accelerated rendering)
+export type {
+  EditorInstanceInfo,
+  PlaybackEvent,
+  PlaybackState,
+  RenderedFrame,
+} from './generated';
+
 // Import Rust type for extension
 import type { RecordingState as RustRecordingState } from './generated';
 
@@ -388,7 +469,9 @@ export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
   mode: { type: 'monitor', monitorIndex: 0 },
   fps: 30,
   maxDurationSecs: null,
-  includeCursor: true,
+  // Disable system cursor in video frames - we render our own cursor overlay
+  // in the video editor with SVG cursors, smoothing, and effects
+  includeCursor: false,
   audio: {
     captureSystemAudio: true,
     microphoneDeviceIndex: null,
@@ -396,6 +479,7 @@ export const DEFAULT_RECORDING_SETTINGS: RecordingSettings = {
   quality: 80,
   gifQualityPreset: 'balanced',
   countdownSecs: 3,
+  quickCapture: false,
 };
 
 // ============================================

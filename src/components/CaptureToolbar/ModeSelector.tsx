@@ -1,8 +1,8 @@
 /**
- * ModeSelector - Segmented toggle group for capture mode selection.
+ * ModeSelector - Horizontal toggle group for capture mode selection.
  *
- * A connected toggle group where only one mode can be active (solo mode).
- * Visual style: segmented control with sliding highlight.
+ * A connected toggle group where only one mode can be active.
+ * Visual style: horizontal segmented control with glass styling.
  */
 
 import React from 'react';
@@ -13,31 +13,33 @@ interface ModeSelectorProps {
   activeMode: CaptureType;
   onModeChange: (mode: CaptureType) => void;
   disabled?: boolean;
+  fullWidth?: boolean;
 }
 
 const modes: { id: CaptureType; icon: React.ReactNode; label: string }[] = [
-  { id: 'video', icon: <Video size={14} />, label: 'Video' },
-  { id: 'gif', icon: <ImagePlay size={14} />, label: 'GIF' },
-  { id: 'screenshot', icon: <Camera size={14} />, label: 'Photo' },
+  { id: 'video', icon: <Video size={14} strokeWidth={1.5} />, label: 'Video' },
+  { id: 'gif', icon: <ImagePlay size={14} strokeWidth={1.5} />, label: 'GIF' },
+  { id: 'screenshot', icon: <Camera size={14} strokeWidth={1.5} />, label: 'Photo' },
 ];
 
 export const ModeSelector: React.FC<ModeSelectorProps> = ({
   activeMode,
   onModeChange,
   disabled = false,
+  fullWidth = false,
 }) => {
   return (
-    <div className={`glass-toggle-group-vertical ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+    <div className={`glass-mode-group ${fullWidth ? 'glass-mode-group--full' : ''} ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
       {modes.map((mode) => (
         <button
           key={mode.id}
           onClick={() => onModeChange(mode.id)}
-          className={`glass-toggle-item-vertical ${activeMode === mode.id ? 'glass-toggle-item-vertical--active' : ''}`}
+          className={`glass-mode-btn ${activeMode === mode.id ? 'glass-mode-btn--active' : ''}`}
           title={mode.label}
           disabled={disabled}
         >
-          {mode.icon}
-          <span className="glass-toggle-label">{mode.label}</span>
+          <span className="glass-mode-icon">{mode.icon}</span>
+          <span className="glass-mode-label">{mode.label}</span>
         </button>
       ))}
     </div>

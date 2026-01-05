@@ -8,11 +8,14 @@
 pub mod fallback;
 pub mod types;
 
-pub use types::{CaptureResult, FastCaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection, VirtualScreenBounds, WindowInfo};
+pub use types::{
+    CaptureResult, FastCaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection,
+    VirtualScreenBounds, WindowInfo,
+};
 
-use tauri::{command, Emitter};
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
+use tauri::{command, Emitter};
 
 // Track which monitor is currently detecting windows to prevent duplicate borders
 // When a monitor calls get_window_at_point, it becomes the "active" monitor
@@ -74,12 +77,6 @@ pub async fn capture_region(selection: RegionSelection) -> Result<CaptureResult,
     fallback::capture_region(selection).map_err(|e| e.to_string())
 }
 
-/// Capture fullscreen (primary monitor).
-#[command]
-pub async fn capture_fullscreen() -> Result<CaptureResult, String> {
-    fallback::capture_fullscreen().map_err(|e| e.to_string())
-}
-
 /// Get window at a specific screen coordinate.
 ///
 /// The monitor_index parameter is used to track which overlay is currently detecting windows.
@@ -87,7 +84,12 @@ pub async fn capture_fullscreen() -> Result<CaptureResult, String> {
 /// recent monitor to request detection will receive results.
 #[cfg(target_os = "windows")]
 #[command]
-pub async fn get_window_at_point(app: tauri::AppHandle, x: i32, y: i32, monitor_index: i32) -> Result<Option<WindowInfo>, String> {
+pub async fn get_window_at_point(
+    app: tauri::AppHandle,
+    x: i32,
+    y: i32,
+    monitor_index: i32,
+) -> Result<Option<WindowInfo>, String> {
     use windows::Win32::{
         Foundation::POINT,
         System::Threading::GetCurrentProcessId,
@@ -139,7 +141,7 @@ pub async fn get_window_at_point(app: tauri::AppHandle, x: i32, y: i32, monitor_
                     if !is_point_in_hwnd(current_hwnd, point) {
                         continue;
                     }
-                }
+                },
                 _ => break,
             }
         }
@@ -152,16 +154,26 @@ pub async fn get_window_at_point(app: tauri::AppHandle, x: i32, y: i32, monitor_
 fn get_process_name(process_id: u32) -> String {
     use windows::Win32::{
         Foundation::CloseHandle,
-        System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION},
+        System::Threading::{
+            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+            PROCESS_QUERY_LIMITED_INFORMATION,
+        },
     };
-    
+
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id);
         if let Ok(handle) = handle {
             let mut buffer = [0u16; 260];
             let mut size = buffer.len() as u32;
-            
-            if QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, windows::core::PWSTR(buffer.as_mut_ptr()), &mut size).is_ok() {
+
+            if QueryFullProcessImageNameW(
+                handle,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(buffer.as_mut_ptr()),
+                &mut size,
+            )
+            .is_ok()
+            {
                 let _ = CloseHandle(handle);
                 let path = String::from_utf16_lossy(&buffer[..size as usize]);
                 // Extract just the filename from the path
@@ -183,10 +195,10 @@ fn try_get_window_info(
         Foundation::RECT,
         Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS},
         UI::WindowsAndMessaging::{
-            GetClassNameW, GetLayeredWindowAttributes, GetWindowLongW,
-            GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
-            IsWindowVisible, GWL_EXSTYLE, LAYERED_WINDOW_ATTRIBUTES_FLAGS, LWA_ALPHA,
-            WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+            GetClassNameW, GetLayeredWindowAttributes, GetWindowLongW, GetWindowTextLengthW,
+            GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, GWL_EXSTYLE,
+            LAYERED_WINDOW_ATTRIBUTES_FLAGS, LWA_ALPHA, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
+            WS_EX_TRANSPARENT,
         },
     };
 
@@ -194,7 +206,7 @@ fn try_get_window_info(
         if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
             return None;
         }
-        
+
         // Check if window is cloaked (hidden by DWM - catches UWP hidden windows)
         let mut cloaked: u32 = 0;
         if DwmGetWindowAttribute(
@@ -202,7 +214,10 @@ fn try_get_window_info(
             DWMWA_CLOAKED,
             &mut cloaked as *mut u32 as *mut std::ffi::c_void,
             std::mem::size_of::<u32>() as u32,
-        ).is_ok() && cloaked != 0 {
+        )
+        .is_ok()
+            && cloaked != 0
+        {
             return None;
         }
 
@@ -223,7 +238,9 @@ fn try_get_window_info(
             DWMWA_EXTENDED_FRAME_BOUNDS,
             &mut rect as *mut RECT as *mut std::ffi::c_void,
             std::mem::size_of::<RECT>() as u32,
-        ).is_err() {
+        )
+        .is_err()
+        {
             return None;
         }
 
@@ -257,34 +274,46 @@ fn try_get_window_info(
 
         // Filter system windows
         match class_name.as_str() {
-            "Shell_TrayWnd" | "Shell_SecondaryTrayWnd" | "NotifyIconOverflowWindow"
-            | "Windows.UI.Core.CoreWindow" | "Progman" | "WorkerW" => return None,
-            _ => {}
+            "Shell_TrayWnd"
+            | "Shell_SecondaryTrayWnd"
+            | "NotifyIconOverflowWindow"
+            | "Windows.UI.Core.CoreWindow"
+            | "Progman"
+            | "WorkerW" => return None,
+            _ => {},
         }
 
         // Get process name directly from Windows API
         let app_name = get_process_name(process_id);
         let app_lower = app_name.to_lowercase();
-        
+
         // Filter out our own SnapIt windows
         if app_lower.contains("snapit") {
             return None;
         }
-        
+
         // Filter ApplicationFrameHost.exe - UWP container process, not the actual app
         if app_lower == "applicationframehost.exe" {
             return None;
         }
-        
+
         // Filter known hidden/popup UI elements by title
         let title_lower = title.to_lowercase();
-        if matches!(title_lower.as_str(), 
-            "command palette" | "quick pick" | "go to file" | "go to symbol"
-            | "input" | "dropdown" | "tooltip" | "popup" | "menu window"
+        if matches!(
+            title_lower.as_str(),
+            "command palette"
+                | "quick pick"
+                | "go to file"
+                | "go to symbol"
+                | "input"
+                | "dropdown"
+                | "tooltip"
+                | "popup"
+                | "menu window"
         ) {
             return None;
         }
-        
+
         // Filter webview windows with generic titles (likely our settings modal)
         if class_name.starts_with("Chrome_") || class_name.contains("WebView") {
             if title_lower == "settings" || title.is_empty() {
@@ -345,7 +374,9 @@ fn is_point_in_hwnd(
             DWMWA_EXTENDED_FRAME_BOUNDS,
             &mut rect as *mut RECT as *mut std::ffi::c_void,
             std::mem::size_of::<RECT>() as u32,
-        ).is_ok() {
+        )
+        .is_ok()
+        {
             point.x >= rect.left
                 && point.x < rect.right
                 && point.y >= rect.top
@@ -358,7 +389,12 @@ fn is_point_in_hwnd(
 
 #[cfg(not(target_os = "windows"))]
 #[command]
-pub async fn get_window_at_point(_app: tauri::AppHandle, _x: i32, _y: i32, _monitor_index: i32) -> Result<Option<WindowInfo>, String> {
+pub async fn get_window_at_point(
+    _app: tauri::AppHandle,
+    _x: i32,
+    _y: i32,
+    _monitor_index: i32,
+) -> Result<Option<WindowInfo>, String> {
     // Window detection not supported on non-Windows platforms
     Ok(None)
 }
@@ -439,24 +475,26 @@ pub async fn capture_window_fast(hwnd: isize) -> Result<FastCaptureResult, Strin
                 height,
                 has_transparency: false,
             });
-        }
+        },
         Err(e) => {
-            println!("[CAPTURE] xcap failed ({}), falling back to screen capture...", e);
-        }
+            println!(
+                "[CAPTURE] xcap failed ({}), falling back to screen capture...",
+                e
+            );
+        },
     }
 
     // Fallback to screen region capture at window bounds
-    capture_window_bitblt(hwnd)
-        .and_then(|(rgba_data, width, height)| {
-            println!("[CAPTURE] Screen capture succeeded: {}x{}", width, height);
-            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            Ok(FastCaptureResult {
-                file_path,
-                width,
-                height,
-                has_transparency: false,
-            })
+    capture_window_bitblt(hwnd).and_then(|(rgba_data, width, height)| {
+        println!("[CAPTURE] Screen capture succeeded: {}x{}", width, height);
+        let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+        Ok(FastCaptureResult {
+            file_path,
+            width,
+            height,
+            has_transparency: false,
         })
+    })
 }
 
 /// Fast capture of a region - returns file path instead of base64.
@@ -477,48 +515,47 @@ pub async fn capture_region_fast(selection: RegionSelection) -> Result<FastCaptu
         height: selection.height,
     };
 
-    capture_region_bitblt(&screen_selection)
-        .and_then(|(rgba_data, width, height)| {
-            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            Ok(FastCaptureResult {
-                file_path,
-                width,
-                height,
-                has_transparency: false,
-            })
+    capture_region_bitblt(&screen_selection).and_then(|(rgba_data, width, height)| {
+        let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+        Ok(FastCaptureResult {
+            file_path,
+            width,
+            height,
+            has_transparency: false,
         })
+    })
 }
 
 /// Fast capture of a screen region (multi-monitor support).
 /// Uses absolute screen coordinates. Currently uses BitBlt.
 #[command]
-pub async fn capture_screen_region_fast(selection: ScreenRegionSelection) -> Result<FastCaptureResult, String> {
-    capture_region_bitblt(&selection)
-        .and_then(|(rgba_data, width, height)| {
-            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            Ok(FastCaptureResult {
-                file_path,
-                width,
-                height,
-                has_transparency: false,
-            })
+pub async fn capture_screen_region_fast(
+    selection: ScreenRegionSelection,
+) -> Result<FastCaptureResult, String> {
+    capture_region_bitblt(&selection).and_then(|(rgba_data, width, height)| {
+        let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+        Ok(FastCaptureResult {
+            file_path,
+            width,
+            height,
+            has_transparency: false,
         })
+    })
 }
 
 /// Fast capture of fullscreen - returns file path instead of base64.
 /// Currently uses BitBlt (xcap). Switch to WGC if transparent window issues.
 #[command]
 pub async fn capture_fullscreen_fast() -> Result<FastCaptureResult, String> {
-    capture_fullscreen_bitblt()
-        .and_then(|(rgba_data, width, height)| {
-            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            Ok(FastCaptureResult {
-                file_path,
-                width,
-                height,
-                has_transparency: false,
-            })
+    capture_fullscreen_bitblt().and_then(|(rgba_data, width, height)| {
+        let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+        Ok(FastCaptureResult {
+            file_path,
+            width,
+            height,
+            has_transparency: false,
         })
+    })
 }
 
 /// Read raw RGBA data from a temp file (for converting to PNG when saving).
@@ -528,8 +565,8 @@ pub async fn read_rgba_file(file_path: String) -> Result<CaptureResult, String> 
     use image::{DynamicImage, RgbaImage};
     use std::io::{Cursor, Read};
 
-    let mut file = std::fs::File::open(&file_path)
-        .map_err(|e| format!("Failed to open temp file: {}", e))?;
+    let mut file =
+        std::fs::File::open(&file_path).map_err(|e| format!("Failed to open temp file: {}", e))?;
 
     // Read header
     let mut width_bytes = [0u8; 4];
@@ -574,6 +611,5 @@ pub async fn read_rgba_file(file_path: String) -> Result<CaptureResult, String> 
 /// Clean up a temp RGBA file.
 #[command]
 pub async fn cleanup_rgba_file(file_path: String) -> Result<(), String> {
-    std::fs::remove_file(&file_path)
-        .map_err(|e| format!("Failed to delete temp file: {}", e))
+    std::fs::remove_file(&file_path).map_err(|e| format!("Failed to delete temp file: {}", e))
 }

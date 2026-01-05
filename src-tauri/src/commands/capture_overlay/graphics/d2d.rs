@@ -6,19 +6,21 @@
 //! - Stroke style for dashed crosshair lines
 //! - Text format for size indicator
 
+// Allow unused fields - kept for resource lifetime management
+#![allow(dead_code)]
+
 use windows::core::{Interface, Result, PCWSTR};
 use windows::Foundation::Numerics::Matrix3x2;
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1CreateFactory, D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET,
-    D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES, D2D1_CAP_STYLE_FLAT,
-    D2D1_DASH_STYLE_CUSTOM, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_LINE_JOIN_MITER,
-    D2D1_STROKE_STYLE_PROPERTIES1, D2D1_STROKE_TRANSFORM_TYPE_NORMAL, ID2D1Bitmap1,
-    ID2D1Device, ID2D1DeviceContext, ID2D1Factory1, ID2D1RenderTarget, ID2D1SolidColorBrush,
-    ID2D1StrokeStyle1,
+    D2D1CreateFactory, ID2D1Bitmap1, ID2D1Device, ID2D1DeviceContext, ID2D1Factory1,
+    ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle1, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+    D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES,
+    D2D1_CAP_STYLE_FLAT, D2D1_DASH_STYLE_CUSTOM, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
+    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_LINE_JOIN_MITER, D2D1_STROKE_STYLE_PROPERTIES1,
+    D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
 };
 use windows::Win32::Graphics::Direct3D11::ID3D11Device;
 use windows::Win32::Graphics::DirectWrite::{
@@ -118,6 +120,8 @@ pub struct D2DResources {
     pub brushes: Brushes,
     /// Text format for size indicator
     pub text_format: IDWriteTextFormat,
+    /// Larger text format for window name indicator
+    pub text_format_large: IDWriteTextFormat,
     /// Stroke style for dashed crosshair
     pub crosshair_stroke: ID2D1StrokeStyle1,
 }
@@ -199,18 +203,47 @@ pub fn create_text_format() -> Result<IDWriteTextFormat> {
     }
 }
 
+/// Create larger text format for window name indicator.
+pub fn create_text_format_large() -> Result<IDWriteTextFormat> {
+    use windows::Win32::Graphics::DirectWrite::DWRITE_FONT_WEIGHT_EXTRA_BOLD;
+
+    unsafe {
+        let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
+
+        let font: Vec<u16> = "Segoe UI\0".encode_utf16().collect();
+        let locale: Vec<u16> = "en-US\0".encode_utf16().collect();
+
+        let format = factory.CreateTextFormat(
+            PCWSTR(font.as_ptr()),
+            None,
+            DWRITE_FONT_WEIGHT_EXTRA_BOLD,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            24.0,
+            PCWSTR(locale.as_ptr()),
+        )?;
+
+        format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+        format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
+
+        Ok(format)
+    }
+}
+
 /// Create all D2D resources needed for rendering.
 pub fn create_resources(d3d_device: &ID3D11Device) -> Result<D2DResources> {
     let (factory, context) = create_context(d3d_device)?;
     let brushes = create_brushes(&context)?;
     let crosshair_stroke = create_crosshair_stroke(&factory)?;
     let text_format = create_text_format()?;
+    let text_format_large = create_text_format_large()?;
 
     Ok(D2DResources {
         factory,
         context,
         brushes,
         text_format,
+        text_format_large,
         crosshair_stroke,
     })
 }

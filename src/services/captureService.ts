@@ -10,13 +10,6 @@ import type { MonitorInfo, ScreenRegionSelection, FastCaptureResult, RecordingFo
 import { reportError } from '../utils/errorReporting';
 
 /**
- * Result from a fullscreen capture operation.
- */
-interface FullscreenCaptureResult {
-  image_data: string;
-}
-
-/**
  * Virtual screen bounds for multi-monitor capture.
  */
 interface VirtualScreenBounds {
@@ -54,20 +47,6 @@ export const CaptureService = {
       await invoke('show_overlay', { captureType });
     } catch (error) {
       reportError(error, { operation: 'recording start' });
-      throw error;
-    }
-  },
-
-  /**
-   * Capture the entire primary monitor (fullscreen).
-   * Returns the captured image data as base64.
-   */
-  async captureFullscreen(): Promise<FullscreenCaptureResult | null> {
-    try {
-      const result = await invoke<FullscreenCaptureResult>('capture_fullscreen');
-      return result?.image_data ? result : null;
-    } catch (error) {
-      reportError(error, { operation: 'fullscreen capture' });
       throw error;
     }
   },
@@ -169,4 +148,4 @@ export const CaptureService = {
 };
 
 // Export types for consumers
-export type { FullscreenCaptureResult, VirtualScreenBounds };
+export type { VirtualScreenBounds };

@@ -18,6 +18,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ShortcutConfig, ShortcutStatus } from '../types';
+import { hotkeyLogger } from './logger';
 
 // Store unlisten functions for hook-based event listeners
 const hookListeners: Map<string, UnlistenFn> = new Map();
@@ -179,7 +180,7 @@ export async function updateTrayShortcut(id: string, shortcut: string): Promise<
   try {
     await invoke('update_tray_shortcut', { shortcutId: id, displayText });
   } catch (error) {
-    console.error(`Failed to update tray shortcut for ${id}:`, error);
+    hotkeyLogger.error(`Failed to update tray shortcut for ${id}:`, error);
   }
 }
 
@@ -367,30 +368,68 @@ export async function registerAllShortcuts(): Promise<void> {
 }
 
 /**
- * Unregister all shortcuts
+ * Unregister all shortcuts (both hook and plugin modes)
  */
 export async function unregisterAllShortcuts(): Promise<void> {
+  // Unregister all tauri plugin shortcuts
   try {
     await unregisterAll();
   } catch (error) {
-    console.error('Failed to unregister all shortcuts:', error);
+    hotkeyLogger.error('Failed to unregister all plugin shortcuts:', error);
   }
 
-  // Also unregister any hook-based shortcuts
+  // Also unregister ALL hook-based shortcuts and clear listeners
   const shortcuts = useSettingsStore.getState().settings.shortcuts;
   for (const config of Object.values(shortcuts)) {
-    if (config.useHook) {
-      try {
-        await invoke('unregister_shortcut_hook', { id: config.id });
-      } catch {
-        // Ignore errors during cleanup
-      }
+    // Clean up hook listener
+    const listener = hookListeners.get(config.id);
+    if (listener) {
+      listener();
+      hookListeners.delete(config.id);
     }
+
+    // Unregister from Rust hook
+    try {
+      await invoke('unregister_shortcut_hook', { id: config.id });
+    } catch {
+      // Ignore errors during cleanup
+    }
+  }
+
+  // Also try to unregister all hooks at once (belt and suspenders)
+  try {
+    await invoke('unregister_all_hooks');
+  } catch {
+    // Ignore errors during cleanup
   }
 }
 
 /**
- * Update and re-register a shortcut
+ * Switch between override mode and normal mode with clean handoff
+ * This ensures no ghost registrations are left behind
+ * @param allowOverride - Whether to enable override mode
+ */
+export async function setAllowOverride(allowOverride: boolean): Promise<void> {
+  hotkeyLogger.info(`Switching override mode to: ${allowOverride}`);
+
+  // First, unregister ALL shortcuts from BOTH mechanisms
+  await unregisterAllShortcuts();
+
+  // Small delay to ensure all unregistrations are processed
+  await new Promise(resolve => setTimeout(resolve, 50));
+
+  // Update the setting in the store
+  const store = useSettingsStore.getState();
+  store.updateGeneralSettings({ allowOverride });
+
+  // Re-register all shortcuts using the new mode
+  await registerAllShortcuts();
+
+  hotkeyLogger.info(`Override mode switch complete`);
+}
+
+/**
+ * Update and re-register a shortcut with rollback on failure
  * @param id - The shortcut ID
  * @param newShortcut - The new shortcut string
  * @returns The registration status
@@ -403,13 +442,23 @@ export async function updateShortcut(
   const config = store.settings.shortcuts[id];
 
   if (!config) {
-    console.error(`Shortcut ${id} not found`);
+    hotkeyLogger.error(`Shortcut ${id} not found`);
     return 'error';
   }
 
-  // Validate the new shortcut
+  // Store original shortcut for rollback
+  const originalShortcut = config.currentShortcut;
+
+  // Validate the new shortcut using robust validation
+  const validation = validateShortcutString(newShortcut);
+  if (!validation.valid) {
+    hotkeyLogger.error(`Invalid shortcut: ${validation.error}`);
+    return 'error';
+  }
+
+  // Also check basic format
   if (!isValidShortcut(newShortcut)) {
-    console.error(`Invalid shortcut format: ${newShortcut}`);
+    hotkeyLogger.error(`Invalid shortcut format: ${newShortcut}`);
     return 'error';
   }
 
@@ -417,7 +466,7 @@ export async function updateShortcut(
   const shortcuts = store.settings.shortcuts;
   for (const [otherId, otherConfig] of Object.entries(shortcuts)) {
     if (otherId !== id && otherConfig.currentShortcut === newShortcut) {
-      console.error(`Shortcut ${newShortcut} is already used by ${otherId}`);
+      hotkeyLogger.error(`Shortcut ${newShortcut} is already used by ${otherId}`);
       return 'conflict';
     }
   }
@@ -431,6 +480,24 @@ export async function updateShortcut(
   // Register the new shortcut
   const updatedConfig = store.settings.shortcuts[id];
   const status = await registerShortcut(updatedConfig);
+
+  // If registration failed, rollback to original shortcut
+  if (status === 'error' || status === 'conflict') {
+    hotkeyLogger.warn(`Registration failed for ${newShortcut}, rolling back to ${originalShortcut}`);
+
+    // Restore original in store
+    store.updateShortcut(id, originalShortcut);
+
+    // Try to re-register original
+    const rollbackConfig = store.settings.shortcuts[id];
+    const rollbackStatus = await registerShortcut(rollbackConfig);
+
+    // Update tray with original
+    await updateTrayShortcut(id, originalShortcut);
+
+    // Return the original failure status (user should know it failed)
+    return rollbackStatus === 'registered' ? status : 'error';
+  }
 
   // Update tray menu to reflect the new shortcut
   await updateTrayShortcut(id, newShortcut);
@@ -479,6 +546,82 @@ export function getShortcutInfo(id: string): {
 }
 
 /**
+ * Validate shortcut string for robustness
+ * Ensures the shortcut has at least one non-modifier key
+ * @param shortcut - The shortcut string to validate
+ * @returns Object with valid status and optional error message
+ */
+export function validateShortcutString(shortcut: string): { valid: boolean; error?: string } {
+  if (!shortcut || typeof shortcut !== 'string') {
+    return { valid: false, error: 'Shortcut cannot be empty' };
+  }
+
+  const parts = shortcut.split('+').map((p) => p.trim().toLowerCase());
+  if (parts.length === 0) {
+    return { valid: false, error: 'Invalid shortcut format' };
+  }
+
+  const modifierKeys = ['ctrl', 'control', 'alt', 'shift', 'meta', 'command', 'cmd', 'super', 'win', 'commandorcontrol'];
+
+  // Check if there's at least one non-modifier key
+  const hasNonModifier = parts.some((part) => !modifierKeys.includes(part));
+
+  if (!hasNonModifier) {
+    return { valid: false, error: 'Shortcut must contain at least one non-modifier key' };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Suspend a shortcut temporarily (for editing without triggering)
+ * @param id - The shortcut ID to suspend
+ */
+export async function suspendShortcut(id: string): Promise<void> {
+  const store = useSettingsStore.getState();
+  const allowOverride = store.settings.general.allowOverride;
+
+  // If using hooks (override mode), suspend via Rust
+  if (allowOverride) {
+    try {
+      await invoke('suspend_shortcut', { id });
+    } catch (error) {
+      hotkeyLogger.error(`Failed to suspend shortcut ${id}:`, error);
+    }
+  }
+
+  // Also unregister from tauri plugin if registered there
+  const config = store.settings.shortcuts[id];
+  if (config) {
+    try {
+      const registered = await isRegistered(config.currentShortcut);
+      if (registered) {
+        await unregister(config.currentShortcut);
+      }
+    } catch {
+      // Ignore errors during cleanup
+    }
+  }
+}
+
+/**
+ * Resume a suspended shortcut (re-register after editing)
+ * @param id - The shortcut ID to resume
+ */
+export async function resumeShortcut(id: string): Promise<void> {
+  const store = useSettingsStore.getState();
+  const config = store.settings.shortcuts[id];
+
+  if (!config) {
+    hotkeyLogger.error(`Cannot resume shortcut ${id}: not found`);
+    return;
+  }
+
+  // Re-register the shortcut
+  await registerShortcut(config);
+}
+
+/**
  * Check if a shortcut conflicts with another app (without committing)
  * Returns: 'available' | 'conflict' | 'internal_conflict' | 'error'
  */
@@ -520,7 +663,7 @@ export async function checkShortcutConflict(
       return 'conflict';
     }
   } catch (error) {
-    console.error('Error checking shortcut conflict:', error);
+    hotkeyLogger.error('Error checking shortcut conflict:', error);
     // Registration threw an error - likely a conflict
     return 'conflict';
   }

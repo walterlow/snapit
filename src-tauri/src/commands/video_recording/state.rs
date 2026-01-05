@@ -54,36 +54,36 @@ impl RecordingProgress {
             was_cancelled: AtomicBool::new(false),
         }
     }
-    
+
     pub fn increment_frame(&self) {
         self.frame_count.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     pub fn get_frame_count(&self) -> u64 {
         self.frame_count.load(Ordering::Relaxed)
     }
-    
+
     pub fn set_paused(&self, paused: bool) {
         self.is_paused.store(paused, Ordering::Relaxed);
     }
-    
+
     pub fn is_paused(&self) -> bool {
         self.is_paused.load(Ordering::Relaxed)
     }
-    
+
     pub fn request_stop(&self) {
         self.should_stop.store(true, Ordering::Relaxed);
     }
-    
+
     pub fn should_stop(&self) -> bool {
         self.should_stop.load(Ordering::Relaxed)
     }
-    
+
     pub fn mark_cancelled(&self) {
         self.was_cancelled.store(true, Ordering::Relaxed);
         self.should_stop.store(true, Ordering::Relaxed);
     }
-    
+
     pub fn was_cancelled(&self) -> bool {
         self.was_cancelled.load(Ordering::Relaxed)
     }
@@ -129,7 +129,7 @@ impl RecordingController {
             active: None,
         }
     }
-    
+
     /// Check if a recording is currently active.
     pub fn is_active(&self) -> bool {
         matches!(
@@ -140,7 +140,7 @@ impl RecordingController {
                 | RecordingState::Processing { .. }
         )
     }
-    
+
     /// Start a new recording session.
     pub fn start(
         &mut self,
@@ -150,10 +150,10 @@ impl RecordingController {
         if self.is_active() {
             return Err("A recording is already in progress".to_string());
         }
-        
+
         let progress = Arc::new(RecordingProgress::new());
         let (command_tx, command_rx) = bounded::<RecorderCommand>(10);
-        
+
         self.state = if settings.countdown_secs > 0 {
             RecordingState::Countdown {
                 seconds_remaining: settings.countdown_secs,
@@ -165,7 +165,7 @@ impl RecordingController {
                 frame_count: 0,
             }
         };
-        
+
         self.settings = Some(settings.clone());
         self.active = Some(ActiveRecording {
             settings,
@@ -175,20 +175,20 @@ impl RecordingController {
             command_tx,
             thread_handle: None,
         });
-        
+
         Ok((progress, command_rx))
     }
-    
+
     /// Update the recording state.
     pub fn update_state(&mut self, state: RecordingState) {
         self.state = state;
     }
-    
+
     /// Update countdown.
     pub fn update_countdown(&mut self, seconds_remaining: u32) {
         self.state = RecordingState::Countdown { seconds_remaining };
     }
-    
+
     /// Transition from countdown to recording.
     pub fn start_actual_recording(&mut self) {
         self.state = RecordingState::Recording {
@@ -196,12 +196,12 @@ impl RecordingController {
             elapsed_secs: 0.0,
             frame_count: 0,
         };
-        
+
         if let Some(ref mut active) = self.active {
             active.started_at = Instant::now();
         }
     }
-    
+
     /// Update recording progress.
     pub fn update_progress(&mut self, elapsed_secs: f64, frame_count: u64) {
         if let RecordingState::Recording { started_at, .. } = &self.state {
@@ -212,7 +212,7 @@ impl RecordingController {
             };
         }
     }
-    
+
     /// Set paused state.
     pub fn set_paused(&mut self, paused: bool) {
         if paused {
@@ -238,24 +238,19 @@ impl RecordingController {
                 frame_count: *frame_count,
             };
         }
-        
+
         if let Some(ref active) = self.active {
             active.progress.set_paused(paused);
         }
     }
-    
+
     /// Set processing state with progress.
     pub fn set_processing(&mut self, progress: f32) {
         self.state = RecordingState::Processing { progress };
     }
-    
+
     /// Complete the recording.
-    pub fn complete(
-        &mut self,
-        output_path: String,
-        duration_secs: f64,
-        file_size_bytes: u64,
-    ) {
+    pub fn complete(&mut self, output_path: String, duration_secs: f64, file_size_bytes: u64) {
         self.state = RecordingState::Completed {
             output_path,
             duration_secs,
@@ -263,38 +258,32 @@ impl RecordingController {
         };
         self.active = None;
     }
-    
+
     /// Set error state.
     pub fn set_error(&mut self, message: String) {
         self.state = RecordingState::Error { message };
         self.active = None;
     }
-    
+
     /// Reset to idle state.
     pub fn reset(&mut self) {
         self.state = RecordingState::Idle;
         self.settings = None;
         self.active = None;
     }
-    
+
     /// Send a command to the active recording.
     pub fn send_command(&self, command: RecorderCommand) -> Result<(), String> {
-        eprintln!("[CONTROLLER] send_command called: {:?}", command);
         if let Some(ref active) = self.active {
-            let result = active
+            active
                 .command_tx
-                .send(command);
-            match &result {
-                Ok(()) => eprintln!("[CONTROLLER] Command sent successfully"),
-                Err(e) => eprintln!("[CONTROLLER] Command send failed: {}", e),
-            }
-            result.map_err(|e| format!("Failed to send command: {}", e))
+                .send(command)
+                .map_err(|e| format!("Failed to send command: {}", e))
         } else {
-            eprintln!("[CONTROLLER] No active recording!");
             Err("No active recording".to_string())
         }
     }
-    
+
     /// Get elapsed time since recording started.
     pub fn get_elapsed_secs(&self) -> f64 {
         if let Some(ref active) = self.active {

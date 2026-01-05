@@ -1,15 +1,18 @@
 /**
- * WebcamPreviewWindow - Draggable webcam preview for positioning overlay.
+ * WebcamPreviewWindow - Native webcam preview using Rust capture service.
  *
- * Uses browser's getUserMedia for live preview. The window can be dragged
- * to set the webcam position for recordings.
+ * Uses native webcam capture via nokhwa (Rust) for consistent timing with recording.
+ * Polls for JPEG frames from Rust and displays them in an <img> element.
+ * Recording is handled entirely in Rust (WebcamEncoder) - no browser MediaRecorder.
+ * The window is excluded from screen capture (SetWindowDisplayAffinity).
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, emit } from '@tauri-apps/api/event';
-import type { WebcamSettings, WebcamShape, WebcamSize } from '@/types/generated';
+import { listen } from '@tauri-apps/api/event';
+import type { WebcamSettings, WebcamSize, WebcamShape } from '@/types/generated';
+import { webcamLogger } from '@/utils/logger';
 
 // Preview window size based on webcam size setting
 const PREVIEW_SIZES: Record<WebcamSize, number> = {
@@ -25,41 +28,31 @@ const DEFAULT_SETTINGS: WebcamSettings = {
   position: { type: 'bottomRight' },
   size: 'medium',
   shape: 'circle',
-  mirror: true,
+  mirror: false,
 };
 
-interface SelectionBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+// Frame polling interval (ms) - ~30fps
+const FRAME_POLL_INTERVAL = 33;
+
+// JPEG quality for preview (0-100)
+const PREVIEW_QUALITY = 75;
 
 const WebcamPreviewWindow: React.FC = () => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [frameData, setFrameData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [settings, setSettings] = useState<WebcamSettings>(DEFAULT_SETTINGS);
-  const selectionBoundsRef = useRef<SelectionBounds | null>(null);
+  
+  const frameIntervalRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  const captureStartedRef = useRef(false);
+  const currentDeviceRef = useRef<number | null>(null);
 
   // Listen for settings changes from the toolbar
   useEffect(() => {
     const unlisten = listen<WebcamSettings>('webcam-settings-changed', (event) => {
-      console.log('[WebcamPreview] Settings changed:', event.payload);
+      webcamLogger.debug('Settings changed:', event.payload);
       setSettings(event.payload);
-    });
-
-    return () => {
-      unlisten.then((fn) => fn()).catch(() => {});
-    };
-  }, []);
-
-  // Listen for selection bounds updates (for clamping)
-  useEffect(() => {
-    const unlisten = listen<SelectionBounds>('selection-updated', (event) => {
-      selectionBoundsRef.current = event.payload;
     });
 
     return () => {
@@ -75,209 +68,153 @@ const WebcamPreviewWindow: React.FC = () => {
         const newSize = PREVIEW_SIZES[settings.size];
         await win.setSize(new LogicalSize(newSize, newSize));
       } catch (e) {
-        console.error('[WebcamPreview] Failed to resize window:', e);
+        webcamLogger.error('Failed to resize window:', e);
       }
     };
 
     resizeWindow();
   }, [settings.size]);
 
-  // Get the device ID for the selected webcam
-  const getDeviceId = useCallback(async () => {
-    const deviceList = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = deviceList.filter((d) => d.kind === 'videoinput');
-    return videoDevices[settings.deviceIndex]?.deviceId;
-  }, [settings.deviceIndex]);
+  // Poll for frames from native capture service
+  const pollFrame = useCallback(async () => {
+    if (!mountedRef.current) return;
 
-  // Start webcam stream
-  useEffect(() => {
-    let mounted = true;
-
-    const startStream = async () => {
-      try {
-        // Stop existing stream
-        if (stream) {
-          stream.getTracks().forEach((track) => track.stop());
-        }
-
-        const deviceId = await getDeviceId();
-        const constraints: MediaStreamConstraints = {
-          video: deviceId
-            ? { deviceId: { exact: deviceId }, width: 320, height: 240 }
-            : { width: 320, height: 240 },
-          audio: false,
-        };
-
-        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-        if (mounted) {
-          setStream(mediaStream);
-          setError(null);
-          if (videoRef.current) {
-            videoRef.current.srcObject = mediaStream;
-          }
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(err instanceof Error ? err.message : 'Failed to access webcam');
-        }
-      }
-    };
-
-    startStream();
-
-    return () => {
-      mounted = false;
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, [settings.deviceIndex]);
-
-  // Bring window to front (above D2D overlay)
-  const bringToFront = useCallback(async () => {
     try {
-      await invoke('bring_webcam_preview_to_front');
-    } catch {
-      // Ignore errors
+      const frame = await invoke<string | null>('get_webcam_preview_frame', {
+        quality: PREVIEW_QUALITY,
+      });
+
+      if (frame && mountedRef.current) {
+        setFrameData(`data:image/jpeg;base64,${frame}`);
+        setError(null);
+      }
+    } catch (e) {
+      // Only log errors occasionally to avoid spam
+      webcamLogger.debug('Frame poll error:', e);
     }
   }, []);
 
-  // Handle mouse enter - bring to front
-  const handleMouseEnter = useCallback(() => {
-    bringToFront();
-  }, [bringToFront]);
+  // Start frame polling (separate from capture start to avoid re-polling issues)
+  const startPolling = useCallback(() => {
+    if (frameIntervalRef.current) return; // Already polling
+    frameIntervalRef.current = window.setInterval(pollFrame, FRAME_POLL_INTERVAL);
+    webcamLogger.debug('Frame polling started');
+  }, [pollFrame]);
 
-  // Custom drag handling with clamping
-  const dragStateRef = useRef<{
-    startMouseX: number;
-    startMouseY: number;
-    startWinX: number;
-    startWinY: number;
-  } | null>(null);
-
-  const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Only left click
-
-    // Bring to front before starting drag
-    await bringToFront();
-
-    try {
-      const win = getCurrentWindow();
-      const pos = await win.outerPosition();
-
-      // Store initial positions
-      dragStateRef.current = {
-        startMouseX: e.screenX,
-        startMouseY: e.screenY,
-        startWinX: pos.x,
-        startWinY: pos.y,
-      };
-
-      setIsDragging(true);
-    } catch {
-      // Ignore errors
+  const stopPolling = useCallback(() => {
+    if (frameIntervalRef.current) {
+      clearInterval(frameIntervalRef.current);
+      frameIntervalRef.current = null;
+      webcamLogger.debug('Frame polling stopped');
     }
-  }, [bringToFront]);
+  }, []);
 
-  // Global mouse move/up handlers for custom drag
+  // Start native webcam capture service (only once on mount, or when device changes)
   useEffect(() => {
-    const webcamSize = PREVIEW_SIZES[settings.size];
-    const padding = 16;
-
-    const handleMouseMove = async (e: MouseEvent) => {
-      if (!dragStateRef.current) return;
-
-      const bounds = selectionBoundsRef.current;
-      const { startMouseX, startMouseY, startWinX, startWinY } = dragStateRef.current;
-
-      // Calculate new position based on mouse delta
-      const deltaX = e.screenX - startMouseX;
-      const deltaY = e.screenY - startMouseY;
-      let newX = startWinX + deltaX;
-      let newY = startWinY + deltaY;
-
-      // Clamp to selection bounds if we have them
-      if (bounds) {
-        const minX = bounds.x + padding;
-        const maxX = bounds.x + bounds.width - webcamSize - padding;
-        const minY = bounds.y + padding;
-        const maxY = bounds.y + bounds.height - webcamSize - padding;
-
-        newX = Math.max(minX, Math.min(maxX, newX));
-        newY = Math.max(minY, Math.min(maxY, newY));
+    mountedRef.current = true;
+    
+    const startCapture = async () => {
+      const deviceIndex = settings.deviceIndex;
+      
+      // Skip if already started with this device
+      if (captureStartedRef.current && currentDeviceRef.current === deviceIndex) {
+        webcamLogger.debug('Capture already running for device', deviceIndex);
+        return;
       }
-
-      // Move window to clamped position
+      
       try {
-        const win = getCurrentWindow();
-        await win.setPosition(new PhysicalPosition(newX, newY));
-      } catch {
-        // Ignore errors
+        webcamLogger.debug('Starting native capture, device:', deviceIndex);
+        await invoke('start_webcam_preview', { deviceIndex });
+        captureStartedRef.current = true;
+        currentDeviceRef.current = deviceIndex;
+        webcamLogger.debug('Native capture started');
+
+        // Start polling for frames
+        startPolling();
+
+        // Exclude window from screen capture
+        try {
+          await invoke('exclude_webcam_from_capture');
+          webcamLogger.debug('Window excluded from capture');
+        } catch (e) {
+          webcamLogger.warn('Failed to exclude from capture:', e);
+        }
+      } catch (e) {
+        webcamLogger.error('Failed to start native capture:', e);
+        if (mountedRef.current) {
+          setError(e instanceof Error ? e.message : 'Failed to access webcam');
+        }
       }
     };
 
-    const handleMouseUp = async () => {
-      if (!dragStateRef.current) return;
+    startCapture();
 
-      dragStateRef.current = null;
-      setIsDragging(false);
-
-      // Update final position in settings (both Rust and frontend store)
-      try {
-        const win = getCurrentWindow();
-        const position = await win.outerPosition();
-        const customPosition = { type: 'custom' as const, x: position.x, y: position.y };
-
-        // Update Rust state
-        await invoke('set_webcam_position', { position: customPosition });
-
-        // Emit event so store updates to show "None" in dropdown
-        await emit('webcam-position-dragged', customPosition);
-      } catch {
-        // Ignore errors
-      }
+    // Cleanup only stops polling, NOT the capture service
+    // Capture service is stopped by closePreview in the store
+    return () => {
+      mountedRef.current = false;
+      stopPolling();
     };
+  }, [settings.deviceIndex, startPolling, stopPolling]);
 
-    // Add global listeners
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+  // Stop capture when window is closed (called from close event)
+  const stopCapture = useCallback(async () => {
+    stopPolling();
+    if (captureStartedRef.current) {
+      try {
+        await invoke('stop_webcam_preview');
+        captureStartedRef.current = false;
+        currentDeviceRef.current = null;
+        webcamLogger.debug('Native capture stopped');
+      } catch (e) {
+        webcamLogger.error('Failed to stop capture:', e);
+      }
+    }
+  }, [stopPolling]);
+
+  // Listen for recording state changes (for visual indicator only)
+  useEffect(() => {
+    const unlistenStart = listen('recording-state-changed', (event) => {
+      const state = event.payload as { type: string };
+      if (state.type === 'Recording') {
+        setIsRecording(true);
+      } else if (state.type === 'Idle' || state.type === 'Completed' || state.type === 'Error') {
+        setIsRecording(false);
+      }
+    });
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      unlistenStart.then((fn) => fn()).catch(() => {});
     };
-  }, [settings.size]);
+  }, []);
 
   // Listen for close event from main window
   useEffect(() => {
     const unlisten = listen('webcam-preview-close', async () => {
-      console.log('[WebcamPreview] Received close event');
-      // Stop the stream before closing
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      webcamLogger.debug('Received close event');
+      await stopCapture();
       try {
         const win = getCurrentWindow();
         await win.close();
       } catch (e) {
-        console.error('[WebcamPreview] Error closing window:', e);
+        webcamLogger.error('Error closing window:', e);
       }
     });
 
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
     };
-  }, [stream]);
+  }, [stopCapture]);
 
-  // Also close if component unmounts
-  useEffect(() => {
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, [stream]);
+  // Enable window dragging
+  const handleMouseDown = useCallback(async () => {
+    try {
+      const win = getCurrentWindow();
+      await win.startDragging();
+    } catch {
+      // Ignore errors
+    }
+  }, []);
 
   // Get shape styles
   const getShapeStyles = (shape: WebcamShape): React.CSSProperties => {
@@ -303,13 +240,11 @@ const WebcamPreviewWindow: React.FC = () => {
 
   return (
     <div
-      ref={containerRef}
-      onMouseEnter={handleMouseEnter}
       onMouseDown={handleMouseDown}
       style={{
         width: '100%',
         height: '100%',
-        cursor: isDragging ? 'grabbing' : 'grab',
+        cursor: 'grab',
         background: 'transparent',
         display: 'flex',
         alignItems: 'center',
@@ -323,7 +258,9 @@ const WebcamPreviewWindow: React.FC = () => {
           borderRadius: settings.shape === 'circle' ? '50%' : '12px',
           overflow: 'hidden',
           background: 'rgba(0, 0, 0, 0.8)',
-          border: '2px solid rgba(255, 255, 255, 0.2)',
+          border: isRecording
+            ? '3px solid #ef4444'
+            : '2px solid rgba(255, 255, 255, 0.2)',
         }}
       >
         {error ? (
@@ -343,14 +280,28 @@ const WebcamPreviewWindow: React.FC = () => {
           >
             {error}
           </div>
-        ) : (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
+        ) : frameData ? (
+          <img
+            src={frameData}
+            alt="Webcam preview"
             style={getShapeStyles(settings.shape)}
+            draggable={false}
           />
+        ) : (
+          <div
+            style={{
+              width: '100%',
+              height: '100%',
+              background: 'rgba(0, 0, 0, 0.8)',
+              color: '#888',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+            }}
+          >
+            Loading...
+          </div>
         )}
       </div>
     </div>

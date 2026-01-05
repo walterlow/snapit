@@ -5,9 +5,15 @@
 //!
 //! Communication uses an atomic pending command that the overlay polls.
 
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicIsize, AtomicU32, AtomicU8, Ordering};
 
 use super::types::OverlayCommand;
+
+/// Highlighted monitor index (-1 = none, use cursor position)
+static HIGHLIGHTED_MONITOR: AtomicI32 = AtomicI32::new(-1);
+
+/// Highlighted window HWND (0 = none, use cursor position)
+static HIGHLIGHTED_WINDOW: AtomicIsize = AtomicIsize::new(0);
 
 /// Global pending command for the overlay.
 ///
@@ -42,6 +48,14 @@ fn set_pending_command(cmd: OverlayCommand) {
     PENDING_COMMAND.store(cmd as u8, Ordering::SeqCst);
 }
 
+/// Clear any pending command.
+/// Called when starting a new overlay to ensure no stale commands.
+pub fn clear_pending_command() {
+    PENDING_COMMAND.store(0, Ordering::SeqCst);
+    PENDING_WIDTH.store(0, Ordering::SeqCst);
+    PENDING_HEIGHT.store(0, Ordering::SeqCst);
+}
+
 /// Confirm the overlay selection.
 ///
 /// Called from the toolbar when the user clicks the record or screenshot button.
@@ -58,7 +72,7 @@ pub async fn capture_overlay_confirm(action: String) -> Result<(), String> {
                 "Invalid action: '{}'. Expected 'recording' or 'screenshot'.",
                 action
             ))
-        }
+        },
     };
     set_pending_command(cmd);
     Ok(())
@@ -95,6 +109,46 @@ pub async fn capture_overlay_set_dimensions(width: u32, height: u32) -> Result<(
     PENDING_HEIGHT.store(height, Ordering::SeqCst);
     set_pending_command(OverlayCommand::SetDimensions);
     Ok(())
+}
+
+/// Highlight a specific monitor in the overlay.
+///
+/// Called from the display picker panel when the user hovers over a monitor item.
+/// Pass -1 to clear and use cursor position instead.
+#[tauri::command]
+pub async fn capture_overlay_highlight_monitor(monitor_index: i32) -> Result<(), String> {
+    HIGHLIGHTED_MONITOR.store(monitor_index, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Highlight a specific window in the overlay.
+///
+/// Called from the window picker panel when the user hovers over a window item.
+/// Pass 0 to clear and use cursor position instead.
+#[tauri::command]
+pub async fn capture_overlay_highlight_window(hwnd: isize) -> Result<(), String> {
+    HIGHLIGHTED_WINDOW.store(hwnd, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Get the currently highlighted monitor index.
+///
+/// Returns -1 if no specific monitor is highlighted (use cursor position).
+pub fn get_highlighted_monitor() -> i32 {
+    HIGHLIGHTED_MONITOR.load(Ordering::SeqCst)
+}
+
+/// Get the currently highlighted window HWND.
+///
+/// Returns 0 if no specific window is highlighted (use cursor position).
+pub fn get_highlighted_window() -> isize {
+    HIGHLIGHTED_WINDOW.load(Ordering::SeqCst)
+}
+
+/// Clear all highlights (reset to cursor-based detection).
+pub fn clear_highlights() {
+    HIGHLIGHTED_MONITOR.store(-1, Ordering::SeqCst);
+    HIGHLIGHTED_WINDOW.store(0, Ordering::SeqCst);
 }
 
 #[cfg(test)]

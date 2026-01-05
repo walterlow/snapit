@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RotateCcw, ChevronDown, Check, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { hotkeyLogger } from '@/utils/logger';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -10,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { checkShortcutConflict } from '@/utils/hotkeyManager';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -158,7 +160,7 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
       const result = await checkShortcutConflict(localShortcut, shortcutId);
       setConflictStatus(result === 'error' ? 'conflict' : result);
     } catch (error) {
-      console.error('Error checking conflict:', error);
+      hotkeyLogger.error('Error checking conflict:', error);
       setConflictStatus('conflict');
     }
   }, [localShortcut, value, shortcutId]);
@@ -317,68 +319,72 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="max-h-[300px] overflow-y-auto bg-[var(--card)] border-[var(--polar-frost)]"
+            className="p-0 bg-[var(--card)] border-[var(--polar-frost)]"
             align="start"
           >
-            <DropdownMenuRadioGroup value={localKey || 'none'} onValueChange={handleKeyChange}>
-              <DropdownMenuRadioItem value="none" className="text-xs text-[var(--ink-muted)]">
-                None
-              </DropdownMenuRadioItem>
+            <ScrollArea className="h-[300px]">
+              <div className="p-1">
+                <DropdownMenuRadioGroup value={localKey || 'none'} onValueChange={handleKeyChange}>
+                  <DropdownMenuRadioItem value="none" className="text-xs text-[var(--ink-muted)]">
+                    None
+                  </DropdownMenuRadioItem>
 
-              <DropdownMenuSeparator />
+                  <DropdownMenuSeparator />
 
-              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Special</DropdownMenuLabel>
-              {KEY_GROUPS.special.map(opt => (
-                <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </DropdownMenuRadioItem>
-              ))}
+                  <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Special</DropdownMenuLabel>
+                  {KEY_GROUPS.special.map(opt => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  ))}
 
-              <DropdownMenuSeparator />
+                  <DropdownMenuSeparator />
 
-              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Letters</DropdownMenuLabel>
-              {KEY_GROUPS.letters.map(opt => (
-                <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </DropdownMenuRadioItem>
-              ))}
+                  <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Letters</DropdownMenuLabel>
+                  {KEY_GROUPS.letters.map(opt => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  ))}
 
-              <DropdownMenuSeparator />
+                  <DropdownMenuSeparator />
 
-              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Numbers</DropdownMenuLabel>
-              {KEY_GROUPS.numbers.map(opt => (
-                <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </DropdownMenuRadioItem>
-              ))}
+                  <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Numbers</DropdownMenuLabel>
+                  {KEY_GROUPS.numbers.map(opt => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  ))}
 
-              <DropdownMenuSeparator />
+                  <DropdownMenuSeparator />
 
-              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Function Keys</DropdownMenuLabel>
-              {KEY_GROUPS.functionKeys.map(opt => (
-                <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </DropdownMenuRadioItem>
-              ))}
+                  <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Function Keys</DropdownMenuLabel>
+                  {KEY_GROUPS.functionKeys.map(opt => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  ))}
 
-              <DropdownMenuSeparator />
+                  <DropdownMenuSeparator />
 
-              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Navigation</DropdownMenuLabel>
-              {KEY_GROUPS.navigation.map(opt => (
-                <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </DropdownMenuRadioItem>
-              ))}
+                  <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Navigation</DropdownMenuLabel>
+                  {KEY_GROUPS.navigation.map(opt => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  ))}
 
-              <DropdownMenuSeparator />
+                  <DropdownMenuSeparator />
 
-              <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Arrows</DropdownMenuLabel>
-              {KEY_GROUPS.arrows.map(opt => (
-                <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
+                  <DropdownMenuLabel className="text-xs text-[var(--coral-400)]">Arrows</DropdownMenuLabel>
+                  {KEY_GROUPS.arrows.map(opt => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </div>
+            </ScrollArea>
           </DropdownMenuContent>
         </DropdownMenu>
         

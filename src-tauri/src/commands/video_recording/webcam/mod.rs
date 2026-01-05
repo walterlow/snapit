@@ -1,25 +1,33 @@
 //! Webcam capture and compositing for video recording.
 //!
-//! Provides Picture-in-Picture (PiP) webcam overlay functionality.
-//! Uses nokhwa with Windows Media Foundation backend for webcam capture.
+//! Architecture:
+//! - Single capture thread owns the camera hardware
+//! - Shared frame buffer (Arc) allows zero-copy access by:
+//!   - Recording encoder
+//!   - Preview window (via Tauri command)
+//! - This avoids "only one app can use camera" conflicts
+
+// Allow unused helpers - keeping for potential future use
+#![allow(dead_code)]
 
 mod capture;
 mod composite;
 mod device;
-mod preview;
+mod encoder;
 
-pub use capture::{WebcamCapture, WebcamError};
-pub use composite::composite_webcam;
+pub use capture::{is_capture_running, start_capture_service, stop_capture_service, WEBCAM_BUFFER};
+// composite_webcam no longer used - webcam composited via GPU in editor
 pub use device::{get_webcam_devices, WebcamDevice};
-pub use preview::{
-    get_preview_error, get_preview_frame, is_preview_running, preview_has_error,
-    set_preview_emission_enabled, start_preview_service, stop_preview_service,
-};
+pub use encoder::WebcamEncoderPipe;
 
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use ts_rs::TS;
 
 /// Webcam frame data ready for compositing.
+///
+/// **DEPRECATED**: Used by CPU-based webcam compositing, now replaced by GPU rendering.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct WebcamFrame {
     /// BGRA pixel data.
@@ -28,6 +36,12 @@ pub struct WebcamFrame {
     pub width: u32,
     /// Frame height in pixels.
     pub height: u32,
+    /// Unique frame ID (increments with each new frame from camera).
+    /// Used by encoder to detect new frames and avoid duplicates.
+    pub frame_id: u64,
+    /// Wall-clock time when this frame was captured.
+    /// Used by encoder to calculate PTS for correct playback timing.
+    pub captured_at: Instant,
 }
 
 impl Default for WebcamFrame {
@@ -36,6 +50,8 @@ impl Default for WebcamFrame {
             bgra_data: Vec::new(),
             width: 0,
             height: 0,
+            frame_id: 0,
+            captured_at: Instant::now(),
         }
     }
 }
@@ -50,7 +66,10 @@ pub enum WebcamPosition {
     BottomLeft,
     BottomRight,
     /// Custom position (x, y from top-left of recording).
-    Custom { x: i32, y: i32 },
+    Custom {
+        x: i32,
+        y: i32,
+    },
 }
 
 impl Default for WebcamPosition {
@@ -133,7 +152,7 @@ impl Default for WebcamSettings {
             position: WebcamPosition::default(),
             size: WebcamSize::default(),
             shape: WebcamShape::default(),
-            mirror: true,
+            mirror: false,
         }
     }
 }
@@ -160,4 +179,44 @@ pub fn compute_webcam_rect(
     };
 
     (x, y, diameter)
+}
+
+// === PREVIEW SERVICE FUNCTIONS ===
+// Now using native capture with shared frame buffer
+
+/// Stop the webcam preview/capture service.
+pub fn stop_preview_service() {
+    stop_capture_service();
+}
+
+/// Check if the webcam capture service is running.
+pub fn is_preview_running() -> bool {
+    is_capture_running()
+}
+
+/// Get the latest webcam frame as base64 JPEG for browser preview.
+/// Returns None if no frame available.
+/// JPEG is pre-cached in capture thread - no encoding here.
+pub fn get_preview_frame_jpeg(_quality: u8) -> Option<String> {
+    let frame = WEBCAM_BUFFER.get()?;
+
+    // Use cached JPEG (pre-encoded in capture thread)
+    if frame.jpeg_cache.is_empty() {
+        return None;
+    }
+
+    Some(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        frame.jpeg_cache.as_ref(),
+    ))
+}
+
+/// Get preview frame dimensions.
+pub fn get_preview_dimensions() -> Option<(u32, u32)> {
+    let (w, h) = WEBCAM_BUFFER.dimensions();
+    if w > 0 && h > 0 {
+        Some((w, h))
+    } else {
+        None
+    }
 }

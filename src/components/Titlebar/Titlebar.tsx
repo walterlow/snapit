@@ -1,16 +1,30 @@
 import { useState, useEffect } from 'react';
 import { Window } from '@tauri-apps/api/window';
-import { Minus, Square, X, Maximize2, Aperture, Sun, Moon } from 'lucide-react';
+import { Minus, Square, X, Maximize2, Aperture, Sun, Moon, FolderOpen, Camera, Settings } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 
 interface TitlebarProps {
   title?: string;
   showLogo?: boolean;
+  showMaximize?: boolean;
+  /** Called before window closes. Return false to prevent close. */
+  onClose?: () => void | boolean | Promise<void | boolean>;
+  /** Called when library button is clicked. Button only shown if provided. */
+  onOpenLibrary?: () => void;
+  /** Called when capture button is clicked. Button only shown if provided. */
+  onCapture?: () => void;
+  /** Called when settings button is clicked. Button only shown if provided. */
+  onOpenSettings?: () => void;
 }
 
 export const Titlebar: React.FC<TitlebarProps> = ({
   title = 'SnapIt',
-  showLogo = true
+  showLogo = true,
+  showMaximize = true,
+  onClose,
+  onOpenLibrary,
+  onCapture,
+  onOpenSettings,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -46,7 +60,13 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
   const handleMinimize = () => appWindow.minimize();
   const handleMaximize = () => appWindow.toggleMaximize();
-  const handleClose = () => appWindow.close();
+  const handleClose = async () => {
+    if (onClose) {
+      const result = await onClose();
+      if (result === false) return; // Prevent close if callback returns false
+    }
+    appWindow.close();
+  };
 
   return (
     <div
@@ -73,6 +93,36 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
       {/* Right: Window Controls */}
       <div className="titlebar-controls">
+        {onCapture && (
+          <button
+            onClick={onCapture}
+            className="titlebar-button"
+            aria-label="New Capture"
+            title="New Capture"
+          >
+            <Camera className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {onOpenSettings && (
+          <button
+            onClick={onOpenSettings}
+            className="titlebar-button"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {onOpenLibrary && (
+          <button
+            onClick={onOpenLibrary}
+            className="titlebar-button"
+            aria-label="Open Library"
+            title="Open Library"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           onClick={toggleTheme}
           className="titlebar-button"
@@ -85,7 +135,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
             <Moon className="w-3.5 h-3.5" />
           )}
         </button>
-        
+
         <button
           onClick={handleMinimize}
           className="titlebar-button titlebar-button-minimize"
@@ -93,17 +143,19 @@ export const Titlebar: React.FC<TitlebarProps> = ({
         >
           <Minus className="w-3.5 h-3.5" />
         </button>
-        <button
-          onClick={handleMaximize}
-          className="titlebar-button titlebar-button-maximize"
-          aria-label={isMaximized ? 'Restore' : 'Maximize'}
-        >
-          {isMaximized ? (
-            <Maximize2 className="w-3 h-3" />
-          ) : (
-            <Square className="w-3 h-3" />
-          )}
-        </button>
+        {showMaximize && (
+          <button
+            onClick={handleMaximize}
+            className="titlebar-button titlebar-button-maximize"
+            aria-label={isMaximized ? 'Restore' : 'Maximize'}
+          >
+            {isMaximized ? (
+              <Maximize2 className="w-3 h-3" />
+            ) : (
+              <Square className="w-3 h-3" />
+            )}
+          </button>
+        )}
         <button
           onClick={handleClose}
           className="titlebar-button titlebar-button-close"

@@ -130,30 +130,30 @@ describe('settingsStore', () => {
       const { updateGeneralSettings } = useSettingsStore.getState();
 
       updateGeneralSettings({
-        showInSystemTray: true,
+        minimizeToTray: true,
         defaultSaveDir: '/custom/path',
       });
 
       const { general } = useSettingsStore.getState().settings;
-      expect(general.showInSystemTray).toBe(true);
+      expect(general.minimizeToTray).toBe(true);
       expect(general.defaultSaveDir).toBe('/custom/path');
     });
 
     it('should preserve other settings when updating', () => {
       const { updateGeneralSettings, settings } = useSettingsStore.getState();
-      const originalLaunchAtLogin = settings.general.launchAtLogin;
+      const originalStartWithWindows = settings.general.startWithWindows;
 
-      updateGeneralSettings({ showInSystemTray: true });
+      updateGeneralSettings({ minimizeToTray: true });
 
       const { general } = useSettingsStore.getState().settings;
-      expect(general.launchAtLogin).toBe(originalLaunchAtLogin);
+      expect(general.startWithWindows).toBe(originalStartWithWindows);
     });
 
     it('should reset general settings to defaults', () => {
       const { updateGeneralSettings, resetGeneralSettings } = useSettingsStore.getState();
 
       updateGeneralSettings({
-        showInSystemTray: true,
+        minimizeToTray: false,
         defaultSaveDir: '/custom/path',
       });
 

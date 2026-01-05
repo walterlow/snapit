@@ -2,7 +2,7 @@
 
 /**
  * Current state of a recording session.
- * 
+ *
  * NOTE: ts-rs generates TypeScript types from Rust - single source of truth.
  * The serde attributes ensure JSON serialization matches the generated TS types.
  */

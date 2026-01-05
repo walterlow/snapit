@@ -6,8 +6,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 #[command]
 pub async fn copy_image_to_clipboard(app: AppHandle, path: String) -> Result<(), String> {
     // Read the image file
-    let image = image::open(&path)
-        .map_err(|e| format!("Failed to open image: {}", e))?;
+    let image = image::open(&path).map_err(|e| format!("Failed to open image: {}", e))?;
 
     let (width, height) = image.dimensions();
     let rgba = image.to_rgba8();

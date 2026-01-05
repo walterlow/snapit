@@ -13,6 +13,7 @@ export interface CaptureCardProps {
   onOpenInFolder: () => void;
   onCopyToClipboard: () => void;
   onPlayMedia?: () => void; // For video/gif - opens in system player
+  onEditVideo?: () => void; // For video - opens in video editor
   formatDate: (date: string) => string;
 }
 

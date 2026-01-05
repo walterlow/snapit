@@ -5,7 +5,7 @@ export const mockInvoke: Mock = vi.fn();
 
 // Mock Tauri event functions
 export const mockListen: Mock = vi.fn(() => Promise.resolve(() => {}));
-export const mockEmit: Mock = vi.fn();
+export const mockEmit: Mock = vi.fn(() => Promise.resolve());
 export const mockOnce: Mock = vi.fn(() => Promise.resolve(() => {}));
 
 // Mock responses storage for invoke

@@ -3,12 +3,29 @@
 //! DXGI Duplication API doesn't capture the hardware cursor by default.
 //! This module extracts cursor bitmaps via Windows API and composites
 //! them onto each captured frame.
+//!
+//! Also provides cursor event capture for video editor features:
+//! - Auto-zoom generation from click locations
+//! - Cursor smooth movement interpolation
+//! - Click highlight animations
+
+// Allow unused helpers - keeping for potential future use
+#![allow(dead_code)]
 
 mod capture;
 mod composite;
+pub mod events;
+mod highlight;
 
-pub use capture::CursorCapture;
-pub use composite::composite_cursor;
+// CursorCapture and composite functions are no longer used - cursor is rendered in editor
+// pub use capture::CursorCapture;
+// pub use composite::{composite_cursor, composite_cursor_scaled};
+pub use events::{
+    load_cursor_recording, save_cursor_recording, CursorEventCapture, CursorEventType,
+    CursorRecording,
+};
+// Click highlight is rendered in frontend
+// pub use highlight::{get_active_clicks, render_click_highlight};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,6 +35,9 @@ use std::sync::Arc;
 /// Uses Arc<Vec<u8>> for bgra_data to avoid expensive clones.
 /// Cursor bitmaps are typically 4KB+ and cloning on every frame
 /// would add significant allocation overhead.
+///
+/// **DEPRECATED**: Used by CPU-based cursor compositing, now replaced by GPU rendering.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct CursorState {
     /// Cursor is visible and should be drawn.
@@ -57,6 +77,9 @@ impl Default for CursorState {
 ///
 /// Uses Arc<Vec<u8>> for bgra_data to allow zero-cost sharing
 /// with CursorState without cloning the bitmap data.
+///
+/// **DEPRECATED**: Used by CPU-based cursor compositing.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct CachedCursor {
     pub width: u32,
@@ -71,6 +94,9 @@ pub(crate) struct CachedCursor {
 /// Caches cursor bitmaps by HCURSOR handle to avoid expensive
 /// GetDIBits calls every frame. The cache is invalidated when
 /// the cursor handle changes (e.g., switching from arrow to I-beam).
+///
+/// **DEPRECATED**: Used by CPU-based cursor compositing.
+#[allow(dead_code)]
 pub struct CursorCaptureManager {
     /// Cache of cursor bitmaps by HCURSOR handle.
     pub(crate) cache: HashMap<isize, CachedCursor>,

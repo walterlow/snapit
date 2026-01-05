@@ -51,7 +51,8 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
 }) => {
   const cursorHandlers = useShapeCursor(isDraggable);
   // points[] = anchor positions (where handles sit)
-  const anchors = shape.points || [0, 0, 0, 0];
+  // Memoize to prevent new array reference on every render when shape.points is undefined
+  const anchors = useMemo(() => shape.points || [0, 0, 0, 0], [shape.points]);
   const strokeWidth = shape.strokeWidth || 2;
   const handleSize = Math.min(6, Math.max(4, strokeWidth * 0.2)) / zoom;
   const tailOffset = strokeWidth + 1;  // Offset for tail, accounts for stroke

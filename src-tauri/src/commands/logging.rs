@@ -51,8 +51,7 @@ pub fn init_logging(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to get log directory: {}", e))?;
 
     // Create log directory if it doesn't exist
-    fs::create_dir_all(&log_dir)
-        .map_err(|e| format!("Failed to create log directory: {}", e))?;
+    fs::create_dir_all(&log_dir).map_err(|e| format!("Failed to create log directory: {}", e))?;
 
     // Store log directory for later use
     {
@@ -79,7 +78,11 @@ pub fn init_logging(app: &AppHandle) -> Result<(), String> {
 
     // Log startup
     log_internal(LogLevel::Info, "SnapIt", "Logging system initialized");
-    log_internal(LogLevel::Info, "SnapIt", &format!("Log directory: {:?}", log_dir));
+    log_internal(
+        LogLevel::Info,
+        "SnapIt",
+        &format!("Log directory: {:?}", log_dir),
+    );
 
     // Cleanup old log files
     cleanup_old_logs(&log_dir);
@@ -228,7 +231,7 @@ pub fn get_log_dir(app: AppHandle) -> Result<String, String> {
         .path()
         .app_log_dir()
         .map_err(|e| format!("Failed to get log directory: {}", e))?;
-    
+
     Ok(log_dir.to_string_lossy().to_string())
 }
 
@@ -276,16 +279,16 @@ pub fn get_recent_logs(app: AppHandle, lines: Option<usize>) -> Result<String, S
         .map_err(|e| format!("Failed to get log directory: {}", e))?;
 
     let log_path = get_current_log_path(&log_dir);
-    
+
     if !log_path.exists() {
         return Ok(String::new());
     }
 
-    let content = fs::read_to_string(&log_path)
-        .map_err(|e| format!("Failed to read log file: {}", e))?;
+    let content =
+        fs::read_to_string(&log_path).map_err(|e| format!("Failed to read log file: {}", e))?;
 
     let max_lines = lines.unwrap_or(100);
     let recent: Vec<&str> = content.lines().rev().take(max_lines).collect();
-    
+
     Ok(recent.into_iter().rev().collect::<Vec<_>>().join("\n"))
 }

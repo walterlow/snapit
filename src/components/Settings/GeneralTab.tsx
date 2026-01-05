@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { ImageFormat, Theme } from '@/types';
+import { settingsLogger } from '@/utils/logger';
 
 export const GeneralTab: React.FC = () => {
   const { settings, updateGeneralSettings } = useSettingsStore();
@@ -40,7 +41,7 @@ export const GeneralTab: React.FC = () => {
         const enabled = await invoke<boolean>('is_autostart_enabled');
         setIsAutostartEnabled(enabled);
       } catch (error) {
-        console.error('Failed to get autostart status:', error);
+        settingsLogger.error('Failed to get autostart status:', error);
       } finally {
         setIsLoadingAutostart(false);
       }
@@ -48,7 +49,7 @@ export const GeneralTab: React.FC = () => {
     loadAutostartStatus();
   }, []);
 
-  // Set default save directory if not configured
+  // Set default save directory if not configured (runs once on mount)
   useEffect(() => {
     const initDefaultSaveDir = async () => {
       if (!general.defaultSaveDir) {
@@ -56,11 +57,12 @@ export const GeneralTab: React.FC = () => {
           const defaultDir = await invoke<string>('get_default_save_dir');
           updateGeneralSettings({ defaultSaveDir: defaultDir });
         } catch (error) {
-          console.error('Failed to set default save dir:', error);
+          settingsLogger.error('Failed to set default save dir:', error);
         }
       }
     };
     initDefaultSaveDir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally run once on mount only
   }, []);
 
   const handleAutostartChange = async (enabled: boolean) => {
@@ -69,7 +71,7 @@ export const GeneralTab: React.FC = () => {
       setIsAutostartEnabled(enabled);
       updateGeneralSettings({ startWithWindows: enabled });
     } catch (error) {
-      console.error('Failed to set autostart:', error);
+      settingsLogger.error('Failed to set autostart:', error);
     }
   };
 
@@ -84,7 +86,7 @@ export const GeneralTab: React.FC = () => {
         updateGeneralSettings({ defaultSaveDir: selected });
       }
     } catch (error) {
-      console.error('Failed to open directory picker:', error);
+      settingsLogger.error('Failed to open directory picker:', error);
     }
   };
 
@@ -93,7 +95,7 @@ export const GeneralTab: React.FC = () => {
       try {
         await invoke('open_path_in_explorer', { path: general.defaultSaveDir });
       } catch (error) {
-        console.error('Failed to open directory:', error);
+        settingsLogger.error('Failed to open directory:', error);
       }
     }
   };

@@ -16,6 +16,7 @@ import type {
   RecordingStatus,
   StartRecordingResult,
 } from '../types';
+import { recordingLogger } from '../utils/logger';
 
 interface VideoRecordingStore {
   // State
@@ -68,6 +69,7 @@ const defaultSettings: RecordingSettings = {
   quality: 80,
   gifQualityPreset: 'balanced',
   countdownSecs: 3,
+  quickCapture: false,
 };
 
 // Event listener cleanup function
@@ -201,13 +203,13 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
 
     // Guard 1: Don't start if already recording
     if (recordingState.status !== 'idle') {
-      console.warn('Cannot start recording: already in progress');
+      recordingLogger.warn('Cannot start recording: already in progress');
       return false;
     }
 
     // Guard 2: Prevent concurrent start attempts (race condition)
     if (startRecordingLock) {
-      console.warn('Cannot start recording: start already in progress');
+      recordingLogger.warn('Cannot start recording: start already in progress');
       return false;
     }
 
@@ -234,7 +236,7 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
 
       return result.success;
     } catch (error) {
-      console.error('Failed to start recording:', error);
+      recordingLogger.error('Failed to start recording:', error);
       set({
         recordingState: {
           status: 'error',
@@ -255,7 +257,7 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
     const { recordingState } = get();
 
     if (recordingState.status !== 'recording' && recordingState.status !== 'paused') {
-      console.warn('Cannot stop recording: not recording');
+      recordingLogger.warn('Cannot stop recording: not recording');
       return false;
     }
 
@@ -263,7 +265,7 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
       await invoke('stop_recording');
       return true;
     } catch (error) {
-      console.error('Failed to stop recording:', error);
+      recordingLogger.error('Failed to stop recording:', error);
       set({
         recordingState: {
           status: 'error',
@@ -281,7 +283,7 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
       // Don't set state here - the backend will emit 'recording-state-changed'
       // after the capture thread cleans up and deletes the file.
     } catch (error) {
-      console.error('Failed to cancel recording:', error);
+      recordingLogger.error('Failed to cancel recording:', error);
     }
   },
 
@@ -290,19 +292,19 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
     const { recordingState, settings } = get();
 
     if (recordingState.status !== 'recording') {
-      console.warn('Cannot pause: not recording');
+      recordingLogger.warn('Cannot pause: not recording');
       return;
     }
 
     if (settings.format === 'gif') {
-      console.warn('Cannot pause GIF recording');
+      recordingLogger.warn('Cannot pause GIF recording');
       return;
     }
 
     try {
       await invoke('pause_recording');
     } catch (error) {
-      console.error('Failed to pause recording:', error);
+      recordingLogger.error('Failed to pause recording:', error);
     }
   },
 
@@ -311,14 +313,14 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
     const { recordingState } = get();
 
     if (recordingState.status !== 'paused') {
-      console.warn('Cannot resume: not paused');
+      recordingLogger.warn('Cannot resume: not paused');
       return;
     }
 
     try {
       await invoke('resume_recording');
     } catch (error) {
-      console.error('Failed to resume recording:', error);
+      recordingLogger.error('Failed to resume recording:', error);
     }
   },
 
@@ -331,7 +333,7 @@ export const useVideoRecordingStore = create<VideoRecordingStore>((set, get) => 
         settings: status.settings ?? get().settings,
       });
     } catch (error) {
-      console.error('Failed to get recording status:', error);
+      recordingLogger.error('Failed to get recording status:', error);
     }
   },
 

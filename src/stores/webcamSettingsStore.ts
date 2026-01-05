@@ -4,6 +4,7 @@ import { emit } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { WebcamDevice, WebcamSettings, WebcamPosition, WebcamSize, WebcamShape } from '../types/generated';
 import { createErrorHandler } from '../utils/errorReporting';
+import { webcamLogger } from '../utils/logger';
 
 interface WebcamSettingsState {
   // State
@@ -53,26 +54,28 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
   loadSettings: async () => {
     try {
       const settings = await invoke<WebcamSettings>('get_webcam_settings_cmd');
-      console.log('[WebcamStore] Loaded settings from Rust:', settings);
+      webcamLogger.debug('Loaded settings from Rust:', settings);
       // Merge with current state to preserve previewOpen
       set((state) => ({
         settings: { ...state.settings, ...settings }
       }));
-      console.log('[WebcamStore] After set, store state:', get().settings);
+      webcamLogger.debug('After set, store state:', get().settings);
     } catch (error) {
-      console.error('[WebcamStore] Failed to load settings from Rust:', error);
+      webcamLogger.error('Failed to load settings from Rust:', error);
     }
   },
 
   loadDevices: async () => {
     set({ isLoadingDevices: true, devicesError: null });
     try {
-      const devices = await invoke<WebcamDevice[]>('list_webcam_devices');
-      set({ devices, isLoadingDevices: false });
+      // Use native Rust device enumeration (no browser getUserMedia needed)
+      const videoDevices = await invoke<WebcamDevice[]>('list_webcam_devices');
+      webcamLogger.debug('Found webcam devices (native):', videoDevices);
+      set({ devices: videoDevices, isLoadingDevices: false });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ devicesError: message, isLoadingDevices: false });
-      console.error('Failed to load webcam devices:', error);
+      webcamLogger.error('Failed to load webcam devices:', error);
     }
   },
 
@@ -94,7 +97,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         await closePreview();
       }
     } catch (error) {
-      console.error('Failed to set webcam enabled:', error);
+      webcamLogger.error('Failed to set webcam enabled:', error);
     }
   },
 
@@ -105,7 +108,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         settings: { ...state.settings, deviceIndex },
       }));
     } catch (error) {
-      console.error('Failed to set webcam device:', error);
+      webcamLogger.error('Failed to set webcam device:', error);
     }
   },
 
@@ -122,7 +125,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         );
       }
     } catch (error) {
-      console.error('Failed to set webcam position:', error);
+      webcamLogger.error('Failed to set webcam position:', error);
     }
   },
 
@@ -144,7 +147,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         }
       }
     } catch (error) {
-      console.error('Failed to set webcam size:', error);
+      webcamLogger.error('Failed to set webcam size:', error);
     }
   },
 
@@ -160,7 +163,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         );
       }
     } catch (error) {
-      console.error('Failed to set webcam shape:', error);
+      webcamLogger.error('Failed to set webcam shape:', error);
     }
   },
 
@@ -176,7 +179,7 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         );
       }
     } catch (error) {
-      console.error('Failed to set webcam mirror:', error);
+      webcamLogger.error('Failed to set webcam mirror:', error);
     }
   },
 
@@ -187,17 +190,28 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       // Close preview using the reliable closePreview method
       await closePreview();
     } else {
-      // First ensure any stale window is closed
+      // First ensure any stale preview is closed
+      try {
+        await invoke('stop_native_webcam_preview');
+      } catch {
+        // Ignore - might not be running
+      }
+      try {
+        await invoke('stop_webcam_preview');
+      } catch {
+        // Ignore - might not be running
+      }
       try {
         await invoke('close_webcam_preview');
       } catch {
         // Ignore - window might not exist
       }
 
-      // Small delay to ensure window is fully destroyed
+      // Small delay to ensure cleanup
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      // Open preview
+      // Create WebView-based preview window
+      // The window polls JPEG frames from native Rust webcam capture service
       try {
         const size = PREVIEW_SIZES[settings.size];
         const win = new WebviewWindow('webcam-preview', {
@@ -222,6 +236,14 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
           emit('webcam-settings-changed', settings).catch(
             createErrorHandler({ operation: 'emit webcam-settings-changed', silent: true })
           );
+          
+          // Exclude preview from screen capture (so it doesn't appear in recordings)
+          try {
+            await invoke('exclude_webcam_from_capture');
+          } catch (e) {
+            webcamLogger.warn('Failed to exclude preview from capture:', e);
+          }
+          
           // Trigger anchor positioning after a delay
           setTimeout(async () => {
             try {
@@ -247,21 +269,28 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
         });
 
         win.once('tauri://error', (e) => {
-          console.error('Failed to create webcam preview:', e);
+          webcamLogger.error('Failed to create webcam preview:', e);
           set({ previewOpen: false });
         });
       } catch (error) {
-        console.error('Failed to open webcam preview:', error);
+        webcamLogger.error('Failed to open webcam preview:', error);
       }
     }
   },
 
   closePreview: async () => {
-    // Use Rust command to close the window (most reliable)
+    // Stop native preview (Windows GDI)
+    try {
+      await invoke('stop_native_webcam_preview');
+    } catch {
+      // Ignore - might not be running
+    }
+
+    // Use Rust command to close the WebView window (most reliable)
     try {
       await invoke('close_webcam_preview');
     } catch (e) {
-      console.error('Failed to close preview via Rust:', e);
+      webcamLogger.error('Failed to close preview via Rust:', e);
     }
 
     // Also emit event as backup

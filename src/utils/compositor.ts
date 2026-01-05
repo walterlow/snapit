@@ -5,8 +5,7 @@
  * preview and export render identically.
  */
 
-import type { CompositorSettings } from '../types';
-import type { CanvasBounds } from '../stores/editorStore';
+import type { CompositorSettings, CanvasBounds } from '../types';
 import {
   calculateGradientPoints,
   calculateCoverSize,

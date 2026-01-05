@@ -1,330 +1,438 @@
-//! Webcam capture implementation using nokhwa.
+//! Native webcam capture with shared frame buffer.
 //!
-//! Provides threaded webcam capture with frame buffering for PiP overlay.
+//! Single capture thread owns the hardware, shares frames via Arc for:
+//! - Recording encoder (zero-copy Arc clone)
+//! - Preview window (reads latest frame)
+//!
+//! This avoids the "only one app can use camera" issue by having a single
+//! capture source that multiple consumers can read from.
 
-use super::device::camera_index_from_device;
-use super::WebcamFrame;
-use nokhwa::pixel_format::RgbAFormat;
-use nokhwa::utils::RequestedFormat;
-use nokhwa::Camera;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
+// Allow unused helpers - keeping for potential future use
+#![allow(dead_code)]
 
-/// Maximum consecutive frame capture errors before giving up.
-const MAX_CONSECUTIVE_ERRORS: u32 = 30;
+use parking_lot::RwLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 
-/// Delay between retry attempts when recovering from errors.
-const ERROR_RETRY_DELAY_MS: u64 = 100;
+use lazy_static::lazy_static;
 
-/// Webcam error state.
-#[derive(Debug, Clone)]
-pub struct WebcamError {
-    pub message: String,
-    pub is_fatal: bool,
+/// Decode MJPEG to BGRA pixels.
+fn decode_mjpeg_to_bgra(data: &[u8], _width: u32, _height: u32) -> Option<Vec<u8>> {
+    let img = image::load_from_memory_with_format(data, image::ImageFormat::Jpeg).ok()?;
+    let rgb = img.to_rgb8();
+
+    let mut bgra = Vec::with_capacity(rgb.len() / 3 * 4);
+    for pixel in rgb.pixels() {
+        bgra.push(pixel[2]); // B
+        bgra.push(pixel[1]); // G
+        bgra.push(pixel[0]); // R
+        bgra.push(255); // A
+    }
+    Some(bgra)
 }
 
-/// Webcam capture manager.
+/// Encode BGRA to JPEG bytes.
+fn encode_bgra_to_jpeg(bgra: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
+    use image::{ImageBuffer, Rgb};
+
+    // Convert BGRA to RGB
+    let mut rgb_data = Vec::with_capacity((width * height * 3) as usize);
+    for pixel in bgra.chunks_exact(4) {
+        rgb_data.push(pixel[2]); // R
+        rgb_data.push(pixel[1]); // G
+        rgb_data.push(pixel[0]); // B
+    }
+
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(width, height, rgb_data)?;
+
+    let mut jpeg_buffer = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buffer, quality);
+    encoder.encode_image(&img).ok()?;
+
+    Some(jpeg_buffer)
+}
+
+/// A webcam frame with reference-counted pixel data for zero-copy sharing.
 ///
-/// Captures frames from a webcam in a background thread and provides
-/// the latest frame for compositing onto recorded video.
-pub struct WebcamCapture {
-    /// Latest captured frame (double-buffered).
-    frame_buffer: Arc<Mutex<Option<WebcamFrame>>>,
-    /// Signal to stop the capture thread.
-    should_stop: Arc<AtomicBool>,
-    /// Whether the webcam has encountered a fatal error.
-    has_error: Arc<AtomicBool>,
-    /// Error message if capture failed.
-    error_message: Arc<Mutex<Option<String>>>,
-    /// Consecutive error count.
-    error_count: Arc<AtomicU32>,
-    /// Capture thread handle.
-    capture_thread: Option<JoinHandle<()>>,
-    /// Device index being captured.
-    device_index: usize,
-    /// Whether to mirror the image horizontally.
-    mirror: bool,
+/// Note: Some fields are used by capture but not yet consumed by encoder/preview.
+#[allow(dead_code)]
+#[derive(Clone)]
+pub struct SharedFrame {
+    /// Frame data - BGRA pixels for encoder.
+    pub data: Arc<Vec<u8>>,
+    /// Pre-encoded JPEG for preview (cached to avoid re-encoding).
+    pub jpeg_cache: Arc<Vec<u8>>,
+    /// Frame width.
+    pub width: u32,
+    /// Frame height.
+    pub height: u32,
+    /// Monotonic frame ID.
+    pub frame_id: u64,
+    /// Capture timestamp.
+    pub captured_at: Instant,
+    /// Whether data is MJPEG compressed (true) or raw BGRA (false).
+    pub is_mjpeg: bool,
 }
 
-impl WebcamCapture {
-    /// Create a new webcam capture for the given device.
-    ///
-    /// # Arguments
-    /// * `device_index` - Index of the webcam device to capture.
-    /// * `_fps` - Target frames per second (reserved for future use).
-    /// * `mirror` - Whether to flip the image horizontally.
-    pub fn new(device_index: usize, _fps: u32, mirror: bool) -> Result<Self, String> {
-        let frame_buffer = Arc::new(Mutex::new(None));
-        let should_stop = Arc::new(AtomicBool::new(false));
-        let has_error = Arc::new(AtomicBool::new(false));
-        let error_message = Arc::new(Mutex::new(None));
-        let error_count = Arc::new(AtomicU32::new(0));
+impl SharedFrame {
+    /// Decode MJPEG to BGRA if needed. Returns BGRA data.
+    pub fn to_bgra(&self) -> Option<Vec<u8>> {
+        if !self.is_mjpeg {
+            // Already BGRA
+            return Some(self.data.as_ref().clone());
+        }
 
-        let capture = Self {
-            frame_buffer,
-            should_stop,
-            has_error,
-            error_message,
-            error_count,
-            capture_thread: None,
-            device_index,
-            mirror,
+        // Decode MJPEG to RGB, then convert to BGRA
+        let img = image::load_from_memory_with_format(&self.data, image::ImageFormat::Jpeg).ok()?;
+        let rgb = img.to_rgb8();
+
+        let mut bgra = Vec::with_capacity((self.width * self.height * 4) as usize);
+        for pixel in rgb.pixels() {
+            bgra.push(pixel[2]); // B
+            bgra.push(pixel[1]); // G
+            bgra.push(pixel[0]); // R
+            bgra.push(255); // A
+        }
+        Some(bgra)
+    }
+}
+
+/// Global shared frame buffer - single writer (capture), multiple readers.
+pub struct WebcamFrameBuffer {
+    /// Latest frame (None if no frame captured yet).
+    frame: RwLock<Option<SharedFrame>>,
+    /// Current frame ID (for change detection).
+    frame_id: AtomicU64,
+    /// Whether capture is active.
+    is_active: AtomicBool,
+    /// Capture dimensions.
+    dimensions: RwLock<(u32, u32)>,
+}
+
+impl WebcamFrameBuffer {
+    pub const fn new() -> Self {
+        Self {
+            frame: RwLock::new(None),
+            frame_id: AtomicU64::new(0),
+            is_active: AtomicBool::new(false),
+            dimensions: RwLock::new((0, 0)),
+        }
+    }
+
+    /// Update the latest frame (called by capture thread).
+    /// `data` is BGRA pixels, `jpeg_cache` is pre-encoded JPEG for preview.
+    pub fn update(
+        &self,
+        data: Vec<u8>,
+        jpeg_cache: Vec<u8>,
+        width: u32,
+        height: u32,
+        is_mjpeg: bool,
+    ) {
+        let frame_id = self.frame_id.fetch_add(1, Ordering::SeqCst) + 1;
+
+        let frame = SharedFrame {
+            data: Arc::new(data),
+            jpeg_cache: Arc::new(jpeg_cache),
+            width,
+            height,
+            frame_id,
+            captured_at: Instant::now(),
+            is_mjpeg,
         };
 
-        Ok(capture)
+        *self.frame.write() = Some(frame);
+        *self.dimensions.write() = (width, height);
     }
 
-    /// Start capturing frames in a background thread.
-    pub fn start(&mut self) -> Result<(), String> {
-        if self.capture_thread.is_some() {
-            return Err("Webcam capture already started".to_string());
-        }
-
-        // Reset error state
-        self.has_error.store(false, Ordering::SeqCst);
-        self.error_count.store(0, Ordering::SeqCst);
-        if let Ok(mut msg) = self.error_message.lock() {
-            *msg = None;
-        }
-
-        let frame_buffer = Arc::clone(&self.frame_buffer);
-        let should_stop = Arc::clone(&self.should_stop);
-        let has_error = Arc::clone(&self.has_error);
-        let error_message = Arc::clone(&self.error_message);
-        let error_count = Arc::clone(&self.error_count);
-        let device_index = self.device_index;
-        let mirror = self.mirror;
-
-        let handle = thread::Builder::new()
-            .name("webcam-capture".to_string())
-            .spawn(move || {
-                if let Err(e) = run_capture_loop(
-                    frame_buffer,
-                    should_stop,
-                    has_error,
-                    error_message,
-                    error_count,
-                    device_index,
-                    mirror,
-                ) {
-                    eprintln!("[WEBCAM] Capture thread error: {}", e);
-                }
-            })
-            .map_err(|e| format!("Failed to spawn webcam capture thread: {}", e))?;
-
-        self.capture_thread = Some(handle);
-        eprintln!("[WEBCAM] Capture thread started for device {}", device_index);
-
-        Ok(())
+    /// Get the latest frame (zero-copy Arc clone).
+    pub fn get(&self) -> Option<SharedFrame> {
+        self.frame.read().clone()
     }
 
-    /// Stop the capture thread.
-    pub fn stop(&mut self) {
-        self.should_stop.store(true, Ordering::SeqCst);
-
-        if let Some(handle) = self.capture_thread.take() {
-            eprintln!("[WEBCAM] Stopping capture thread...");
-            let _ = handle.join();
-            eprintln!("[WEBCAM] Capture thread stopped");
-        }
-    }
-
-    /// Get the latest captured frame (non-blocking).
-    ///
-    /// Returns None if no frame is available yet.
-    pub fn get_latest_frame(&self) -> Option<WebcamFrame> {
-        self.frame_buffer.lock().ok()?.clone()
-    }
-
-    /// Check if the capture thread is running.
-    pub fn is_running(&self) -> bool {
-        self.capture_thread.is_some() && !self.should_stop.load(Ordering::SeqCst)
-    }
-
-    /// Check if the webcam has encountered a fatal error.
-    pub fn has_error(&self) -> bool {
-        self.has_error.load(Ordering::SeqCst)
-    }
-
-    /// Get the error message if capture failed.
-    pub fn get_error(&self) -> Option<WebcamError> {
-        if self.has_error.load(Ordering::SeqCst) {
-            let message = self.error_message.lock().ok()?.clone()?;
-            Some(WebcamError {
-                message,
-                is_fatal: true,
-            })
+    /// Get frame only if it's newer than the given ID (for efficient polling).
+    pub fn get_if_newer(&self, last_id: u64) -> Option<SharedFrame> {
+        let current_id = self.frame_id.load(Ordering::SeqCst);
+        if current_id > last_id {
+            self.get()
         } else {
             None
         }
     }
 
-    /// Get the current consecutive error count.
-    pub fn error_count(&self) -> u32 {
-        self.error_count.load(Ordering::SeqCst)
+    /// Get current frame ID without reading the frame.
+    pub fn current_frame_id(&self) -> u64 {
+        self.frame_id.load(Ordering::SeqCst)
+    }
+
+    /// Get capture dimensions.
+    pub fn dimensions(&self) -> (u32, u32) {
+        *self.dimensions.read()
+    }
+
+    /// Check if capture is active.
+    pub fn is_active(&self) -> bool {
+        self.is_active.load(Ordering::SeqCst)
+    }
+
+    /// Set capture active state.
+    pub fn set_active(&self, active: bool) {
+        self.is_active.store(active, Ordering::SeqCst);
+    }
+
+    /// Clear the frame buffer.
+    pub fn clear(&self) {
+        *self.frame.write() = None;
     }
 }
 
-impl Drop for WebcamCapture {
-    fn drop(&mut self) {
-        self.stop();
-    }
+lazy_static! {
+    /// Global webcam frame buffer - shared between capture, encoder, and preview.
+    pub static ref WEBCAM_BUFFER: WebcamFrameBuffer = WebcamFrameBuffer::new();
 }
 
-/// Run the webcam capture loop.
-fn run_capture_loop(
-    frame_buffer: Arc<Mutex<Option<WebcamFrame>>>,
-    should_stop: Arc<AtomicBool>,
-    has_error: Arc<AtomicBool>,
-    error_message: Arc<Mutex<Option<String>>>,
-    error_count: Arc<AtomicU32>,
+/// Webcam capture service that runs in a background thread.
+pub struct WebcamCaptureService {
     device_index: usize,
-    mirror: bool,
-) -> Result<(), String> {
-    use nokhwa::utils::RequestedFormatType;
+    should_stop: Arc<AtomicBool>,
+}
 
-    // Initialize the camera
-    let index = camera_index_from_device(device_index);
-
-    // Request any format, let nokhwa choose the best available
-    let requested = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::None);
-
-    let mut camera = Camera::new(index, requested)
-        .map_err(|e| {
-            let msg = format!("Failed to open webcam: {}", e);
-            set_fatal_error(&has_error, &error_message, &msg);
-            msg
-        })?;
-
-    camera.open_stream()
-        .map_err(|e| {
-            let msg = format!("Failed to open webcam stream: {}", e);
-            set_fatal_error(&has_error, &error_message, &msg);
-            msg
-        })?;
-
-    eprintln!(
-        "[WEBCAM] Camera opened: {} ({}x{})",
-        camera.info().human_name(),
-        camera.resolution().width(),
-        camera.resolution().height()
-    );
-
-    let actual_width = camera.resolution().width();
-    let actual_height = camera.resolution().height();
-
-    // Capture loop
-    while !should_stop.load(Ordering::SeqCst) && !has_error.load(Ordering::SeqCst) {
-        match camera.frame() {
-            Ok(frame) => {
-                // Reset error count on successful frame
-                error_count.store(0, Ordering::SeqCst);
-
-                // Decode frame to RGBA
-                let decoded = frame.decode_image::<RgbAFormat>();
-
-                match decoded {
-                    Ok(image) => {
-                        // Convert to BGRA (our compositing format)
-                        let mut bgra_data = rgba_to_bgra(image.as_raw());
-
-                        // Mirror horizontally if requested
-                        if mirror {
-                            mirror_horizontal(&mut bgra_data, actual_width, actual_height);
-                        }
-
-                        let webcam_frame = WebcamFrame {
-                            bgra_data,
-                            width: actual_width,
-                            height: actual_height,
-                        };
-
-                        // Update the frame buffer
-                        if let Ok(mut buffer) = frame_buffer.lock() {
-                            *buffer = Some(webcam_frame);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[WEBCAM] Frame decode error: {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                let current_errors = error_count.fetch_add(1, Ordering::SeqCst) + 1;
-
-                if current_errors >= MAX_CONSECUTIVE_ERRORS {
-                    let msg = format!(
-                        "Webcam capture failed after {} consecutive errors. Last error: {}",
-                        current_errors, e
-                    );
-                    eprintln!("[WEBCAM] FATAL: {}", msg);
-                    set_fatal_error(&has_error, &error_message, &msg);
-                    break;
-                } else if current_errors == 1 || current_errors % 10 == 0 {
-                    // Log first error and every 10th error to avoid spam
-                    eprintln!(
-                        "[WEBCAM] Frame capture error ({}/{}): {}",
-                        current_errors, MAX_CONSECUTIVE_ERRORS, e
-                    );
-                }
-
-                // Sleep before retry to avoid tight loop
-                thread::sleep(Duration::from_millis(ERROR_RETRY_DELAY_MS));
-            }
+impl WebcamCaptureService {
+    /// Create a new capture service.
+    pub fn new(device_index: usize) -> Self {
+        Self {
+            device_index,
+            should_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    // Clean up
-    let _ = camera.stop_stream();
-    eprintln!("[WEBCAM] Camera stream closed");
+    /// Get stop flag for external control.
+    pub fn stop_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.should_stop)
+    }
 
+    /// Run the capture loop (blocking - call from a thread).
+    pub fn run(self) -> Result<(), String> {
+        use nokhwa::utils::{
+            CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
+            Resolution,
+        };
+        use nokhwa::Camera;
+
+        // Request MJPEG format at 720p for quality recording
+        // Using with_formats to prefer MJPEG, falling back to YUYV
+        let target_format = CameraFormat::new(Resolution::new(1280, 720), FrameFormat::MJPEG, 30);
+        let requested = RequestedFormat::with_formats(
+            RequestedFormatType::Closest(target_format),
+            &[FrameFormat::MJPEG, FrameFormat::YUYV],
+        );
+
+        let index = CameraIndex::Index(self.device_index as u32);
+
+        let mut camera =
+            Camera::new(index, requested).map_err(|e| format!("Failed to open webcam: {}", e))?;
+
+        camera
+            .open_stream()
+            .map_err(|e| format!("Failed to open camera stream: {}", e))?;
+
+        let resolution = camera.resolution();
+        let width = resolution.width();
+        let height = resolution.height();
+        let format = camera.frame_format();
+
+        eprintln!(
+            "[WEBCAM] Camera opened: {}x{} format={:?} @ index {}",
+            width, height, format, self.device_index
+        );
+
+        WEBCAM_BUFFER.set_active(true);
+
+        // Target ~30fps but camera may run at different rate
+        let mut frame_count: u64 = 0;
+
+        loop {
+            // Check if we should stop
+            if self.should_stop.load(Ordering::Relaxed) {
+                break;
+            }
+
+            // Capture frame - camera.frame() blocks until next frame is ready
+            match camera.frame() {
+                Ok(buffer) => {
+                    let raw_data = buffer.buffer();
+                    let pixel_count = (width * height) as usize;
+
+                    // Detect format by checking JPEG magic bytes (0xFF 0xD8)
+                    let is_mjpeg =
+                        raw_data.len() >= 2 && raw_data[0] == 0xFF && raw_data[1] == 0xD8;
+
+                    // Process frame: produce data (for encoder) and jpeg_cache (for preview)
+                    let (frame_data, jpeg_cache) = if is_mjpeg {
+                        // MJPEG: use raw for both
+                        let data = raw_data.to_vec();
+                        (data.clone(), data)
+                    } else {
+                        // Raw pixel data - convert to BGRA, encode JPEG for preview cache
+                        let expected_rgb = pixel_count * 3;
+                        let expected_yuyv = pixel_count * 2;
+
+                        let mut bgra = Vec::with_capacity(pixel_count * 4);
+
+                        if raw_data.len() >= expected_rgb {
+                            for pixel in raw_data[..expected_rgb].chunks_exact(3) {
+                                bgra.push(pixel[2]); // B
+                                bgra.push(pixel[1]); // G
+                                bgra.push(pixel[0]); // R
+                                bgra.push(255); // A
+                            }
+                        } else if raw_data.len() >= expected_yuyv {
+                            for chunk in raw_data[..expected_yuyv].chunks_exact(4) {
+                                let y0 = chunk[0] as f32;
+                                let u = chunk[1] as f32 - 128.0;
+                                let y1 = chunk[2] as f32;
+                                let v = chunk[3] as f32 - 128.0;
+
+                                let r0 = (y0 + 1.402 * v).clamp(0.0, 255.0) as u8;
+                                let g0 = (y0 - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
+                                let b0 = (y0 + 1.772 * u).clamp(0.0, 255.0) as u8;
+
+                                let r1 = (y1 + 1.402 * v).clamp(0.0, 255.0) as u8;
+                                let g1 = (y1 - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
+                                let b1 = (y1 + 1.772 * u).clamp(0.0, 255.0) as u8;
+
+                                bgra.push(b0);
+                                bgra.push(g0);
+                                bgra.push(r0);
+                                bgra.push(255);
+                                bgra.push(b1);
+                                bgra.push(g1);
+                                bgra.push(r1);
+                                bgra.push(255);
+                            }
+                        } else {
+                            if frame_count == 0 {
+                                eprintln!("[WEBCAM] Unknown format, skipping");
+                            }
+                            continue;
+                        }
+
+                        // Encode JPEG for preview (cached, not per-poll)
+                        let jpeg =
+                            encode_bgra_to_jpeg(&bgra, width, height, 75).unwrap_or_default();
+
+                        (bgra, jpeg)
+                    };
+
+                    // Store data + cached JPEG
+                    WEBCAM_BUFFER.update(frame_data, jpeg_cache, width, height, is_mjpeg);
+                    frame_count += 1;
+                },
+                Err(e) => {
+                    eprintln!("[WEBCAM] Frame capture error: {}", e);
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                },
+            }
+        }
+
+        // Cleanup
+        WEBCAM_BUFFER.set_active(false);
+        WEBCAM_BUFFER.clear();
+        let _ = camera.stop_stream();
+        Ok(())
+    }
+}
+
+/// Global capture thread handle.
+static CAPTURE_STOP_FLAG: parking_lot::RwLock<Option<Arc<AtomicBool>>> =
+    parking_lot::RwLock::new(None);
+static CAPTURE_THREAD: parking_lot::Mutex<Option<std::thread::JoinHandle<()>>> =
+    parking_lot::Mutex::new(None);
+static CAPTURE_DEVICE_INDEX: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
+
+/// Start the global webcam capture service.
+/// If already running with the same device, this is a no-op.
+pub fn start_capture_service(device_index: usize) -> Result<(), String> {
+    // Check if already running with same device
+    let current_device = CAPTURE_DEVICE_INDEX.load(Ordering::SeqCst);
+    if current_device == device_index && is_capture_running() {
+        eprintln!(
+            "[WEBCAM] Capture already running for device {}, skipping start",
+            device_index
+        );
+        return Ok(());
+    }
+
+    // Stop existing capture if any (different device or not running properly)
+    stop_capture_service();
+
+    // Store the device index we're starting
+    CAPTURE_DEVICE_INDEX.store(device_index, Ordering::SeqCst);
+
+    let service = WebcamCaptureService::new(device_index);
+    let stop_flag = service.stop_flag();
+
+    // Store stop flag for later
+    *CAPTURE_STOP_FLAG.write() = Some(stop_flag);
+
+    // Spawn capture thread
+    let handle = std::thread::Builder::new()
+        .name("webcam-capture".to_string())
+        .spawn(move || {
+            if let Err(e) = service.run() {
+                eprintln!("[WEBCAM] Capture service error: {}", e);
+            }
+        })
+        .map_err(|e| format!("Failed to spawn webcam thread: {}", e))?;
+
+    *CAPTURE_THREAD.lock() = Some(handle);
+
+    // Brief delay to let camera thread start - sync is handled by encoder
+    std::thread::sleep(std::time::Duration::from_millis(50));
     Ok(())
 }
 
-/// Set a fatal error state.
-fn set_fatal_error(
-    has_error: &Arc<AtomicBool>,
-    error_message: &Arc<Mutex<Option<String>>>,
-    message: &str,
-) {
-    has_error.store(true, Ordering::SeqCst);
-    if let Ok(mut msg) = error_message.lock() {
-        *msg = Some(message.to_string());
+/// Stop the global webcam capture service.
+pub fn stop_capture_service() {
+    // Reset device index
+    CAPTURE_DEVICE_INDEX.store(usize::MAX, Ordering::SeqCst);
+
+    // Signal stop
+    if let Some(stop_flag) = CAPTURE_STOP_FLAG.write().take() {
+        stop_flag.store(true, Ordering::SeqCst);
     }
+
+    // Wait for thread to finish
+    if let Some(handle) = CAPTURE_THREAD.lock().take() {
+        let _ = handle.join();
+    }
+
+    WEBCAM_BUFFER.clear();
 }
 
-/// Convert RGBA to BGRA (swap R and B channels).
-fn rgba_to_bgra(rgba: &[u8]) -> Vec<u8> {
-    let mut bgra = Vec::with_capacity(rgba.len());
-    for chunk in rgba.chunks_exact(4) {
-        bgra.push(chunk[2]); // B <- R
-        bgra.push(chunk[1]); // G
-        bgra.push(chunk[0]); // R <- B
-        bgra.push(chunk[3]); // A
-    }
-    bgra
+/// Check if capture service is running.
+pub fn is_capture_running() -> bool {
+    WEBCAM_BUFFER.is_active()
 }
 
-/// Mirror image horizontally (flip left-right).
-fn mirror_horizontal(bgra: &mut [u8], width: u32, height: u32) {
-    let row_size = (width * 4) as usize;
-    for y in 0..height as usize {
-        let row_start = y * row_size;
-        let row = &mut bgra[row_start..row_start + row_size];
+/// Enumerate available webcam devices.
+pub fn enumerate_devices() -> Result<Vec<(usize, String)>, String> {
+    use nokhwa::native_api_backend;
+    use nokhwa::query;
 
-        // Swap pixels from left and right
-        for x in 0..(width / 2) as usize {
-            let left_idx = x * 4;
-            let right_idx = (width as usize - 1 - x) * 4;
+    let backend = native_api_backend().ok_or_else(|| "No camera backend available".to_string())?;
 
-            // Swap 4 bytes (BGRA)
-            for i in 0..4 {
-                row.swap(left_idx + i, right_idx + i);
-            }
-        }
-    }
+    let devices = query(backend).map_err(|e| format!("Failed to query devices: {}", e))?;
+
+    let result: Vec<(usize, String)> = devices
+        .iter()
+        .enumerate()
+        .map(|(idx, info)| (idx, info.human_name().to_string()))
+        .collect();
+
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -332,17 +440,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rgba_to_bgra() {
-        let rgba = vec![255, 0, 0, 255, 0, 255, 0, 255]; // Red, Green
-        let bgra = rgba_to_bgra(&rgba);
-        assert_eq!(bgra, vec![0, 0, 255, 255, 0, 255, 0, 255]); // Blue (was red), Green
-    }
+    fn test_frame_buffer() {
+        let buffer = WebcamFrameBuffer::new();
 
-    #[test]
-    fn test_mirror_horizontal() {
-        // 2x1 image: pixel A (BGRA) and pixel B (BGRA)
-        let mut data = vec![1, 2, 3, 4, 5, 6, 7, 8];
-        mirror_horizontal(&mut data, 2, 1);
-        assert_eq!(data, vec![5, 6, 7, 8, 1, 2, 3, 4]); // Swapped
+        // Initially empty
+        assert!(buffer.get().is_none());
+        assert_eq!(buffer.current_frame_id(), 0);
+
+        // Add a frame (data, jpeg_cache, width, height, is_mjpeg)
+        buffer.update(vec![0u8; 400], vec![0u8; 100], 10, 10, false);
+        assert!(buffer.get().is_some());
+        assert_eq!(buffer.current_frame_id(), 1);
+
+        // Get if newer
+        assert!(buffer.get_if_newer(0).is_some());
+        assert!(buffer.get_if_newer(1).is_none());
+
+        // Verify frame contents
+        let frame = buffer.get().unwrap();
+        assert_eq!(frame.width, 10);
+        assert_eq!(frame.height, 10);
+        assert_eq!(frame.jpeg_cache.len(), 100);
     }
 }

@@ -332,4 +332,181 @@ describe('captureStore', () => {
       expect(useCaptureStore.getState().error).toContain('Not found');
     });
   });
+
+  describe('delete operations', () => {
+    it('should delete a single capture', async () => {
+      const captures = [
+        createTestCapture({ id: 'cap1' }),
+        createTestCapture({ id: 'cap2' }),
+      ];
+      useCaptureStore.setState({ captures });
+
+      // Mock delete then return remaining captures
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'delete_project') return Promise.resolve();
+        if (cmd === 'get_capture_list') return Promise.resolve([captures[1]]);
+        return Promise.resolve();
+      });
+
+      await useCaptureStore.getState().deleteCapture('cap1');
+
+      expect(mockInvoke).toHaveBeenCalledWith('delete_project', { projectId: 'cap1' });
+      expect(useCaptureStore.getState().captures).toHaveLength(1);
+      expect(useCaptureStore.getState().captures[0].id).toBe('cap2');
+    });
+
+    it('should clear current project if deleted capture was open', async () => {
+      const capture = createTestCapture({ id: 'cap1' });
+      useCaptureStore.setState({
+        captures: [capture],
+        currentProject: { id: 'cap1' } as CaptureProject,
+        currentImageData: 'base64...',
+        view: 'editor',
+      });
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'delete_project') return Promise.resolve();
+        if (cmd === 'get_capture_list') return Promise.resolve([]);
+        return Promise.resolve();
+      });
+
+      await useCaptureStore.getState().deleteCapture('cap1');
+
+      expect(useCaptureStore.getState().currentProject).toBeNull();
+      expect(useCaptureStore.getState().currentImageData).toBeNull();
+      expect(useCaptureStore.getState().view).toBe('library');
+    });
+
+    it('should delete multiple captures', async () => {
+      const captures = [
+        createTestCapture({ id: 'cap1' }),
+        createTestCapture({ id: 'cap2' }),
+        createTestCapture({ id: 'cap3' }),
+      ];
+      useCaptureStore.setState({ captures });
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'delete_projects') return Promise.resolve();
+        if (cmd === 'get_capture_list') return Promise.resolve([captures[2]]);
+        return Promise.resolve();
+      });
+
+      await useCaptureStore.getState().deleteCaptures(['cap1', 'cap2']);
+
+      expect(mockInvoke).toHaveBeenCalledWith('delete_projects', {
+        projectIds: ['cap1', 'cap2'],
+      });
+      expect(useCaptureStore.getState().captures).toHaveLength(1);
+    });
+
+    it('should handle delete error gracefully', async () => {
+      const capture = createTestCapture({ id: 'cap1' });
+      useCaptureStore.setState({ captures: [capture] });
+      mockInvoke.mockRejectedValue(new Error('Permission denied'));
+
+      await useCaptureStore.getState().deleteCapture('cap1');
+
+      expect(useCaptureStore.getState().error).toContain('Permission denied');
+    });
+  });
+
+  describe('annotations', () => {
+    it('should update annotations for current project', async () => {
+      const project = {
+        id: 'cap1',
+        annotations: [],
+      } as unknown as CaptureProject;
+      useCaptureStore.setState({ currentProject: project });
+
+      const newAnnotations = [{ id: 'ann1', type: 'rect' }];
+      const updatedProject = { ...project, annotations: newAnnotations };
+      mockInvoke.mockResolvedValue(updatedProject);
+
+      await useCaptureStore.getState().updateAnnotations(newAnnotations as never);
+
+      expect(mockInvoke).toHaveBeenCalledWith('update_project_annotations', {
+        projectId: 'cap1',
+        annotations: newAnnotations,
+      });
+      expect(useCaptureStore.getState().currentProject?.annotations).toEqual(newAnnotations);
+      expect(useCaptureStore.getState().hasUnsavedChanges).toBe(false);
+    });
+
+    it('should not update annotations if no current project', async () => {
+      useCaptureStore.setState({ currentProject: null });
+
+      await useCaptureStore.getState().updateAnnotations([]);
+
+      expect(mockInvoke).not.toHaveBeenCalled();
+    });
+
+    it('should handle annotation update error', async () => {
+      const project = { id: 'cap1' } as CaptureProject;
+      useCaptureStore.setState({ currentProject: project });
+      mockInvoke.mockRejectedValue(new Error('Update failed'));
+
+      await useCaptureStore.getState().updateAnnotations([]);
+
+      expect(useCaptureStore.getState().error).toContain('Update failed');
+    });
+  });
+
+  describe('bulk tag operations', () => {
+    it('should revert bulk add tags on error', async () => {
+      const captures = [
+        createTestCapture({ id: 'cap1', tags: ['existing'] }),
+        createTestCapture({ id: 'cap2', tags: [] }),
+      ];
+      useCaptureStore.setState({ captures });
+      mockInvoke.mockRejectedValue(new Error('Failed'));
+
+      await useCaptureStore.getState().bulkAddTags(['cap1', 'cap2'], ['new']);
+
+      // Should revert to original tags
+      const updated = useCaptureStore.getState().captures;
+      expect(updated[0].tags).toEqual(['existing']);
+      expect(updated[1].tags).toEqual([]);
+      expect(useCaptureStore.getState().error).toContain('Failed');
+    });
+  });
+
+  describe('storage stats', () => {
+    it('should get storage stats from backend', async () => {
+      const stats = {
+        total_size_bytes: 1048576,
+        total_size_mb: 1,
+        capture_count: 10,
+        storage_path: '/path/to/storage',
+      };
+      mockInvoke.mockResolvedValue(stats);
+
+      const result = await useCaptureStore.getState().getStorageStats();
+
+      expect(mockInvoke).toHaveBeenCalledWith('get_storage_stats');
+      expect(result).toEqual(stats);
+    });
+  });
+
+  describe('state setters', () => {
+    it('should set skip stagger flag', () => {
+      useCaptureStore.getState().setSkipStagger(true);
+      expect(useCaptureStore.getState().skipStagger).toBe(true);
+    });
+
+    it('should set has unsaved changes', () => {
+      useCaptureStore.getState().setHasUnsavedChanges(true);
+      expect(useCaptureStore.getState().hasUnsavedChanges).toBe(true);
+    });
+
+    it('should set current image data', () => {
+      useCaptureStore.getState().setCurrentImageData('base64data');
+      expect(useCaptureStore.getState().currentImageData).toBe('base64data');
+    });
+
+    it('should set current project', () => {
+      const project = { id: 'cap1' } as CaptureProject;
+      useCaptureStore.getState().setCurrentProject(project);
+      expect(useCaptureStore.getState().currentProject).toEqual(project);
+    });
+  });
 });

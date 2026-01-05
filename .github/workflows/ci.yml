@@ -17,11 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: 'npm'
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -34,17 +31,17 @@ jobs:
           workspaces: './src-tauri -> target'
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: bun install
 
       # Frontend checks
       - name: TypeScript type check
-        run: npx tsc --noEmit
+        run: bun run tsc --noEmit
 
       - name: Lint frontend
-        run: npm run lint
+        run: bun run lint
 
       - name: Run tests
-        run: npm run test:run
+        run: bun run test:run
 
       # Rust checks
       - name: Rust format check

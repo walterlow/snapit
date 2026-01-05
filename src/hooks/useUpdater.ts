@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from 'sonner';
@@ -21,6 +21,8 @@ export function useUpdater(checkOnMount = true) {
   });
   const [update, setUpdate] = useState<Update | null>(null);
 
+  const downloadAndInstallRef = useRef<((updateToInstall?: Update) => Promise<void>) | null>(null);
+
   const checkForUpdates = useCallback(async (showNoUpdateToast = false) => {
     try {
       setState(prev => ({ ...prev, error: null }));
@@ -37,7 +39,7 @@ export function useUpdater(checkOnMount = true) {
         toast.info(`Update available: v${detected.version}`, {
           action: {
             label: 'Install',
-            onClick: () => downloadAndInstall(detected),
+            onClick: () => downloadAndInstallRef.current?.(detected),
           },
           duration: 10000,
         });
@@ -82,6 +84,9 @@ export function useUpdater(checkOnMount = true) {
       toast.error(`Update failed: ${message}`, { id: toastId });
     }
   }, [update]);
+
+  // Keep ref in sync with the latest downloadAndInstall function
+  downloadAndInstallRef.current = downloadAndInstall;
 
   // Check for updates on mount (with delay to not slow down startup)
   useEffect(() => {

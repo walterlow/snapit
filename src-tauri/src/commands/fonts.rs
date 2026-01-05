@@ -32,8 +32,8 @@ fn get_windows_fonts() -> Result<Vec<String>, String> {
             .GetSystemFontCollection(&mut font_collection, false)
             .map_err(|e| format!("Failed to get system font collection: {}", e))?;
 
-        let font_collection = font_collection
-            .ok_or_else(|| "Font collection is null".to_string())?;
+        let font_collection =
+            font_collection.ok_or_else(|| "Font collection is null".to_string())?;
 
         let family_count = font_collection.GetFontFamilyCount();
         let mut font_names: HashSet<String> = HashSet::new();
@@ -44,10 +44,7 @@ fn get_windows_fonts() -> Result<Vec<String>, String> {
                     // Get the first localized name (usually English)
                     if let Ok(length) = family_names.GetStringLength(0) {
                         let mut name_buffer: Vec<u16> = vec![0; (length + 1) as usize];
-                        if family_names
-                            .GetString(0, &mut name_buffer)
-                            .is_ok()
-                        {
+                        if family_names.GetString(0, &mut name_buffer).is_ok() {
                             let name = String::from_utf16_lossy(&name_buffer)
                                 .trim_end_matches('\0')
                                 .to_string();

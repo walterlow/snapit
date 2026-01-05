@@ -7,10 +7,10 @@ import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCaptureStore, useFilteredCaptures, useAllTags } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
+import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { useCaptureSettingsStore } from '../../stores/captureSettingsStore';
 import { CaptureService } from '../../services/captureService';
-import type { CaptureListItem, RecordingFormat } from '../../types';
+import type { CaptureListItem } from '../../types';
 import { LAYOUT, TIMING } from '../../constants';
 
 import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock, type VirtualLayoutInfo } from './hooks';
@@ -96,7 +96,7 @@ export const CaptureLibrary: React.FC = () => {
     setFilterTags,
   } = useCaptureStore();
 
-  const { settings, openSettingsModal } = useSettingsStore();
+  const { settings } = useSettingsStore();
 
   const captures = useFilteredCaptures();
   const allTags = useAllTags();
@@ -217,32 +217,6 @@ export const CaptureLibrary: React.FC = () => {
     await CaptureService.showScreenshotOverlay();
   };
 
-  // Start video/gif recording using native overlay (avoids video blackout)
-  // The capture toolbar handles both selection and recording controls
-  const startVideoRecording = async (format: RecordingFormat) => {
-    // Set format in store before triggering capture
-    const { setFormat } = useVideoRecordingStore.getState();
-    setFormat(format);
-
-    // Set active mode in capture settings store so toolbar shows correct mode
-    const { setActiveMode } = useCaptureSettingsStore.getState();
-    setActiveMode(format === 'gif' ? 'gif' : 'video');
-
-    await CaptureService.showVideoOverlay(format);
-  };
-
-  const handleNewVideo = async () => {
-    await startVideoRecording('mp4');
-  };
-
-  const handleNewGif = async () => {
-    await startVideoRecording('gif');
-  };
-
-  const handleAllMonitorsCapture = async () => {
-    await CaptureService.captureAllMonitorsToEditor();
-  };
-
   const handleOpenLibraryFolder = async () => {
     try {
       // Use cached settings from store instead of re-reading from disk
@@ -348,6 +322,23 @@ export const CaptureLibrary: React.FC = () => {
     }
   }, []);
 
+  const handleEditVideo = useCallback(async (capture: CaptureListItem) => {
+    try {
+      // Load video project from file using Tauri command
+      const project = await invoke('load_video_project', { videoPath: capture.image_path });
+      
+      // Set project in video editor store
+      useVideoEditorStore.getState().setProject(project as import('../../types').VideoProject);
+      
+      // Switch to video editor view
+      const { setView } = useCaptureStore.getState();
+      setView('videoEditor');
+    } catch (error) {
+      reportError(error, { operation: 'video editor open' });
+      toast.error('Failed to open video editor');
+    }
+  }, []);
+
   const getDeleteCount = () => {
     if (pendingBulkDelete) return selectedIds.size;
     return pendingDeleteId ? 1 : 0;
@@ -382,6 +373,7 @@ export const CaptureLibrary: React.FC = () => {
                 onOpenInFolder={() => handleOpenInFolder(capture)}
                 onCopyToClipboard={() => handleCopyToClipboard(capture)}
                 onPlayMedia={() => handlePlayMedia(capture)}
+                onEditVideo={capture.capture_type === 'video' ? () => handleEditVideo(capture) : undefined}
                 formatDate={formatDate}
               />
             ))}
@@ -412,6 +404,7 @@ export const CaptureLibrary: React.FC = () => {
                 onOpenInFolder={() => handleOpenInFolder(capture)}
                 onCopyToClipboard={() => handleCopyToClipboard(capture)}
                 onPlayMedia={() => handlePlayMedia(capture)}
+                onEditVideo={capture.capture_type === 'video' ? () => handleEditVideo(capture) : undefined}
                 formatDate={formatDate}
               />
             ))}
@@ -452,6 +445,7 @@ export const CaptureLibrary: React.FC = () => {
             onOpenInFolder={handleOpenInFolder}
             onCopyToClipboard={handleCopyToClipboard}
             onPlayMedia={handlePlayMedia}
+            onEditVideo={handleEditVideo}
             formatDate={formatDate}
             containerRef={containerRef as React.RefObject<HTMLDivElement>}
             onMouseDown={handleMarqueeMouseDown}
@@ -509,11 +503,6 @@ export const CaptureLibrary: React.FC = () => {
           onDeleteSelected={handleRequestDeleteSelected}
           onClearSelection={clearSelection}
           onOpenLibraryFolder={handleOpenLibraryFolder}
-          onAllMonitorsCapture={handleAllMonitorsCapture}
-          onNewImage={handleNewImage}
-          onNewVideo={handleNewVideo}
-          onNewGif={handleNewGif}
-          onOpenSettings={openSettingsModal}
         />
       </div>
     </TooltipProvider>

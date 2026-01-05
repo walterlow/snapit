@@ -17,22 +17,26 @@
         "enable": true,
         "scope": [
           "$APPDATA/**",
-          "$APPDATA"
+          "$VIDEO/**",
+          "$DOWNLOAD/**",
+          "$TEMP/**",
+          "$HOME/**",
+          "**"
         ]
       }
     },
     "windows": [
       {
-        "label": "main",
-        "title": "SnapIt",
+        "label": "library",
+        "title": "SnapIt Library",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
         "center": true,
         "resizable": true,
-        "visible": true,
-        "decorations": true,
+        "visible": false,
+        "decorations": false,
         "transparent": true,
         "shadow": true,
         "dragDropEnabled": true
@@ -66,6 +70,7 @@
       "endpoints": [
         "https://github.com/walterlow/snapit/releases/latest/download/latest.json"
       ]
-    }
+    },
+    "crabcamera": {}
   }
 }

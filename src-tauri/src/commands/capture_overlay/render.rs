@@ -10,13 +10,12 @@
 use windows::core::Result;
 use windows::Win32::Graphics::Direct2D::Common::{D2D1_COLOR_F, D2D_POINT_2F, D2D_RECT_F};
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ROUNDED_RECT, ID2D1DeviceContext,
+    ID2D1DeviceContext, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ROUNDED_RECT,
 };
 use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::{IDXGISurface, DXGI_PRESENT};
 
-
-
+use super::commands::{get_highlighted_monitor, get_highlighted_window};
 use super::graphics::d2d::{create_target_bitmap, Brushes, D2DResources};
 use super::state::OverlayState;
 use super::types::*;
@@ -55,19 +54,27 @@ pub fn render(state: &OverlayState) -> Result<()> {
             draw_selection_border(&d2d.context, &d2d.brushes, render_info.clear_rect);
         }
 
-        // Draw crosshair (only when not adjusting)
-        if !state.adjustment.is_active {
-            draw_crosshair(
-                &d2d.context,
-                d2d,
-                state.cursor.position,
-                state,
-            );
+        // Draw crosshair (only when not adjusting and only in RegionSelect mode)
+        if !state.adjustment.is_active && state.overlay_mode == OverlayMode::RegionSelect {
+            draw_crosshair(&d2d.context, d2d, state.cursor.position, state);
         }
 
         // Draw size indicator (when selecting, not adjusting)
         if render_info.draw_border && !state.adjustment.is_active {
             draw_size_indicator(&d2d.context, d2d, render_info.clear_rect, state);
+        }
+
+        // Draw window name indicator (only in WindowSelect mode when hovering a window)
+        if state.overlay_mode == OverlayMode::WindowSelect && !state.adjustment.is_active {
+            if let Some(ref win) = state.cursor.hovered_window {
+                draw_window_name_indicator(
+                    &d2d.context,
+                    d2d,
+                    win.hwnd,
+                    render_info.clear_rect,
+                    state,
+                );
+            }
         }
 
         // Draw resize handles (when adjusting)
@@ -100,21 +107,179 @@ fn determine_render_info(state: &OverlayState) -> RenderInfo {
     let width = state.monitor.width as f32;
     let height = state.monitor.height as f32;
 
+    // Adjustment mode takes priority in all overlay modes
     if state.adjustment.is_active {
-        // Adjustment mode - show the selection with handles
-        RenderInfo {
+        return RenderInfo {
             clear_rect: state.adjustment.bounds.to_d2d_rect(),
             draw_border: true,
             draw_handles: true,
+        };
+    }
+
+    // Mode-specific rendering
+    match state.overlay_mode {
+        OverlayMode::DisplaySelect => determine_display_mode_render(state, width, height),
+        OverlayMode::WindowSelect => determine_window_mode_render(state, width, height),
+        OverlayMode::RegionSelect => determine_region_mode_render(state, width, height),
+    }
+}
+
+/// Render info for DisplaySelect mode - highlight monitor (explicit or under cursor)
+fn determine_display_mode_render(state: &OverlayState, width: f32, height: f32) -> RenderInfo {
+    let highlighted_index = get_highlighted_monitor();
+
+    if let Ok(monitors) = xcap::Monitor::all() {
+        // If we have an explicit highlight from frontend, use that monitor
+        let target_monitor = if highlighted_index >= 0 {
+            monitors.get(highlighted_index as usize)
+        } else {
+            // Otherwise, find monitor under cursor
+            let screen_cursor_x = state.monitor.x + state.cursor.position.x;
+            let screen_cursor_y = state.monitor.y + state.cursor.position.y;
+
+            monitors.iter().find(|m| {
+                let mx = m.x().unwrap_or(0);
+                let my = m.y().unwrap_or(0);
+                let mw = m.width().unwrap_or(1920) as i32;
+                let mh = m.height().unwrap_or(1080) as i32;
+                screen_cursor_x >= mx
+                    && screen_cursor_x < mx + mw
+                    && screen_cursor_y >= my
+                    && screen_cursor_y < my + mh
+            })
+        };
+
+        if let Some(mon) = target_monitor {
+            let mon_x = mon.x().unwrap_or(0);
+            let mon_y = mon.y().unwrap_or(0);
+            let mon_w = mon.width().unwrap_or(1920) as i32;
+            let mon_h = mon.height().unwrap_or(1080) as i32;
+
+            // Convert to local coordinates
+            let left = (mon_x - state.monitor.x) as f32;
+            let top = (mon_y - state.monitor.y) as f32;
+            let right = left + mon_w as f32;
+            let bottom = top + mon_h as f32;
+
+            return RenderInfo {
+                clear_rect: D2D_RECT_F {
+                    left,
+                    top,
+                    right,
+                    bottom,
+                },
+                draw_border: true,
+                draw_handles: false,
+            };
         }
-    } else if state.drag.is_dragging {
+    }
+
+    // Fallback: no dimming, no border
+    RenderInfo {
+        clear_rect: D2D_RECT_F {
+            left: 0.0,
+            top: 0.0,
+            right: width,
+            bottom: height,
+        },
+        draw_border: false,
+        draw_handles: false,
+    }
+}
+
+/// Render info for WindowSelect mode - highlight window (explicit or under cursor)
+fn determine_window_mode_render(state: &OverlayState, width: f32, height: f32) -> RenderInfo {
+    let highlighted_hwnd = get_highlighted_window();
+
+    // Check for explicit highlight from frontend first
+    if highlighted_hwnd != 0 {
+        // Get window bounds for the highlighted HWND
+        if let Some(bounds) = get_window_bounds_by_hwnd(highlighted_hwnd) {
+            let local_bounds = state.monitor.screen_rect_to_local(bounds);
+
+            let clear_rect = D2D_RECT_F {
+                left: (local_bounds.left as f32).max(0.0),
+                top: (local_bounds.top as f32).max(0.0),
+                right: (local_bounds.right as f32).min(width),
+                bottom: (local_bounds.bottom as f32).min(height),
+            };
+
+            return RenderInfo {
+                clear_rect,
+                draw_border: true,
+                draw_handles: false,
+            };
+        }
+    }
+
+    // Fall back to cursor-detected window
+    if let Some(ref win) = state.cursor.hovered_window {
+        let local_bounds = state.monitor.screen_rect_to_local(win.bounds);
+
+        // Clamp to monitor bounds
+        let clear_rect = D2D_RECT_F {
+            left: (local_bounds.left as f32).max(0.0),
+            top: (local_bounds.top as f32).max(0.0),
+            right: (local_bounds.right as f32).min(width),
+            bottom: (local_bounds.bottom as f32).min(height),
+        };
+
+        return RenderInfo {
+            clear_rect,
+            draw_border: true,
+            draw_handles: false,
+        };
+    }
+
+    // No window - show nothing highlighted
+    RenderInfo {
+        clear_rect: D2D_RECT_F {
+            left: 0.0,
+            top: 0.0,
+            right: width,
+            bottom: height,
+        },
+        draw_border: false,
+        draw_handles: false,
+    }
+}
+
+/// Get window bounds by HWND (for explicit highlight from frontend)
+pub fn get_window_bounds_by_hwnd(hwnd: isize) -> Option<Rect> {
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+
+    unsafe {
+        let hwnd = HWND(hwnd as *mut std::ffi::c_void);
+        let mut rect = RECT::default();
+
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut RECT as *mut _,
+            std::mem::size_of::<RECT>() as u32,
+        )
+        .is_ok()
+        {
+            Some(Rect::new(rect.left, rect.top, rect.right, rect.bottom))
+        } else {
+            None
+        }
+    }
+}
+
+/// Render info for RegionSelect mode - drag to select, with window/monitor fallback
+fn determine_region_mode_render(state: &OverlayState, width: f32, height: f32) -> RenderInfo {
+    if state.drag.is_dragging {
         // Region selection mode - show selection rectangle
-        RenderInfo {
+        return RenderInfo {
             clear_rect: state.drag.selection_rect().to_d2d_rect(),
             draw_border: true,
             draw_handles: false,
-        }
-    } else if let Some(ref win) = state.cursor.hovered_window {
+        };
+    }
+
+    if let Some(ref win) = state.cursor.hovered_window {
         // Window detection mode - show hovered window
         let local_bounds = state.monitor.screen_rect_to_local(win.bounds);
 
@@ -126,62 +291,62 @@ fn determine_render_info(state: &OverlayState) -> RenderInfo {
             bottom: (local_bounds.bottom as f32).min(height),
         };
 
-        RenderInfo {
+        return RenderInfo {
             clear_rect,
             draw_border: true,
             draw_handles: false,
+        };
+    }
+
+    // No window detected - find the monitor under cursor and highlight it
+    let screen_cursor_x = state.monitor.x + state.cursor.position.x;
+    let screen_cursor_y = state.monitor.y + state.cursor.position.y;
+
+    if let Ok(monitors) = xcap::Monitor::all() {
+        if let Some(mon) = monitors.iter().find(|m| {
+            let mx = m.x().unwrap_or(0);
+            let my = m.y().unwrap_or(0);
+            let mw = m.width().unwrap_or(1920) as i32;
+            let mh = m.height().unwrap_or(1080) as i32;
+            screen_cursor_x >= mx
+                && screen_cursor_x < mx + mw
+                && screen_cursor_y >= my
+                && screen_cursor_y < my + mh
+        }) {
+            let mon_x = mon.x().unwrap_or(0);
+            let mon_y = mon.y().unwrap_or(0);
+            let mon_w = mon.width().unwrap_or(1920) as i32;
+            let mon_h = mon.height().unwrap_or(1080) as i32;
+
+            // Convert to local coordinates
+            let left = (mon_x - state.monitor.x) as f32;
+            let top = (mon_y - state.monitor.y) as f32;
+            let right = left + mon_w as f32;
+            let bottom = top + mon_h as f32;
+
+            return RenderInfo {
+                clear_rect: D2D_RECT_F {
+                    left,
+                    top,
+                    right,
+                    bottom,
+                },
+                draw_border: true,
+                draw_handles: false,
+            };
         }
-    } else {
-        // No window detected - find the monitor under cursor and highlight it
-        let screen_cursor_x = state.monitor.x + state.cursor.position.x;
-        let screen_cursor_y = state.monitor.y + state.cursor.position.y;
+    }
 
-        if let Ok(monitors) = xcap::Monitor::all() {
-            if let Some(mon) = monitors.iter().find(|m| {
-                let mx = m.x().unwrap_or(0);
-                let my = m.y().unwrap_or(0);
-                let mw = m.width().unwrap_or(1920) as i32;
-                let mh = m.height().unwrap_or(1080) as i32;
-                screen_cursor_x >= mx
-                    && screen_cursor_x < mx + mw
-                    && screen_cursor_y >= my
-                    && screen_cursor_y < my + mh
-            }) {
-                let mon_x = mon.x().unwrap_or(0);
-                let mon_y = mon.y().unwrap_or(0);
-                let mon_w = mon.width().unwrap_or(1920) as i32;
-                let mon_h = mon.height().unwrap_or(1080) as i32;
-
-                // Convert to local coordinates
-                let left = (mon_x - state.monitor.x) as f32;
-                let top = (mon_y - state.monitor.y) as f32;
-                let right = left + mon_w as f32;
-                let bottom = top + mon_h as f32;
-
-                return RenderInfo {
-                    clear_rect: D2D_RECT_F {
-                        left,
-                        top,
-                        right,
-                        bottom,
-                    },
-                    draw_border: true,
-                    draw_handles: false,
-                };
-            }
-        }
-
-        // Fallback: no dimming, no border
-        RenderInfo {
-            clear_rect: D2D_RECT_F {
-                left: 0.0,
-                top: 0.0,
-                right: width,
-                bottom: height,
-            },
-            draw_border: false,
-            draw_handles: false,
-        }
+    // Fallback: no dimming, no border
+    RenderInfo {
+        clear_rect: D2D_RECT_F {
+            left: 0.0,
+            top: 0.0,
+            right: width,
+            bottom: height,
+        },
+        draw_border: false,
+        draw_handles: false,
     }
 }
 
@@ -266,8 +431,10 @@ fn draw_crosshair(
     cursor: Point,
     state: &OverlayState,
 ) {
-    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST};
     use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
 
     let cx = cursor.x as f32;
     let cy = cursor.y as f32;
@@ -323,7 +490,10 @@ fn draw_crosshair(
         if cx + gap < mon_right {
             context.DrawLine(
                 D2D_POINT_2F { x: cx + gap, y: cy },
-                D2D_POINT_2F { x: mon_right, y: cy },
+                D2D_POINT_2F {
+                    x: mon_right,
+                    y: cy,
+                },
                 &d2d.brushes.crosshair,
                 1.0,
                 &d2d.crosshair_stroke,
@@ -345,7 +515,10 @@ fn draw_crosshair(
         if cy + gap < mon_bottom {
             context.DrawLine(
                 D2D_POINT_2F { x: cx, y: cy + gap },
-                D2D_POINT_2F { x: cx, y: mon_bottom },
+                D2D_POINT_2F {
+                    x: cx,
+                    y: mon_bottom,
+                },
                 &d2d.brushes.crosshair,
                 1.0,
                 &d2d.crosshair_stroke,
@@ -382,7 +555,7 @@ fn draw_size_indicator(
     let mut box_y = clear_rect.bottom + margin;
 
     // Clamp to screen bounds
-    let box_x = box_x.max(padding).min(width - text_width - padding);
+    let box_x = box_x.clamp(padding, width - text_width - padding);
 
     // If below screen, show above selection
     if box_y + text_height + padding > height {
@@ -454,4 +627,111 @@ fn draw_resize_handles(context: &ID2D1DeviceContext, brushes: &Brushes, rect: D2
     draw_handle(cx, bottom); // Bottom
     draw_handle(left, cy); // Left
     draw_handle(right, cy); // Right
+}
+
+/// Draw the window name indicator in the center of the selection region.
+fn draw_window_name_indicator(
+    context: &ID2D1DeviceContext,
+    d2d: &D2DResources,
+    hwnd: windows::Win32::Foundation::HWND,
+    clear_rect: D2D_RECT_F,
+    state: &OverlayState,
+) {
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+
+    let screen_width = state.monitor.width as f32;
+    let screen_height = state.monitor.height as f32;
+
+    // Get app name from process executable
+    let app_name = unsafe {
+        let mut process_id: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+
+        if process_id != 0 {
+            if let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) {
+                let mut buffer = [0u16; 260];
+                let mut size = buffer.len() as u32;
+                if QueryFullProcessImageNameW(
+                    process,
+                    PROCESS_NAME_WIN32,
+                    windows::core::PWSTR(buffer.as_mut_ptr()),
+                    &mut size,
+                )
+                .is_ok()
+                {
+                    let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                    // Extract filename without extension
+                    if let Some(filename) = std::path::Path::new(&path).file_stem() {
+                        filename.to_string_lossy().to_string()
+                    } else {
+                        format!("Window {}", hwnd.0 as isize)
+                    }
+                } else {
+                    format!("Window {}", hwnd.0 as isize)
+                }
+            } else {
+                format!("Window {}", hwnd.0 as isize)
+            }
+        } else {
+            format!("Window {}", hwnd.0 as isize)
+        }
+    };
+
+    // Truncate if too long
+    let display_text = if app_name.len() > 50 {
+        format!("{}…", &app_name[..49])
+    } else {
+        app_name
+    };
+
+    let text_wide: Vec<u16> = display_text
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    // Calculate text box dimensions (larger for window name)
+    let text_width = 400.0_f32;
+    let text_height = 48.0_f32;
+    let padding = 8.0_f32;
+
+    // Position in the center of the selection region
+    let region_center_x = (clear_rect.left + clear_rect.right) / 2.0;
+    let region_center_y = (clear_rect.top + clear_rect.bottom) / 2.0;
+    let box_x = region_center_x - text_width / 2.0;
+    let box_y = region_center_y - text_height / 2.0;
+
+    // Clamp to screen bounds
+    let box_x = box_x.clamp(padding, screen_width - text_width - padding);
+    let box_y = box_y.clamp(padding, screen_height - text_height - padding);
+
+    let bg_rect = D2D_RECT_F {
+        left: box_x,
+        top: box_y,
+        right: box_x + text_width,
+        bottom: box_y + text_height,
+    };
+
+    unsafe {
+        // Draw background rounded rect
+        let rounded_rect = D2D1_ROUNDED_RECT {
+            rect: bg_rect,
+            radiusX: 8.0,
+            radiusY: 8.0,
+        };
+        context.FillRoundedRectangle(&rounded_rect, &d2d.brushes.text_bg);
+
+        // Draw text with larger format
+        context.DrawText(
+            &text_wide[..text_wide.len() - 1], // Exclude null terminator
+            &d2d.text_format_large,
+            &bg_rect,
+            &d2d.brushes.text,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL,
+        );
+    }
 }

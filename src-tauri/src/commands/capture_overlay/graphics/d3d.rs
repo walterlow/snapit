@@ -52,7 +52,11 @@ pub fn create_device() -> Result<ID3D11Device> {
 /// * `device` - The D3D11 device
 /// * `width` - Swap chain width in pixels
 /// * `height` - Swap chain height in pixels
-pub fn create_swap_chain(device: &ID3D11Device, width: u32, height: u32) -> Result<IDXGISwapChain1> {
+pub fn create_swap_chain(
+    device: &ID3D11Device,
+    width: u32,
+    height: u32,
+) -> Result<IDXGISwapChain1> {
     unsafe {
         let dxgi_device: IDXGIDevice = device.cast()?;
         let dxgi_factory: IDXGIFactory2 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0))?;

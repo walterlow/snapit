@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { libraryLogger } from '@/utils/logger';
 import type { CaptureListItem } from '../../../types';
 
 export interface VirtualLayoutInfo {
@@ -347,7 +348,7 @@ export function useMarqueeSelection({
         try {
           await invoke('open_file_with_default_app', { path: capture.image_path });
         } catch (error) {
-          console.error('Failed to open file:', error);
+          libraryLogger.error('Failed to open file:', error);
         }
         return;
       }

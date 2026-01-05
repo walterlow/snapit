@@ -1,23 +1,10 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
 #[cfg(desktop)]
 use crate::TrayState;
 
-/// Global state for close-to-tray behavior
-pub static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
-
-/// Set close-to-tray behavior
-#[tauri::command]
-pub fn set_close_to_tray(enabled: bool) {
-    CLOSE_TO_TRAY.store(enabled, Ordering::SeqCst);
-}
-
-/// Check if close-to-tray is enabled
-pub fn is_close_to_tray() -> bool {
-    CLOSE_TO_TRAY.load(Ordering::SeqCst)
-}
+// Note: close_to_tray functions are in crate::config::app module
 
 /// Update tray menu item text for a shortcut
 #[tauri::command]
@@ -43,7 +30,7 @@ pub fn update_tray_shortcut(
             "all_monitors_capture" => tray
                 .update_all_monitors_text(&display_text)
                 .map_err(|e| format!("Failed to update all monitors text: {}", e))?,
-            _ => {} // Ignore unknown shortcut IDs
+            _ => {}, // Ignore unknown shortcut IDs
         }
     }
 
@@ -56,9 +43,9 @@ pub async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), S
     #[cfg(desktop)]
     {
         use tauri_plugin_autostart::ManagerExt;
-        
+
         let autostart_manager = app.autolaunch();
-        
+
         if enabled {
             autostart_manager
                 .enable()
@@ -69,7 +56,7 @@ pub async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), S
                 .map_err(|e| format!("Failed to disable autostart: {}", e))?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -79,13 +66,13 @@ pub async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String>
     #[cfg(desktop)]
     {
         use tauri_plugin_autostart::ManagerExt;
-        
+
         let autostart_manager = app.autolaunch();
         autostart_manager
             .is_enabled()
             .map_err(|e| format!("Failed to check autostart status: {}", e))
     }
-    
+
     #[cfg(not(desktop))]
     Ok(false)
 }
@@ -143,7 +130,9 @@ pub async fn reveal_file_in_explorer(path: String) -> Result<(), String> {
     {
         // Linux doesn't have a standard way to select a file, so open the parent folder
         let path = std::path::Path::new(&path);
-        let parent = path.parent().map(|p| p.to_string_lossy().to_string())
+        let parent = path
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string());
         std::process::Command::new("xdg-open")
             .arg(&parent)
@@ -161,31 +150,30 @@ pub async fn get_default_save_dir(app: tauri::AppHandle) -> Result<String, Strin
         .path()
         .picture_dir()
         .map_err(|e| format!("Failed to get pictures directory: {}", e))?;
-    
+
     let snapit_path = path.join("SnapIt");
-    
+
     // Create the directory if it doesn't exist
     if !snapit_path.exists() {
         std::fs::create_dir_all(&snapit_path)
             .map_err(|e| format!("Failed to create SnapIt directory: {}", e))?;
     }
-    
+
     Ok(snapit_path.to_string_lossy().to_string())
 }
 
 /// Get the default save directory path (synchronous version for internal use).
 pub fn get_default_save_dir_sync() -> Result<std::path::PathBuf, String> {
-    let path = dirs::picture_dir()
-        .ok_or_else(|| "Failed to get pictures directory".to_string())?;
-    
+    let path = dirs::picture_dir().ok_or_else(|| "Failed to get pictures directory".to_string())?;
+
     let snapit_path = path.join("SnapIt");
-    
+
     // Create the directory if it doesn't exist
     if !snapit_path.exists() {
         std::fs::create_dir_all(&snapit_path)
             .map_err(|e| format!("Failed to create SnapIt directory: {}", e))?;
     }
-    
+
     Ok(snapit_path)
 }
 

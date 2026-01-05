@@ -5454,7 +5454,7 @@ dependencies = [
  "nokhwa",
  "parking_lot",
  "pollster",
- "rand 0.8.5",
+ "rand 0.9.2",
  "serde",
  "serde_json",
  "tauri",

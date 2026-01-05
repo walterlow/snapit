@@ -620,12 +620,15 @@ pub async fn is_shortcut_registered_hook(id: String) -> Result<bool, String> {
 /// Check if a shortcut string would conflict with an existing registration
 /// Returns true if the shortcut is already in use
 #[tauri::command]
-pub async fn check_shortcut_available(shortcut: String, exclude_id: Option<String>) -> Result<bool, String> {
+pub async fn check_shortcut_available(
+    shortcut: String,
+    exclude_id: Option<String>,
+) -> Result<bool, String> {
     let state = get_state().lock().map_err(|e| e.to_string())?;
 
     // Parse the shortcut to check
-    let (check_mods, check_key) = parse_shortcut(&shortcut)
-        .ok_or_else(|| format!("Invalid shortcut: {}", shortcut))?;
+    let (check_mods, check_key) =
+        parse_shortcut(&shortcut).ok_or_else(|| format!("Invalid shortcut: {}", shortcut))?;
 
     // Check against all registered hotkeys
     for (id, hotkey) in &state.hotkeys {

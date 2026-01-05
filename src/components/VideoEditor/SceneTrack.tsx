@@ -17,11 +17,23 @@ const generateSegmentId = () => `scene-${Date.now()}-${++segmentIdCounter}`;
 // Default segment duration when adding new segments (3 seconds)
 const DEFAULT_SEGMENT_DURATION_MS = 3000;
 
-// Colors for different scene modes
-const SCENE_MODE_COLORS: Record<SceneMode, { bg: string; border: string; text: string; ring: string }> = {
-  default: { bg: 'bg-emerald-500/20', border: 'border-emerald-500/40', text: 'text-emerald-400', ring: 'ring-emerald-400' },
-  cameraOnly: { bg: 'bg-amber-500/20', border: 'border-amber-500/40', text: 'text-amber-400', ring: 'ring-amber-400' },
-  screenOnly: { bg: 'bg-blue-500/20', border: 'border-blue-500/40', text: 'text-blue-400', ring: 'ring-blue-400' },
+// CSS variable keys for different scene modes (theme-aware)
+const SCENE_MODE_VARS: Record<SceneMode, { bg: string; border: string; text: string }> = {
+  default: {
+    bg: 'var(--track-scene-default-bg)',
+    border: 'var(--track-scene-default-border)',
+    text: 'var(--track-scene-default-text)',
+  },
+  cameraOnly: {
+    bg: 'var(--track-scene-camera-bg)',
+    border: 'var(--track-scene-camera-border)',
+    text: 'var(--track-scene-camera-text)',
+  },
+  screenOnly: {
+    bg: 'var(--track-scene-screen-bg)',
+    border: 'var(--track-scene-screen-border)',
+    text: 'var(--track-scene-screen-text)',
+  },
 };
 
 const SCENE_MODE_ICONS: Record<SceneMode, typeof Camera> = {
@@ -61,7 +73,7 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
 }) {
   const left = segment.startMs * timelineZoom;
   const segmentWidth = (segment.endMs - segment.startMs) * timelineZoom;
-  const colors = SCENE_MODE_COLORS[segment.mode];
+  const vars = SCENE_MODE_VARS[segment.mode];
   const Icon = SCENE_MODE_ICONS[segment.mode];
 
   const handleClick = useCallback((e: React.MouseEvent) => {
@@ -129,22 +141,24 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
     <div
       data-segment
       className={`absolute top-1 bottom-1 rounded-md cursor-pointer transition-all duration-100
-        ${colors.bg} ${colors.border}
-        ${isSelected
-          ? `ring-2 ${colors.ring} border-transparent shadow-lg`
-          : 'border hover:ring-1 hover:ring-white/20'
-        }
+        ${isSelected ? 'ring-2 border-transparent shadow-lg' : 'border'}
       `}
       style={{
         left: `${left}px`,
         width: `${Math.max(segmentWidth, 20)}px`,
+        backgroundColor: vars.bg,
+        borderColor: vars.border,
+        // @ts-expect-error CSS custom property for ring color
+        '--tw-ring-color': vars.border,
       }}
       onClick={handleClick}
     >
       {/* Left resize handle */}
       <div
-        className={`absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:${colors.bg} rounded-l-md`}
+        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-l-md"
         onMouseDown={(e) => handleMouseDown(e, 'start')}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = vars.bg)}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       />
 
       {/* Center drag handle */}
@@ -153,7 +167,7 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
         onMouseDown={(e) => handleMouseDown(e, 'move')}
       >
         {segmentWidth > 60 && (
-          <div className={`flex items-center gap-1 ${colors.text}`}>
+          <div className="flex items-center gap-1" style={{ color: vars.text }}>
             <GripVertical className="w-3 h-3" />
             <Icon className="w-3 h-3" />
           </div>
@@ -162,8 +176,10 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
 
       {/* Right resize handle */}
       <div
-        className={`absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:${colors.bg} rounded-r-md`}
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-r-md"
         onMouseDown={(e) => handleMouseDown(e, 'end')}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = vars.bg)}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       />
 
       {/* Delete button (shown when selected) */}
@@ -178,7 +194,7 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
 
       {/* Tooltip showing time range */}
       {isSelected && (
-        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20">
+        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-[var(--glass-bg-solid)] border border-[var(--glass-border)] text-[var(--ink-dark)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20 shadow-sm">
           {formatTimeSimple(segment.startMs)} - {formatTimeSimple(segment.endMs)}
         </div>
       )}
@@ -202,17 +218,20 @@ const PreviewSegment = memo(function PreviewSegment({
 }) {
   const left = startMs * timelineZoom;
   const width = (endMs - startMs) * timelineZoom;
-  const colors = SCENE_MODE_COLORS[mode];
+  const vars = SCENE_MODE_VARS[mode];
 
   return (
     <div
-      className={`absolute top-1 bottom-1 rounded-md border-2 border-dashed pointer-events-none
-        ${colors.border} ${colors.bg} opacity-60
-      `}
-      style={{ left, width: Math.max(width, 40) }}
+      className="absolute top-1 bottom-1 rounded-md border-2 border-dashed pointer-events-none opacity-70"
+      style={{
+        left,
+        width: Math.max(width, 40),
+        backgroundColor: vars.bg,
+        borderColor: vars.border,
+      }}
     >
-      <div className="flex items-center justify-center h-full">
-        <Plus className={`h-4 w-4 ${colors.text}`} />
+      <div className="flex items-center justify-center h-full" style={{ color: vars.text }}>
+        <Plus className="h-4 w-4" />
       </div>
     </div>
   );
@@ -244,7 +263,7 @@ export const SceneTrack = memo(function SceneTrack({
   const isPlaying = useVideoEditorStore((s) => s.isPlaying);
 
   const totalWidth = durationMs * timelineZoom;
-  const defaultColors = SCENE_MODE_COLORS[defaultMode];
+  const defaultVars = SCENE_MODE_VARS[defaultMode];
 
   // Calculate preview segment details when hovering
   const previewSegmentDetails = useMemo(() => {
@@ -308,10 +327,10 @@ export const SceneTrack = memo(function SceneTrack({
   }, [previewSegmentDetails, addSceneSegment]);
 
   return (
-    <div className="h-full flex items-stretch">
+    <div className="h-full flex items-stretch border-b border-[var(--glass-border)]">
       {/* Track Label - must match VideoTimeline's trackLabelWidth (80px / w-20) */}
-      <div className="flex-shrink-0 w-20 bg-zinc-900/80 border-r border-zinc-700/50 flex items-center justify-center">
-        <div className="flex items-center gap-1.5 text-zinc-400">
+      <div className="flex-shrink-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center">
+        <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
           <Video className="w-3.5 h-3.5" />
           <span className="text-[11px] font-medium">Scene</span>
         </div>
@@ -319,7 +338,7 @@ export const SceneTrack = memo(function SceneTrack({
 
       {/* Scene Segments */}
       <div
-        className={`flex-1 relative bg-zinc-900/30 transition-colors ${
+        className={`flex-1 relative bg-[var(--polar-mist)]/60 transition-colors ${
           hoveredTrack === 'scene' && previewSegmentDetails ? 'cursor-pointer' : ''
         }`}
         style={{ width: totalWidth }}
@@ -329,7 +348,8 @@ export const SceneTrack = memo(function SceneTrack({
       >
         {/* Default mode background */}
         <div
-          className={`absolute inset-0 ${defaultColors.bg} opacity-30 pointer-events-none`}
+          className="absolute inset-0 opacity-30 pointer-events-none"
+          style={{ backgroundColor: defaultVars.bg }}
         />
 
         {/* Render segments */}
@@ -360,7 +380,7 @@ export const SceneTrack = memo(function SceneTrack({
         {/* Empty state hint */}
         {segments.length === 0 && !previewSegmentDetails && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-[10px] text-zinc-500">
+            <span className="text-[10px] text-[var(--ink-subtle)]">
               Hover to add scene modes
             </span>
           </div>

@@ -33,13 +33,16 @@ const PreviewRegion = memo(function PreviewRegion({
 
   return (
     <div
-      className="absolute top-1 bottom-1 rounded-md border-2 border-dashed pointer-events-none
-        border-blue-400/50 bg-blue-500/20 opacity-60
-      "
-      style={{ left: `${left}px`, width: `${Math.max(width, 40)}px` }}
+      className="absolute top-1 bottom-1 rounded-md border-2 border-dashed pointer-events-none opacity-70"
+      style={{
+        left: `${left}px`,
+        width: `${Math.max(width, 40)}px`,
+        backgroundColor: 'var(--track-zoom-bg)',
+        borderColor: 'var(--track-zoom-border-selected)',
+      }}
     >
-      <div className="flex items-center justify-center h-full">
-        <Plus className="h-4 w-4 text-blue-400" />
+      <div className="flex items-center justify-center h-full" style={{ color: 'var(--track-zoom-text)' }}>
+        <Plus className="h-4 w-4" />
       </div>
     </div>
   );
@@ -137,22 +140,24 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
       className={`
         absolute top-1 bottom-1 rounded-md cursor-pointer
         transition-all duration-100
-        ${isSelected
-          ? 'bg-blue-500/40 border-2 border-blue-400 shadow-lg shadow-blue-500/20'
-          : 'bg-blue-500/25 border border-blue-500/50 hover:bg-blue-500/35'
-        }
+        ${isSelected ? 'border-2 shadow-lg' : 'border'}
         ${region.isAuto ? 'border-dashed' : ''}
       `}
       style={{
         left: `${left}px`,
         width: `${Math.max(regionWidth, 20)}px`,
+        backgroundColor: isSelected ? 'var(--track-zoom-bg-selected)' : 'var(--track-zoom-bg)',
+        borderColor: isSelected ? 'var(--track-zoom-border-selected)' : 'var(--track-zoom-border)',
       }}
       onClick={handleClick}
     >
       {/* Left resize handle */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 rounded-l-md"
+        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-l-md"
+        style={{ '--tw-bg-opacity': 1 } as React.CSSProperties}
         onMouseDown={(e) => handleMouseDown(e, 'start')}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--track-zoom-hover)')}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       />
 
       {/* Center drag handle */}
@@ -161,7 +166,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
         onMouseDown={(e) => handleMouseDown(e, 'move')}
       >
         {regionWidth > 60 && (
-          <div className="flex items-center gap-1 text-blue-300/80">
+          <div className="flex items-center gap-1" style={{ color: 'var(--track-zoom-text)' }}>
             <GripVertical className="w-3 h-3" />
             <span className="text-[10px] font-mono">
               {region.scale.toFixed(1)}x
@@ -172,8 +177,10 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
 
       {/* Right resize handle */}
       <div
-        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 rounded-r-md"
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-r-md"
         onMouseDown={(e) => handleMouseDown(e, 'end')}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--track-zoom-hover)')}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       />
 
       {/* Delete button (shown when selected) */}
@@ -188,7 +195,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
 
       {/* Tooltip showing time range */}
       {isSelected && (
-        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20">
+        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-[var(--glass-bg-solid)] border border-[var(--glass-border)] text-[var(--ink-dark)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20 shadow-sm">
           {formatTimeSimple(region.startMs)} - {formatTimeSimple(region.endMs)}
         </div>
       )}
@@ -290,15 +297,15 @@ export const ZoomTrack = memo(function ZoomTrack({
 
   return (
     <div
-      className="relative h-10 bg-zinc-800/60"
+      className="relative h-10 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)]"
       style={{ width: `${width}px` }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={handleTrackClick}
     >
       {/* Track label */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-zinc-900/80 border-r border-zinc-700/50 flex items-center justify-center z-10">
-        <div className="flex items-center gap-1.5 text-zinc-400">
+      <div className="absolute left-0 top-0 bottom-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center z-10">
+        <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
           <ZoomIn className="w-3.5 h-3.5" />
           <span className="text-[11px] font-medium">Zoom</span>
         </div>
@@ -334,7 +341,7 @@ export const ZoomTrack = memo(function ZoomTrack({
         {/* Empty state hint */}
         {regions.length === 0 && !previewRegionDetails && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-[10px] text-zinc-500">
+            <span className="text-[10px] text-[var(--ink-subtle)]">
               Hover to add zoom regions
             </span>
           </div>

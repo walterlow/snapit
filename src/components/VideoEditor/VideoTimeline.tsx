@@ -49,7 +49,7 @@ const PreviewScrubber = memo(function PreviewScrubber({
 
   return (
     <div
-      className="absolute top-0 bottom-0 w-0.5 z-20 pointer-events-none bg-gradient-to-b from-[var(--ink-muted)] to-transparent"
+      className="absolute top-0 bottom-0 w-0.5 z-20 pointer-events-none bg-[var(--ink-muted)]"
       style={{ left: `${position}px` }}
     >
       {/* Scrubber handle */}
@@ -306,12 +306,12 @@ const VideoTrack = memo(function VideoTrack({
 
   return (
     <div
-      className="relative h-12 bg-[var(--polar-mist)]/30"
+      className="relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)]"
       style={{ width: `${width}px` }}
     >
       {/* Track label */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-[var(--polar-ice)]/80 border-r border-[var(--glass-border)]/50 flex items-center justify-center z-10">
-        <div className="flex items-center gap-1.5 text-[var(--ink-muted)]">
+      <div className="absolute left-0 top-0 bottom-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center z-10">
+        <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
           <Film className="w-3.5 h-3.5" />
           <span className="text-[11px] font-medium">Video</span>
         </div>
@@ -320,7 +320,7 @@ const VideoTrack = memo(function VideoTrack({
       {/* Video clip item */}
       <div className="absolute left-20 top-0 bottom-0 right-0">
         <div
-          className="absolute top-1 bottom-1 rounded-md bg-[var(--coral-50)] border border-[var(--coral-100)] overflow-hidden"
+          className="absolute top-1 bottom-1 rounded-md bg-[var(--coral-100)] border border-[var(--coral-200)] overflow-hidden"
           style={{ left: 0, width: `${clipWidth}px` }}
         >
           {/* Waveform overlay */}

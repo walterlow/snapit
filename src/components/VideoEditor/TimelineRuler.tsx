@@ -51,8 +51,8 @@ export const TimelineRuler = memo(function TimelineRuler({ durationMs, timelineZ
   }, [durationMs, timelineZoom]);
 
   return (
-    <div 
-      className="relative h-6 bg-zinc-900/80 border-b border-zinc-700/50"
+    <div
+      className="relative h-6 bg-[var(--polar-mist)] border-b border-[var(--glass-border)]"
       style={{ width: `${width}px` }}
     >
       {/* Tick marks */}
@@ -65,15 +65,15 @@ export const TimelineRuler = memo(function TimelineRuler({ durationMs, timelineZ
           {/* Tick line */}
           <div
             className={`w-px ${
-              tick.isMajor 
-                ? 'h-3 bg-zinc-400' 
-                : 'h-2 bg-zinc-600'
+              tick.isMajor
+                ? 'h-3 bg-[var(--ink-muted)]'
+                : 'h-2 bg-[var(--ink-subtle)]/50'
             }`}
           />
-          
+
           {/* Time label (only for major ticks) */}
           {tick.isMajor && (
-            <span className="text-[10px] text-zinc-400 font-mono mt-0.5 select-none">
+            <span className="text-[10px] text-[var(--ink-muted)] font-mono mt-0.5 select-none">
               {formatTimeSimple(tick.timeMs)}
             </span>
           )}

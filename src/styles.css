@@ -109,6 +109,26 @@
   --border: var(--glass-border);
   --input: var(--polar-frost);
   --ring: var(--coral-400);
+
+  /* Timeline Track Colors - Dark Mode */
+  --track-zoom-bg: rgba(59, 130, 246, 0.25);
+  --track-zoom-bg-selected: rgba(59, 130, 246, 0.4);
+  --track-zoom-border: rgba(59, 130, 246, 0.5);
+  --track-zoom-border-selected: #60A5FA;
+  --track-zoom-text: rgba(147, 197, 253, 0.9);
+  --track-zoom-hover: rgba(96, 165, 250, 0.5);
+
+  --track-scene-default-bg: rgba(16, 185, 129, 0.2);
+  --track-scene-default-border: rgba(16, 185, 129, 0.4);
+  --track-scene-default-text: #34D399;
+
+  --track-scene-camera-bg: rgba(245, 158, 11, 0.2);
+  --track-scene-camera-border: rgba(245, 158, 11, 0.4);
+  --track-scene-camera-text: #FBBF24;
+
+  --track-scene-screen-bg: rgba(59, 130, 246, 0.2);
+  --track-scene-screen-border: rgba(59, 130, 246, 0.4);
+  --track-scene-screen-text: #60A5FA;
 }
 
 /* Light mode override - use html.light for higher specificity over :root */
@@ -149,6 +169,26 @@ html.light,
   --card: #FFFFFF;
   --popover: #FFFFFF;
   --background: #F8F9FA;
+
+  /* Timeline Track Colors - Light Mode */
+  --track-zoom-bg: #DBEAFE;
+  --track-zoom-bg-selected: #BFDBFE;
+  --track-zoom-border: #93C5FD;
+  --track-zoom-border-selected: #3B82F6;
+  --track-zoom-text: #1D4ED8;
+  --track-zoom-hover: #BFDBFE;
+
+  --track-scene-default-bg: #D1FAE5;
+  --track-scene-default-border: #6EE7B7;
+  --track-scene-default-text: #047857;
+
+  --track-scene-camera-bg: #FEF3C7;
+  --track-scene-camera-border: #FCD34D;
+  --track-scene-camera-text: #B45309;
+
+  --track-scene-screen-bg: #DBEAFE;
+  --track-scene-screen-border: #93C5FD;
+  --track-scene-screen-text: #1D4ED8;
 }
 
 /* Keep .dark class for backwards compatibility */

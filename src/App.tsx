@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo, Activity } from 'react';
 import { Toaster } from 'sonner';
+import { invoke } from '@tauri-apps/api/core';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { LibraryErrorBoundary, EditorErrorBoundary } from './components/ErrorBoundary';
@@ -147,6 +148,11 @@ function App() {
     useSettingsStore.getState().openSettingsModal();
   }, []);
 
+  // Show capture toolbar window (startup mode)
+  const handleShowCaptureToolbar = useCallback(async () => {
+    await invoke('show_startup_toolbar');
+  }, []);
+
   // Get selected tool from EditorView ref (with fallback for when ref not set)
   const getSelectedTool = useCallback((): Tool => {
     return editorViewRef.current?.selectedTool ?? 'select';
@@ -216,7 +222,11 @@ function App() {
       <SettingsModalContainer />
       
       {/* Custom Titlebar */}
-      <Titlebar title="SnapIt Library" />
+      <Titlebar
+        title="SnapIt Library"
+        onCapture={handleShowCaptureToolbar}
+        onOpenSettings={handleOpenSettings}
+      />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0">

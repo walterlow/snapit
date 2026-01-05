@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Window } from '@tauri-apps/api/window';
-import { Minus, Square, X, Maximize2, Aperture, Sun, Moon, FolderOpen } from 'lucide-react';
+import { Minus, Square, X, Maximize2, Aperture, Sun, Moon, FolderOpen, Camera, Settings } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 
 interface TitlebarProps {
@@ -11,6 +11,10 @@ interface TitlebarProps {
   onClose?: () => void | boolean | Promise<void | boolean>;
   /** Called when library button is clicked. Button only shown if provided. */
   onOpenLibrary?: () => void;
+  /** Called when capture button is clicked. Button only shown if provided. */
+  onCapture?: () => void;
+  /** Called when settings button is clicked. Button only shown if provided. */
+  onOpenSettings?: () => void;
 }
 
 export const Titlebar: React.FC<TitlebarProps> = ({
@@ -19,6 +23,8 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   showMaximize = true,
   onClose,
   onOpenLibrary,
+  onCapture,
+  onOpenSettings,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -87,6 +93,26 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 
       {/* Right: Window Controls */}
       <div className="titlebar-controls">
+        {onCapture && (
+          <button
+            onClick={onCapture}
+            className="titlebar-button"
+            aria-label="New Capture"
+            title="New Capture"
+          >
+            <Camera className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {onOpenSettings && (
+          <button
+            onClick={onOpenSettings}
+            className="titlebar-button"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
+        )}
         {onOpenLibrary && (
           <button
             onClick={onOpenLibrary}
@@ -109,7 +135,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
             <Moon className="w-3.5 h-3.5" />
           )}
         </button>
-        
+
         <button
           onClick={handleMinimize}
           className="titlebar-button titlebar-button-minimize"

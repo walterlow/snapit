@@ -7,11 +7,10 @@ import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCaptureStore, useFilteredCaptures, useAllTags } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useVideoRecordingStore } from '../../stores/videoRecordingStore';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { useCaptureSettingsStore } from '../../stores/captureSettingsStore';
 import { CaptureService } from '../../services/captureService';
-import type { CaptureListItem, RecordingFormat } from '../../types';
+import type { CaptureListItem } from '../../types';
 import { LAYOUT, TIMING } from '../../constants';
 
 import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock, type VirtualLayoutInfo } from './hooks';
@@ -97,7 +96,7 @@ export const CaptureLibrary: React.FC = () => {
     setFilterTags,
   } = useCaptureStore();
 
-  const { settings, openSettingsModal } = useSettingsStore();
+  const { settings } = useSettingsStore();
 
   const captures = useFilteredCaptures();
   const allTags = useAllTags();
@@ -216,32 +215,6 @@ export const CaptureLibrary: React.FC = () => {
     const { setActiveMode } = useCaptureSettingsStore.getState();
     setActiveMode('screenshot');
     await CaptureService.showScreenshotOverlay();
-  };
-
-  // Start video/gif recording using native overlay (avoids video blackout)
-  // The capture toolbar handles both selection and recording controls
-  const startVideoRecording = async (format: RecordingFormat) => {
-    // Set format in store before triggering capture
-    const { setFormat } = useVideoRecordingStore.getState();
-    setFormat(format);
-
-    // Set active mode in capture settings store so toolbar shows correct mode
-    const { setActiveMode } = useCaptureSettingsStore.getState();
-    setActiveMode(format === 'gif' ? 'gif' : 'video');
-
-    await CaptureService.showVideoOverlay(format);
-  };
-
-  const handleNewVideo = async () => {
-    await startVideoRecording('mp4');
-  };
-
-  const handleNewGif = async () => {
-    await startVideoRecording('gif');
-  };
-
-  const handleAllMonitorsCapture = async () => {
-    await CaptureService.captureAllMonitorsToEditor();
   };
 
   const handleOpenLibraryFolder = async () => {
@@ -530,11 +503,6 @@ export const CaptureLibrary: React.FC = () => {
           onDeleteSelected={handleRequestDeleteSelected}
           onClearSelection={clearSelection}
           onOpenLibraryFolder={handleOpenLibraryFolder}
-          onAllMonitorsCapture={handleAllMonitorsCapture}
-          onNewImage={handleNewImage}
-          onNewVideo={handleNewVideo}
-          onNewGif={handleNewGif}
-          onOpenSettings={openSettingsModal}
         />
       </div>
     </TooltipProvider>

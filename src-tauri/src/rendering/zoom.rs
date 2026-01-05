@@ -54,17 +54,21 @@ pub struct SegmentBounds {
     pub bottom_right: XY,
 }
 
+impl Default for SegmentBounds {
+    fn default() -> Self {
+        Self {
+            top_left: XY::new(0.0, 0.0),
+            bottom_right: XY::new(1.0, 1.0),
+        }
+    }
+}
+
 impl SegmentBounds {
     pub fn new(top_left: XY, bottom_right: XY) -> Self {
         Self {
             top_left,
             bottom_right,
         }
-    }
-
-    /// Default bounds (full viewport, no zoom).
-    pub fn default() -> Self {
-        Self::new(XY::new(0.0, 0.0), XY::new(1.0, 1.0))
     }
 
     /// Create bounds from a zoom region using Cap's calculation.

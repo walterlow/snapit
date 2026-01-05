@@ -513,8 +513,8 @@ pub async fn clamp_webcam_to_selection(
         let max_y = sel_y + sel_height - webcam_size - padding;
 
         // Clamp position
-        let clamped_x = x.max(min_x).min(max_x);
-        let clamped_y = y.max(min_y).min(max_y);
+        let clamped_x = x.clamp(min_x, max_x);
+        let clamped_y = y.clamp(min_y, max_y);
 
         // Only move if position changed
         if clamped_x != x || clamped_y != y {

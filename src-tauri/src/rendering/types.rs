@@ -251,11 +251,12 @@ impl CompositorUniforms {
 }
 
 /// Playback state for the editor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub enum PlaybackState {
     /// Not playing.
+    #[default]
     Stopped,
     /// Currently playing.
     Playing,
@@ -263,12 +264,6 @@ pub enum PlaybackState {
     Paused,
     /// Seeking to a position.
     Seeking,
-}
-
-impl Default for PlaybackState {
-    fn default() -> Self {
-        Self::Stopped
-    }
 }
 
 /// Event emitted during playback.

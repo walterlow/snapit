@@ -716,7 +716,7 @@ impl VideoExporter {
 
             let x_offset = (width as f32 * (target_x - 0.5 / zoom)).max(0.0);
             let max_x = width as f32 - (width as f32 / zoom);
-            let x_clamped = x_offset.min(max_x).max(0.0) as i64;
+            let x_clamped = x_offset.clamp(0.0, max_x) as i64;
 
             result = format!(
                 "if(between(n,{},{}),{},{})",
@@ -756,7 +756,7 @@ impl VideoExporter {
 
             let y_offset = (height as f32 * (target_y - 0.5 / zoom)).max(0.0);
             let max_y = height as f32 - (height as f32 / zoom);
-            let y_clamped = y_offset.min(max_y).max(0.0) as i64;
+            let y_clamped = y_offset.clamp(0.0, max_y) as i64;
 
             result = format!(
                 "if(between(n,{},{}),{},{})",

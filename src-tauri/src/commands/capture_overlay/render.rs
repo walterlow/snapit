@@ -555,7 +555,7 @@ fn draw_size_indicator(
     let mut box_y = clear_rect.bottom + margin;
 
     // Clamp to screen bounds
-    let box_x = box_x.max(padding).min(width - text_width - padding);
+    let box_x = box_x.clamp(padding, width - text_width - padding);
 
     // If below screen, show above selection
     if box_y + text_height + padding > height {
@@ -705,10 +705,8 @@ fn draw_window_name_indicator(
     let box_y = region_center_y - text_height / 2.0;
 
     // Clamp to screen bounds
-    let box_x = box_x.max(padding).min(screen_width - text_width - padding);
-    let box_y = box_y
-        .max(padding)
-        .min(screen_height - text_height - padding);
+    let box_x = box_x.clamp(padding, screen_width - text_width - padding);
+    let box_y = box_y.clamp(padding, screen_height - text_height - padding);
 
     let bg_rect = D2D_RECT_F {
         left: box_x,

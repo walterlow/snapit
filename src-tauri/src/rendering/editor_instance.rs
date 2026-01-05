@@ -329,7 +329,7 @@ async fn playback_loop(
                 },
                 PlaybackCommand::SetSpeed(speed) => {
                     let mut s = state.lock();
-                    s.speed = speed.max(0.1).min(4.0);
+                    s.speed = speed.clamp(0.1, 4.0);
                 },
             },
             Ok(None) => {

@@ -17,7 +17,7 @@ pub fn build_webcam_overlay(
     const MARGIN_PX: f32 = 16.0;
 
     // Webcam overlay is square in PIXELS (same as preview)
-    let webcam_size_px = out_w as f32 * project.webcam.size as f32;
+    let webcam_size_px = out_w as f32 * project.webcam.size;
 
     // Calculate position in PIXELS first (matching WebcamOverlay.tsx getPositionStyle)
     let (left_px, top_px) = match project.webcam.position {
@@ -30,8 +30,8 @@ pub fn build_webcam_overlay(
         ),
         WebcamOverlayPosition::Custom => {
             // Custom positioning matches preview logic
-            let custom_x = project.webcam.custom_x as f32;
-            let custom_y = project.webcam.custom_y as f32;
+            let custom_x = project.webcam.custom_x;
+            let custom_y = project.webcam.custom_y;
 
             let left = if custom_x <= 0.1 {
                 MARGIN_PX
@@ -88,7 +88,7 @@ pub fn build_webcam_overlay(
         frame,
         x: x_norm,
         y: y_norm,
-        size: project.webcam.size as f32,
+        size: project.webcam.size,
         shape,
         mirror: project.webcam.mirror,
         shadow,

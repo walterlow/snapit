@@ -224,7 +224,7 @@ pub async fn export_video_gpu(
         let webcam_visible = is_webcam_visible_at(&project, relative_time_ms);
 
         // Log first few frames for debugging
-        if frame_idx < 3 || (relative_time_ms >= 6000 && relative_time_ms <= 6200) {
+        if frame_idx < 3 || (6000..=6200).contains(&relative_time_ms) {
             log::debug!(
                 "[EXPORT] Frame {}: relative={}ms, scene_mode={:?}, transition_progress={:.2}",
                 frame_idx,
@@ -254,7 +254,7 @@ pub async fn export_video_gpu(
         let is_in_camera_only_transition = interpolated_scene.is_transitioning_camera_only();
 
         // Log transition state for debugging
-        if is_in_camera_only_transition && frame_idx % 10 == 0 {
+        if is_in_camera_only_transition && frame_idx.is_multiple_of(10) {
             log::debug!(
                 "[EXPORT] Frame {}: cameraOnly transition - camera_only_opacity={:.2}, regular_camera_opacity={:.2}, screen_blur={:.2}",
                 frame_idx, camera_only_opacity, regular_camera_opacity, interpolated_scene.screen_blur
@@ -389,7 +389,7 @@ pub async fn export_video_gpu(
         }
 
         // Progress update (every 10 frames)
-        if frame_idx % 10 == 0 {
+        if frame_idx.is_multiple_of(10) {
             let progress = (frame_idx + 1) as f32 / total_frames as f32;
             let stage_progress = 0.08 + progress * 0.87;
             emit_progress(

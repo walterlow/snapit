@@ -341,9 +341,8 @@ fn densify_cursor_moves(events: &[CursorEvent], recording: &CursorRecording) -> 
 
         if should_fill_gap(current, next, recording) {
             let dt_ms = (next.timestamp_ms - current.timestamp_ms) as f32;
-            let segments = ((dt_ms / SIMULATION_TICK_MS).ceil() as usize)
-                .max(2)
-                .min(MAX_INTERPOLATED_STEPS);
+            let segments =
+                ((dt_ms / SIMULATION_TICK_MS).ceil() as usize).clamp(2, MAX_INTERPOLATED_STEPS);
 
             for step in 1..segments {
                 let t = step as f32 / segments as f32;
@@ -370,11 +369,7 @@ fn get_spring_profile(
     is_primary_button_down: bool,
 ) -> SpringConfig {
     let recent_click = clicks.iter().find(|c| {
-        let diff = if time_ms > c.timestamp_ms {
-            time_ms - c.timestamp_ms
-        } else {
-            c.timestamp_ms - time_ms
-        };
+        let diff = time_ms.abs_diff(c.timestamp_ms);
         diff <= CLICK_REACTION_WINDOW_MS
     });
 

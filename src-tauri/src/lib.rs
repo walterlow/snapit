@@ -143,6 +143,10 @@ pub fn run() {
             commands::keyboard_hook::unregister_shortcut_hook,
             commands::keyboard_hook::unregister_all_hooks,
             commands::keyboard_hook::reinstall_hook,
+            commands::keyboard_hook::suspend_shortcut,
+            commands::keyboard_hook::resume_shortcut,
+            commands::keyboard_hook::is_shortcut_registered_hook,
+            commands::keyboard_hook::check_shortcut_available,
             // Video recording commands
             commands::video_recording::start_recording,
             commands::video_recording::stop_recording,

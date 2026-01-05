@@ -6,7 +6,7 @@
 //! For PrintScreen specifically, we use IDHOT_SNAPDESKTOP to override the default
 //! Windows clipboard behavior.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use tauri::{AppHandle, Emitter};
@@ -67,6 +67,8 @@ struct HotkeyState {
     next_id: i32,
     pending_registrations: Vec<PendingRegistration>,
     pending_unregistrations: Vec<i32>,
+    /// Shortcuts that are temporarily suspended (unregistered but config preserved)
+    suspended: HashSet<String>,
 }
 
 static HOTKEY_STATE: OnceLock<Arc<Mutex<HotkeyState>>> = OnceLock::new();
@@ -81,6 +83,7 @@ fn get_state() -> &'static Arc<Mutex<HotkeyState>> {
             next_id: 1, // Start at 1, reserve negative IDs for special keys
             pending_registrations: Vec::new(),
             pending_unregistrations: Vec::new(),
+            suspended: HashSet::new(),
         }))
     })
 }
@@ -523,4 +526,126 @@ pub async fn reinstall_hook() -> Result<(), String> {
     // With RegisterHotKey approach, we don't need to reinstall
     // The hotkeys stay registered until we unregister them
     Ok(())
+}
+
+/// Temporarily suspend a shortcut (unregister without removing config)
+/// Used during shortcut editing to prevent accidental triggering
+#[tauri::command]
+pub async fn suspend_shortcut(id: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut state = get_state().lock().map_err(|e| e.to_string())?;
+
+        // Mark as suspended
+        state.suspended.insert(id.clone());
+
+        // Get the hotkey info (but don't remove from hotkeys map)
+        let hotkey_id = state.hotkeys.get(&id).map(|h| h.hotkey_id);
+        let hwnd_val = state.hwnd;
+
+        if let (Some(hid), Some(hwnd_val)) = (hotkey_id, hwnd_val) {
+            // Queue unregistration
+            state.pending_unregistrations.push(hid);
+
+            // Post message to trigger unregistration
+            let hwnd = HWND(hwnd_val as *mut _);
+            drop(state);
+            unsafe {
+                let _ = PostMessageW(hwnd, WM_UNREGISTER_HOTKEY, WPARAM(0), LPARAM(0));
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = id;
+        Ok(())
+    }
+}
+
+/// Resume a suspended shortcut (re-register from preserved config)
+#[tauri::command]
+pub async fn resume_shortcut(id: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut state = get_state().lock().map_err(|e| e.to_string())?;
+
+        // Remove from suspended set
+        state.suspended.remove(&id);
+
+        // Get the hotkey info and re-register
+        if let Some(hotkey) = state.hotkeys.get(&id).cloned() {
+            if let Some(hwnd_val) = state.hwnd {
+                // Queue re-registration
+                state.pending_registrations.push(PendingRegistration {
+                    id: id.clone(),
+                    hotkey_id: hotkey.hotkey_id,
+                    modifiers: hotkey.modifiers,
+                    key_code: hotkey.key_code,
+                });
+
+                // Post message to trigger registration
+                let hwnd = HWND(hwnd_val as *mut _);
+                drop(state);
+                unsafe {
+                    let _ = PostMessageW(hwnd, WM_REGISTER_HOTKEY, WPARAM(0), LPARAM(0));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = id;
+        Ok(())
+    }
+}
+
+/// Check if a shortcut is currently registered (by us)
+/// Returns true if the shortcut ID is registered and not suspended
+#[tauri::command]
+pub async fn is_shortcut_registered_hook(id: String) -> Result<bool, String> {
+    let state = get_state().lock().map_err(|e| e.to_string())?;
+
+    // Check if registered and not suspended
+    let is_registered = state.hotkeys.contains_key(&id) && !state.suspended.contains(&id);
+
+    Ok(is_registered)
+}
+
+/// Check if a shortcut string would conflict with an existing registration
+/// Returns true if the shortcut is already in use
+#[tauri::command]
+pub async fn check_shortcut_available(shortcut: String, exclude_id: Option<String>) -> Result<bool, String> {
+    let state = get_state().lock().map_err(|e| e.to_string())?;
+
+    // Parse the shortcut to check
+    let (check_mods, check_key) = parse_shortcut(&shortcut)
+        .ok_or_else(|| format!("Invalid shortcut: {}", shortcut))?;
+
+    // Check against all registered hotkeys
+    for (id, hotkey) in &state.hotkeys {
+        // Skip the excluded ID (self)
+        if let Some(ref exclude) = exclude_id {
+            if id == exclude {
+                continue;
+            }
+        }
+
+        // Skip suspended shortcuts
+        if state.suspended.contains(id) {
+            continue;
+        }
+
+        // Check if modifiers and key match
+        if hotkey.modifiers == check_mods && hotkey.key_code == check_key {
+            return Ok(false); // Not available - conflict
+        }
+    }
+
+    Ok(true) // Available
 }

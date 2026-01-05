@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { ShortcutInput } from './ShortcutInput';
 import { useSettingsStore, useShortcutsList } from '@/stores/settingsStore';
-import { updateShortcut, hasInternalConflict, registerAllShortcuts } from '@/utils/hotkeyManager';
+import { updateShortcut, hasInternalConflict, setAllowOverride } from '@/utils/hotkeyManager';
 import type { ShortcutConfig } from '@/types';
 
 const SHORTCUT_ICONS: Record<string, React.ReactNode> = {
@@ -66,7 +66,7 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({ config }) => {
 
 export const ShortcutsTab: React.FC = () => {
   const shortcuts = useShortcutsList();
-  const { resetAllShortcuts, settings, updateGeneralSettings } = useSettingsStore();
+  const { resetAllShortcuts, settings } = useSettingsStore();
 
   const handleResetAll = useCallback(async () => {
     resetAllShortcuts();
@@ -76,9 +76,9 @@ export const ShortcutsTab: React.FC = () => {
   }, [resetAllShortcuts, shortcuts]);
 
   const handleOverrideToggle = useCallback(async (enabled: boolean) => {
-    updateGeneralSettings({ allowOverride: enabled });
-    await registerAllShortcuts();
-  }, [updateGeneralSettings]);
+    // Use setAllowOverride for clean handoff between modes
+    await setAllowOverride(enabled);
+  }, []);
 
   return (
     <div className="space-y-4">

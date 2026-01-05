@@ -357,7 +357,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   defaultSaveDir: null,
   imageFormat: 'png',
   jpgQuality: 85,
-  allowOverride: false,
+  allowOverride: true, // Override shortcuts from other apps by default
   theme: 'system', // Follow OS preference by default
 };
 

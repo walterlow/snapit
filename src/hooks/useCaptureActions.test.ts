@@ -2,41 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useCaptureActions } from './useCaptureActions';
 
+// Mock Tauri invoke
+const mockInvoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (...args: unknown[]) => mockInvoke(...args),
+}));
+
 // Mock CaptureService
 const mockShowScreenshotOverlay = vi.fn();
-const mockCaptureFullscreen = vi.fn();
 const mockCaptureAllMonitorsToEditor = vi.fn();
 
 vi.mock('../services/captureService', () => ({
   CaptureService: {
     showScreenshotOverlay: () => mockShowScreenshotOverlay(),
-    captureFullscreen: () => mockCaptureFullscreen(),
     captureAllMonitorsToEditor: () => mockCaptureAllMonitorsToEditor(),
-  },
-}));
-
-// Mock stores
-const mockSaveNewCapture = vi.fn();
-const mockClearEditor = vi.fn();
-
-vi.mock('../stores/captureStore', () => ({
-  useCaptureStore: () => ({
-    saveNewCapture: mockSaveNewCapture,
-  }),
-}));
-
-vi.mock('../stores/editorStore', () => ({
-  useEditorStore: () => ({
-    clearEditor: mockClearEditor,
-  }),
-  clearHistory: vi.fn(),
-}));
-
-// Mock sonner toast
-vi.mock('sonner', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
   },
 }));
 
@@ -57,14 +36,17 @@ describe('useCaptureActions', () => {
     expect(mockShowScreenshotOverlay).toHaveBeenCalledTimes(1);
   });
 
-  it('should trigger fullscreen capture and save', async () => {
+  it('should trigger fullscreen capture and open editor', async () => {
     const captureResult = {
-      image_data: 'base64ImageData',
+      file_path: '/path/to/capture.png',
       width: 1920,
       height: 1080,
     };
-    mockCaptureFullscreen.mockResolvedValue(captureResult);
-    mockSaveNewCapture.mockResolvedValue('capture_id');
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'capture_fullscreen_fast') return Promise.resolve(captureResult);
+      if (cmd === 'open_editor_fast') return Promise.resolve(undefined);
+      return Promise.resolve(undefined);
+    });
 
     const { result } = renderHook(() => useCaptureActions());
 
@@ -72,27 +54,12 @@ describe('useCaptureActions', () => {
       await result.current.triggerFullscreenCapture();
     });
 
-    expect(mockCaptureFullscreen).toHaveBeenCalledTimes(1);
-    expect(mockSaveNewCapture).toHaveBeenCalledWith(
-      'base64ImageData',
-      'fullscreen',
-      {}
-    );
-    expect(mockClearEditor).toHaveBeenCalledTimes(1);
-  });
-
-  it('should handle fullscreen capture with no result', async () => {
-    mockCaptureFullscreen.mockResolvedValue(null);
-
-    const { result } = renderHook(() => useCaptureActions());
-
-    await act(async () => {
-      await result.current.triggerFullscreenCapture();
+    expect(mockInvoke).toHaveBeenCalledWith('capture_fullscreen_fast');
+    expect(mockInvoke).toHaveBeenCalledWith('open_editor_fast', {
+      filePath: '/path/to/capture.png',
+      width: 1920,
+      height: 1080,
     });
-
-    expect(mockCaptureFullscreen).toHaveBeenCalledTimes(1);
-    expect(mockSaveNewCapture).not.toHaveBeenCalled();
-    expect(mockClearEditor).not.toHaveBeenCalled();
   });
 
   it('should trigger all monitors capture', async () => {
@@ -117,7 +84,7 @@ describe('useCaptureActions', () => {
     rerender();
 
     expect(result.current.triggerNewCapture).toBe(firstTriggerNewCapture);
+    expect(result.current.triggerFullscreenCapture).toBe(firstTriggerFullscreenCapture);
     expect(result.current.triggerAllMonitorsCapture).toBe(firstTriggerAllMonitorsCapture);
-    // triggerFullscreenCapture depends on saveNewCapture and clearEditor, so it might change
   });
 });

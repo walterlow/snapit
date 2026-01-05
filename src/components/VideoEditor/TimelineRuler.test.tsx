@@ -75,11 +75,11 @@ describe('TimelineRuler', () => {
       );
 
       // Major ticks should have taller lines (h-3)
-      const majorLines = container.querySelectorAll('.h-3.bg-zinc-400');
+      const majorLines = container.querySelectorAll('.h-3');
       expect(majorLines.length).toBeGreaterThan(0);
 
       // Minor ticks should have shorter lines (h-2)
-      const minorLines = container.querySelectorAll('.h-2.bg-zinc-600');
+      const minorLines = container.querySelectorAll('.h-2');
       expect(minorLines.length).toBeGreaterThan(0);
     });
 

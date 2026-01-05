@@ -100,6 +100,61 @@ const CaptureToolbarWindow: React.FC = () => {
   // Measure content and resize window to fit
   useToolbarPositioning({ containerRef, contentRef, selectionConfirmed, mode });
 
+  // Ensure webcam preview is visible when in video mode with webcam enabled
+  // This handles edge cases where preview was closed but settings still show webcam enabled
+  useEffect(() => {
+    if (captureType === 'video') {
+      openWebcamPreviewIfEnabled();
+    }
+  }, [captureType, openWebcamPreviewIfEnabled]);
+
+  // Restore webcam preview when toolbar window is focused/unminimized/becomes visible
+  useEffect(() => {
+    const currentWindow = getCurrentWebviewWindow();
+    let unlistenFocus: (() => void) | null = null;
+
+    const checkAndRestoreWebcam = () => {
+      toolbarLogger.debug('checkAndRestoreWebcam called', { captureType });
+      if (captureType === 'video') {
+        openWebcamPreviewIfEnabled();
+      }
+    };
+
+    // Handle Tauri window focus change
+    const setupFocusListener = async () => {
+      unlistenFocus = await currentWindow.onFocusChanged(({ payload: focused }) => {
+        toolbarLogger.debug('Tauri onFocusChanged', { focused });
+        if (focused) {
+          checkAndRestoreWebcam();
+        }
+      });
+    };
+
+    // Handle document visibility change (covers minimize/restore)
+    const handleVisibilityChange = () => {
+      toolbarLogger.debug('visibilitychange', { state: document.visibilityState });
+      if (document.visibilityState === 'visible') {
+        checkAndRestoreWebcam();
+      }
+    };
+
+    // Handle window focus (browser-level)
+    const handleWindowFocus = () => {
+      toolbarLogger.debug('window focus event');
+      checkAndRestoreWebcam();
+    };
+
+    setupFocusListener();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      unlistenFocus?.();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [captureType, openWebcamPreviewIfEnabled]);
+
   // --- Event handlers ---
 
   // Close popovers when window loses focus

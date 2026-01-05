@@ -9,6 +9,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { toast } from 'sonner';
 import { useWebcamSettingsStore } from '../stores/webcamSettingsStore';
 import { webcamLogger } from '../utils/logger';
@@ -71,9 +72,44 @@ export function useWebcamCoordination(): UseWebcamCoordinationReturn {
   }, [closePreview]);
 
   const openWebcamPreviewIfEnabled = useCallback(async () => {
-    // Only open if webcam is enabled in settings but preview is not already open
-    if (settings.enabled && !previewOpen) {
+    webcamLogger.debug('openWebcamPreviewIfEnabled called', { enabled: settings.enabled, previewOpen });
+
+    // Only proceed if webcam is enabled in settings
+    if (!settings.enabled) {
+      webcamLogger.debug('Webcam not enabled, skipping');
+      return;
+    }
+
+    // Check if the preview window actually exists (handles stale previewOpen state)
+    // getByLabel can return a reference to a destroyed window, so we verify by checking visibility
+    let windowExists = false;
+    try {
+      const existingWindow = await WebviewWindow.getByLabel('webcam-preview');
+      if (existingWindow) {
+        // Try to check if window is actually alive by querying a property
+        const isVisible = await existingWindow.isVisible();
+        windowExists = isVisible;
+        webcamLogger.debug('Window existence check', { windowExists, isVisible });
+      } else {
+        webcamLogger.debug('Window not found by label');
+      }
+    } catch (e) {
+      // If we get an error querying the window, it doesn't exist
+      webcamLogger.debug('Window check error (window likely destroyed)', e);
+      windowExists = false;
+    }
+
+    // If state says open but window doesn't exist, reset state and open
+    if (previewOpen && !windowExists) {
+      webcamLogger.debug('Preview state out of sync - resetting and reopening');
+      useWebcamSettingsStore.setState({ previewOpen: false });
       await togglePreview();
+    } else if (!previewOpen && !windowExists) {
+      // Normal case: preview not open, open it
+      webcamLogger.debug('Opening preview (not open, window does not exist)');
+      await togglePreview();
+    } else {
+      webcamLogger.debug('Preview already exists, nothing to do');
     }
   }, [settings.enabled, previewOpen, togglePreview]);
 

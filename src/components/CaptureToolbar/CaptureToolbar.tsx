@@ -205,7 +205,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
           <div className="glass-processing-section">
             <div className="glass-spinner" />
             <span className="glass-text--muted text-xs select-none">
-              {Math.round(progress * 100)}%
+              Saving...
             </span>
           </div>
         )}

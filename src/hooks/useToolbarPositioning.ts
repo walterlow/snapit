@@ -88,25 +88,25 @@ export function useToolbarPositioning({ containerRef, contentRef, selectionConfi
 
     let cancelled = false;
 
-    // Wait for React to render, then wait for browser paint
-    requestAnimationFrame(() => {
+    // Wait for CSS transition to complete (200ms) plus buffer before measuring
+    // This ensures we measure the final size, not mid-transition values
+    const timeoutId = setTimeout(() => {
       if (cancelled) return;
-      // Double RAF to ensure paint is complete
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        const contentRect = content.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        if (contentRect.width > 0 && containerRect.height > 0) {
-          // Reset last size to force update
-          lastSizeRef.current = { width: 0, height: 0 };
-          // Trigger resize
-          const windowWidth = Math.ceil(contentRect.width) + 1;
-          const windowHeight = Math.ceil(containerRect.height) + 1;
-          invoke('resize_capture_toolbar', { width: windowWidth, height: windowHeight }).catch((e) => toolbarLogger.error('Failed to resize toolbar:', e));
-        }
-      });
-    });
+      const contentRect = content.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      if (contentRect.width > 0 && containerRect.height > 0) {
+        // Reset last size to force update
+        lastSizeRef.current = { width: 0, height: 0 };
+        // Trigger resize
+        const windowWidth = Math.ceil(contentRect.width) + 1;
+        const windowHeight = Math.ceil(containerRect.height) + 1;
+        invoke('resize_capture_toolbar', { width: windowWidth, height: windowHeight }).catch((e) => toolbarLogger.error('Failed to resize toolbar:', e));
+      }
+    }, 220);
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [selectionConfirmed, mode, containerRef, contentRef]);
 }

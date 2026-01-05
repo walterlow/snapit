@@ -3,10 +3,9 @@
 use std::sync::atomic::Ordering;
 use tauri::{command, AppHandle, Emitter, Manager};
 
-use super::recording::show_recording_border;
 use super::{
     close_all_capture_windows, close_recording_border_window, restore_main_if_visible,
-    CAPTURE_TOOLBAR_LABEL, MAIN_WAS_VISIBLE,
+    MAIN_WAS_VISIBLE,
 };
 
 /// Trigger the capture overlay - uses DirectComposition overlay for all capture types.
@@ -14,6 +13,16 @@ use super::{
 ///
 /// Uses DirectComposition overlay to avoid blackout issues with hardware-accelerated
 /// video content. This works for all capture types (screenshot, video, gif).
+///
+/// ## Recording Flow (Frontend is Source of Truth)
+///
+/// For video/gif recording, this function does NOT start recording. The flow is:
+/// 1. Frontend calls `prepare_recording` when selection is confirmed → sets up output path + webcam pipe
+/// 2. Frontend calls `set_webcam_enabled` to configure webcam settings
+/// 3. Frontend calls `capture_overlay_confirm('recording')` → overlay closes
+/// 4. Frontend calls `start_recording` with settings → uses prepared output path
+///
+/// This ensures webcam.mp4 and screen.mp4 are saved to the same folder.
 pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<(), String> {
     log::info!(
         "[trigger_capture] Called with capture_type: {:?}",
@@ -31,7 +40,6 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
     }
 
     // Clone capture type as owned String for use in spawned thread
-    let is_gif = ct == "gif";
     let ct_for_thread = ct.clone();
 
     // Launch DirectComposition overlay in background
@@ -75,109 +83,17 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
 
                     match action {
                         OverlayAction::StartRecording => {
-                            // Start recording flow
-                            // The toolbar was created by show_toolbar in wndproc.rs
-                            // We need to show the recording border separately
-                            if let Err(e) =
-                                show_recording_border(app_clone.clone(), x, y, width, height).await
-                            {
-                                log::error!("Failed to show recording border: {}", e);
-                            }
-
-                            // Determine format based on capture type
-                            let format = if is_gif {
-                                crate::commands::video_recording::RecordingFormat::Gif
-                            } else {
-                                crate::commands::video_recording::RecordingFormat::Mp4
-                            };
-
-                            // Emit format to the controls window
-                            let format_str = if is_gif { "gif" } else { "mp4" };
-                            let _ = app_clone.emit("recording-format", format_str);
-
-                            // Get countdown setting
-                            let countdown_secs =
-                                crate::commands::video_recording::get_countdown_secs();
-
-                            // Show countdown overlay window if countdown is enabled
-                            if countdown_secs > 0 {
-                                if let Err(e) = super::recording::show_countdown_window(
-                                    app_clone.clone(),
-                                    x,
-                                    y,
-                                    width,
-                                    height,
-                                )
-                                .await
-                                {
-                                    log::error!("Failed to show countdown window: {}", e);
-                                }
-                            }
-
-                            // Get recording settings from global state (set by frontend)
-                            let system_audio_enabled =
-                                crate::commands::video_recording::get_system_audio_enabled();
-                            let fps = crate::commands::video_recording::get_fps();
-                            let quality = crate::commands::video_recording::get_quality();
-                            let include_cursor =
-                                crate::commands::video_recording::get_include_cursor();
-                            let max_duration_secs =
-                                crate::commands::video_recording::get_max_duration_secs();
-
-                            // Start the recording with the selected region
-                            let quick_capture =
-                                crate::commands::video_recording::get_quick_capture();
-                            let settings = crate::commands::video_recording::RecordingSettings {
-                                format,
-                                mode: crate::commands::video_recording::RecordingMode::Region {
-                                    x,
-                                    y,
-                                    width,
-                                    height,
-                                },
-                                fps,
-                                max_duration_secs,
-                                include_cursor,
-                                audio: crate::commands::video_recording::AudioSettings {
-                                    capture_system_audio: system_audio_enabled,
-                                    microphone_device_index:
-                                        crate::commands::video_recording::get_microphone_device_index(
-                                        ),
-                                },
-                                quality,
-                                gif_quality_preset:
-                                    crate::commands::video_recording::get_gif_quality_preset(),
-                                countdown_secs,
-                                quick_capture,
-                            };
-
-                            if let Err(e) =
-                                crate::commands::video_recording::recorder::start_recording(
-                                    app_clone.clone(),
-                                    settings.clone(),
-                                    crate::commands::video_recording::generate_output_path(
-                                        &settings,
-                                    )
-                                    .unwrap_or_else(|_| {
-                                        std::env::temp_dir()
-                                            .join(format!("recording.{}", format_str))
-                                    }),
-                                )
-                                .await
-                            {
-                                log::error!("Failed to start recording: {}", e);
-                                // Close toolbar window and restore main window on error
-                                if let Some(toolbar) =
-                                    app_clone.get_webview_window(CAPTURE_TOOLBAR_LABEL)
-                                {
-                                    let _ = toolbar.close();
-                                }
-                                if let Some(main_window) = app_clone.get_webview_window("library") {
-                                    if MAIN_WAS_VISIBLE.load(Ordering::SeqCst) {
-                                        let _ = main_window.show();
-                                    }
-                                }
-                            }
+                            // Recording is handled by the frontend via start_recording command.
+                            // The frontend has already:
+                            // 1. Called prepare_recording() to set up output path and webcam pipe
+                            // 2. Set webcam settings via set_webcam_enabled()
+                            // 3. Will call start_recording() with the correct prepared path
+                            //
+                            // We just need to log that we're done here - no duplicate recording logic.
+                            log::info!(
+                                "[trigger_capture] Overlay confirmed recording for region {}x{} at ({}, {})",
+                                width, height, x, y
+                            );
                         },
                         OverlayAction::CaptureScreenshot => {
                             // Screenshot flow - close all windows, capture, open editor

@@ -58,20 +58,14 @@ use tauri::{command, AppHandle, Emitter, Manager};
 
 // Types (from types.rs)
 pub use types::{
-    AudioInputDevice, AudioSettings, RecordingFormat, RecordingMode, RecordingSettings,
-    RecordingState, RecordingStatus, StartRecordingResult,
+    AudioInputDevice, RecordingFormat, RecordingMode, RecordingSettings, RecordingState,
+    RecordingStatus, StartRecordingResult,
 };
 // StopRecordingResult is available via types:: but not re-exported (unused)
 
 // Recording state
 pub use ffmpeg_gif_encoder::GifQualityPreset;
 pub use state::RECORDING_CONTROLLER;
-
-// Recording config - re-export only what's actually used in this module
-pub use crate::config::recording::{
-    get_countdown_secs, get_fps, get_gif_quality_preset, get_include_cursor, get_max_duration_secs,
-    get_microphone_device_index, get_quality, get_quick_capture, get_system_audio_enabled,
-};
 
 // Webcam config - re-export only what's actually used
 pub use crate::config::webcam::{get_webcam_settings, WebcamSize, WEBCAM_CONFIG};

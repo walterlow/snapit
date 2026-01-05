@@ -58,7 +58,7 @@ pub async fn start_recording(
         let command_rx_clone = command_rx.clone();
 
         // Use tauri's async runtime instead of tokio::spawn to ensure the task
-        // persists even when called from a temporary runtime (like in trigger_capture)
+        // persists across async boundaries
         tauri::async_runtime::spawn(async move {
             // Brief delay to allow countdown window to initialize its event listener
             // Without this, the first countdown event (3) may be emitted before the window is ready

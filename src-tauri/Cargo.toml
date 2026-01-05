@@ -86,9 +86,6 @@ wgpu = "23"
 pollster = "0.4"        # Block on async for wgpu initialization
 bytemuck = { version = "1", features = ["derive"] }  # Safe buffer casting
 
-# Video decoding
-ffmpeg-next = "7"       # Native FFmpeg bindings for fast decoding
-
 # Easing/animation
 bezier_easing = "0.1"
 

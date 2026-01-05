@@ -82,7 +82,7 @@ futures = "0.3"
 ffmpeg-sidecar = "2.4"
 
 # GPU-accelerated rendering for video editor
-wgpu = "23"
+wgpu = "28"
 pollster = "0.4"        # Block on async for wgpu initialization
 bytemuck = { version = "1", features = ["derive"] }  # Safe buffer casting
 

@@ -5470,7 +5470,7 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "ts-rs",
  "uuid",

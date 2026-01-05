@@ -232,7 +232,6 @@ pub struct CursorRecording {
     /// Cursor images keyed by cursor_id.
     /// Events reference these via cursor_id field.
     #[serde(default)]
-    #[ts(type = "Record<string, CursorImage>")]
     pub cursor_images: HashMap<String, CursorImage>,
 }
 

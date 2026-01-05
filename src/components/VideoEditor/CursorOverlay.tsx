@@ -134,7 +134,7 @@ export const CursorOverlay = memo(function CursorOverlay({
     // Load SVGs for all cursor shapes in the recording
     const shapesInRecording = new Set<WindowsCursorShape>();
     for (const image of Object.values(cursorImages)) {
-      if (image.cursorShape) {
+      if (image?.cursorShape) {
         shapesInRecording.add(image.cursorShape);
       }
     }
@@ -145,7 +145,7 @@ export const CursorOverlay = memo(function CursorOverlay({
 
     // Also load bitmap fallbacks for cursors without shapes
     for (const [id, image] of Object.entries(cursorImages)) {
-      if (!image.cursorShape && !cursorImageCache.has(id)) {
+      if (image && !image.cursorShape && !cursorImageCache.has(id)) {
         loadBitmapCursor(id, image, triggerUpdate);
       }
     }

@@ -104,7 +104,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   onCancel,
   format = 'mp4',
   elapsedTime = 0,
-  progress = 0,
+  progress: _progress = 0,
   errorMessage,
   onPause,
   onResume,

@@ -715,6 +715,11 @@ pub async fn start_recording(
     let mut settings = settings;
     settings.validate();
 
+    // Check if FFmpeg is available (required for video/audio muxing and GIF encoding)
+    if crate::commands::storage::find_ffmpeg().is_none() {
+        return Err("FFmpeg is not available. Please wait for it to download or restart the app.".to_string());
+    }
+
     // Check if already recording
     {
         let controller = RECORDING_CONTROLLER.lock().map_err(|e| e.to_string())?;
@@ -991,7 +996,7 @@ pub async fn extract_audio_waveform(
     }
 
     // Extract audio as raw PCM samples (mono, f32)
-    let output = std::process::Command::new(&ffmpeg_path)
+    let output = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
         .args([
             "-i",
             &audio_path,
@@ -1089,6 +1094,11 @@ pub async fn export_video(
     project: VideoProject,
     output_path: String,
 ) -> Result<ExportResult, String> {
+    // Check if FFmpeg is available (required for video encoding)
+    if crate::commands::storage::find_ffmpeg().is_none() {
+        return Err("FFmpeg is not available. Please wait for it to download or restart the app.".to_string());
+    }
+
     log::info!(
         "[EXPORT] Starting GPU-accelerated export of '{}' to '{}'",
         project.name,

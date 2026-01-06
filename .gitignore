@@ -44,3 +44,6 @@ src-tauri/src/tests/*
 
 # Test coverage output
 coverage/
+
+# FFmpeg binaries (downloaded during build)
+src-tauri/binaries/

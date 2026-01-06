@@ -5,7 +5,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -155,7 +155,7 @@ impl FfmpegGifEncoder {
         // Direct pipe: rawvideo -> palettegen -> paletteuse -> GIF
         // Using BGRA input to avoid color conversion overhead in capture loop
         // gifflags +transdiff: use transparency for unchanged pixels (major size reduction)
-        let mut child = Command::new(&self.ffmpeg_path)
+        let mut child = crate::commands::storage::ffmpeg::create_hidden_command(&self.ffmpeg_path)
             .args([
                 "-y",
                 "-f",

@@ -78,8 +78,35 @@ impl StreamDecoder {
         );
 
         // Build FFmpeg command to output continuous raw RGBA frames
-        let process = Command::new(&ffmpeg_path)
-            .args([
+        #[cfg(windows)]
+        let process = {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            Command::new(&ffmpeg_path)
+                .creation_flags(CREATE_NO_WINDOW)
+                .args([
+                    "-ss",
+                    &format!("{:.3}", self.start_time_secs),
+                    "-i",
+                    &path.to_string_lossy(),
+                    "-frames:v",
+                    &self.frame_count.to_string(),
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "rgba",
+                    "-s",
+                    &format!("{}x{}", self.width, self.height),
+                    "-",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to start FFmpeg: {}", e))?
+        };
+
+        #[cfg(not(windows))]
+        let process = Command::new(&ffmpeg_path).args([
                 "-ss",
                 &format!("{:.3}", self.start_time_secs),
                 "-i",

@@ -3,6 +3,22 @@
 use image::DynamicImage;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
+
+/// Create a Command configured to hide the console window on Windows.
+/// This prevents FFmpeg from popping up a black console window during execution.
+pub fn create_hidden_command(program: &PathBuf) -> Command {
+    let mut cmd = Command::new(program);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd
+}
 
 /// Thumbnail size in pixels (longest edge).
 pub const THUMBNAIL_SIZE: u32 = 400;
@@ -113,11 +129,9 @@ pub fn find_ffprobe() -> Option<PathBuf> {
 /// Returns (width, height) if successful.
 #[allow(dead_code)]
 pub fn get_video_dimensions(video_path: &PathBuf) -> Option<(u32, u32)> {
-    use std::process::Command;
-
     let ffprobe_path = find_ffprobe()?;
 
-    let output = Command::new(ffprobe_path)
+    let output = create_hidden_command(&ffprobe_path)
         .args([
             "-v",
             "error",
@@ -154,12 +168,10 @@ pub fn generate_video_thumbnail(
     video_path: &PathBuf,
     thumbnail_path: &PathBuf,
 ) -> Result<(), String> {
-    use std::process::Command;
-
     let ffmpeg_path = find_ffmpeg().ok_or_else(|| "ffmpeg not found".to_string())?;
 
     // Use ffmpeg to extract a frame at 1 second (or 0 if video is shorter)
-    let result = Command::new(&ffmpeg_path)
+    let result = create_hidden_command(&ffmpeg_path)
         .args([
             "-y",
             "-ss",
@@ -180,7 +192,7 @@ pub fn generate_video_thumbnail(
     }
 
     // Try at 0 seconds if 1 second failed (video might be < 1 second)
-    let retry_result = Command::new(&ffmpeg_path)
+    let retry_result = create_hidden_command(&ffmpeg_path)
         .args([
             "-y",
             "-ss",
@@ -241,9 +253,7 @@ pub fn get_video_metadata_for_migration(
     ffprobe_path: &PathBuf,
     video_path: &PathBuf,
 ) -> Result<(u32, u32, u64, u32), String> {
-    use std::process::Command;
-
-    let output = Command::new(ffprobe_path)
+    let output = create_hidden_command(ffprobe_path)
         .args([
             "-v",
             "quiet",

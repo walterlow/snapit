@@ -110,7 +110,7 @@ pub fn mux_audio_to_video(
         let system_path = system_audio_path.unwrap();
         let mic_path = mic_audio_path.unwrap();
 
-        std::process::Command::new(&ffmpeg_path)
+        crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
             .args([
                 "-y",
                 "-i",
@@ -137,7 +137,7 @@ pub fn mux_audio_to_video(
     } else if has_system {
         let system_path = system_audio_path.unwrap();
 
-        std::process::Command::new(&ffmpeg_path)
+        crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
             .args([
                 "-y",
                 "-i",
@@ -156,7 +156,7 @@ pub fn mux_audio_to_video(
     } else {
         let mic_path = mic_audio_path.unwrap();
 
-        std::process::Command::new(&ffmpeg_path)
+        crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
             .args([
                 "-y",
                 "-i",
@@ -238,7 +238,7 @@ pub fn sync_webcam_to_screen_duration(
     let speed_factor = webcam_duration / screen_duration;
     let pts_filter = format!("setpts={}*PTS", speed_factor);
 
-    let output = std::process::Command::new(&ffmpeg_path)
+    let output = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
         .args([
             "-y",
             "-i",

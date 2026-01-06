@@ -351,7 +351,7 @@ fn decode_frame_ffmpeg(
         crate::commands::storage::find_ffmpeg().ok_or_else(|| "FFmpeg not found".to_string())?;
 
     // Use FFmpeg to extract frame as raw RGBA with explicit scaling to target dimensions
-    let output = std::process::Command::new(&ffmpeg_path)
+    let output = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
         .args([
             "-ss",
             &format!("{:.3}", timestamp_secs),

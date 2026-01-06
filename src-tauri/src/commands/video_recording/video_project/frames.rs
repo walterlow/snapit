@@ -61,7 +61,7 @@ pub fn extract_video_frame(
 
     args.push("-".to_string()); // Output to stdout
 
-    let output = std::process::Command::new(&ffmpeg_path)
+    let output = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to run FFmpeg: {}", e))?;

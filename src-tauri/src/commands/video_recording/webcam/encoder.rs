@@ -9,7 +9,7 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::time::Instant;
 
 use super::capture::WEBCAM_BUFFER;
@@ -44,7 +44,7 @@ impl WebcamEncoderPipe {
 
         let ffmpeg_path = crate::commands::storage::find_ffmpeg().ok_or("FFmpeg not found")?;
 
-        let mut child = Command::new(&ffmpeg_path)
+        let mut child = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
             .args([
                 "-y",
                 "-f",
@@ -202,7 +202,7 @@ impl WebcamEncoderPipe {
         );
 
         // Use -itsscale to scale input timestamps, -c copy for stream copy (no re-encoding)
-        let output = Command::new(&ffmpeg_path)
+        let output = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
             .args([
                 "-y",
                 "-itsscale",

@@ -15,7 +15,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -125,7 +125,7 @@ impl VideoExporter {
         );
 
         // Run FFmpeg with progress parsing
-        let mut child = Command::new(&self.ffmpeg_path)
+        let mut child = crate::commands::storage::ffmpeg::create_hidden_command(&self.ffmpeg_path)
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

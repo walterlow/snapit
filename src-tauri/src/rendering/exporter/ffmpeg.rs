@@ -1,7 +1,7 @@
 //! FFmpeg encoder setup and helpers.
 
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 
 use tauri::{AppHandle, Emitter};
 
@@ -102,7 +102,7 @@ pub fn start_ffmpeg_encoder(
 
     log::info!("[EXPORT] FFmpeg encoder: ffmpeg {}", args.join(" "));
 
-    Command::new(&ffmpeg_path)
+    crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())

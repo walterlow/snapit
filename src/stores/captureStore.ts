@@ -283,10 +283,33 @@ export const useCaptureStore = create<CaptureState>()(
     }
 
     try {
-      const captures = await invoke<CaptureListItem[]>('get_capture_list');
+      const freshCaptures = await invoke<CaptureListItem[]>('get_capture_list');
+      const currentCaptures = get().captures;
+
       // Preserve any pending temp captures (optimistic updates in progress)
-      const pendingCaptures = get().captures.filter(c => c.id.startsWith('temp_'));
-      const allCaptures = [...pendingCaptures, ...captures];
+      const pendingCaptures = currentCaptures.filter(c => c.id.startsWith('temp_'));
+
+      // Build a map of current thumbnail paths to preserve updates that happened
+      // during the async backend call (race condition with thumbnail-ready events)
+      const currentThumbnailPaths = new Map<string, string>();
+      for (const capture of currentCaptures) {
+        if (capture.thumbnail_path && capture.thumbnail_path.length > 0) {
+          currentThumbnailPaths.set(capture.id, capture.thumbnail_path);
+        }
+      }
+
+      // Merge fresh data with any thumbnail paths that were updated during the call
+      const mergedCaptures = freshCaptures.map(capture => {
+        const currentPath = currentThumbnailPaths.get(capture.id);
+        // If we have a thumbnail path in current state but fresh data doesn't,
+        // preserve the current path (it was updated by thumbnail-ready event)
+        if (currentPath && (!capture.thumbnail_path || capture.thumbnail_path.length === 0)) {
+          return { ...capture, thumbnail_path: currentPath };
+        }
+        return capture;
+      });
+
+      const allCaptures = [...pendingCaptures, ...mergedCaptures];
 
       set({
         captures: allCaptures,

@@ -23,106 +23,116 @@ pub fn create_hidden_command(program: &PathBuf) -> Command {
 /// Thumbnail size in pixels (longest edge).
 pub const THUMBNAIL_SIZE: u32 = 400;
 
-/// Find ffmpeg binary - checks bundled location, sidecar cache, then system PATH.
+/// Find ffmpeg binary using ffmpeg-sidecar's API with validation.
+/// Tests if the binary works, falls back to system PATH if not.
 pub fn find_ffmpeg() -> Option<PathBuf> {
+    // First try ffmpeg-sidecar's path resolution
+    let sidecar_path = ffmpeg_sidecar::paths::ffmpeg_path();
+
+    // Test if it actually works by running -version
+    if test_ffmpeg_binary(&sidecar_path) {
+        log::debug!("[FFMPEG] Using sidecar path: {}", sidecar_path.display());
+        return Some(sidecar_path);
+    }
+
+    log::debug!(
+        "[FFMPEG] Sidecar path failed ({}), trying system PATH",
+        sidecar_path.display()
+    );
+
+    // Fall back to system PATH
     let binary_name = if cfg!(windows) {
         "ffmpeg.exe"
     } else {
         "ffmpeg"
     };
 
-    // Check bundled location (next to executable)
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let bundled = exe_dir.join(binary_name);
-            if bundled.exists() {
-                return Some(bundled);
-            }
-            // Also check resources subdirectory (Tauri puts resources there on some platforms)
-            let resources = exe_dir.join("resources").join(binary_name);
-            if resources.exists() {
-                return Some(resources);
-            }
+    if let Some(path) = find_in_system_path(binary_name) {
+        if test_ffmpeg_binary(&path) {
+            log::debug!("[FFMPEG] Using system PATH: {}", path.display());
+            return Some(path);
         }
     }
 
-    // Check ffmpeg-sidecar cache
-    if let Ok(sidecar_dir) = ffmpeg_sidecar::paths::sidecar_dir() {
-        let cached = sidecar_dir.join(binary_name);
-        if cached.exists() {
-            return Some(cached);
-        }
-    }
-
-    // Check system PATH (for development or if ffmpeg is installed globally)
-    if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
-        .arg(binary_name)
-        .output()
-    {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout);
-            let first_line = path_str.lines().next().unwrap_or("").trim();
-            if !first_line.is_empty() {
-                let path = PathBuf::from(first_line);
-                if path.exists() {
-                    return Some(path);
-                }
-            }
-        }
-    }
-
+    log::warn!("[FFMPEG] No working ffmpeg found");
     None
 }
 
-/// Find ffprobe binary - checks bundled location, sidecar cache, then system PATH.
+/// Find ffprobe binary using ffmpeg-sidecar's API with validation.
+/// Tests if the binary works, falls back to system PATH if not.
 pub fn find_ffprobe() -> Option<PathBuf> {
+    // First try ffmpeg-sidecar's path resolution
+    let sidecar_path = ffmpeg_sidecar::ffprobe::ffprobe_path();
+
+    // Test if it actually works by running -version
+    if test_ffprobe_binary(&sidecar_path) {
+        log::debug!("[FFPROBE] Using sidecar path: {}", sidecar_path.display());
+        return Some(sidecar_path);
+    }
+
+    log::debug!(
+        "[FFPROBE] Sidecar path failed ({}), trying system PATH",
+        sidecar_path.display()
+    );
+
+    // Fall back to system PATH
     let binary_name = if cfg!(windows) {
         "ffprobe.exe"
     } else {
         "ffprobe"
     };
 
-    // Check bundled location (next to executable)
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let bundled = exe_dir.join(binary_name);
-            if bundled.exists() {
-                return Some(bundled);
-            }
-            // Also check resources subdirectory
-            let resources = exe_dir.join("resources").join(binary_name);
-            if resources.exists() {
-                return Some(resources);
-            }
+    if let Some(path) = find_in_system_path(binary_name) {
+        if test_ffprobe_binary(&path) {
+            log::debug!("[FFPROBE] Using system PATH: {}", path.display());
+            return Some(path);
         }
     }
 
-    // Check ffmpeg-sidecar cache
-    if let Ok(sidecar_dir) = ffmpeg_sidecar::paths::sidecar_dir() {
-        let cached = sidecar_dir.join(binary_name);
-        if cached.exists() {
-            return Some(cached);
-        }
-    }
+    log::warn!("[FFPROBE] No working ffprobe found");
+    None
+}
 
-    // Check system PATH
-    if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
-        .arg(binary_name)
+/// Test if an ffmpeg binary works by running -version
+fn test_ffmpeg_binary(path: &PathBuf) -> bool {
+    std::process::Command::new(path)
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Test if an ffprobe binary works by running -version
+fn test_ffprobe_binary(path: &PathBuf) -> bool {
+    std::process::Command::new(path)
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Find an executable in system PATH
+fn find_in_system_path(name: &str) -> Option<PathBuf> {
+    let cmd = if cfg!(windows) { "where" } else { "which" };
+
+    std::process::Command::new(cmd)
+        .arg(name)
         .output()
-    {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout);
-            let first_line = path_str.lines().next().unwrap_or("").trim();
-            if !first_line.is_empty() {
-                let path = PathBuf::from(first_line);
-                if path.exists() {
-                    return Some(path);
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout);
+                let first_line = path_str.lines().next()?.trim();
+                if !first_line.is_empty() {
+                    return Some(PathBuf::from(first_line));
                 }
             }
-        }
-    }
-
-    None
+            None
+        })
 }
 
 /// Get video dimensions using bundled ffprobe.
@@ -307,4 +317,143 @@ pub fn get_video_metadata_for_migration(
     };
 
     Ok((width, height, duration_ms, fps))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that find_ffmpeg returns a working binary.
+    /// This prevents regressions where broken shims are returned instead of real binaries.
+    #[test]
+    fn test_find_ffmpeg_returns_working_binary() {
+        let ffmpeg_path = find_ffmpeg();
+        assert!(
+            ffmpeg_path.is_some(),
+            "find_ffmpeg() should return Some path"
+        );
+
+        let path = ffmpeg_path.unwrap();
+
+        // Verify the binary actually works by running -version
+        let output = std::process::Command::new(&path)
+            .arg("-version")
+            .output()
+            .expect("Failed to execute ffmpeg");
+
+        assert!(
+            output.status.success(),
+            "ffmpeg -version should succeed. Path: {}. Stderr: {}",
+            path.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Verify output contains "ffmpeg" to ensure it's the real binary
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.to_lowercase().contains("ffmpeg"),
+            "ffmpeg -version output should contain 'ffmpeg'. Got: {}",
+            stdout
+        );
+    }
+
+    /// Test that find_ffprobe returns a working binary.
+    /// This prevents regressions where broken shims are returned instead of real binaries.
+    #[test]
+    fn test_find_ffprobe_returns_working_binary() {
+        let ffprobe_path = find_ffprobe();
+        assert!(
+            ffprobe_path.is_some(),
+            "find_ffprobe() should return Some path"
+        );
+
+        let path = ffprobe_path.unwrap();
+
+        // Verify the binary actually works by running -version
+        let output = std::process::Command::new(&path)
+            .arg("-version")
+            .output()
+            .expect("Failed to execute ffprobe");
+
+        assert!(
+            output.status.success(),
+            "ffprobe -version should succeed. Path: {}. Stderr: {}",
+            path.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Verify output contains "ffprobe" to ensure it's the real binary
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.to_lowercase().contains("ffprobe"),
+            "ffprobe -version output should contain 'ffprobe'. Got: {}",
+            stdout
+        );
+    }
+
+    /// Test that ffmpeg can actually encode video (not just run -version).
+    /// Uses testsrc filter to generate a test frame without needing input files.
+    #[test]
+    fn test_ffmpeg_can_encode() {
+        let ffmpeg_path = find_ffmpeg().expect("ffmpeg not found");
+
+        // Generate a single test frame using testsrc filter
+        let output = std::process::Command::new(&ffmpeg_path)
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=0.1:size=64x64:rate=1",
+                "-frames:v",
+                "1",
+                "-f",
+                "null",
+                "-", // Output to null
+            ])
+            .output()
+            .expect("Failed to execute ffmpeg");
+
+        assert!(
+            output.status.success(),
+            "ffmpeg should be able to encode test video. Stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Test that ffprobe can analyze video streams.
+    /// Uses testsrc filter to generate test input without needing files.
+    #[test]
+    fn test_ffprobe_can_analyze() {
+        let ffprobe_path = find_ffprobe().expect("ffprobe not found");
+
+        // Analyze a test source
+        let output = std::process::Command::new(&ffprobe_path)
+            .args([
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_streams",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=0.1:size=64x64:rate=1",
+            ])
+            .output()
+            .expect("Failed to execute ffprobe");
+
+        assert!(
+            output.status.success(),
+            "ffprobe should be able to analyze test source. Stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Verify we got valid JSON with stream info
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("\"streams\""),
+            "ffprobe output should contain streams. Got: {}",
+            stdout
+        );
+    }
 }

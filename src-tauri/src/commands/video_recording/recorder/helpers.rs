@@ -26,13 +26,37 @@ pub fn validate_video_file(path: &PathBuf) -> Result<(), String> {
         return Ok(()); // Skip validation for non-MP4 files
     }
 
+    // Check if file exists
+    if !path.exists() {
+        return Err(format!(
+            "Video file does not exist: {}",
+            path.to_string_lossy()
+        ));
+    }
+
+    // Check file size
+    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    log::debug!(
+        "[VALIDATION] Checking video file: {} ({} bytes)",
+        path.to_string_lossy(),
+        file_size
+    );
+
+    if file_size == 0 {
+        return Err("Video file is empty (0 bytes)".to_string());
+    }
+
     // Find ffprobe
     let ffprobe_path = crate::commands::storage::find_ffprobe()
         .ok_or_else(|| "ffprobe not available for validation".to_string())?;
+    log::info!(
+        "[VALIDATION] Using ffprobe: {}",
+        ffprobe_path.to_string_lossy()
+    );
 
     // Run ffprobe to check if file is valid
     // A corrupted MP4 (missing moov atom) will fail with an error
-    let output = std::process::Command::new(&ffprobe_path)
+    let output = crate::commands::storage::ffmpeg::create_hidden_command(&ffprobe_path)
         .args([
             "-v",
             "error",
@@ -47,6 +71,13 @@ pub fn validate_video_file(path: &PathBuf) -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        log::error!(
+            "[VALIDATION] ffprobe failed - exit code: {:?}, stdout: '{}', stderr: '{}'",
+            output.status.code(),
+            stdout.trim(),
+            stderr.trim()
+        );
         // Check for common corruption indicators
         if stderr.contains("moov atom not found")
             || stderr.contains("Invalid data found")
@@ -54,7 +85,11 @@ pub fn validate_video_file(path: &PathBuf) -> Result<(), String> {
         {
             return Err(format!("Video file is corrupted: {}", stderr.trim()));
         }
-        return Err(format!("Video validation failed: {}", stderr.trim()));
+        return Err(format!(
+            "Video validation failed (exit code {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        ));
     }
 
     // Check that we got a valid duration
@@ -64,6 +99,10 @@ pub fn validate_video_file(path: &PathBuf) -> Result<(), String> {
         return Err("Video file has no valid duration (likely corrupted)".to_string());
     }
 
+    log::debug!(
+        "[VALIDATION] Video file is valid, duration: {}s",
+        duration_str
+    );
     Ok(())
 }
 
@@ -98,8 +137,23 @@ pub fn mux_audio_to_video(
         return Ok(());
     }
 
+    // Check video file exists and log size
+    if !video_path.exists() {
+        return Err(format!(
+            "Video file does not exist for muxing: {}",
+            video_path.to_string_lossy()
+        ));
+    }
+    let video_size = std::fs::metadata(video_path).map(|m| m.len()).unwrap_or(0);
+    log::debug!(
+        "[MUX] Starting audio mux for {} ({} bytes)",
+        video_path.to_string_lossy(),
+        video_size
+    );
+
     let ffmpeg_path = crate::commands::storage::find_ffmpeg()
         .ok_or_else(|| "FFmpeg not found - cannot mux audio".to_string())?;
+    log::info!("[MUX] Using ffmpeg: {}", ffmpeg_path.to_string_lossy());
 
     let temp_video_path = video_path.with_extension("video_only.mp4");
 
@@ -177,6 +231,7 @@ pub fn mux_audio_to_video(
     match result {
         Ok(output) => {
             if output.status.success() {
+                log::debug!("[MUX] Audio muxing succeeded");
                 let _ = std::fs::remove_file(&temp_video_path);
                 if let Some(path) = system_audio_path {
                     let _ = std::fs::remove_file(path);
@@ -187,14 +242,36 @@ pub fn mux_audio_to_video(
                 Ok(())
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                log::error!("[MUX] FFmpeg failed: {}", stderr);
-                let _ = std::fs::rename(&temp_video_path, video_path);
-                Err(format!("FFmpeg muxing failed: {}", stderr))
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                log::error!(
+                    "[MUX] FFmpeg failed - exit code: {:?}, stdout: '{}', stderr: '{}'",
+                    output.status.code(),
+                    stdout.trim(),
+                    stderr.trim()
+                );
+                // Restore original video file
+                if let Err(rename_err) = std::fs::rename(&temp_video_path, video_path) {
+                    log::error!(
+                        "[MUX] Failed to restore video file after mux failure: {}",
+                        rename_err
+                    );
+                }
+                Err(format!(
+                    "FFmpeg muxing failed (exit {:?}): {}",
+                    output.status.code(),
+                    stderr.trim()
+                ))
             }
         },
         Err(e) => {
             log::error!("[MUX] Failed to run FFmpeg: {}", e);
-            let _ = std::fs::rename(&temp_video_path, video_path);
+            // Restore original video file
+            if let Err(rename_err) = std::fs::rename(&temp_video_path, video_path) {
+                log::error!(
+                    "[MUX] Failed to restore video file after mux failure: {}",
+                    rename_err
+                );
+            }
             Err(format!("Failed to run FFmpeg: {}", e))
         },
     }

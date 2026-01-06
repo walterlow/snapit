@@ -212,13 +212,25 @@ fn start_capture_thread(
             // Handle result
             match result {
                 Ok(recording_duration) => {
+                    // Determine the actual video file path:
+                    // - Quick capture: output_path is the video file itself
+                    // - Editor flow: output_path is a folder, video is at screen.mp4 inside
+                    let video_file_path = if output_path_clone.is_dir() {
+                        output_path_clone.join("screen.mp4")
+                    } else {
+                        output_path_clone.clone()
+                    };
+
                     // Validate the video file to ensure it's not corrupted
                     // This catches issues like missing moov atom from improper shutdown
-                    if let Err(validation_error) = helpers::validate_video_file(&output_path_clone)
-                    {
+                    if let Err(validation_error) = helpers::validate_video_file(&video_file_path) {
                         log::error!("[RECORDING] Video validation failed: {}", validation_error);
-                        // Delete the corrupted file
-                        let _ = std::fs::remove_file(&output_path_clone);
+                        // Delete the corrupted file/folder
+                        if output_path_clone.is_dir() {
+                            let _ = std::fs::remove_dir_all(&output_path_clone);
+                        } else {
+                            let _ = std::fs::remove_file(&output_path_clone);
+                        }
                         // Emit error state
                         let error_msg = format!("Recording failed: {}", validation_error);
                         if let Ok(mut controller) = RECORDING_CONTROLLER.lock() {
@@ -231,7 +243,7 @@ fn start_capture_thread(
                         return;
                     }
 
-                    let file_size = std::fs::metadata(&output_path_clone)
+                    let file_size = std::fs::metadata(&video_file_path)
                         .map(|m| m.len())
                         .unwrap_or(0);
 

@@ -91,29 +91,51 @@ pub fn run_video_capture(
         _ => None,
     };
 
-    // Get monitor index for potential WGC fallback (not used for Window mode)
-    let monitor_index = match &settings.mode {
-        RecordingMode::Monitor { monitor_index } => *monitor_index,
+    // Get monitor offset and name for DXGI capture
+    // We need the monitor offset to convert screen-space crop coords to monitor-local coords
+    // We also need the monitor name to find the correct monitor in windows_capture (since
+    // xcap and windows_capture may enumerate monitors in different orders)
+    let (target_monitor_name, monitor_offset) = match &settings.mode {
+        RecordingMode::Monitor { monitor_index } => {
+            // For explicit monitor mode, get the name from windows_capture directly
+            let wc_monitors = Monitor::enumerate().ok();
+            let name = wc_monitors
+                .as_ref()
+                .and_then(|m| m.get(*monitor_index))
+                .and_then(|m| m.name().ok())
+                .unwrap_or_default();
+            (name, (0, 0))
+        },
         RecordingMode::Region { x, y, .. } => {
-            // Find monitor that contains this region's top-left corner
+            // Find monitor that contains this region's top-left corner using xcap (has position info)
             if let Ok(monitors) = xcap::Monitor::all() {
-                let mut found_idx = 0;
-                for (idx, m) in monitors.iter().enumerate() {
+                let mut found_name = String::new();
+                let mut offset = (0i32, 0i32);
+                for m in monitors.iter() {
                     let mx = m.x().unwrap_or(0);
                     let my = m.y().unwrap_or(0);
                     let mw = m.width().unwrap_or(0) as i32;
                     let mh = m.height().unwrap_or(0) as i32;
                     if *x >= mx && *x < mx + mw && *y >= my && *y < my + mh {
-                        found_idx = idx;
+                        found_name = m.name().unwrap_or_default();
+                        offset = (mx, my);
+                        log::info!(
+                            "[CAPTURE] Region ({}, {}) is on monitor '{}' at offset ({}, {})",
+                            x,
+                            y,
+                            &found_name,
+                            mx,
+                            my
+                        );
                         break;
                     }
                 }
-                found_idx
+                (found_name, offset)
             } else {
-                0
+                (String::new(), (0, 0))
             }
         },
-        _ => 0,
+        _ => (String::new(), (0, 0)),
     };
 
     // Create capture backend based on mode
@@ -128,23 +150,45 @@ pub fn run_video_capture(
         (CaptureBackend::Wgc(wgc), first_frame)
     } else {
         // Monitor/Region mode: use DXGI with WGC fallback
-        let monitor = match &settings.mode {
-            RecordingMode::Monitor { monitor_index } => {
-                let monitors = Monitor::enumerate()
-                    .map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
-                monitors
-                    .get(*monitor_index)
-                    .ok_or("Monitor not found")?
-                    .clone()
-            },
-            _ => Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?,
+        // Find the correct monitor in windows_capture by matching name (since enumeration order may differ from xcap)
+        let monitors =
+            Monitor::enumerate().map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
+
+        let monitor = if !target_monitor_name.is_empty() {
+            // Find monitor by name
+            monitors
+                .iter()
+                .find(|m| m.name().map(|n| n == target_monitor_name).unwrap_or(false))
+                .cloned()
+                .or_else(|| {
+                    log::warn!(
+                        "[CAPTURE] Could not find monitor '{}' by name, falling back to primary",
+                        target_monitor_name
+                    );
+                    Monitor::primary().ok()
+                })
+                .ok_or_else(|| "No monitors available".to_string())?
+        } else {
+            // Fallback to primary monitor
+            Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?
         };
+
+        log::info!(
+            "[CAPTURE] Using monitor '{}' for DXGI capture",
+            monitor.name().unwrap_or_default()
+        );
 
         // Create DXGI duplication session (will fallback to WGC if needed)
         let dxgi = windows_capture::dxgi_duplication_api::DxgiDuplicationApi::new(monitor)
             .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
 
         (CaptureBackend::Dxgi(dxgi), None)
+    };
+
+    // Also calculate monitor_index for WGC fallback (used by switch_to_wgc)
+    let monitor_index = match &settings.mode {
+        RecordingMode::Monitor { monitor_index } => *monitor_index,
+        _ => 0, // WGC fallback will use primary if needed
     };
 
     // Get capture dimensions - for WGC window capture, use actual frame dimensions
@@ -307,7 +351,9 @@ pub fn run_video_capture(
         None
     };
 
-    // Get region for cursor capture (if region mode)
+    // Get region for cursor capture (region mode or window mode)
+    // For window mode, we need the window bounds so cursor coordinates can be
+    // converted from screen-space to window-relative coordinates
     let cursor_region = match &settings.mode {
         RecordingMode::Region {
             x,
@@ -315,6 +361,25 @@ pub fn run_video_capture(
             width,
             height,
         } => Some((*x, *y, *width, *height)),
+        RecordingMode::Window { window_id } => {
+            // Get window bounds for cursor coordinate offset
+            match super::helpers::get_window_rect(*window_id) {
+                Ok((x, y, w, h)) => {
+                    log::debug!(
+                        "[CAPTURE] Window mode cursor region: ({}, {}) {}x{}",
+                        x,
+                        y,
+                        w,
+                        h
+                    );
+                    Some((x, y, w, h))
+                },
+                Err(e) => {
+                    log::warn!("[CAPTURE] Could not get window rect for cursor: {}", e);
+                    None
+                },
+            }
+        },
         _ => None,
     };
 
@@ -443,12 +508,13 @@ pub fn run_video_capture(
                 match dxgi.acquire_next_frame(100) {
                     Ok(mut frame) => {
                         // Get frame buffer (with optional crop)
+                        // Convert screen coordinates to monitor-local coordinates
                         let buffer_result = if let Some((x, y, w, h)) = crop_region {
-                            let start_x = x.max(0) as u32;
-                            let start_y = y.max(0) as u32;
-                            let end_x = start_x + w;
-                            let end_y = start_y + h;
-                            frame.buffer_crop(start_x, start_y, end_x, end_y)
+                            let local_x = (x - monitor_offset.0).max(0) as u32;
+                            let local_y = (y - monitor_offset.1).max(0) as u32;
+                            let end_x = local_x + w;
+                            let end_y = local_y + h;
+                            frame.buffer_crop(local_x, local_y, end_x, end_y)
                         } else {
                             frame.buffer()
                         };
@@ -648,6 +714,22 @@ pub fn run_video_capture(
     encoder
         .finish()
         .map_err(|e| format!("Failed to finish encoding: {:?}", e))?;
+
+    // Verify video file was created and has content
+    let video_file_size = std::fs::metadata(&screen_video_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    log::info!(
+        "[CAPTURE] Video file after encoder.finish(): {} ({} bytes)",
+        screen_video_path.to_string_lossy(),
+        video_file_size
+    );
+    if video_file_size == 0 {
+        return Err(format!(
+            "Video encoder produced empty file: {}",
+            screen_video_path.to_string_lossy()
+        ));
+    }
 
     // Mux audio with video using FFmpeg (bypasses windows-capture audio jitter)
     if let Err(e) = mux_audio_to_video(

@@ -717,7 +717,10 @@ pub async fn start_recording(
 
     // Check if FFmpeg is available (required for video/audio muxing and GIF encoding)
     if crate::commands::storage::find_ffmpeg().is_none() {
-        return Err("FFmpeg is not available. Please wait for it to download or restart the app.".to_string());
+        return Err(
+            "FFmpeg is not available. Please wait for it to download or restart the app."
+                .to_string(),
+        );
     }
 
     // Check if already recording
@@ -1096,7 +1099,10 @@ pub async fn export_video(
 ) -> Result<ExportResult, String> {
     // Check if FFmpeg is available (required for video encoding)
     if crate::commands::storage::find_ffmpeg().is_none() {
-        return Err("FFmpeg is not available. Please wait for it to download or restart the app.".to_string());
+        return Err(
+            "FFmpeg is not available. Please wait for it to download or restart the app."
+                .to_string(),
+        );
     }
 
     log::info!(

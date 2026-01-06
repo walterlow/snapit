@@ -17,6 +17,10 @@ updates:
       - "npm"
     commit-message:
       prefix: "chore(deps)"
+    # Ignore major version bumps that may have breaking changes
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       # Group minor and patch updates for Radix UI
       radix-ui:
@@ -53,6 +57,10 @@ updates:
       - "rust"
     commit-message:
       prefix: "chore(deps)"
+    # Ignore major version bumps that may have breaking changes
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       # Group Tauri-related crates
       tauri:

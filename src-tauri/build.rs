@@ -61,7 +61,10 @@ fn ensure_ffmpeg_binaries() -> Result<(), Box<dyn std::error::Error>> {
     // Try 2: Copy from system PATH
     if let Some(system_ffmpeg) = find_in_path(ffmpeg_name) {
         fs::copy(&system_ffmpeg, &ffmpeg_dest)?;
-        println!("cargo:warning=Copied ffmpeg from system PATH: {:?}", system_ffmpeg);
+        println!(
+            "cargo:warning=Copied ffmpeg from system PATH: {:?}",
+            system_ffmpeg
+        );
 
         if let Some(system_ffprobe) = find_in_path(ffprobe_name) {
             fs::copy(&system_ffprobe, &ffprobe_dest)?;

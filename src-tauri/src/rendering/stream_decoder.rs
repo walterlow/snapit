@@ -106,7 +106,8 @@ impl StreamDecoder {
         };
 
         #[cfg(not(windows))]
-        let process = Command::new(&ffmpeg_path).args([
+        let process = Command::new(&ffmpeg_path)
+            .args([
                 "-ss",
                 &format!("{:.3}", self.start_time_secs),
                 "-i",

@@ -23,6 +23,9 @@
   "lint-staged": {
     "*.{ts,tsx}": [
       "eslint --fix"
+    ],
+    "src-tauri/**/*.rs": [
+      "cargo fmt --manifest-path src-tauri/Cargo.toml --"
     ]
   },
   "dependencies": {

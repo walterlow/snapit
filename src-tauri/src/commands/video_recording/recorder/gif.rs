@@ -9,10 +9,14 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::Receiver;
 use tauri::AppHandle;
 
+use windows_capture::monitor::Monitor;
+
 use super::super::gif_encoder::GifRecorder;
 use super::super::state::{RecorderCommand, RecordingProgress};
 use super::super::wgc_capture::WgcVideoCapture;
-use super::super::{emit_state_change, RecordingMode, RecordingSettings, RecordingState};
+use super::super::{
+    emit_state_change, find_monitor_for_point, RecordingMode, RecordingSettings, RecordingState,
+};
 use super::helpers::is_window_mode;
 
 /// Run GIF capture using WGC (Windows Graphics Capture).
@@ -44,25 +48,31 @@ pub fn run_gif_capture(
 
     // Determine monitor index and offset for Region mode
     // We need the monitor offset to convert screen-space crop coords to monitor-local coords
+    // We also need to find the correct WGC monitor index by matching names
     let (monitor_index, monitor_offset) = match &settings.mode {
         RecordingMode::Monitor { monitor_index } => (*monitor_index, (0, 0)),
         RecordingMode::Region { x, y, .. } => {
-            // Find monitor that contains this region's top-left corner
-            if let Ok(monitors) = xcap::Monitor::all() {
-                let mut found_idx = 0;
-                let mut offset = (0i32, 0i32);
-                for (idx, m) in monitors.iter().enumerate() {
-                    let mx = m.x().unwrap_or(0);
-                    let my = m.y().unwrap_or(0);
-                    let mw = m.width().unwrap_or(0) as i32;
-                    let mh = m.height().unwrap_or(0) as i32;
-                    if *x >= mx && *x < mx + mw && *y >= my && *y < my + mh {
-                        found_idx = idx;
-                        offset = (mx, my);
-                        break;
-                    }
-                }
-                (found_idx, offset)
+            // Find monitor that contains this region's top-left corner using Windows API
+            if let Some((name, mx, my)) = find_monitor_for_point(*x, *y) {
+                log::info!(
+                    "[GIF] Region ({}, {}) is on monitor '{}' at offset ({}, {})",
+                    x,
+                    y,
+                    &name,
+                    mx,
+                    my
+                );
+                // Find the matching monitor in WGC's enumeration by name
+                let wgc_index = Monitor::enumerate()
+                    .ok()
+                    .and_then(|monitors| {
+                        monitors
+                            .iter()
+                            .position(|m| m.name().map(|n| n == name).unwrap_or(false))
+                    })
+                    .unwrap_or(0);
+                log::debug!("[GIF] Using WGC monitor index {} for '{}'", wgc_index, name);
+                (wgc_index, (mx, my))
             } else {
                 (0, (0, 0))
             }

@@ -58,8 +58,8 @@ use tauri::{command, AppHandle, Emitter, Manager};
 
 // Types (from types.rs)
 pub use types::{
-    AudioInputDevice, RecordingFormat, RecordingMode, RecordingSettings, RecordingState,
-    RecordingStatus, StartRecordingResult,
+    find_monitor_for_point, AudioInputDevice, RecordingFormat, RecordingMode, RecordingSettings,
+    RecordingState, RecordingStatus, StartRecordingResult,
 };
 // StopRecordingResult is available via types:: but not re-exported (unused)
 

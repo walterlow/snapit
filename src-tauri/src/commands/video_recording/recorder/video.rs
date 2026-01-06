@@ -24,7 +24,8 @@ use super::super::state::{RecorderCommand, RecordingProgress};
 use super::super::webcam::{stop_capture_service, WebcamEncoderPipe};
 use super::super::wgc_capture::WgcVideoCapture;
 use super::super::{
-    emit_state_change, get_webcam_settings, RecordingMode, RecordingSettings, RecordingState,
+    emit_state_change, find_monitor_for_point, get_webcam_settings, RecordingMode,
+    RecordingSettings, RecordingState,
 };
 use super::backend::{switch_to_wgc, CaptureBackend};
 use super::buffer::FrameBufferPool;
@@ -107,30 +108,17 @@ pub fn run_video_capture(
             (name, (0, 0))
         },
         RecordingMode::Region { x, y, .. } => {
-            // Find monitor that contains this region's top-left corner using xcap (has position info)
-            if let Ok(monitors) = xcap::Monitor::all() {
-                let mut found_name = String::new();
-                let mut offset = (0i32, 0i32);
-                for m in monitors.iter() {
-                    let mx = m.x().unwrap_or(0);
-                    let my = m.y().unwrap_or(0);
-                    let mw = m.width().unwrap_or(0) as i32;
-                    let mh = m.height().unwrap_or(0) as i32;
-                    if *x >= mx && *x < mx + mw && *y >= my && *y < my + mh {
-                        found_name = m.name().unwrap_or_default();
-                        offset = (mx, my);
-                        log::info!(
-                            "[CAPTURE] Region ({}, {}) is on monitor '{}' at offset ({}, {})",
-                            x,
-                            y,
-                            &found_name,
-                            mx,
-                            my
-                        );
-                        break;
-                    }
-                }
-                (found_name, offset)
+            // Find monitor that contains this region's top-left corner using Windows API
+            if let Some((name, mx, my)) = find_monitor_for_point(*x, *y) {
+                log::info!(
+                    "[CAPTURE] Region ({}, {}) is on monitor '{}' at offset ({}, {})",
+                    x,
+                    y,
+                    &name,
+                    mx,
+                    my
+                );
+                (name, (mx, my))
             } else {
                 (String::new(), (0, 0))
             }

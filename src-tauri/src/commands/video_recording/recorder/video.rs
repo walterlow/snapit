@@ -1,6 +1,6 @@
 //! Video (MP4) capture implementation.
 //!
-//! Uses DXGI Duplication API for frame capture with WGC fallback,
+//! Uses Windows Graphics Capture (WGC) for frame capture
 //! and VideoEncoder for hardware-accelerated MP4 encoding.
 
 use std::path::PathBuf;
@@ -27,11 +27,10 @@ use super::super::{
     emit_state_change, find_monitor_for_point, get_webcam_settings, RecordingMode,
     RecordingSettings, RecordingState,
 };
-use super::backend::{switch_to_wgc, CaptureBackend};
 use super::buffer::FrameBufferPool;
 use super::helpers::{create_video_project_file, is_window_mode, mux_audio_to_video};
 
-/// Run video (MP4) capture using DXGI Duplication API.
+/// Run video (MP4) capture using Windows Graphics Capture (WGC).
 ///
 /// For MP4, `output_path` is a project folder containing:
 ///   - screen.mp4 (main recording)
@@ -92,21 +91,10 @@ pub fn run_video_capture(
         _ => None,
     };
 
-    // Get monitor offset and name for DXGI capture
+    // Get monitor index and offset for WGC capture
     // We need the monitor offset to convert screen-space crop coords to monitor-local coords
-    // We also need the monitor name to find the correct monitor in windows_capture (since
-    // xcap and windows_capture may enumerate monitors in different orders)
-    let (target_monitor_name, monitor_offset) = match &settings.mode {
-        RecordingMode::Monitor { monitor_index } => {
-            // For explicit monitor mode, get the name from windows_capture directly
-            let wc_monitors = Monitor::enumerate().ok();
-            let name = wc_monitors
-                .as_ref()
-                .and_then(|m| m.get(*monitor_index))
-                .and_then(|m| m.name().ok())
-                .unwrap_or_default();
-            (name, (0, 0))
-        },
+    let (monitor_index, monitor_offset) = match &settings.mode {
+        RecordingMode::Monitor { monitor_index } => (*monitor_index, (0, 0)),
         RecordingMode::Region { x, y, .. } => {
             // Find monitor that contains this region's top-left corner using Windows API
             if let Some((name, mx, my)) = find_monitor_for_point(*x, *y) {
@@ -118,75 +106,58 @@ pub fn run_video_capture(
                     mx,
                     my
                 );
-                (name, (mx, my))
+                // Find the matching monitor in WGC's enumeration by name
+                let wgc_index = Monitor::enumerate()
+                    .ok()
+                    .and_then(|monitors| {
+                        monitors
+                            .iter()
+                            .position(|m| m.name().map(|n| n == name).unwrap_or(false))
+                    })
+                    .unwrap_or(0);
+                log::debug!(
+                    "[CAPTURE] Using WGC monitor index {} for '{}'",
+                    wgc_index,
+                    name
+                );
+                (wgc_index, (mx, my))
             } else {
-                (String::new(), (0, 0))
+                (0, (0, 0))
             }
         },
-        _ => (String::new(), (0, 0)),
+        _ => (0, (0, 0)),
     };
 
-    // Create capture backend based on mode
-    // For WGC window capture, we need to wait for the first frame to get accurate dimensions
+    // Create WGC capture based on mode
+    // For window capture, we need to wait for the first frame to get accurate dimensions
     // (window rect may differ from actual capture due to DPI scaling on multi-monitor setups)
-    let (mut capture, first_wgc_frame) = if let Some(wid) = window_id {
+    let (wgc, first_frame) = if let Some(wid) = window_id {
+        log::debug!("[CAPTURE] Using WGC window capture for hwnd={}", wid);
         let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
             .map_err(|e| format!("Failed to create WGC window capture: {}", e))?;
 
         // Wait for first frame to get actual dimensions (important for DPI scaling)
         let first_frame = wgc.wait_for_first_frame(1000);
-        (CaptureBackend::Wgc(wgc), first_frame)
+        (wgc, first_frame)
     } else {
-        // Monitor/Region mode: use DXGI with WGC fallback
-        // Find the correct monitor in windows_capture by matching name (since enumeration order may differ from xcap)
-        let monitors =
-            Monitor::enumerate().map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
-
-        let monitor = if !target_monitor_name.is_empty() {
-            // Find monitor by name
-            monitors
-                .iter()
-                .find(|m| m.name().map(|n| n == target_monitor_name).unwrap_or(false))
-                .cloned()
-                .or_else(|| {
-                    log::warn!(
-                        "[CAPTURE] Could not find monitor '{}' by name, falling back to primary",
-                        target_monitor_name
-                    );
-                    Monitor::primary().ok()
-                })
-                .ok_or_else(|| "No monitors available".to_string())?
-        } else {
-            // Fallback to primary monitor
-            Monitor::primary().map_err(|e| format!("Failed to get primary monitor: {}", e))?
-        };
-
-        log::info!(
-            "[CAPTURE] Using monitor '{}' for DXGI capture",
-            monitor.name().unwrap_or_default()
+        // Monitor/Region mode
+        log::debug!(
+            "[CAPTURE] Using WGC monitor capture, index={}",
+            monitor_index
         );
-
-        // Create DXGI duplication session (will fallback to WGC if needed)
-        let dxgi = windows_capture::dxgi_duplication_api::DxgiDuplicationApi::new(monitor)
-            .map_err(|e| format!("Failed to create DXGI duplication: {:?}", e))?;
-
-        (CaptureBackend::Dxgi(dxgi), None)
-    };
-
-    // Also calculate monitor_index for WGC fallback (used by switch_to_wgc)
-    let monitor_index = match &settings.mode {
-        RecordingMode::Monitor { monitor_index } => *monitor_index,
-        _ => 0, // WGC fallback will use primary if needed
+        let wgc = WgcVideoCapture::new(monitor_index, settings.include_cursor)
+            .map_err(|e| format!("Failed to create WGC capture: {}", e))?;
+        (wgc, None)
     };
 
     // Get capture dimensions - for WGC window capture, use actual frame dimensions
     let (width, height) = if let Some((_, _, w, h)) = crop_region {
         (w, h)
-    } else if let Some((w, h, _)) = &first_wgc_frame {
+    } else if let Some((w, h, _)) = &first_frame {
         // Use actual frame dimensions from WGC (handles DPI scaling correctly)
         (*w, *h)
     } else {
-        (capture.width(), capture.height())
+        (wgc.width(), wgc.height())
     };
 
     let bitrate = settings.calculate_bitrate(width, height);
@@ -401,7 +372,7 @@ pub fn run_video_capture(
     let mut last_frame_time = start_time;
 
     // If we captured a first frame for dimension detection, use it as the first recorded frame
-    let mut pending_first_frame: Option<Vec<u8>> = first_wgc_frame.map(|(_, _, f)| f.data);
+    let mut pending_first_frame: Option<Vec<u8>> = first_frame.map(|(_, _, f)| f.data);
 
     loop {
         // Check for commands
@@ -490,112 +461,45 @@ pub fn run_video_capture(
             continue;
         }
 
-        // Acquire next frame from capture backend (DXGI or WGC) into buffer pool
-        let frame_acquired = match &mut capture {
-            CaptureBackend::Dxgi(dxgi) => {
-                match dxgi.acquire_next_frame(100) {
-                    Ok(mut frame) => {
-                        // Get frame buffer (with optional crop)
-                        // Convert screen coordinates to monitor-local coordinates
-                        let buffer_result = if let Some((x, y, w, h)) = crop_region {
-                            let local_x = (x - monitor_offset.0).max(0) as u32;
-                            let local_y = (y - monitor_offset.1).max(0) as u32;
-                            let end_x = local_x + w;
-                            let end_y = local_y + h;
-                            frame.buffer_crop(local_x, local_y, end_x, end_y)
-                        } else {
-                            frame.buffer()
-                        };
+        // Acquire next frame from WGC - use pending first frame if available, else get new one
+        let frame_data = if let Some(data) = pending_first_frame.take() {
+            Some(data)
+        } else {
+            wgc.get_frame(100).map(|f| f.data)
+        };
 
-                        match buffer_result {
-                            Ok(buffer) => {
-                                // Use a temporary Vec for DXGI extraction (as_nopadding_buffer has specific requirements)
-                                // Then copy to the pooled frame_buffer for compositing
-                                let mut raw_data = Vec::new();
-                                let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
-                                let len = pixel_data.len().min(buffer_pool.frame_size);
-                                buffer_pool.frame_buffer[..len].copy_from_slice(&pixel_data[..len]);
-                                true
-                            },
-                            Err(e) => {
-                                let err_str = format!("{:?}", e);
-                                if err_str.contains("0x887A0005")
-                                    || err_str.contains("DEVICE_REMOVED")
-                                    || err_str.contains("suspended")
-                                {
-                                    // GPU device lost - switch to WGC
-                                    match switch_to_wgc(monitor_index, settings.include_cursor) {
-                                        Ok(new_backend) => {
-                                            capture = new_backend;
-                                            continue;
-                                        },
-                                        Err(e) => {
-                                            return Err(format!(
-                                                "DXGI failed and WGC fallback also failed: {}",
-                                                e
-                                            ));
-                                        },
-                                    }
-                                } else {
-                                    false
-                                }
-                            },
+        let frame_acquired = match frame_data {
+            Some(data) => {
+                // For region mode, crop the frame to the selected area
+                if let Some((x, y, w, h)) = crop_region {
+                    let local_x = (x - monitor_offset.0).max(0) as u32;
+                    let local_y = (y - monitor_offset.1).max(0) as u32;
+                    let frame_width = wgc.width();
+                    let frame_height = wgc.height();
+
+                    // Crop the frame data
+                    let mut cropped_idx = 0;
+                    for row in local_y..(local_y + h).min(frame_height) {
+                        let src_start = ((row * frame_width + local_x) * 4) as usize;
+                        let src_end = ((row * frame_width + local_x + w.min(frame_width - local_x))
+                            * 4) as usize;
+                        let row_len = src_end - src_start;
+                        if src_end <= data.len() && cropped_idx + row_len <= buffer_pool.frame_size
+                        {
+                            buffer_pool.frame_buffer[cropped_idx..cropped_idx + row_len]
+                                .copy_from_slice(&data[src_start..src_end]);
+                            cropped_idx += row_len;
                         }
-                    },
-                    Err(windows_capture::dxgi_duplication_api::Error::Timeout) => false,
-                    Err(windows_capture::dxgi_duplication_api::Error::AccessLost) => {
-                        match switch_to_wgc(monitor_index, settings.include_cursor) {
-                            Ok(new_backend) => {
-                                capture = new_backend;
-                                continue;
-                            },
-                            Err(e) => {
-                                return Err(format!(
-                                    "DXGI access lost and WGC fallback failed: {}",
-                                    e
-                                ));
-                            },
-                        }
-                    },
-                    Err(e) => {
-                        let err_str = format!("{:?}", e);
-                        if err_str.contains("0x887A0005") || err_str.contains("DEVICE_REMOVED") {
-                            match switch_to_wgc(monitor_index, settings.include_cursor) {
-                                Ok(new_backend) => {
-                                    capture = new_backend;
-                                    continue;
-                                },
-                                Err(e) => {
-                                    return Err(format!(
-                                        "DXGI error and WGC fallback failed: {}",
-                                        e
-                                    ));
-                                },
-                            }
-                        } else {
-                            std::thread::sleep(Duration::from_millis(50));
-                            false
-                        }
-                    },
-                }
-            },
-            CaptureBackend::Wgc(wgc) => {
-                // WGC frame acquisition - use pending first frame if available, else get new one
-                let frame_data = if let Some(data) = pending_first_frame.take() {
-                    Some(data)
+                    }
+                    true
                 } else {
-                    wgc.get_frame(100).map(|f| f.data)
-                };
-
-                match frame_data {
-                    Some(data) => {
-                        let len = data.len().min(buffer_pool.frame_size);
-                        buffer_pool.frame_buffer[..len].copy_from_slice(&data[..len]);
-                        true
-                    },
-                    None => false, // Timeout or no frame
+                    // No cropping needed - copy entire frame
+                    let len = data.len().min(buffer_pool.frame_size);
+                    buffer_pool.frame_buffer[..len].copy_from_slice(&data[..len]);
+                    true
                 }
             },
+            None => false, // Timeout or no frame
         };
 
         // Skip if no frame was acquired

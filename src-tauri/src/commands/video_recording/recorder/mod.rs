@@ -1,12 +1,11 @@
 //! Core video recording implementation.
 //!
-//! Uses windows-capture's DXGI Duplication API for frame capture
+//! Uses Windows Graphics Capture (WGC) for frame capture
 //! and VideoEncoder for hardware-accelerated MP4 encoding.
 
 // Allow unused internal helpers - may be useful for future features
 #![allow(dead_code)]
 
-mod backend;
 mod buffer;
 mod gif;
 mod helpers;

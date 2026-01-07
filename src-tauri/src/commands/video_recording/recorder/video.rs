@@ -10,12 +10,9 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, TryRecvError};
 use tauri::AppHandle;
-use windows_capture::{
-    encoder::{
-        AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
-        VideoSettingsSubType,
-    },
-    monitor::Monitor,
+use windows_capture::encoder::{
+    AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
+    VideoSettingsSubType,
 };
 
 use super::super::audio_multitrack::MultiTrackAudioRecorder;

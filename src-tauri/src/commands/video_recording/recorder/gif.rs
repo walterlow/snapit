@@ -9,8 +9,6 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::Receiver;
 use tauri::AppHandle;
 
-use windows_capture::monitor::Monitor;
-
 use super::super::gif_encoder::GifRecorder;
 use super::super::state::{RecorderCommand, RecordingProgress};
 use super::super::wgc_capture::WgcVideoCapture;

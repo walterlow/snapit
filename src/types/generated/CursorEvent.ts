@@ -2,7 +2,7 @@
 import type { CursorEventType } from "./CursorEventType";
 
 /**
- * A single cursor event with timestamp and position.
+ * A single cursor event with timestamp and normalized position.
  */
 export type CursorEvent = { 
 /**
@@ -10,11 +10,14 @@ export type CursorEvent = {
  */
 timestampMs: number, 
 /**
- * Screen X position in pixels.
+ * Normalized X position (0.0-1.0) relative to capture region.
+ * 0.0 = left edge of capture, 1.0 = right edge.
+ * Values outside 0-1 indicate cursor is outside the capture region.
  */
 x: number, 
 /**
- * Screen Y position in pixels.
+ * Normalized Y position (0.0-1.0) relative to capture region.
+ * 0.0 = top edge of capture, 1.0 = bottom edge.
  */
 y: number, 
 /**

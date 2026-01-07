@@ -258,11 +258,9 @@ pub struct CursorInterpolator {
     cursor_images: HashMap<String, CursorImage>,
     /// Decoded cursor images (RGBA data).
     decoded_images: HashMap<String, DecodedCursorImage>,
-    /// Region dimensions for normalization.
-    region_width: u32,
-    region_height: u32,
-    region_offset_x: i32,
-    region_offset_y: i32,
+    /// Region dimensions (for reference).
+    width: u32,
+    height: u32,
 }
 
 /// Decoded cursor image ready for compositing.
@@ -288,10 +286,8 @@ impl CursorInterpolator {
             original_events: recording.events.clone(),
             cursor_images: recording.cursor_images.clone(),
             decoded_images,
-            region_width: recording.region_width,
-            region_height: recording.region_height,
-            region_offset_x: recording.region_offset_x,
-            region_offset_y: recording.region_offset_y,
+            width: recording.width,
+            height: recording.height,
         }
     }
 
@@ -318,7 +314,7 @@ impl CursorInterpolator {
 
     /// Get region dimensions.
     pub fn region_dimensions(&self) -> (u32, u32) {
-        (self.region_width, self.region_height)
+        (self.width, self.height)
     }
 }
 
@@ -326,36 +322,33 @@ impl CursorInterpolator {
 // Helper Functions
 // ============================================================================
 
-/// Convert screen coordinates to normalized (0-1) coordinates.
-fn normalize_position(x: i32, y: i32, recording: &CursorRecording) -> XY {
-    let region_x = (x - recording.region_offset_x) as f32;
-    let region_y = (y - recording.region_offset_y) as f32;
-
+/// Get position as XY from a cursor event (events already have normalized 0-1 coords).
+fn get_normalized_position(event: &CursorEvent) -> XY {
     XY {
-        x: region_x / recording.region_width as f32,
-        y: region_y / recording.region_height as f32,
+        x: event.x as f32,
+        y: event.y as f32,
     }
 }
 
 /// Check if we should fill the gap between two cursor events.
-fn should_fill_gap(from: &CursorEvent, to: &CursorEvent, recording: &CursorRecording) -> bool {
+fn should_fill_gap(from: &CursorEvent, to: &CursorEvent) -> bool {
     let dt_ms = (to.timestamp_ms as i64 - from.timestamp_ms as i64) as f32;
     if dt_ms < GAP_INTERPOLATION_THRESHOLD_MS {
         return false;
     }
 
-    let from_norm = normalize_position(from.x, from.y, recording);
-    let to_norm = normalize_position(to.x, to.y, recording);
+    let from_pos = get_normalized_position(from);
+    let to_pos = get_normalized_position(to);
 
-    let dx = to_norm.x - from_norm.x;
-    let dy = to_norm.y - from_norm.y;
+    let dx = to_pos.x - from_pos.x;
+    let dy = to_pos.y - from_pos.y;
     let distance = (dx * dx + dy * dy).sqrt();
 
     distance >= MIN_CURSOR_TRAVEL_FOR_INTERPOLATION
 }
 
 /// Densify cursor moves by inserting interpolated samples for large gaps.
-fn densify_cursor_moves(events: &[CursorEvent], recording: &CursorRecording) -> Vec<CursorEvent> {
+fn densify_cursor_moves(events: &[CursorEvent], _recording: &CursorRecording) -> Vec<CursorEvent> {
     if events.len() < 2 {
         return events.to_vec();
     }
@@ -369,9 +362,7 @@ fn densify_cursor_moves(events: &[CursorEvent], recording: &CursorRecording) -> 
         return events.to_vec();
     }
 
-    let requires_interpolation = moves
-        .windows(2)
-        .any(|w| should_fill_gap(w[0], w[1], recording));
+    let requires_interpolation = moves.windows(2).any(|w| should_fill_gap(w[0], w[1]));
 
     if !requires_interpolation {
         return events.to_vec();
@@ -383,17 +374,18 @@ fn densify_cursor_moves(events: &[CursorEvent], recording: &CursorRecording) -> 
         let current = moves[i];
         let next = moves[i + 1];
 
-        if should_fill_gap(current, next, recording) {
+        if should_fill_gap(current, next) {
             let dt_ms = (next.timestamp_ms - current.timestamp_ms) as f32;
             let segments =
                 ((dt_ms / SIMULATION_TICK_MS).ceil() as usize).clamp(2, MAX_INTERPOLATED_STEPS);
 
             for step in 1..segments {
                 let t = step as f32 / segments as f32;
+                let t_f64 = t as f64;
                 dense_moves.push(CursorEvent {
                     timestamp_ms: current.timestamp_ms + (dt_ms * t) as u64,
-                    x: current.x + ((next.x - current.x) as f32 * t) as i32,
-                    y: current.y + ((next.y - current.y) as f32 * t) as i32,
+                    x: current.x + (next.x - current.x) * t_f64,
+                    y: current.y + (next.y - current.y) * t_f64,
                     event_type: CursorEventType::Move,
                     cursor_id: None,
                 });
@@ -454,8 +446,8 @@ fn compute_smoothed_events(recording: &CursorRecording) -> Vec<SmoothedCursorEve
     let mut primary_button_down = false;
     let mut click_index = 0;
 
-    // Initialize at first position
-    let first_pos = normalize_position(moves[0].x, moves[0].y, recording);
+    // Initialize at first position (events already have normalized coords)
+    let first_pos = get_normalized_position(&moves[0]);
     sim.set_position(first_pos);
     sim.set_velocity(XY::default());
 
@@ -473,11 +465,11 @@ fn compute_smoothed_events(recording: &CursorRecording) -> Vec<SmoothedCursorEve
 
     for i in 0..moves.len() {
         let mov = &moves[i];
-        let target_pos = normalize_position(mov.x, mov.y, recording);
+        let target_pos = get_normalized_position(mov);
 
         // Look ahead for next target
         let next_target = if i + 1 < moves.len() {
-            normalize_position(moves[i + 1].x, moves[i + 1].y, recording)
+            get_normalized_position(&moves[i + 1])
         } else {
             target_pos
         };

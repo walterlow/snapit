@@ -91,22 +91,17 @@ pub fn generate_auto_zoom_regions(
     log::info!(
         "[AUTO_ZOOM] Found {} click events, region: {}x{}",
         clicks.len(),
-        recording.region_width,
-        recording.region_height
+        recording.width,
+        recording.height
     );
 
     // Generate zoom regions
     let mut regions: Vec<ZoomRegion> = Vec::new();
 
     for click in clicks {
-        // Calculate region-relative coordinates
-        let relative_x = click.x - recording.region_offset_x;
-        let relative_y = click.y - recording.region_offset_y;
-
-        // Normalize to 0-1 range using the recording's region dimensions
-        // This is consistent with cursor.rs normalize_position()
-        let target_x = (relative_x as f32 / recording.region_width as f32).clamp(0.0, 1.0);
-        let target_y = (relative_y as f32 / recording.region_height as f32).clamp(0.0, 1.0);
+        // Cursor events already have normalized (0-1) coordinates
+        let target_x = (click.x as f32).clamp(0.0, 1.0);
+        let target_y = (click.y as f32).clamp(0.0, 1.0);
 
         // Check if this click is too close to the previous one
         if let Some(last_region) = regions.last_mut() {

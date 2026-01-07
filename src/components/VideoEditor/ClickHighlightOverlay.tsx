@@ -68,12 +68,12 @@ function parseColor(color: string): { r: number; g: number; b: number; a: number
 /**
  * Get all active click highlights for a given timestamp.
  * Returns click positions with animation progress (0-1).
+ * Cursor event coordinates are already normalized (0.0-1.0).
  */
 function getActiveClicks(
   events: CursorEvent[],
   currentTimeMs: number,
-  durationMs: number,
-  recording: CursorRecording
+  durationMs: number
 ): Array<{ x: number; y: number; progress: number }> {
   const active: Array<{ x: number; y: number; progress: number }> = [];
   
@@ -97,13 +97,8 @@ function getActiveClicks(
     // Calculate animation progress (0 = start, 1 = end)
     const progress = elapsed / durationMs;
     
-    // Convert screen coordinates to normalized (0-1) coordinates
-    const regionX = event.x - recording.regionOffsetX;
-    const regionY = event.y - recording.regionOffsetY;
-    const normalizedX = regionX / recording.regionWidth;
-    const normalizedY = regionY / recording.regionHeight;
-    
-    active.push({ x: normalizedX, y: normalizedY, progress });
+    // Event coordinates are already normalized (0-1), use directly
+    active.push({ x: event.x, y: event.y, progress });
   }
   
   return active;
@@ -252,8 +247,7 @@ export const ClickHighlightOverlay = memo(function ClickHighlightOverlay({
     const activeClicks = getActiveClicks(
       cursorRecording.events,
       currentTimeMs,
-      durationMs,
-      cursorRecording
+      durationMs
     );
     
     if (activeClicks.length === 0) return;

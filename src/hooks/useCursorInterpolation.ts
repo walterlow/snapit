@@ -167,38 +167,26 @@ class SpringSimulation {
 // ============================================================================
 
 /**
- * Convert screen coordinates to normalized (0-1) coordinates.
+ * Get position as XY from a cursor event.
+ * Events already have normalized (0-1) coordinates.
  */
-function normalizePosition(
-  x: number,
-  y: number,
-  recording: CursorRecording
-): XY {
-  // Adjust for region offset if recording was region-based
-  const regionX = x - recording.regionOffsetX;
-  const regionY = y - recording.regionOffsetY;
-
-  return {
-    x: regionX / recording.regionWidth,
-    y: regionY / recording.regionHeight,
-  };
+function getPosition(event: CursorEvent): XY {
+  return { x: event.x, y: event.y };
 }
 
 /**
  * Check if we should fill the gap between two cursor events.
+ * Events already have normalized (0-1) coordinates.
  */
-function shouldFillGap(from: CursorEvent, to: CursorEvent, recording: CursorRecording): boolean {
+function shouldFillGap(from: CursorEvent, to: CursorEvent): boolean {
   const dtMs = to.timestampMs - from.timestampMs;
   if (dtMs < GAP_INTERPOLATION_THRESHOLD_MS) {
     return false;
   }
 
-  // Calculate distance in normalized coordinates
-  const fromNorm = normalizePosition(from.x, from.y, recording);
-  const toNorm = normalizePosition(to.x, to.y, recording);
-
-  const dx = toNorm.x - fromNorm.x;
-  const dy = toNorm.y - fromNorm.y;
+  // Calculate distance (coordinates are already normalized 0-1)
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
   const distance = Math.sqrt(dx * dx + dy * dy);
 
   return distance >= MIN_CURSOR_TRAVEL_FOR_INTERPOLATION;
@@ -208,10 +196,7 @@ function shouldFillGap(from: CursorEvent, to: CursorEvent, recording: CursorReco
  * Densify cursor moves by inserting interpolated samples for large gaps.
  * This ensures smooth animation even with sparse input data.
  */
-function densifyCursorMoves(
-  events: CursorEvent[],
-  recording: CursorRecording
-): CursorEvent[] {
+function densifyCursorMoves(events: CursorEvent[]): CursorEvent[] {
   if (events.length < 2) return events;
 
   // Filter to only move events for densification
@@ -220,7 +205,7 @@ function densifyCursorMoves(
 
   const requiresInterpolation = moves.some((move, i) => {
     if (i === 0) return false;
-    return shouldFillGap(moves[i - 1], move, recording);
+    return shouldFillGap(moves[i - 1], move);
   });
 
   if (!requiresInterpolation) return events;
@@ -231,7 +216,7 @@ function densifyCursorMoves(
     const current = moves[i];
     const next = moves[i + 1];
 
-    if (shouldFillGap(current, next, recording)) {
+    if (shouldFillGap(current, next)) {
       const dtMs = next.timestampMs - current.timestampMs;
       const segments = Math.min(
         Math.max(Math.ceil(dtMs / SIMULATION_TICK_MS), 2),
@@ -287,7 +272,7 @@ function getSpringProfile(
 function computeSmoothedEvents(
   recording: CursorRecording
 ): SmoothedCursorEvent[] {
-  const moves = densifyCursorMoves(recording.events, recording);
+  const moves = densifyCursorMoves(recording.events);
   const clicks = recording.events.filter(
     e => e.eventType.type === 'leftClick' ||
          e.eventType.type === 'rightClick' ||
@@ -303,8 +288,8 @@ function computeSmoothedEvents(
   let primaryButtonDown = false;
   let clickIndex = 0;
 
-  // Initialize at first position
-  const firstPos = normalizePosition(moves[0].x, moves[0].y, recording);
+  // Initialize at first position (events already have normalized 0-1 coords)
+  const firstPos = getPosition(moves[0]);
   sim.setPosition(firstPos);
   sim.setVelocity({ x: 0, y: 0 });
 
@@ -322,11 +307,11 @@ function computeSmoothedEvents(
 
   for (let i = 0; i < moves.length; i++) {
     const move = moves[i];
-    const targetPos = normalizePosition(move.x, move.y, recording);
+    const targetPos = getPosition(move);
 
     // Look ahead for next target
     const nextTarget = moves[i + 1]
-      ? normalizePosition(moves[i + 1].x, moves[i + 1].y, recording)
+      ? getPosition(moves[i + 1])
       : targetPos;
 
     sim.setTargetPosition(nextTarget);
@@ -537,10 +522,10 @@ export function getRawCursorAt(
     }
   }
 
-  const pos = normalizePosition(closest.x, closest.y, recording);
+  // Events already have normalized (0-1) coordinates
   return {
-    x: pos.x,
-    y: pos.y,
+    x: closest.x,
+    y: closest.y,
     velocityX: 0,
     velocityY: 0,
     cursorId,

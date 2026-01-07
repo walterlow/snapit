@@ -1,6 +1,6 @@
 //! Cursor event capture for video editor auto-zoom feature.
 //!
-//! Records mouse positions at 60fps and click events with timestamps.
+//! Records mouse positions at 100Hz and click events with timestamps.
 //! This data is used for:
 //! - Auto-zoom generation (zoom to click locations)
 //! - Cursor smooth movement interpolation
@@ -142,7 +142,7 @@ fn detect_cursor_shape(_cursor_handle: isize) -> Option<WindowsCursorShape> {
 #[serde(tag = "type", rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub enum CursorEventType {
-    /// Mouse moved (recorded at 60fps intervals).
+    /// Mouse moved (recorded at 100Hz intervals).
     Move,
     /// Left mouse button event.
     LeftClick {
@@ -168,7 +168,7 @@ pub enum CursorEventType {
     },
 }
 
-/// A single cursor event with timestamp and position.
+/// A single cursor event with timestamp and normalized position.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
@@ -176,10 +176,13 @@ pub struct CursorEvent {
     /// Timestamp in milliseconds from recording start.
     #[ts(type = "number")]
     pub timestamp_ms: u64,
-    /// Screen X position in pixels.
-    pub x: i32,
-    /// Screen Y position in pixels.
-    pub y: i32,
+    /// Normalized X position (0.0-1.0) relative to capture region.
+    /// 0.0 = left edge of capture, 1.0 = right edge.
+    /// Values outside 0-1 indicate cursor is outside the capture region.
+    pub x: f64,
+    /// Normalized Y position (0.0-1.0) relative to capture region.
+    /// 0.0 = top edge of capture, 1.0 = bottom edge.
+    pub y: f64,
     /// Type of event.
     pub event_type: CursorEventType,
     /// ID of the cursor image active at this event (references cursor_images map).
@@ -210,24 +213,22 @@ pub struct CursorImage {
 }
 
 /// Complete cursor recording data for a video.
+///
+/// Cursor positions are stored as normalized coordinates (0.0-1.0) relative to
+/// the capture region. This makes the data resolution-independent and simplifies
+/// coordinate transformations during playback.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct CursorRecording {
-    /// Recording sample rate for position data.
-    pub fps: u32,
-    /// Screen width during recording.
-    pub screen_width: u32,
-    /// Screen height during recording.
-    pub screen_height: u32,
-    /// Capture region offset (for region recordings).
-    /// Events are stored in screen coordinates; subtract this to get region-relative coords.
-    pub region_offset_x: i32,
-    pub region_offset_y: i32,
-    /// Capture region dimensions (for region recordings).
-    pub region_width: u32,
-    pub region_height: u32,
+    /// Recording sample rate in Hz.
+    pub sample_rate: u32,
+    /// Capture region width in pixels (for reference/aspect ratio).
+    pub width: u32,
+    /// Capture region height in pixels (for reference/aspect ratio).
+    pub height: u32,
     /// All cursor events sorted by timestamp.
+    /// Positions are normalized (0.0-1.0) relative to the capture region.
     pub events: Vec<CursorEvent>,
     /// Cursor images keyed by cursor_id.
     /// Events reference these via cursor_id field.
@@ -238,13 +239,9 @@ pub struct CursorRecording {
 impl Default for CursorRecording {
     fn default() -> Self {
         Self {
-            fps: 60,
-            screen_width: 1920,
-            screen_height: 1080,
-            region_offset_x: 0,
-            region_offset_y: 0,
-            region_width: 1920,
-            region_height: 1080,
+            sample_rate: 100,
+            width: 1920,
+            height: 1080,
             events: Vec::new(),
             cursor_images: HashMap::new(),
         }
@@ -262,13 +259,36 @@ struct SharedCursorData {
     last_cursor_id: Option<String>,
 }
 
+/// Capture region for coordinate normalization.
+#[derive(Clone, Copy, Debug)]
+struct CaptureRegion {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl CaptureRegion {
+    /// Normalize screen coordinates to 0.0-1.0 relative to this region.
+    fn normalize(&self, screen_x: i32, screen_y: i32) -> (f64, f64) {
+        let rel_x = screen_x - self.x;
+        let rel_y = screen_y - self.y;
+        (
+            rel_x as f64 / self.width as f64,
+            rel_y as f64 / self.height as f64,
+        )
+    }
+}
+
 /// Manages cursor event capture in a background thread.
 ///
 /// Captures:
-/// - Mouse position at 60fps
+/// - Mouse position at 100Hz
 /// - Click events (left, right, middle) immediately when they occur
 /// - Scroll events
 /// - Cursor images when cursor shape changes
+///
+/// All positions are normalized to 0.0-1.0 relative to the capture region.
 pub struct CursorEventCapture {
     /// Collected events and cursor images (thread-safe).
     data: Arc<Mutex<SharedCursorData>>,
@@ -280,11 +300,8 @@ pub struct CursorEventCapture {
     position_thread: Option<JoinHandle<()>>,
     /// Mouse hook thread handle.
     hook_thread: Option<JoinHandle<()>>,
-    /// Screen dimensions.
-    screen_width: u32,
-    screen_height: u32,
-    /// Capture region (if recording a region).
-    region: Option<(i32, i32, u32, u32)>,
+    /// Capture region for coordinate normalization.
+    capture_region: CaptureRegion,
 }
 
 impl CursorEventCapture {
@@ -292,7 +309,7 @@ impl CursorEventCapture {
     pub fn new() -> Self {
         Self {
             data: Arc::new(Mutex::new(SharedCursorData {
-                events: Vec::with_capacity(10000), // Pre-allocate for ~3 min at 60fps
+                events: Vec::with_capacity(18000), // Pre-allocate for ~3 min at 100Hz
                 cursor_images: HashMap::new(),
                 last_cursor_id: None,
             })),
@@ -300,9 +317,12 @@ impl CursorEventCapture {
             start_time: None,
             position_thread: None,
             hook_thread: None,
-            screen_width: 1920,
-            screen_height: 1080,
-            region: None,
+            capture_region: CaptureRegion {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
         }
     }
 
@@ -334,7 +354,24 @@ impl CursorEventCapture {
         // Reset state
         self.should_stop.store(false, Ordering::SeqCst);
         self.start_time = Some(start_time);
-        self.region = region;
+
+        // Set capture region (use fullscreen if not specified)
+        self.capture_region = if let Some((x, y, w, h)) = region {
+            CaptureRegion {
+                x,
+                y,
+                width: w,
+                height: h,
+            }
+        } else {
+            let (w, h) = get_screen_dimensions();
+            CaptureRegion {
+                x: 0,
+                y: 0,
+                width: w,
+                height: h,
+            }
+        };
 
         // Clear previous data
         if let Ok(mut data) = self.data.lock() {
@@ -343,25 +380,22 @@ impl CursorEventCapture {
             data.last_cursor_id = None;
         }
 
-        // Get screen dimensions - use region dimensions if provided (for multi-monitor support)
-        let (screen_w, screen_h) = if let Some((_, _, w, h)) = region {
-            (w, h)
-        } else {
-            get_screen_dimensions()
-        };
-        self.screen_width = screen_w;
-        self.screen_height = screen_h;
-
-        // Start position capture thread (60fps polling) - also captures cursor images
+        // Start position capture thread (100Hz polling) - also captures cursor images
         let data_clone = Arc::clone(&self.data);
         let should_stop_clone = Arc::clone(&self.should_stop);
+        let capture_region = self.capture_region;
         let start_time = self.start_time.unwrap();
 
         self.position_thread = Some(
             thread::Builder::new()
                 .name("cursor-position-capture".to_string())
                 .spawn(move || {
-                    run_position_capture_loop(data_clone, should_stop_clone, start_time);
+                    run_position_capture_loop(
+                        data_clone,
+                        should_stop_clone,
+                        start_time,
+                        capture_region,
+                    );
                 })
                 .map_err(|e| format!("Failed to spawn position capture thread: {}", e))?,
         );
@@ -369,22 +403,24 @@ impl CursorEventCapture {
         // Start mouse hook thread (for click events)
         let data_clone = Arc::clone(&self.data);
         let should_stop_clone = Arc::clone(&self.should_stop);
+        let capture_region = self.capture_region;
         let start_time = self.start_time.unwrap();
 
         self.hook_thread = Some(
             thread::Builder::new()
                 .name("cursor-hook-capture".to_string())
                 .spawn(move || {
-                    run_mouse_hook_loop(data_clone, should_stop_clone, start_time);
+                    run_mouse_hook_loop(data_clone, should_stop_clone, start_time, capture_region);
                 })
                 .map_err(|e| format!("Failed to spawn mouse hook thread: {}", e))?,
         );
 
         log::info!(
-            "[CURSOR_EVENTS] Started capture (screen: {}x{}, region: {:?})",
-            screen_w,
-            screen_h,
-            region
+            "[CURSOR_EVENTS] Started capture (region: {}x{} at ({}, {}))",
+            self.capture_region.width,
+            self.capture_region.height,
+            self.capture_region.x,
+            self.capture_region.y
         );
 
         Ok(())
@@ -409,10 +445,6 @@ impl CursorEventCapture {
             .map(|d| (d.events.clone(), d.cursor_images.clone()))
             .unwrap_or_default();
 
-        let (region_x, region_y, region_w, region_h) =
-            self.region
-                .unwrap_or((0, 0, self.screen_width, self.screen_height));
-
         log::info!(
             "[CURSOR_EVENTS] Stopped capture, collected {} events, {} cursor images",
             events.len(),
@@ -420,13 +452,9 @@ impl CursorEventCapture {
         );
 
         CursorRecording {
-            fps: 60,
-            screen_width: self.screen_width,
-            screen_height: self.screen_height,
-            region_offset_x: region_x,
-            region_offset_y: region_y,
-            region_width: region_w,
-            region_height: region_h,
+            sample_rate: 100,
+            width: self.capture_region.width,
+            height: self.capture_region.height,
             events,
             cursor_images,
         }
@@ -454,7 +482,7 @@ impl Drop for CursorEventCapture {
 // Platform-specific implementations
 // ============================================================================
 
-/// Get current screen dimensions.
+/// Get primary screen dimensions (fallback).
 fn get_screen_dimensions() -> (u32, u32) {
     #[cfg(target_os = "windows")]
     {
@@ -654,13 +682,15 @@ fn capture_cursor_image(_cursor_handle: isize) -> Option<CursorImage> {
     None
 }
 
-/// Position capture loop - runs at 60fps to record cursor positions and images.
+/// Position capture loop - runs at 100Hz to record cursor positions and images.
+/// Positions are normalized to 0.0-1.0 relative to the capture region.
 fn run_position_capture_loop(
     data: Arc<Mutex<SharedCursorData>>,
     should_stop: Arc<AtomicBool>,
     start_time: Instant,
+    region: CaptureRegion,
 ) {
-    let interval = Duration::from_micros(16667); // ~60fps
+    let interval = Duration::from_millis(10); // 100Hz
 
     // Capture initial cursor immediately so first event has a valid cursor_id
     let (init_x, init_y, init_cursor_handle, init_cursor_visible) = get_cursor_info();
@@ -701,12 +731,13 @@ fn run_position_capture_loop(
     // Track the last known cursor_id to include on every event (like Cap does)
     let mut current_cursor_id: Option<String> = initial_cursor_id;
 
-    // Record initial position with cursor_id
+    // Record initial position with cursor_id (normalized)
+    let (norm_x, norm_y) = region.normalize(init_x, init_y);
     if let Ok(mut data_guard) = data.lock() {
         data_guard.events.push(CursorEvent {
             timestamp_ms: 0,
-            x: init_x,
-            y: init_y,
+            x: norm_x,
+            y: norm_y,
             event_type: CursorEventType::Move,
             cursor_id: current_cursor_id.clone(),
         });
@@ -778,12 +809,15 @@ fn run_position_capture_loop(
         if x != last_x || y != last_y {
             let timestamp_ms = start_time.elapsed().as_millis() as u64;
 
+            // Normalize to 0.0-1.0 relative to capture region
+            let (norm_x, norm_y) = region.normalize(x, y);
+
             // Always include current_cursor_id on every move event (like Cap)
             if let Ok(mut data_guard) = data.lock() {
                 data_guard.events.push(CursorEvent {
                     timestamp_ms,
-                    x,
-                    y,
+                    x: norm_x,
+                    y: norm_y,
                     event_type: CursorEventType::Move,
                     cursor_id: current_cursor_id.clone(),
                 });
@@ -793,7 +827,7 @@ fn run_position_capture_loop(
             last_y = y;
         }
 
-        // Sleep to maintain ~60fps
+        // Sleep to maintain 100Hz
         let elapsed = loop_start.elapsed();
         if elapsed < interval {
             thread::sleep(interval - elapsed);
@@ -804,11 +838,13 @@ fn run_position_capture_loop(
 }
 
 /// Mouse hook loop - captures click events via Windows low-level hook.
+/// Click positions are normalized to 0.0-1.0 relative to the capture region.
 #[cfg(target_os = "windows")]
 fn run_mouse_hook_loop(
     data: Arc<Mutex<SharedCursorData>>,
     should_stop: Arc<AtomicBool>,
     start_time: Instant,
+    region: CaptureRegion,
 ) {
     use std::cell::RefCell;
     use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
@@ -818,14 +854,14 @@ fn run_mouse_hook_loop(
         WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
     };
 
-    // Thread-local storage for hook callback data
+    // Thread-local storage for hook callback data (includes region for normalization)
     thread_local! {
-        static HOOK_DATA: RefCell<Option<(Arc<Mutex<SharedCursorData>>, Instant)>> = RefCell::new(None);
+        static HOOK_DATA: RefCell<Option<(Arc<Mutex<SharedCursorData>>, Instant, CaptureRegion)>> = RefCell::new(None);
     }
 
     // Set up thread-local data
     HOOK_DATA.with(|hook_data| {
-        *hook_data.borrow_mut() = Some((Arc::clone(&data), start_time));
+        *hook_data.borrow_mut() = Some((Arc::clone(&data), start_time, region));
     });
 
     // Low-level mouse hook callback
@@ -857,13 +893,16 @@ fn run_mouse_hook_loop(
 
             if let Some(event_type) = event_type {
                 HOOK_DATA.with(|hook_data| {
-                    if let Some((data, start_time)) = hook_data.borrow().as_ref() {
+                    if let Some((data, start_time, region)) = hook_data.borrow().as_ref() {
                         let timestamp_ms = start_time.elapsed().as_millis() as u64;
+                        // Normalize click position
+                        let (norm_x, norm_y) =
+                            region.normalize(mouse_struct.pt.x, mouse_struct.pt.y);
                         if let Ok(mut data_guard) = data.lock() {
                             data_guard.events.push(CursorEvent {
                                 timestamp_ms,
-                                x: mouse_struct.pt.x,
-                                y: mouse_struct.pt.y,
+                                x: norm_x,
+                                y: norm_y,
                                 event_type,
                                 cursor_id: None, // Click events don't track cursor_id
                             });
@@ -919,6 +958,7 @@ fn run_mouse_hook_loop(
     _data: Arc<Mutex<SharedCursorData>>,
     should_stop: Arc<AtomicBool>,
     _start_time: Instant,
+    _region: CaptureRegion,
 ) {
     // Non-Windows stub - just wait until stopped
     while !should_stop.load(Ordering::SeqCst) {
@@ -975,8 +1015,8 @@ mod tests {
     fn test_cursor_event_serialization() {
         let event = CursorEvent {
             timestamp_ms: 1000,
-            x: 100,
-            y: 200,
+            x: 0.5, // Normalized coordinates
+            y: 0.75,
             event_type: CursorEventType::LeftClick { pressed: true },
             cursor_id: Some("cursor_123".to_string()),
         };
@@ -988,16 +1028,45 @@ mod tests {
 
         let deserialized: CursorEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.timestamp_ms, 1000);
-        assert_eq!(deserialized.x, 100);
-        assert_eq!(deserialized.y, 200);
+        assert!((deserialized.x - 0.5).abs() < 0.001);
+        assert!((deserialized.y - 0.75).abs() < 0.001);
         assert_eq!(deserialized.cursor_id, Some("cursor_123".to_string()));
     }
 
     #[test]
     fn test_cursor_recording_default() {
         let recording = CursorRecording::default();
-        assert_eq!(recording.fps, 60);
+        assert_eq!(recording.sample_rate, 100);
         assert!(recording.events.is_empty());
         assert!(recording.cursor_images.is_empty());
+    }
+
+    #[test]
+    fn test_capture_region_normalize() {
+        let region = CaptureRegion {
+            x: 100,
+            y: 50,
+            width: 800,
+            height: 600,
+        };
+
+        // Point at origin of region -> (0, 0)
+        let (x, y) = region.normalize(100, 50);
+        assert!((x - 0.0).abs() < 0.001);
+        assert!((y - 0.0).abs() < 0.001);
+
+        // Point at center of region -> (0.5, 0.5)
+        let (x, y) = region.normalize(500, 350);
+        assert!((x - 0.5).abs() < 0.001);
+        assert!((y - 0.5).abs() < 0.001);
+
+        // Point at bottom-right of region -> (1, 1)
+        let (x, y) = region.normalize(900, 650);
+        assert!((x - 1.0).abs() < 0.001);
+        assert!((y - 1.0).abs() < 0.001);
+
+        // Point outside region (left of) -> negative
+        let (x, _) = region.normalize(50, 50);
+        assert!(x < 0.0);
     }
 }

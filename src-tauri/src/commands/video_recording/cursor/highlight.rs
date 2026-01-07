@@ -89,12 +89,20 @@ pub fn render_click_highlight(
 /// Find active click events for a given timestamp and compute their animation progress.
 ///
 /// Returns a list of (x, y, progress) tuples for active click highlights.
+/// x, y are pixel coordinates in the frame.
+///
+/// # Arguments
+/// * `events` - Cursor events with normalized (0.0-1.0) coordinates
+/// * `current_time_ms` - Current playback time
+/// * `duration_ms` - Click highlight animation duration
+/// * `frame_width` - Output frame width in pixels
+/// * `frame_height` - Output frame height in pixels
 pub fn get_active_clicks(
     events: &[CursorEvent],
     current_time_ms: u64,
     duration_ms: u32,
-    region_offset_x: i32,
-    region_offset_y: i32,
+    frame_width: u32,
+    frame_height: u32,
 ) -> Vec<(i32, i32, f32)> {
     let mut active = Vec::new();
 
@@ -125,9 +133,9 @@ pub fn get_active_clicks(
         // Calculate animation progress
         let progress = elapsed as f32 / duration_ms as f32;
 
-        // Convert screen coordinates to frame-relative
-        let frame_x = event.x - region_offset_x;
-        let frame_y = event.y - region_offset_y;
+        // Convert normalized coordinates to frame pixels
+        let frame_x = (event.x * frame_width as f64) as i32;
+        let frame_y = (event.y * frame_height as f64) as i32;
 
         active.push((frame_x, frame_y, progress));
     }
@@ -415,41 +423,45 @@ mod tests {
 
     #[test]
     fn test_get_active_clicks() {
+        // Coordinates are now normalized (0.0-1.0)
         let events = vec![
             CursorEvent {
                 timestamp_ms: 100,
-                x: 50,
-                y: 50,
+                x: 0.25, // 25% across frame
+                y: 0.25,
                 event_type: CursorEventType::LeftClick { pressed: true },
                 cursor_id: None,
             },
             CursorEvent {
                 timestamp_ms: 200,
-                x: 100,
-                y: 100,
+                x: 0.5,
+                y: 0.5,
                 event_type: CursorEventType::LeftClick { pressed: false }, // Release - should be ignored
                 cursor_id: None,
             },
             CursorEvent {
                 timestamp_ms: 500,
-                x: 150,
-                y: 150,
+                x: 0.75, // 75% across frame
+                y: 0.75,
                 event_type: CursorEventType::RightClick { pressed: true },
                 cursor_id: None,
             },
         ];
 
+        let frame_width = 200u32;
+        let frame_height = 200u32;
+
         // At time 300ms with 400ms duration, first click is still active
-        let active = get_active_clicks(&events, 300, 400, 0, 0);
+        let active = get_active_clicks(&events, 300, 400, frame_width, frame_height);
         assert_eq!(active.len(), 1);
-        assert_eq!(active[0].0, 50);
+        assert_eq!(active[0].0, 50); // 0.25 * 200 = 50
         assert_eq!(active[0].1, 50);
         assert!((active[0].2 - 0.5).abs() < 0.01); // 200ms / 400ms = 0.5
 
         // At time 700ms, first click is done, second is active
-        let active = get_active_clicks(&events, 700, 400, 0, 0);
+        let active = get_active_clicks(&events, 700, 400, frame_width, frame_height);
         assert_eq!(active.len(), 1);
-        assert_eq!(active[0].0, 150);
+        assert_eq!(active[0].0, 150); // 0.75 * 200 = 150
         assert_eq!(active[0].1, 150);
     }
 }

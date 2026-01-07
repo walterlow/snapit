@@ -4,31 +4,27 @@ import type { CursorImage } from "./CursorImage";
 
 /**
  * Complete cursor recording data for a video.
+ *
+ * Cursor positions are stored as normalized coordinates (0.0-1.0) relative to
+ * the capture region. This makes the data resolution-independent and simplifies
+ * coordinate transformations during playback.
  */
 export type CursorRecording = { 
 /**
- * Recording sample rate for position data.
+ * Recording sample rate in Hz.
  */
-fps: number, 
+sampleRate: number, 
 /**
- * Screen width during recording.
+ * Capture region width in pixels (for reference/aspect ratio).
  */
-screenWidth: number, 
+width: number, 
 /**
- * Screen height during recording.
+ * Capture region height in pixels (for reference/aspect ratio).
  */
-screenHeight: number, 
-/**
- * Capture region offset (for region recordings).
- * Events are stored in screen coordinates; subtract this to get region-relative coords.
- */
-regionOffsetX: number, regionOffsetY: number, 
-/**
- * Capture region dimensions (for region recordings).
- */
-regionWidth: number, regionHeight: number, 
+height: number, 
 /**
  * All cursor events sorted by timestamp.
+ * Positions are normalized (0.0-1.0) relative to the capture region.
  */
 events: Array<CursorEvent>, 
 /**

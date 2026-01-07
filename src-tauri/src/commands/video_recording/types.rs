@@ -79,16 +79,16 @@ pub fn get_monitor_bounds() -> Vec<MonitorBounds> {
 }
 
 /// Find which monitor contains the given point.
-/// Returns (monitor_name, monitor_offset_x, monitor_offset_y).
-pub fn find_monitor_for_point(x: i32, y: i32) -> Option<(String, i32, i32)> {
-    for m in get_monitor_bounds() {
+/// Returns (monitor_index, monitor_name, monitor_offset_x, monitor_offset_y).
+pub fn find_monitor_for_point(x: i32, y: i32) -> Option<(usize, String, i32, i32)> {
+    for (idx, m) in get_monitor_bounds().into_iter().enumerate() {
         let mx = m.x;
         let my = m.y;
         let mw = m.width as i32;
         let mh = m.height as i32;
 
         if x >= mx && x < mx + mw && y >= my && y < my + mh {
-            return Some((m.name, mx, my));
+            return Some((idx, m.name, mx, my));
         }
     }
     None

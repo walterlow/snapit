@@ -97,30 +97,17 @@ pub fn run_video_capture(
         RecordingMode::Monitor { monitor_index } => (*monitor_index, (0, 0)),
         RecordingMode::Region { x, y, .. } => {
             // Find monitor that contains this region's top-left corner using Windows API
-            if let Some((name, mx, my)) = find_monitor_for_point(*x, *y) {
+            if let Some((idx, name, mx, my)) = find_monitor_for_point(*x, *y) {
                 log::info!(
-                    "[CAPTURE] Region ({}, {}) is on monitor '{}' at offset ({}, {})",
+                    "[CAPTURE] Region ({}, {}) is on monitor {} '{}' at offset ({}, {})",
                     x,
                     y,
+                    idx,
                     &name,
                     mx,
                     my
                 );
-                // Find the matching monitor in WGC's enumeration by name
-                let wgc_index = Monitor::enumerate()
-                    .ok()
-                    .and_then(|monitors| {
-                        monitors
-                            .iter()
-                            .position(|m| m.name().map(|n| n == name).unwrap_or(false))
-                    })
-                    .unwrap_or(0);
-                log::debug!(
-                    "[CAPTURE] Using WGC monitor index {} for '{}'",
-                    wgc_index,
-                    name
-                );
-                (wgc_index, (mx, my))
+                (idx, (mx, my))
             } else {
                 (0, (0, 0))
             }

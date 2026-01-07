@@ -244,9 +244,11 @@ export const ClickHighlightOverlay = memo(function ClickHighlightOverlay({
     ctx.clearRect(0, 0, containerWidth, containerHeight);
     
     // Get active click highlights
+    // Adjust time by video start offset to sync with cursor timestamps
+    const adjustedTimeMs = currentTimeMs + (cursorRecording.videoStartOffsetMs ?? 0);
     const activeClicks = getActiveClicks(
       cursorRecording.events,
-      currentTimeMs,
+      adjustedTimeMs,
       durationMs
     );
     

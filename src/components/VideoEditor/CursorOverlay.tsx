@@ -270,6 +270,19 @@ export const CursorOverlay = memo(function CursorOverlay({
     const pixelX = cursorData.x * containerWidth;
     const pixelY = cursorData.y * containerHeight;
 
+    // Debug logging for cursor position issues
+    if (process.env.NODE_ENV === 'development') {
+      // Log occasionally to avoid spam
+      if (Math.random() < 0.01) {
+        editorLogger.debug(
+          `[CursorOverlay] norm=(${cursorData.x.toFixed(3)}, ${cursorData.y.toFixed(3)}) ` +
+          `pixel=(${pixelX.toFixed(0)}, ${pixelY.toFixed(0)}) ` +
+          `container=(${containerWidth}x${containerHeight}) ` +
+          `time=${currentTimeMs.toFixed(0)}ms`
+        );
+      }
+    }
+
     // Helper to draw circle cursor
     const drawCircle = () => {
       ctx.clearRect(0, 0, containerWidth, containerHeight);

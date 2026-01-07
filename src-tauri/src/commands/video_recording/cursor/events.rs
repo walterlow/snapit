@@ -227,6 +227,13 @@ pub struct CursorRecording {
     pub width: u32,
     /// Capture region height in pixels (for reference/aspect ratio).
     pub height: u32,
+    /// Offset in milliseconds to sync cursor with video.
+    /// This compensates for the delay between when recording starts and when
+    /// the first video frame is actually captured. Cursor timestamps should be
+    /// adjusted by subtracting this value during playback.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub video_start_offset_ms: u64,
     /// All cursor events sorted by timestamp.
     /// Positions are normalized (0.0-1.0) relative to the capture region.
     pub events: Vec<CursorEvent>,
@@ -242,6 +249,7 @@ impl Default for CursorRecording {
             sample_rate: 100,
             width: 1920,
             height: 1080,
+            video_start_offset_ms: 0,
             events: Vec::new(),
             cursor_images: HashMap::new(),
         }
@@ -302,6 +310,9 @@ pub struct CursorEventCapture {
     hook_thread: Option<JoinHandle<()>>,
     /// Capture region for coordinate normalization.
     capture_region: CaptureRegion,
+    /// Video start offset in ms (time of first video frame relative to start_time).
+    /// Used to sync cursor timestamps with video during playback.
+    video_start_offset_ms: u64,
 }
 
 impl CursorEventCapture {
@@ -323,7 +334,15 @@ impl CursorEventCapture {
                 width: 1920,
                 height: 1080,
             },
+            video_start_offset_ms: 0,
         }
+    }
+
+    /// Set the video start offset.
+    /// Call this with the timestamp of the first video frame to sync cursor with video.
+    pub fn set_video_start_offset(&mut self, offset_ms: u64) {
+        self.video_start_offset_ms = offset_ms;
+        log::debug!("[CURSOR_EVENTS] Video start offset set to {}ms", offset_ms);
     }
 
     /// Start capturing cursor events.
@@ -455,6 +474,7 @@ impl CursorEventCapture {
             sample_rate: 100,
             width: self.capture_region.width,
             height: self.capture_region.height,
+            video_start_offset_ms: self.video_start_offset_ms,
             events,
             cursor_images,
         }

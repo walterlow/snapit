@@ -470,13 +470,20 @@ export function useCursorInterpolation(
     return keys.length > 0 ? keys[0] : null;
   }, [cursorRecording?.cursorImages]);
 
+  // Get video start offset for cursor sync
+  // This compensates for the delay between recording start and first video frame
+  const videoStartOffsetMs = cursorRecording?.videoStartOffsetMs ?? 0;
+
   // Return interpolation function
   const getCursorAt = useCallback(
     (timeMs: number): InterpolatedCursor => {
-      const cursorId = getActiveCursorId(originalEvents, timeMs) ?? fallbackCursorId;
-      return interpolateAtTime(smoothedEvents, timeMs, cursorId);
+      // Adjust time by video start offset to sync cursor with video
+      // Video time 0 corresponds to cursor time videoStartOffsetMs
+      const adjustedTimeMs = timeMs + videoStartOffsetMs;
+      const cursorId = getActiveCursorId(originalEvents, adjustedTimeMs) ?? fallbackCursorId;
+      return interpolateAtTime(smoothedEvents, adjustedTimeMs, cursorId);
     },
-    [smoothedEvents, originalEvents, fallbackCursorId]
+    [smoothedEvents, originalEvents, fallbackCursorId, videoStartOffsetMs]
   );
 
   return {
@@ -498,15 +505,18 @@ export function getRawCursorAt(
     return { x: 0.5, y: 0.5, velocityX: 0, velocityY: 0, cursorId: null };
   }
 
+  // Adjust time by video start offset to sync cursor with video
+  const adjustedTimeMs = timeMs + (recording.videoStartOffsetMs ?? 0);
+
   const moves = recording.events.filter(e => e.eventType.type === 'move');
   if (moves.length === 0) {
     return { x: 0.5, y: 0.5, velocityX: 0, velocityY: 0, cursorId: null };
   }
 
-  // Find the event closest to but not after timeMs
+  // Find the event closest to but not after adjustedTimeMs
   let closest = moves[0];
   for (const move of moves) {
-    if (move.timestampMs <= timeMs) {
+    if (move.timestampMs <= adjustedTimeMs) {
       closest = move;
     } else {
       break;
@@ -514,7 +524,7 @@ export function getRawCursorAt(
   }
 
   // Get cursor ID with fallback to first available image
-  let cursorId = getActiveCursorId(recording.events, timeMs);
+  let cursorId = getActiveCursorId(recording.events, adjustedTimeMs);
   if (cursorId === null && recording.cursorImages) {
     const keys = Object.keys(recording.cursorImages);
     if (keys.length > 0) {

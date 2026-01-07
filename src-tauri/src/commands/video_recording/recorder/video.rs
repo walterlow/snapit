@@ -21,8 +21,8 @@ use super::super::state::{RecorderCommand, RecordingProgress};
 use super::super::webcam::{stop_capture_service, WebcamEncoderPipe};
 use super::super::wgc_capture::WgcVideoCapture;
 use super::super::{
-    emit_state_change, find_monitor_for_point, get_webcam_settings, RecordingMode,
-    RecordingSettings, RecordingState,
+    emit_state_change, find_monitor_for_point, get_monitor_bounds, get_webcam_settings,
+    RecordingMode, RecordingSettings, RecordingState,
 };
 use super::buffer::FrameBufferPool;
 use super::helpers::{create_video_project_file, is_window_mode, mux_audio_to_video};
@@ -293,6 +293,7 @@ pub fn run_video_capture(
     let mut paused = false;
     let mut pause_time = Duration::ZERO;
     let mut pause_start: Option<Instant> = None;
+    let mut first_frame_captured = false;
 
     // === START RECORDING ===
     // Recording state was already emitted before thread started (optimistic UI)
@@ -321,9 +322,9 @@ pub fn run_video_capture(
         None
     };
 
-    // Get region for cursor capture (region mode or window mode)
-    // For window mode, we need the window bounds so cursor coordinates can be
-    // converted from screen-space to window-relative coordinates
+    // Get region for cursor capture (region mode, window mode, or monitor mode)
+    // Cursor coordinates need to be normalized relative to the capture region,
+    // so we need the region's screen-space bounds.
     let cursor_region = match &settings.mode {
         RecordingMode::Region {
             x,
@@ -350,7 +351,36 @@ pub fn run_video_capture(
                 },
             }
         },
-        _ => None,
+        RecordingMode::Monitor { monitor_index } => {
+            // Get monitor bounds for cursor coordinate normalization
+            // This is critical for multi-monitor setups where secondary monitors
+            // have screen coordinates offset from (0,0)
+            let monitors = get_monitor_bounds();
+            if let Some(m) = monitors.get(*monitor_index) {
+                log::debug!(
+                    "[CAPTURE] Monitor mode cursor region: ({}, {}) {}x{} (monitor {})",
+                    m.x,
+                    m.y,
+                    m.width,
+                    m.height,
+                    monitor_index
+                );
+                Some((m.x, m.y, m.width, m.height))
+            } else {
+                log::warn!(
+                    "[CAPTURE] Monitor {} not found, cursor coordinates may be incorrect",
+                    monitor_index
+                );
+                None
+            }
+        },
+        RecordingMode::AllMonitors => {
+            // For all monitors mode, cursor coordinates span the entire virtual screen
+            // Use None to fall back to get_screen_dimensions() which returns primary screen size
+            // This may not be perfect for multi-monitor but AllMonitors is a special case
+            log::debug!("[CAPTURE] AllMonitors mode - cursor region spans virtual screen");
+            None
+        },
     };
 
     // Only start cursor capture for editor flow - use shared start_time for synchronization
@@ -494,6 +524,19 @@ pub fn run_video_capture(
         // Skip if no frame was acquired
         if !frame_acquired {
             continue;
+        }
+
+        // Track first frame timing for cursor sync
+        // The first video frame may be delayed due to WGC/encoder initialization.
+        // We record this offset so cursor timestamps can be adjusted during playback.
+        if !first_frame_captured {
+            first_frame_captured = true;
+            let first_frame_offset_ms = actual_elapsed.as_millis() as u64;
+            cursor_event_capture.set_video_start_offset(first_frame_offset_ms);
+            log::info!(
+                "[RECORDING] First frame captured at {}ms offset from start",
+                first_frame_offset_ms
+            );
         }
 
         last_frame_time = Instant::now();

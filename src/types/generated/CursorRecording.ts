@@ -23,6 +23,13 @@ width: number,
  */
 height: number, 
 /**
+ * Offset in milliseconds to sync cursor with video.
+ * This compensates for the delay between when recording starts and when
+ * the first video frame is actually captured. Cursor timestamps should be
+ * adjusted by subtracting this value during playback.
+ */
+videoStartOffsetMs: number, 
+/**
  * All cursor events sorted by timestamp.
  * Positions are normalized (0.0-1.0) relative to the capture region.
  */

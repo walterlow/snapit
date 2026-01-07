@@ -284,9 +284,36 @@ pub fn run_video_capture(
         }
     }
 
+    // Pre-allocate frame buffers to avoid per-frame allocations
+    let mut buffer_pool = FrameBufferPool::new(width, height);
+
+    // Recording loop variables
+    let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
+    let mut frame_count: u64 = 0;
+    let mut paused = false;
+    let mut pause_time = Duration::ZERO;
+    let mut pause_start: Option<Instant> = None;
+
+    // === START RECORDING ===
+    // Recording state was already emitted before thread started (optimistic UI)
+    log::debug!(
+        "[RECORDING] Capture loop starting: {}x{} @ {}fps, webcam={}",
+        width,
+        height,
+        settings.fps,
+        webcam_pipe.is_some()
+    );
+
+    // Create shared start time FIRST - this is the reference point for both
+    // video timestamps and cursor timestamps to ensure perfect synchronization.
+    let start_time = Instant::now();
+    let mut last_frame_time = start_time;
+
     // === CURSOR EVENT CAPTURE ===
     // Record cursor positions and clicks for auto-zoom in video editor.
     // Only used in editor flow (not quick capture) since cursor is baked into video for quick capture.
+    // IMPORTANT: Start cursor capture with the SAME start_time as video to ensure
+    // cursor timestamps are synchronized with video timestamps.
     let mut cursor_event_capture = CursorEventCapture::new();
     let cursor_data_path = if !settings.quick_capture {
         Some(output_path.join("cursor.json"))
@@ -326,34 +353,12 @@ pub fn run_video_capture(
         _ => None,
     };
 
-    // Only start cursor capture for editor flow
+    // Only start cursor capture for editor flow - use shared start_time for synchronization
     if !settings.quick_capture {
-        if let Err(e) = cursor_event_capture.start(cursor_region) {
+        if let Err(e) = cursor_event_capture.start_with_time(cursor_region, start_time) {
             log::warn!("Failed to start cursor event capture: {}", e);
         }
     }
-
-    // Pre-allocate frame buffers to avoid per-frame allocations
-    let mut buffer_pool = FrameBufferPool::new(width, height);
-
-    // Recording loop variables
-    let frame_duration = Duration::from_secs_f64(1.0 / settings.fps as f64);
-    let mut frame_count: u64 = 0;
-    let mut paused = false;
-    let mut pause_time = Duration::ZERO;
-    let mut pause_start: Option<Instant> = None;
-
-    // === START RECORDING ===
-    // Recording state was already emitted before thread started (optimistic UI)
-    log::debug!(
-        "[RECORDING] Capture loop starting: {}x{} @ {}fps, webcam={}",
-        width,
-        height,
-        settings.fps,
-        webcam_pipe.is_some()
-    );
-    let start_time = Instant::now();
-    let mut last_frame_time = start_time;
 
     // If we captured a first frame for dimension detection, use it as the first recorded frame
     let mut pending_first_frame: Option<Vec<u8>> = first_frame.map(|(_, _, f)| f.data);

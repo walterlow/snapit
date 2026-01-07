@@ -8,6 +8,8 @@
 // Allow unused fields - kept for potential future use
 #![allow(dead_code)]
 
+use super::coord::{Coord, FrameSpace, ScreenUVSpace, Size, ZoomedFrameSpace};
+use super::zoom::InterpolatedZoom;
 use crate::commands::video_recording::cursor::events::{
     CursorEvent, CursorEventType, CursorImage, CursorRecording,
 };
@@ -107,6 +109,48 @@ impl Default for InterpolatedCursor {
             velocity_y: 0.0,
             cursor_id: None,
         }
+    }
+}
+
+impl InterpolatedCursor {
+    /// Get position as a normalized UV coordinate.
+    pub fn as_uv_coord(&self) -> Coord<ScreenUVSpace> {
+        Coord::new(self.x as f64, self.y as f64)
+    }
+
+    /// Convert normalized position to frame space coordinates.
+    ///
+    /// # Arguments
+    /// * `frame_size` - Size of the output frame in pixels
+    pub fn to_frame_space(&self, frame_size: Size<FrameSpace>) -> Coord<FrameSpace> {
+        Coord::new(
+            self.x as f64 * frame_size.width,
+            self.y as f64 * frame_size.height,
+        )
+    }
+
+    /// Convert to zoomed frame space, applying zoom transformation.
+    ///
+    /// # Arguments
+    /// * `frame_size` - Size of the output frame in pixels
+    /// * `zoom` - Current interpolated zoom state
+    /// * `padding` - Frame padding offset
+    pub fn to_zoomed_frame_space(
+        &self,
+        frame_size: Size<FrameSpace>,
+        zoom: &InterpolatedZoom,
+        padding: Coord<FrameSpace>,
+    ) -> Coord<ZoomedFrameSpace> {
+        let frame_pos = self.to_frame_space(frame_size);
+        frame_pos.apply_zoom_bounds(zoom, frame_size, padding)
+    }
+
+    /// Get velocity as a frame space coordinate (for motion blur).
+    pub fn velocity_in_frame_space(&self, frame_size: Size<FrameSpace>) -> Coord<FrameSpace> {
+        Coord::new(
+            self.velocity_x as f64 * frame_size.width,
+            self.velocity_y as f64 * frame_size.height,
+        )
     }
 }
 

@@ -311,13 +311,29 @@ impl CursorEventCapture {
     /// # Arguments
     /// * `region` - Optional capture region (x, y, width, height). If None, captures full screen.
     pub fn start(&mut self, region: Option<(i32, i32, u32, u32)>) -> Result<(), String> {
+        self.start_with_time(region, Instant::now())
+    }
+
+    /// Start capturing cursor events with a specific start time.
+    ///
+    /// This allows synchronizing cursor timestamps with video timestamps by using
+    /// the same start time reference for both.
+    ///
+    /// # Arguments
+    /// * `region` - Optional capture region (x, y, width, height). If None, captures full screen.
+    /// * `start_time` - The reference time to use for timestamp calculation.
+    pub fn start_with_time(
+        &mut self,
+        region: Option<(i32, i32, u32, u32)>,
+        start_time: Instant,
+    ) -> Result<(), String> {
         if self.position_thread.is_some() || self.hook_thread.is_some() {
             return Err("Cursor event capture already running".to_string());
         }
 
         // Reset state
         self.should_stop.store(false, Ordering::SeqCst);
-        self.start_time = Some(Instant::now());
+        self.start_time = Some(start_time);
         self.region = region;
 
         // Clear previous data
@@ -327,8 +343,12 @@ impl CursorEventCapture {
             data.last_cursor_id = None;
         }
 
-        // Get screen dimensions
-        let (screen_w, screen_h) = get_screen_dimensions();
+        // Get screen dimensions - use region dimensions if provided (for multi-monitor support)
+        let (screen_w, screen_h) = if let Some((_, _, w, h)) = region {
+            (w, h)
+        } else {
+            get_screen_dimensions()
+        };
         self.screen_width = screen_w;
         self.screen_height = screen_h;
 

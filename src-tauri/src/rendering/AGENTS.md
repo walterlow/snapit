@@ -1,6 +1,9 @@
+do not run extra dev servers or do full build release unless i asked for it.
+
 # Rendering - wgpu GPU Pipeline
 
 GPU-accelerated video rendering with wgpu for 60fps playback and export.
+
 
 ## Structure
 

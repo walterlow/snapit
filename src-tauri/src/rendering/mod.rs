@@ -12,6 +12,7 @@
 //! - `editor_instance`: Playback state management
 
 pub mod compositor;
+pub mod coord;
 pub mod cursor;
 pub mod decoder;
 pub mod editor_instance;
@@ -23,6 +24,10 @@ pub mod types;
 pub mod zoom;
 
 pub use compositor::Compositor;
+pub use coord::{
+    CaptureSpace, Coord, FrameSpace, Rect, ScreenSpace, ScreenUVSpace, Size, TransformParams,
+    ZoomedFrameSpace,
+};
 pub use cursor::{composite_cursor, CursorInterpolator, InterpolatedCursor};
 pub use decoder::VideoDecoder;
 pub use editor_instance::EditorInstance;

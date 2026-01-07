@@ -1,5 +1,6 @@
 //! Core types for GPU-accelerated video rendering.
 
+use super::coord::{Coord, FrameSpace, Size};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -172,6 +173,48 @@ pub struct ClickHighlight {
     pub color: [f32; 4],
     /// Maximum radius.
     pub radius: f32,
+}
+
+impl CursorOverlay {
+    /// Get cursor position as a frame space coordinate.
+    pub fn position(&self) -> Coord<FrameSpace> {
+        Coord::new(self.x as f64, self.y as f64)
+    }
+
+    /// Create a new cursor overlay from a frame space coordinate.
+    pub fn with_position(mut self, pos: Coord<FrameSpace>) -> Self {
+        self.x = pos.x as f32;
+        self.y = pos.y as f32;
+        self
+    }
+
+    /// Get cursor image size.
+    pub fn image_size(&self) -> Size<FrameSpace> {
+        Size::new(self.image_width as f64, self.image_height as f64)
+    }
+}
+
+impl ClickHighlight {
+    /// Get highlight center as a frame space coordinate.
+    pub fn position(&self) -> Coord<FrameSpace> {
+        Coord::new(self.x as f64, self.y as f64)
+    }
+
+    /// Create a click highlight from a frame space coordinate.
+    pub fn at_position(
+        pos: Coord<FrameSpace>,
+        progress: f32,
+        color: [f32; 4],
+        radius: f32,
+    ) -> Self {
+        Self {
+            x: pos.x as f32,
+            y: pos.y as f32,
+            progress,
+            color,
+            radius,
+        }
+    }
 }
 
 /// Background styling for video output.

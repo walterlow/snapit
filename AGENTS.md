@@ -181,6 +181,15 @@ setInvokeResponse('command_name', mockResult);
 | Shadows clipped | Use `filter: drop-shadow()` |
 | State not persisting | Correct store + devtools enabled |
 
+
+## Logging
+
+Backend (Rust) logs are written to:
+- **Windows**: `%APPDATA%/com.snapit.app/logs/` (e.g., `C:\Users\<user>\AppData\Roaming\com.snapit.app\logs\`)
+- Logs include timestamps and are rotated automatically
+- Use `log::info!`, `log::debug!`, `log::warn!`, `log::error!` in Rust code
+- Both console output and file logging are enabled via `tauri-plugin-log`
+
 ## Subdirectory Guides
 
 - [`src/components/Editor/AGENTS.md`](src/components/Editor/AGENTS.md) - Canvas annotation patterns

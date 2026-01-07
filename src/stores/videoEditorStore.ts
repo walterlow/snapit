@@ -224,7 +224,26 @@ export const useVideoEditorStore = create<VideoEditorState>()(
             path: cursorDataPath,
           });
           set({ cursorRecording: recording });
-          videoEditorLogger.debug('Loaded cursor recording with', recording.events.length, 'events');
+          
+          // Debug: Compare cursor recording dimensions with video dimensions
+          const { project } = get();
+          if (project) {
+            const videoDims = `${project.sources.originalWidth}x${project.sources.originalHeight}`;
+            const cursorDims = `${recording.width}x${recording.height}`;
+            if (videoDims !== cursorDims) {
+              videoEditorLogger.warn(
+                `[CURSOR_SYNC] Dimension mismatch! Video: ${videoDims}, Cursor: ${cursorDims}`
+              );
+            } else {
+              videoEditorLogger.debug(
+                `[CURSOR_SYNC] Dimensions match: ${videoDims}`
+              );
+            }
+            videoEditorLogger.debug(
+              `[CURSOR_SYNC] Cursor recording: ${recording.events.length} events, ` +
+              `videoStartOffsetMs=${recording.videoStartOffsetMs ?? 0}ms`
+            );
+          }
         } catch (error) {
           videoEditorLogger.warn('Failed to load cursor recording:', error);
           // Don't fail - cursor data is optional for auto zoom

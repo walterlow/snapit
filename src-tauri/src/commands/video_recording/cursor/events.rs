@@ -376,6 +376,13 @@ impl CursorEventCapture {
 
         // Set capture region (use fullscreen if not specified)
         self.capture_region = if let Some((x, y, w, h)) = region {
+            log::info!(
+                "[CURSOR_EVENTS] Using provided region: ({}, {}) {}x{}",
+                x,
+                y,
+                w,
+                h
+            );
             CaptureRegion {
                 x,
                 y,
@@ -384,6 +391,11 @@ impl CursorEventCapture {
             }
         } else {
             let (w, h) = get_screen_dimensions();
+            log::info!(
+                "[CURSOR_EVENTS] No region provided, using fullscreen: {}x{}",
+                w,
+                h
+            );
             CaptureRegion {
                 x: 0,
                 y: 0,
@@ -831,6 +843,17 @@ fn run_position_capture_loop(
 
             // Normalize to 0.0-1.0 relative to capture region
             let (norm_x, norm_y) = region.normalize(x, y);
+
+            // Debug: Log first few cursor events to verify normalization
+            if let Ok(data_guard) = data.lock() {
+                let event_count = data_guard.events.len();
+                if event_count < 5 {
+                    log::debug!(
+                        "[CURSOR_EVENTS] Event {}: screen=({}, {}), region=({}, {}, {}x{}), norm=({:.4}, {:.4})",
+                        event_count, x, y, region.x, region.y, region.width, region.height, norm_x, norm_y
+                    );
+                }
+            }
 
             // Always include current_cursor_id on every move event (like Cap)
             if let Ok(mut data_guard) = data.lock() {

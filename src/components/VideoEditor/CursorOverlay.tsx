@@ -30,6 +30,8 @@ interface CursorOverlayProps {
   containerWidth: number;
   /** Container height in pixels */
   containerHeight: number;
+  /** Video aspect ratio (width/height) for object-contain offset calculation */
+  videoAspectRatio?: number;
 }
 
 /**
@@ -110,11 +112,36 @@ function loadBitmapCursor(
  * 2. Bitmap cursor (fallback for custom cursors)
  * 3. Default arrow SVG (fallback when nothing else available)
  */
+/**
+ * Calculate the actual video bounds within a container using object-contain.
+ * Returns the offset and dimensions of the video area.
+ */
+function calculateVideoBounds(
+  containerWidth: number,
+  containerHeight: number,
+  videoAspectRatio: number
+): { offsetX: number; offsetY: number; width: number; height: number } {
+  const containerAspect = containerWidth / containerHeight;
+
+  if (containerAspect > videoAspectRatio) {
+    // Container is wider than video - letterboxing on sides (pillarboxing)
+    const videoWidth = containerHeight * videoAspectRatio;
+    const offsetX = (containerWidth - videoWidth) / 2;
+    return { offsetX, offsetY: 0, width: videoWidth, height: containerHeight };
+  } else {
+    // Container is taller than video - letterboxing on top/bottom
+    const videoHeight = containerWidth / videoAspectRatio;
+    const offsetY = (containerHeight - videoHeight) / 2;
+    return { offsetX: 0, offsetY, width: containerWidth, height: videoHeight };
+  }
+}
+
 export const CursorOverlay = memo(function CursorOverlay({
   cursorRecording,
   cursorConfig,
   containerWidth,
   containerHeight,
+  videoAspectRatio,
 }: CursorOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const currentTimeMs = usePreviewOrPlaybackTime();
@@ -267,18 +294,32 @@ export const CursorOverlay = memo(function CursorOverlay({
     }
 
     // Calculate pixel position from normalized coordinates
-    const pixelX = cursorData.x * containerWidth;
-    const pixelY = cursorData.y * containerHeight;
+    // The cursor coordinates are normalized (0-1) relative to the capture region.
+    // When video uses object-contain, we need to account for letterboxing offset.
+    let pixelX: number;
+    let pixelY: number;
 
-    // Debug logging for cursor position issues
+    if (videoAspectRatio && videoAspectRatio > 0) {
+      // Calculate actual video bounds within the container (accounting for object-contain)
+      const bounds = calculateVideoBounds(containerWidth, containerHeight, videoAspectRatio);
+      pixelX = bounds.offsetX + cursorData.x * bounds.width;
+      pixelY = bounds.offsetY + cursorData.y * bounds.height;
+    } else {
+      // Fallback: assume container matches video aspect ratio exactly
+      pixelX = cursorData.x * containerWidth;
+      pixelY = cursorData.y * containerHeight;
+    }
+
+    // Debug logging for cursor position issues - log first 5 frames and then occasionally
     if (process.env.NODE_ENV === 'development') {
-      // Log occasionally to avoid spam
-      if (Math.random() < 0.01) {
+      const shouldLog = currentTimeMs < 200 || Math.random() < 0.005;
+      if (shouldLog) {
         editorLogger.debug(
-          `[CursorOverlay] norm=(${cursorData.x.toFixed(3)}, ${cursorData.y.toFixed(3)}) ` +
-          `pixel=(${pixelX.toFixed(0)}, ${pixelY.toFixed(0)}) ` +
-          `container=(${containerWidth}x${containerHeight}) ` +
-          `time=${currentTimeMs.toFixed(0)}ms`
+          `[CursorOverlay] time=${currentTimeMs.toFixed(0)}ms ` +
+          `norm=(${cursorData.x.toFixed(4)}, ${cursorData.y.toFixed(4)}) ` +
+          `pixel=(${pixelX.toFixed(1)}, ${pixelY.toFixed(1)}) ` +
+          `container=${containerWidth}x${containerHeight}` +
+          (videoAspectRatio ? ` videoAR=${videoAspectRatio.toFixed(3)}` : '')
         );
       }
     }
@@ -364,9 +405,11 @@ export const CursorOverlay = memo(function CursorOverlay({
     scale,
     containerWidth,
     containerHeight,
+    videoAspectRatio,
     cursorImages,
     hideWhenIdle,
     isIdle,
+    currentTimeMs,
   ]);
 
   // Don't render if no cursor data or not visible

@@ -241,6 +241,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   defaultSceneMode,
   containerWidth,
   containerHeight,
+  videoAspectRatio,
   onVideoClick,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -254,6 +255,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   defaultSceneMode: SceneMode;
   containerWidth: number;
   containerHeight: number;
+  /** Video aspect ratio for cursor offset calculation */
+  videoAspectRatio: number;
   onVideoClick: () => void;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
@@ -349,6 +352,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           clickHighlightConfig={cursorConfig?.clickHighlight}
           containerWidth={containerWidth}
           containerHeight={containerHeight}
+          videoAspectRatio={videoAspectRatio}
         />
       )}
 
@@ -359,6 +363,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           cursorConfig={cursorConfig}
           containerWidth={containerWidth}
           containerHeight={containerHeight}
+          videoAspectRatio={videoAspectRatio}
         />
       )}
     </>
@@ -546,6 +551,7 @@ export function GPUVideoPreview() {
             defaultSceneMode={project?.scene?.defaultMode ?? 'default'}
             containerWidth={containerSize.width}
             containerHeight={containerSize.height}
+            videoAspectRatio={aspectRatio}
             onVideoClick={handleVideoClick}
           />
         ) : (

@@ -17,6 +17,32 @@ interface ClickHighlightOverlayProps {
   containerWidth: number;
   /** Container height in pixels */
   containerHeight: number;
+  /** Video aspect ratio (width/height) for object-contain offset calculation */
+  videoAspectRatio?: number;
+}
+
+/**
+ * Calculate the actual video bounds within a container using object-contain.
+ * Returns the offset and dimensions of the video area.
+ */
+function calculateVideoBounds(
+  containerWidth: number,
+  containerHeight: number,
+  videoAspectRatio: number
+): { offsetX: number; offsetY: number; width: number; height: number } {
+  const containerAspect = containerWidth / containerHeight;
+
+  if (containerAspect > videoAspectRatio) {
+    // Container is wider than video - letterboxing on sides (pillarboxing)
+    const videoWidth = containerHeight * videoAspectRatio;
+    const offsetX = (containerWidth - videoWidth) / 2;
+    return { offsetX, offsetY: 0, width: videoWidth, height: containerHeight };
+  } else {
+    // Container is taller than video - letterboxing on top/bottom
+    const videoHeight = containerWidth / videoAspectRatio;
+    const offsetY = (containerHeight - videoHeight) / 2;
+    return { offsetX: 0, offsetY, width: containerWidth, height: videoHeight };
+  }
 }
 
 /**
@@ -211,6 +237,7 @@ export const ClickHighlightOverlay = memo(function ClickHighlightOverlay({
   clickHighlightConfig,
   containerWidth,
   containerHeight,
+  videoAspectRatio,
 }: ClickHighlightOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const currentTimeMs = usePreviewOrPlaybackTime();
@@ -257,8 +284,18 @@ export const ClickHighlightOverlay = memo(function ClickHighlightOverlay({
     // Render each active click highlight
     for (const click of activeClicks) {
       // Convert normalized coordinates to pixel coordinates
-      const pixelX = click.x * containerWidth;
-      const pixelY = click.y * containerHeight;
+      // Account for object-contain letterboxing when video aspect ratio differs from container
+      let pixelX: number;
+      let pixelY: number;
+
+      if (videoAspectRatio && videoAspectRatio > 0) {
+        const bounds = calculateVideoBounds(containerWidth, containerHeight, videoAspectRatio);
+        pixelX = bounds.offsetX + click.x * bounds.width;
+        pixelY = bounds.offsetY + click.y * bounds.height;
+      } else {
+        pixelX = click.x * containerWidth;
+        pixelY = click.y * containerHeight;
+      }
       
       // Scale radius based on container size (use smaller dimension as reference)
       const scaleFactor = Math.min(containerWidth, containerHeight) / 1080;
@@ -287,6 +324,7 @@ export const ClickHighlightOverlay = memo(function ClickHighlightOverlay({
     style,
     containerWidth,
     containerHeight,
+    videoAspectRatio,
     currentTimeMs,
     parsedColor,
   ]);

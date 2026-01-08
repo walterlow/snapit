@@ -428,8 +428,10 @@ pub fn run_video_capture(
         }
     }
 
-    // If we captured a first frame for dimension detection, use it as the first recorded frame
-    let mut pending_first_frame: Option<Vec<u8>> = first_frame.map(|(_, _, f)| f.data);
+    // NOTE: Do NOT use the pre-captured first frame for recording!
+    // It was captured BEFORE start_time, so cursor timestamps won't align.
+    // We only use first_frame for dimension detection, then wait for a fresh frame.
+    let mut pending_first_frame: Option<Vec<u8>> = None;
 
     loop {
         // Check for commands

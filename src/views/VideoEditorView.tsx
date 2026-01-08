@@ -10,7 +10,7 @@
 
 import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
-import { X, Circle, Square, RectangleHorizontal } from 'lucide-react';
+import { X, Circle, Square, RectangleHorizontal, Crop } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -19,10 +19,11 @@ import { useVideoEditorStore } from '../stores/videoEditorStore';
 import { useVideoEditorShortcuts } from '../hooks/useVideoEditorShortcuts';
 import { GPUVideoPreview } from '../components/VideoEditor/GPUVideoPreview';
 import { VideoTimeline } from '../components/VideoEditor/VideoTimeline';
+import { CropDialog } from '../components/VideoEditor/CropDialog';
 import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
-import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, VideoBackgroundType, SceneMode, ZoomRegion } from '../types';
+import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, VideoBackgroundType, SceneMode, ZoomRegion, CropConfig } from '../types';
 import { videoEditorLogger } from '../utils/logger';
 
 /**
@@ -361,6 +362,9 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
   type PropertiesTab = 'project' | 'cursor' | 'webcam' | 'export';
   const [activeTab, setActiveTab] = useState<PropertiesTab>('project');
 
+  // Crop dialog state
+  const [isCropDialogOpen, setIsCropDialogOpen] = useState(false);
+
   // Skip amount in milliseconds
   const SKIP_AMOUNT_MS = 5000;
 
@@ -494,6 +498,12 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
       toast.error(message);
     }
   }, [project, exportVideo]);
+
+  // Handle crop apply
+  const handleCropApply = useCallback((crop: CropConfig) => {
+    updateExportConfig({ crop });
+    toast.success(crop.enabled ? 'Crop applied' : 'Crop removed');
+  }, [updateExportConfig]);
 
   // Seek to start
   const handleSeekToStart = useCallback(() => {
@@ -1257,6 +1267,32 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     )}
                   </div>
                 )}
+
+                {/* Crop Video */}
+                <div className="pt-3 border-t border-[var(--glass-border)]">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-[var(--ink-muted)]">Crop Video</span>
+                    {project.export.crop?.enabled && (
+                      <span className="text-[10px] text-[var(--coral-400)] font-medium">
+                        {project.export.crop.width}×{project.export.crop.height}
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsCropDialogOpen(true)}
+                    className="w-full justify-start gap-2"
+                  >
+                    <Crop className="w-4 h-4" />
+                    {project.export.crop?.enabled ? 'Edit Crop' : 'Add Crop'}
+                  </Button>
+                  {project.export.crop?.enabled && (
+                    <p className="text-[10px] text-[var(--ink-subtle)] mt-1.5">
+                      Position: {project.export.crop.x}, {project.export.crop.y}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1267,6 +1303,18 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
       <div className="min-h-[14rem]">
         <VideoTimeline onBack={handleBack} onExport={handleExport} />
       </div>
+
+      {/* Crop Dialog */}
+      {project && (
+        <CropDialog
+          open={isCropDialogOpen}
+          onClose={() => setIsCropDialogOpen(false)}
+          onApply={handleCropApply}
+          videoWidth={project.sources.originalWidth}
+          videoHeight={project.sources.originalHeight}
+          initialCrop={project.export.crop}
+        />
+      )}
 
       {/* Export Progress Overlay */}
       {isExporting && (

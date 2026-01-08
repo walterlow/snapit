@@ -10,7 +10,9 @@ import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { WebcamOverlay } from './WebcamOverlay';
 import { CursorOverlay } from './CursorOverlay';
 import { ClickHighlightOverlay } from './ClickHighlightOverlay';
-import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig } from '../../types';
+import { MaskOverlay } from './MaskOverlay';
+import { TextOverlay } from './TextOverlay';
+import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
@@ -242,6 +244,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   containerWidth,
   containerHeight,
   videoAspectRatio,
+  maskSegments,
+  textSegments,
   onVideoClick,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -257,6 +261,10 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   containerHeight: number;
   /** Video aspect ratio for cursor offset calculation */
   videoAspectRatio: number;
+  /** Mask segments for blur/pixelate overlays */
+  maskSegments: MaskSegment[] | undefined;
+  /** Text segments for text overlays */
+  textSegments: TextSegment[] | undefined;
   onVideoClick: () => void;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
@@ -366,6 +374,26 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           containerHeight={containerHeight}
           videoAspectRatio={videoAspectRatio}
           zoomRegions={zoomRegions}
+        />
+      )}
+
+      {/* Mask overlay - blur/pixelate regions on top of video (only when screen visible) */}
+      {showScreen && maskSegments && maskSegments.length > 0 && containerWidth > 0 && containerHeight > 0 && (
+        <MaskOverlay
+          segments={maskSegments}
+          currentTimeMs={currentTimeMs}
+          previewWidth={containerWidth}
+          previewHeight={containerHeight}
+        />
+      )}
+
+      {/* Text overlay - text annotations on top of everything (only when screen visible) */}
+      {showScreen && textSegments && textSegments.length > 0 && containerWidth > 0 && containerHeight > 0 && (
+        <TextOverlay
+          segments={textSegments}
+          currentTimeMs={currentTimeMs}
+          previewWidth={containerWidth}
+          previewHeight={containerHeight}
         />
       )}
     </>
@@ -554,6 +582,8 @@ export function GPUVideoPreview() {
             containerWidth={containerSize.width}
             containerHeight={containerSize.height}
             videoAspectRatio={aspectRatio}
+            maskSegments={project?.mask?.segments}
+            textSegments={project?.text?.segments}
             onVideoClick={handleVideoClick}
           />
         ) : (

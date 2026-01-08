@@ -21,7 +21,7 @@ use super::super::state::{RecorderCommand, RecordingProgress};
 use super::super::timestamp::Timestamps;
 use super::super::webcam::{stop_capture_service, WebcamEncoderPipe};
 use super::super::{
-    emit_state_change, find_monitor_for_point, get_monitor_bounds, get_webcam_settings,
+    emit_state_change, find_monitor_for_point, get_scap_display_bounds, get_webcam_settings,
     RecordingMode, RecordingSettings, RecordingState,
 };
 use super::buffer::FrameBufferPool;
@@ -360,70 +360,71 @@ pub fn run_video_capture(
     // Get region for cursor capture (region mode, window mode, or monitor mode)
     // Cursor coordinates need to be normalized relative to the capture region,
     // so we need the region's screen-space bounds.
-    let cursor_region =
-        match &settings.mode {
-            RecordingMode::Region {
+    let cursor_region = match &settings.mode {
+        RecordingMode::Region {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            log::info!(
+                "[CAPTURE] Region mode - screen coords: ({}, {}) {}x{}, monitor_offset: ({}, {})",
                 x,
                 y,
                 width,
                 height,
-            } => {
-                log::info!(
-                "[CAPTURE] Region mode - screen coords: ({}, {}) {}x{}, monitor_offset: ({}, {})",
-                x, y, width, height, monitor_offset.0, monitor_offset.1
+                monitor_offset.0,
+                monitor_offset.1
             );
-                Some((*x, *y, *width, *height))
-            },
-            RecordingMode::Window { window_id } => {
-                // Get window bounds for cursor coordinate offset
-                match super::helpers::get_window_rect(*window_id) {
-                    Ok((x, y, w, h)) => {
-                        log::debug!(
-                            "[CAPTURE] Window mode cursor region: ({}, {}) {}x{}",
-                            x,
-                            y,
-                            w,
-                            h
-                        );
-                        Some((x, y, w, h))
-                    },
-                    Err(e) => {
-                        log::warn!("[CAPTURE] Could not get window rect for cursor: {}", e);
-                        None
-                    },
-                }
-            },
-            RecordingMode::Monitor { monitor_index } => {
-                // Get monitor bounds for cursor coordinate normalization
-                // This is critical for multi-monitor setups where secondary monitors
-                // have screen coordinates offset from (0,0)
-                let monitors = get_monitor_bounds();
-                if let Some(m) = monitors.get(*monitor_index) {
+            Some((*x, *y, *width, *height))
+        },
+        RecordingMode::Window { window_id } => {
+            // Get window bounds for cursor coordinate offset
+            match super::helpers::get_window_rect(*window_id) {
+                Ok((x, y, w, h)) => {
                     log::debug!(
-                        "[CAPTURE] Monitor mode cursor region: ({}, {}) {}x{} (monitor {})",
-                        m.x,
-                        m.y,
-                        m.width,
-                        m.height,
-                        monitor_index
+                        "[CAPTURE] Window mode cursor region: ({}, {}) {}x{}",
+                        x,
+                        y,
+                        w,
+                        h
                     );
-                    Some((m.x, m.y, m.width, m.height))
-                } else {
+                    Some((x, y, w, h))
+                },
+                Err(e) => {
+                    log::warn!("[CAPTURE] Could not get window rect for cursor: {}", e);
+                    None
+                },
+            }
+        },
+        RecordingMode::Monitor { monitor_index } => {
+            // Get monitor bounds for cursor coordinate normalization.
+            // CRITICAL: Use scap's display enumeration (same as video capture) to ensure
+            // monitor_index refers to the same physical display for both video and cursor.
+            // Using a different enumeration (e.g., EnumDisplayMonitors) could return monitors
+            // in a different order, causing cursor offset issues on multi-monitor setups.
+            get_scap_display_bounds(*monitor_index).map(|(x, y, w, h)| {
+                    log::debug!(
+                        "[CAPTURE] Monitor mode cursor region (from scap): ({}, {}) {}x{} (monitor {})",
+                        x, y, w, h, monitor_index
+                    );
+                    (x, y, w, h)
+                }).or_else(|| {
                     log::warn!(
-                        "[CAPTURE] Monitor {} not found, cursor coordinates may be incorrect",
+                        "[CAPTURE] Monitor {} not found in scap, cursor coordinates may be incorrect",
                         monitor_index
                     );
                     None
-                }
-            },
-            RecordingMode::AllMonitors => {
-                // For all monitors mode, cursor coordinates span the entire virtual screen
-                // Use None to fall back to get_screen_dimensions() which returns primary screen size
-                // This may not be perfect for multi-monitor but AllMonitors is a special case
-                log::debug!("[CAPTURE] AllMonitors mode - cursor region spans virtual screen");
-                None
-            },
-        };
+                })
+        },
+        RecordingMode::AllMonitors => {
+            // For all monitors mode, cursor coordinates span the entire virtual screen
+            // Use None to fall back to get_screen_dimensions() which returns primary screen size
+            // This may not be perfect for multi-monitor but AllMonitors is a special case
+            log::debug!("[CAPTURE] AllMonitors mode - cursor region spans virtual screen");
+            None
+        },
+    };
 
     // Only start cursor capture for editor flow - use shared start_time for synchronization
     if !settings.quick_capture {

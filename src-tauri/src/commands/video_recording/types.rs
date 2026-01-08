@@ -96,6 +96,54 @@ pub fn find_monitor_for_point(x: i32, y: i32) -> Option<(usize, String, i32, i32
     None
 }
 
+/// Get display bounds (x, y, width, height) using scap's display enumeration.
+/// This ensures monitor_index refers to the same physical display that scap captures.
+/// CRITICAL: Always use this for cursor regions in Monitor mode to avoid offset issues.
+#[cfg(target_os = "windows")]
+pub fn get_scap_display_bounds(monitor_index: usize) -> Option<(i32, i32, u32, u32)> {
+    use scap::Target;
+    use std::mem;
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITORINFO};
+
+    // Get displays using scap's enumeration (same order as video capture)
+    let targets = scap::get_all_targets();
+    let displays: Vec<_> = targets
+        .into_iter()
+        .filter_map(|t| {
+            if let Target::Display(d) = t {
+                Some(d)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let display = displays.get(monitor_index)?;
+
+    // Get bounds from the display's HMONITOR using GetMonitorInfoW
+    unsafe {
+        let mut info: MONITORINFO = mem::zeroed();
+        info.cbSize = mem::size_of::<MONITORINFO>() as u32;
+
+        if GetMonitorInfoW(display.raw_handle, &mut info).as_bool() {
+            let rect = info.rcMonitor;
+            Some((
+                rect.left,
+                rect.top,
+                (rect.right - rect.left) as u32,
+                (rect.bottom - rect.top) as u32,
+            ))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_scap_display_bounds(_monitor_index: usize) -> Option<(i32, i32, u32, u32)> {
+    None
+}
+
 /// Output format for recordings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]

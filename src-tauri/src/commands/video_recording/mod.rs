@@ -40,6 +40,7 @@ pub mod gif_encoder;
 pub mod gpu_editor;
 pub mod master_clock;
 pub mod recorder;
+pub mod scap_capture;
 pub mod state;
 pub mod types;
 pub mod video_export;

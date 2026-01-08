@@ -8,7 +8,8 @@
 
 import { memo, useRef, useEffect, useCallback } from 'react';
 import { usePreviewOrPlaybackTime } from '../../hooks/usePlaybackEngine';
-import type { CursorRecording, ClickHighlightConfig, CursorEvent } from '../../types';
+import { useZoomPreview } from '../../hooks/useZoomPreview';
+import type { CursorRecording, ClickHighlightConfig, CursorEvent, ZoomRegion } from '../../types';
 
 interface ClickHighlightOverlayProps {
   cursorRecording: CursorRecording | null | undefined;
@@ -19,6 +20,8 @@ interface ClickHighlightOverlayProps {
   containerHeight: number;
   /** Video aspect ratio (width/height) for object-contain offset calculation */
   videoAspectRatio?: number;
+  /** Zoom regions for applying the same transform as the video */
+  zoomRegions?: ZoomRegion[];
 }
 
 /**
@@ -238,10 +241,14 @@ export const ClickHighlightOverlay = memo(function ClickHighlightOverlay({
   containerWidth,
   containerHeight,
   videoAspectRatio,
+  zoomRegions,
 }: ClickHighlightOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const currentTimeMs = usePreviewOrPlaybackTime();
   const lastRenderTimeRef = useRef<number>(-1);
+
+  // Get zoom transform - must match video exactly for click highlight alignment at all zoom levels
+  const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs, cursorRecording);
   
   // Get config values with defaults
   const enabled = clickHighlightConfig?.enabled ?? true;
@@ -282,14 +289,20 @@ export const ClickHighlightOverlay = memo(function ClickHighlightOverlay({
     if (activeClicks.length === 0) return;
     
     // Render each active click highlight
+    // Use cursor recording's aspect ratio for positioning (not video dimensions)
+    // Cursor coordinates are normalized to the capture region, not the video file
+    const cursorAspectRatio = cursorRecording.width && cursorRecording.height
+      ? cursorRecording.width / cursorRecording.height
+      : videoAspectRatio;
+
     for (const click of activeClicks) {
       // Convert normalized coordinates to pixel coordinates
       // Account for object-contain letterboxing when video aspect ratio differs from container
       let pixelX: number;
       let pixelY: number;
 
-      if (videoAspectRatio && videoAspectRatio > 0) {
-        const bounds = calculateVideoBounds(containerWidth, containerHeight, videoAspectRatio);
+      if (cursorAspectRatio && cursorAspectRatio > 0) {
+        const bounds = calculateVideoBounds(containerWidth, containerHeight, cursorAspectRatio);
         pixelX = bounds.offsetX + click.x * bounds.width;
         pixelY = bounds.offsetY + click.y * bounds.height;
       } else {
@@ -349,7 +362,11 @@ export const ClickHighlightOverlay = memo(function ClickHighlightOverlay({
     <canvas
       ref={canvasRef}
       className="absolute inset-0 pointer-events-none"
-      style={{ zIndex: 14 }} // Below cursor (15), above video content
+      style={{
+        zIndex: 14, // Below cursor (15), above video content
+        // Apply the same zoom transform as the video for click highlight alignment at all zoom levels
+        ...zoomStyle,
+      }}
       width={containerWidth}
       height={containerHeight}
     />

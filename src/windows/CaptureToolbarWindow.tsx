@@ -252,8 +252,9 @@ const CaptureToolbarWindow: React.FC = () => {
         const countdownSecs = quickCapture ? 0 : (captureType === 'video' ? settings.video.countdownSecs : settings.gif.countdownSecs);
         // For video: if quick capture, use user's cursor preference; if editor flow, always capture without cursor
         // For GIF: always use user's cursor preference (GIF is always quick capture)
+        // DEBUG: Force cursor baking for testing overlay offset issue
         const includeCursor = captureType === 'video'
-          ? (quickCapture ? settings.video.includeCursor : false)
+          ? true  // DEBUG: was (quickCapture ? settings.video.includeCursor : false)
           : settings.gif.includeCursor;
         const maxDurationSecs = captureType === 'video' ? settings.video.maxDurationSecs : settings.gif.maxDurationSecs;
         const microphoneDeviceIndex = settings.video.microphoneDeviceIndex;

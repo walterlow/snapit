@@ -19,12 +19,12 @@ use super::super::audio_multitrack::MultiTrackAudioRecorder;
 use super::super::cursor::{save_cursor_recording, CursorEventCapture};
 use super::super::state::{RecorderCommand, RecordingProgress};
 use super::super::webcam::{stop_capture_service, WebcamEncoderPipe};
-use super::super::wgc_capture::WgcVideoCapture;
 use super::super::{
     emit_state_change, find_monitor_for_point, get_monitor_bounds, get_webcam_settings,
     RecordingMode, RecordingSettings, RecordingState,
 };
 use super::buffer::FrameBufferPool;
+use super::capture_source::CaptureSource;
 use super::helpers::{create_video_project_file, is_window_mode, mux_audio_to_video};
 
 /// Run video (MP4) capture using Windows Graphics Capture (WGC).
@@ -104,6 +104,20 @@ pub fn run_video_capture(
                     mx,
                     my
                 );
+
+                // DEBUG: Log monitor enumeration from both sources to check for mismatch
+                let debug_info = format!(
+                    "\n=== MONITOR ENUMERATION DEBUG ===\nRegion origin: ({}, {})\nFound on GDI monitor {} '{}' at ({}, {})\n",
+                    x, y, idx, name, mx, my
+                );
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
+                {
+                    let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
+                }
+
                 (idx, (mx, my))
             } else {
                 (0, (0, 0))
@@ -112,36 +126,62 @@ pub fn run_video_capture(
         _ => (0, (0, 0)),
     };
 
-    // Create WGC capture based on mode
-    // For window capture, we need to wait for the first frame to get accurate dimensions
-    // (window rect may differ from actual capture due to DPI scaling on multi-monitor setups)
-    let (wgc, first_frame) = if let Some(wid) = window_id {
+    // Create capture source based on mode
+    // - Window mode: WGC window capture
+    // - Region mode: Scap with built-in crop_area (ensures cursor/video alignment)
+    // - Monitor mode: WGC monitor capture
+    let (capture_source, first_frame) = if let Some(wid) = window_id {
         log::debug!("[CAPTURE] Using WGC window capture for hwnd={}", wid);
-        let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
+        let source = CaptureSource::new_window(wid, settings.include_cursor)
             .map_err(|e| format!("Failed to create WGC window capture: {}", e))?;
 
         // Wait for first frame to get actual dimensions (important for DPI scaling)
-        let first_frame = wgc.wait_for_first_frame(1000);
-        (wgc, first_frame)
+        let first_frame = source.wait_for_first_frame(1000);
+        (source, first_frame)
+    } else if let Some((x, y, w, h)) = crop_region {
+        // Region mode: use Scap with built-in crop support
+        // This ensures cursor coordinates and video frames are in the same coordinate space
+        log::debug!(
+            "[CAPTURE] Using Scap region capture: ({}, {}) {}x{} on monitor {} (offset {:?})",
+            x,
+            y,
+            w,
+            h,
+            monitor_index,
+            monitor_offset
+        );
+        let source = CaptureSource::new_region(
+            monitor_index,
+            (x, y, w, h),
+            monitor_offset,
+            settings.fps,
+            settings.include_cursor,
+        )
+        .map_err(|e| format!("Failed to create Scap region capture: {}", e))?;
+
+        // Wait for first frame to get actual dimensions
+        let first_frame = source.wait_for_first_frame(1000);
+        (source, first_frame)
     } else {
-        // Monitor/Region mode
+        // Monitor mode
         log::debug!(
             "[CAPTURE] Using WGC monitor capture, index={}",
             monitor_index
         );
-        let wgc = WgcVideoCapture::new(monitor_index, settings.include_cursor)
+        let source = CaptureSource::new_monitor(monitor_index, settings.include_cursor)
             .map_err(|e| format!("Failed to create WGC capture: {}", e))?;
-        (wgc, None)
+        (source, None)
     };
 
-    // Get capture dimensions - for WGC window capture, use actual frame dimensions
-    let (width, height) = if let Some((_, _, w, h)) = crop_region {
-        (w, h)
-    } else if let Some((w, h, _)) = &first_frame {
-        // Use actual frame dimensions from WGC (handles DPI scaling correctly)
+    // Get capture dimensions - use actual frame dimensions when available
+    let (width, height) = if let Some((w, h, _)) = &first_frame {
+        // Use actual frame dimensions from capture source (handles DPI scaling correctly)
         (*w, *h)
+    } else if let Some((_, _, w, h)) = crop_region {
+        // Region mode: use specified dimensions
+        (w, h)
     } else {
-        (wgc.width(), wgc.height())
+        (capture_source.width(), capture_source.height())
     };
 
     let bitrate = settings.calculate_bitrate(width, height);
@@ -487,43 +527,41 @@ pub fn run_video_capture(
             continue;
         }
 
-        // Acquire next frame from WGC - use pending first frame if available, else get new one
+        // Acquire next frame from capture source
+        // - For Scap (region mode): frames are already cropped
+        // - For WGC (monitor/window mode): frames are full capture area
         let frame_data = if let Some(data) = pending_first_frame.take() {
             Some(data)
         } else {
-            wgc.get_frame(100).map(|f| f.data)
+            capture_source.get_frame(100).map(|f| f.data)
         };
 
         let frame_acquired = match frame_data {
             Some(data) => {
-                // For region mode, crop the frame to the selected area
-                if let Some((x, y, w, h)) = crop_region {
-                    let local_x = (x - monitor_offset.0).max(0) as u32;
-                    let local_y = (y - monitor_offset.1).max(0) as u32;
-                    let frame_width = wgc.width();
-                    let frame_height = wgc.height();
-
-                    // Crop the frame data
-                    let mut cropped_idx = 0;
-                    for row in local_y..(local_y + h).min(frame_height) {
-                        let src_start = ((row * frame_width + local_x) * 4) as usize;
-                        let src_end = ((row * frame_width + local_x + w.min(frame_width - local_x))
-                            * 4) as usize;
-                        let row_len = src_end - src_start;
-                        if src_end <= data.len() && cropped_idx + row_len <= buffer_pool.frame_size
-                        {
-                            buffer_pool.frame_buffer[cropped_idx..cropped_idx + row_len]
-                                .copy_from_slice(&data[src_start..src_end]);
-                            cropped_idx += row_len;
-                        }
+                // DEBUG: Log first frame info
+                if !first_frame_captured {
+                    let debug_info = format!(
+                        "\n=== FRAME CAPTURE DEBUG ===\nCapture source: {}\nFrame data size: {} bytes\nExpected size: {} ({}x{}x4)\nUsing scap (no manual crop): {}\n",
+                        if capture_source.is_scap() { "Scap (built-in crop)" } else { "WGC" },
+                        data.len(),
+                        width * height * 4,
+                        width, height,
+                        capture_source.is_scap()
+                    );
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
+                    {
+                        let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
                     }
-                    true
-                } else {
-                    // No cropping needed - copy entire frame
-                    let len = data.len().min(buffer_pool.frame_size);
-                    buffer_pool.frame_buffer[..len].copy_from_slice(&data[..len]);
-                    true
                 }
+
+                // Copy frame data to buffer - no manual cropping needed
+                // Scap handles cropping internally, WGC returns the full capture area
+                let len = data.len().min(buffer_pool.frame_size);
+                buffer_pool.frame_buffer[..len].copy_from_slice(&data[..len]);
+                true
             },
             None => false, // Timeout or no frame
         };

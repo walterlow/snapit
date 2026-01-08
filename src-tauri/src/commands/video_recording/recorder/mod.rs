@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 mod buffer;
+mod capture_source;
 mod gif;
 mod helpers;
 mod video;

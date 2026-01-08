@@ -353,6 +353,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           containerWidth={containerWidth}
           containerHeight={containerHeight}
           videoAspectRatio={videoAspectRatio}
+          zoomRegions={zoomRegions}
         />
       )}
 
@@ -364,6 +365,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           containerWidth={containerWidth}
           containerHeight={containerHeight}
           videoAspectRatio={videoAspectRatio}
+          zoomRegions={zoomRegions}
         />
       )}
     </>

@@ -786,7 +786,21 @@ fn run_position_capture_loop(
     // Record initial position with cursor_id (normalized)
     let (norm_x, norm_y) = region.normalize(init_x, init_y);
 
-    // DEBUG: Log initial cursor capture details
+    // DEBUG: Log initial cursor capture details to ultradebug.log
+    let debug_info = format!(
+        "\n=== CURSOR CAPTURE START ===\nRaw screen position: ({}, {})\nCapture region: x={}, y={}, {}x{}\nNormalized: ({:.6}, {:.6})\nExpected: screen_pos - region_origin = ({}, {})\n",
+        init_x, init_y,
+        region.x, region.y, region.width, region.height,
+        norm_x, norm_y,
+        init_x - region.x, init_y - region.y
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
+    {
+        let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
+    }
     log::info!(
         "[CURSOR_EVENTS] INITIAL: screen_pos=({}, {}), region=({}, {}, {}x{}), normalized=({:.4}, {:.4})",
         init_x, init_y, region.x, region.y, region.width, region.height, norm_x, norm_y
@@ -968,6 +982,26 @@ fn run_mouse_hook_loop(
                         // Normalize click position
                         let (norm_x, norm_y) =
                             region.normalize(mouse_struct.pt.x, mouse_struct.pt.y);
+
+                        // DEBUG: Log right-click coordinates to ultradebug.log
+                        if matches!(event_type, CursorEventType::RightClick { pressed: true }) {
+                            // Also get current position from GetCursorInfo for comparison
+                            let (gci_x, gci_y, _, _) = get_cursor_info();
+                            let debug_info = format!(
+                                "\n=== RIGHT-CLICK CAPTURED ===\nMouse hook position: ({}, {})\nGetCursorInfo position: ({}, {})\nPositions match: {}\nCapture region: x={}, y={}, {}x{}\nNormalized: ({:.6}, {:.6})\nExpected pixel offset: ({}, {})\n",
+                                mouse_struct.pt.x, mouse_struct.pt.y,
+                                gci_x, gci_y,
+                                mouse_struct.pt.x == gci_x && mouse_struct.pt.y == gci_y,
+                                region.x, region.y, region.width, region.height,
+                                norm_x, norm_y,
+                                mouse_struct.pt.x - region.x, mouse_struct.pt.y - region.y
+                            );
+                            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true)
+                                .open("T:\\PersonalProjects\\snapit\\ultradebug.log") {
+                                let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
+                            }
+                        }
+
                         if let Ok(mut data_guard) = data.lock() {
                             data_guard.events.push(CursorEvent {
                                 timestamp_ms,
@@ -1045,6 +1079,89 @@ pub fn save_cursor_recording(
     recording: &CursorRecording,
     path: &std::path::Path,
 ) -> Result<(), String> {
+    // Write detailed debug info to ultradebug.log
+    let debug_path = std::path::PathBuf::from("T:\\PersonalProjects\\snapit\\ultradebug.log");
+    let events = &recording.events;
+
+    // Find min/max normalized coords
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for e in events.iter() {
+        min_x = min_x.min(e.x);
+        max_x = max_x.max(e.x);
+        min_y = min_y.min(e.y);
+        max_y = max_y.max(e.y);
+    }
+
+    let debug_info = format!(
+        r#"
+=== BACKEND CURSOR SAVE - {} ===
+
+CURSOR RECORDING SAVED:
+  Region: x={}, y={}, {}x{}
+  Aspect Ratio: {:.6}
+  Events: {}
+  Video Start Offset: {}ms
+
+NORMALIZED BOUNDS (should be 0.0-1.0):
+  X: {:.6} to {:.6} {}
+  Y: {:.6} to {:.6} {}
+
+FIRST 5 EVENTS:
+{}
+
+LAST 5 EVENTS:
+{}
+
+Path: {:?}
+"#,
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        recording.region_x,
+        recording.region_y,
+        recording.width,
+        recording.height,
+        recording.width as f64 / recording.height as f64,
+        events.len(),
+        recording.video_start_offset_ms,
+        min_x,
+        max_x,
+        if min_x < -0.01 || max_x > 1.01 {
+            "<-- OUT OF BOUNDS!"
+        } else {
+            "OK"
+        },
+        min_y,
+        max_y,
+        if min_y < -0.01 || max_y > 1.01 {
+            "<-- OUT OF BOUNDS!"
+        } else {
+            "OK"
+        },
+        events
+            .iter()
+            .take(5)
+            .map(|e| format!("  @{}ms: ({:.6}, {:.6})", e.timestamp_ms, e.x, e.y))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        events
+            .iter()
+            .rev()
+            .take(5)
+            .rev()
+            .map(|e| format!("  @{}ms: ({:.6}, {:.6})", e.timestamp_ms, e.x, e.y))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        path
+    );
+
+    // Write to ultradebug.log
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&debug_path)
+    {
+        let _ = std::io::Write::write_all(&mut file, debug_info.as_bytes());
+    }
+
     let json = serde_json::to_string_pretty(recording)
         .map_err(|e| format!("Failed to serialize cursor recording: {}", e))?;
 

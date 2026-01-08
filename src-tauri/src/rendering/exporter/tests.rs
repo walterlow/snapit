@@ -6,9 +6,9 @@ use super::super::types::DecodedFrame;
 use super::frame_ops::*;
 use super::webcam::*;
 use crate::commands::video_recording::video_project::{
-    AudioTrackSettings, CornerStyle, CursorConfig, ExportConfig, SceneConfig, ShadowConfig,
-    TextConfig, TimelineState, VideoProject, VideoSources, WebcamBorder, WebcamConfig,
-    WebcamOverlayPosition, WebcamOverlayShape, ZoomConfig,
+    AudioTrackSettings, CornerStyle, CursorConfig, ExportConfig, MaskConfig, SceneConfig,
+    ShadowConfig, TextConfig, TimelineState, VideoProject, VideoSources, WebcamBorder,
+    WebcamConfig, WebcamOverlayPosition, WebcamOverlayShape, ZoomConfig,
 };
 
 /// Create a minimal VideoProject for testing webcam positioning
@@ -62,6 +62,7 @@ fn make_test_project(
         export: ExportConfig::default(),
         scene: SceneConfig::default(),
         text: TextConfig::default(),
+        mask: MaskConfig::default(),
     }
 }
 

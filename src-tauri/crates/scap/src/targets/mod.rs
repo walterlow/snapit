@@ -84,3 +84,16 @@ pub fn get_target_dimensions(target: &Target) -> (u64, u64) {
     #[cfg(target_os = "linux")]
     unreachable!();
 }
+
+/// Get display physical bounds (x, y, width, height).
+/// Essential for cursor coordinate normalization on multi-monitor setups.
+pub fn get_display_physical_bounds(display: &Display) -> Option<(i32, i32, u32, u32)> {
+    #[cfg(target_os = "windows")]
+    return win::get_display_physical_bounds(display);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = display;
+        None
+    }
+}

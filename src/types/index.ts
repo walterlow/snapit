@@ -413,6 +413,7 @@ export type {
   ZoomConfig,
   ZoomMode,
   ZoomRegion,
+  ZoomRegionMode,
   ZoomTransition,
   EasingFunction,
   CursorConfig,
@@ -425,6 +426,8 @@ export type {
   WebcamOverlayShape,
   WebcamBorder,
   VisibilitySegment,
+  CornerStyle,
+  ShadowConfig,
   ExportConfig,
   ExportFormat,
   ExportResolution,
@@ -432,6 +435,7 @@ export type {
   AspectRatio,
   BackgroundType as VideoBackgroundType,
   BackgroundConfig,
+  CropConfig,
   ExportProgress,
   ExportResult,
   ExportStage,
@@ -441,8 +445,13 @@ export type {
   SceneSegment,
   SceneConfig,
   TextAnimation,
+  TextAlign,
+  TextShadow,
   TextSegment,
   TextConfig,
+  MaskType,
+  MaskSegment,
+  MaskConfig,
 } from './generated';
 
 // GPU Video Editor types (wgpu-accelerated rendering)

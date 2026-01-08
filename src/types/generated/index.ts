@@ -84,8 +84,15 @@ export type { SceneConfig } from './SceneConfig';
 
 // Video editor - Text overlay types
 export type { TextAnimation } from './TextAnimation';
+export type { TextAlign } from './TextAlign';
+export type { TextShadow } from './TextShadow';
 export type { TextSegment } from './TextSegment';
 export type { TextConfig } from './TextConfig';
+
+// Video editor - Mask types
+export type { MaskType } from './MaskType';
+export type { MaskSegment } from './MaskSegment';
+export type { MaskConfig } from './MaskConfig';
 
 // Video editor - Export types
 export type { ExportConfig } from './ExportConfig';
@@ -95,6 +102,7 @@ export type { ExportPreset } from './ExportPreset';
 export type { AspectRatio } from './AspectRatio';
 export type { BackgroundType } from './BackgroundType';
 export type { BackgroundConfig } from './BackgroundConfig';
+export type { CropConfig } from './CropConfig';
 export type { ExportProgress } from './ExportProgress';
 export type { ExportResult } from './ExportResult';
 export type { ExportStage } from './ExportStage';

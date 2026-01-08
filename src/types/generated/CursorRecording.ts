@@ -23,6 +23,16 @@ width: number,
  */
 height: number, 
 /**
+ * Capture region X offset in screen coordinates (for debugging).
+ * This is the left edge of the capture region in virtual screen space.
+ */
+regionX: number, 
+/**
+ * Capture region Y offset in screen coordinates (for debugging).
+ * This is the top edge of the capture region in virtual screen space.
+ */
+regionY: number, 
+/**
  * Offset in milliseconds to sync cursor with video.
  * This compensates for the delay between when recording starts and when
  * the first video frame is actually captured. Cursor timestamps should be

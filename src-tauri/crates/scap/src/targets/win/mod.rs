@@ -103,3 +103,27 @@ pub fn get_target_dimensions(target: &Target) -> (u64, u64) {
         },
     }
 }
+
+/// Get display physical bounds (x, y, width, height) using GetMonitorInfoW.
+/// This returns the actual screen coordinates, essential for multi-monitor cursor normalization.
+pub fn get_display_physical_bounds(display: &super::Display) -> Option<(i32, i32, u32, u32)> {
+    use std::mem;
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITORINFO};
+
+    unsafe {
+        let mut info: MONITORINFO = mem::zeroed();
+        info.cbSize = mem::size_of::<MONITORINFO>() as u32;
+
+        if GetMonitorInfoW(display.raw_handle, &mut info).as_bool() {
+            let rect = info.rcMonitor;
+            Some((
+                rect.left,
+                rect.top,
+                (rect.right - rect.left) as u32,
+                (rect.bottom - rect.top) as u32,
+            ))
+        } else {
+            None
+        }
+    }
+}

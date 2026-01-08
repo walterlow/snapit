@@ -589,31 +589,22 @@ pub fn run_video_capture(
             continue;
         }
 
-        // Track first frame timing for cursor sync using HARDWARE timestamp.
-        // The frame we're processing was captured BEFORE we receive it (buffering latency).
-        // Using actual_elapsed (processing time) would make cursor ahead of video.
-        // Instead, compute offset = (frame_capture_time - recording_start_time).
+        // Track first frame timing for cursor sync.
+        // IMPORTANT: Use Instant::elapsed() for offset since cursor also uses Instant::elapsed().
+        // Using hardware timestamps from different clock domains causes sync issues.
+        // Cap's approach: use single clock source (Instant) for everything.
         if !first_frame_captured {
             first_frame_captured = true;
             first_frame_hw_timestamp = frame_hw_timestamp;
 
-            // Compute offset from hardware timestamps:
-            // WGC's timestamp is in 100-nanosecond units (since system boot)
-            // QPC is in raw ticks at hardware-specific frequency
-            // Use frame_time_to_ms() which properly converts WGC time to QPC and computes delta
-            let first_frame_offset_ms = if frame_hw_timestamp > 0 {
-                timestamps.frame_time_to_ms(frame_hw_timestamp)
-            } else {
-                actual_elapsed.as_millis() as u64
-            };
+            // Use Instant-based timing (same clock as cursor capture)
+            let first_frame_offset_ms = actual_elapsed.as_millis() as u64;
             cursor_event_capture.set_video_start_offset(first_frame_offset_ms);
 
             log::info!(
-                "[RECORDING] First frame: offset={}ms (elapsed={}ms, hw_ts={}, qpc={})",
+                "[RECORDING] First frame: offset={}ms (Instant-based, hw_ts={} for debug)",
                 first_frame_offset_ms,
-                actual_elapsed.as_millis(),
-                frame_hw_timestamp,
-                timestamps.performance_counter().raw()
+                frame_hw_timestamp
             );
         }
 

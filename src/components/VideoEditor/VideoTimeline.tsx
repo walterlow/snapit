@@ -24,6 +24,7 @@ import { usePlaybackTime, usePlaybackControls, getPlaybackState } from '../../ho
 import { TimelineRuler } from './TimelineRuler';
 import { ZoomTrack } from './ZoomTrack';
 import { SceneTrack } from './SceneTrack';
+import { MaskTrack } from './MaskTrack';
 import type { AudioWaveform } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
@@ -700,6 +701,16 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
                 timelineZoom={timelineZoom}
               />
             </div>
+          )}
+
+          {/* Mask Track */}
+          {project && (
+            <MaskTrack
+              segments={project.mask.segments}
+              durationMs={durationMs}
+              timelineZoom={timelineZoom}
+              width={timelineWidth + trackLabelWidth}
+            />
           )}
 
           {/* Preview Scrubber - only when not playing */}

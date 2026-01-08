@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState, useMemo } from 'react';
 import { Volume2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { audioLogger } from '../../utils/logger';
@@ -6,11 +6,54 @@ import type { AudioWaveform } from '../../types';
 
 interface AudioTrackProps {
   /** Path to audio/video file to extract waveform from */
-  audioPath: string;
+  audioPath?: string;
   /** Duration of the timeline in milliseconds */
   durationMs: number;
   /** Timeline zoom level (pixels per millisecond) */
   timelineZoom: number;
+}
+
+// Maximum samples for performance (like Cap's approach)
+const MAX_WAVEFORM_SAMPLES = 6000;
+
+// dB range for scaling (-60dB to -30dB like Cap)
+const DB_MIN = -60;
+const DB_MAX = -30;
+
+/**
+ * Convert linear amplitude to dB scale and normalize to 0-1 range
+ */
+function linearToDbNormalized(sample: number): number {
+  // Avoid log of zero
+  const amplitude = Math.abs(sample) + 1e-10;
+  // Convert to dB
+  const db = 20 * Math.log10(amplitude);
+  // Normalize to 0-1 range using -60dB to -30dB scale
+  return Math.max(0, Math.min(1, (db - DB_MIN) / (DB_MAX - DB_MIN)));
+}
+
+/**
+ * Downsample waveform data to target number of samples
+ */
+function downsampleWaveform(samples: number[], targetSamples: number): number[] {
+  if (samples.length <= targetSamples) return samples;
+
+  const ratio = samples.length / targetSamples;
+  const downsampled: number[] = [];
+
+  for (let i = 0; i < targetSamples; i++) {
+    const start = Math.floor(i * ratio);
+    const end = Math.floor((i + 1) * ratio);
+
+    // Take the maximum value in each chunk for better visual representation
+    let max = 0;
+    for (let j = start; j < end && j < samples.length; j++) {
+      max = Math.max(max, Math.abs(samples[j]));
+    }
+    downsampled.push(max);
+  }
+
+  return downsampled;
 }
 
 /**
@@ -68,10 +111,24 @@ export const AudioTrack = memo(function AudioTrack({
     };
   }, [audioPath]);
 
+  // Process waveform data with dB scaling and downsampling
+  const processedSamples = useMemo(() => {
+    if (!waveform || waveform.samples.length === 0) return null;
+
+    // Downsample if needed
+    let samples = waveform.samples;
+    if (samples.length > MAX_WAVEFORM_SAMPLES) {
+      samples = downsampleWaveform(samples, MAX_WAVEFORM_SAMPLES);
+    }
+
+    // Apply dB scaling for better visual representation
+    return samples.map(linearToDbNormalized);
+  }, [waveform]);
+
   // Render waveform to canvas when data or dimensions change
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !waveform || waveform.samples.length === 0) return;
+    if (!canvas || !processedSamples || processedSamples.length === 0) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -86,15 +143,15 @@ export const AudioTrack = memo(function AudioTrack({
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, height);
 
-    // Draw waveform
-    const { samples, samplesPerSecond } = waveform;
-    const msPerSample = 1000 / samplesPerSecond;
+    // Calculate sample spacing
+    const samplesCount = processedSamples.length;
+    const sampleWidth = totalWidth / samplesCount;
 
-    // Create gradient for waveform
+    // Create gradient for waveform using coral/orange theme (SnapIt brand colors)
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, 'rgba(79, 70, 229, 0.8)'); // indigo-600
-    gradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.6)'); // indigo-500
-    gradient.addColorStop(1, 'rgba(79, 70, 229, 0.8)');
+    gradient.addColorStop(0, 'rgba(249, 112, 102, 0.9)'); // coral-400
+    gradient.addColorStop(0.5, 'rgba(251, 146, 60, 0.7)'); // orange-400
+    gradient.addColorStop(1, 'rgba(249, 112, 102, 0.9)');
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
@@ -102,16 +159,16 @@ export const AudioTrack = memo(function AudioTrack({
     // Draw the top half of the waveform
     ctx.moveTo(0, centerY);
 
-    for (let i = 0; i < samples.length; i++) {
-      const x = (i * msPerSample) * timelineZoom;
-      const amplitude = samples[i] * (height / 2 - 2); // Leave 2px margin
+    for (let i = 0; i < samplesCount; i++) {
+      const x = i * sampleWidth;
+      const amplitude = processedSamples[i] * (height / 2 - 2); // Leave 2px margin
       ctx.lineTo(x, centerY - amplitude);
     }
 
     // Draw the bottom half (mirror)
-    for (let i = samples.length - 1; i >= 0; i--) {
-      const x = (i * msPerSample) * timelineZoom;
-      const amplitude = samples[i] * (height / 2 - 2);
+    for (let i = samplesCount - 1; i >= 0; i--) {
+      const x = i * sampleWidth;
+      const amplitude = processedSamples[i] * (height / 2 - 2);
       ctx.lineTo(x, centerY + amplitude);
     }
 
@@ -119,13 +176,13 @@ export const AudioTrack = memo(function AudioTrack({
     ctx.fill();
 
     // Draw center line
-    ctx.strokeStyle = 'rgba(99, 102, 241, 0.3)';
+    ctx.strokeStyle = 'rgba(249, 112, 102, 0.3)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, centerY);
     ctx.lineTo(totalWidth, centerY);
     ctx.stroke();
-  }, [waveform, durationMs, timelineZoom]);
+  }, [processedSamples, durationMs, timelineZoom]);
 
   const totalWidth = durationMs * timelineZoom;
 

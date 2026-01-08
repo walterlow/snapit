@@ -2,6 +2,7 @@
 import type { AudioTrackSettings } from "./AudioTrackSettings";
 import type { CursorConfig } from "./CursorConfig";
 import type { ExportConfig } from "./ExportConfig";
+import type { MaskConfig } from "./MaskConfig";
 import type { SceneConfig } from "./SceneConfig";
 import type { TextConfig } from "./TextConfig";
 import type { TimelineState } from "./TimelineState";
@@ -64,4 +65,8 @@ scene: SceneConfig,
 /**
  * Text overlay configuration.
  */
-text: TextConfig, };
+text: TextConfig, 
+/**
+ * Mask/blur region configuration.
+ */
+mask: MaskConfig, };

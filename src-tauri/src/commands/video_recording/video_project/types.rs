@@ -47,6 +47,9 @@ pub struct VideoProject {
     pub scene: SceneConfig,
     /// Text overlay configuration.
     pub text: TextConfig,
+    /// Mask/blur region configuration.
+    #[serde(default)]
+    pub mask: MaskConfig,
 }
 
 /// Source files for a video project.
@@ -634,6 +637,9 @@ pub struct ExportConfig {
     pub aspect_ratio: AspectRatio,
     /// Background configuration for letterboxing/padding.
     pub background: BackgroundConfig,
+    /// Crop configuration for video output.
+    #[serde(default)]
+    pub crop: CropConfig,
 }
 
 impl Default for ExportConfig {
@@ -646,6 +652,7 @@ impl Default for ExportConfig {
             fps: 30,
             aspect_ratio: AspectRatio::Auto,
             background: BackgroundConfig::default(),
+            crop: CropConfig::default(),
         }
     }
 }
@@ -751,6 +758,41 @@ impl Default for BackgroundConfig {
     }
 }
 
+/// Crop configuration for video output.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct CropConfig {
+    /// Enable cropping.
+    pub enabled: bool,
+    /// Crop X position (pixels from left).
+    pub x: u32,
+    /// Crop Y position (pixels from top).
+    pub y: u32,
+    /// Crop width (pixels).
+    pub width: u32,
+    /// Crop height (pixels).
+    pub height: u32,
+    /// Lock aspect ratio.
+    pub lock_aspect_ratio: bool,
+    /// Locked aspect ratio (width/height), e.g., 1.7778 for 16:9.
+    pub aspect_ratio: Option<f32>,
+}
+
+impl Default for CropConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            lock_aspect_ratio: false,
+            aspect_ratio: None,
+        }
+    }
+}
+
 /// Audio waveform data for visualization.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -820,8 +862,130 @@ impl Default for SceneConfig {
 }
 
 // ============================================================================
+// Mask Configuration
+// ============================================================================
+
+/// Type of mask effect for hiding sensitive content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum MaskType {
+    /// Gaussian blur effect.
+    Blur,
+    /// Mosaic/pixelation effect.
+    Pixelate,
+    /// Solid color overlay.
+    Solid,
+}
+
+impl Default for MaskType {
+    fn default() -> Self {
+        MaskType::Blur
+    }
+}
+
+/// A mask segment for hiding sensitive content.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct MaskSegment {
+    /// Unique identifier.
+    pub id: String,
+    /// Start time in milliseconds.
+    #[ts(type = "number")]
+    pub start_ms: u64,
+    /// End time in milliseconds.
+    #[ts(type = "number")]
+    pub end_ms: u64,
+    /// X position (0-1, normalized from left).
+    pub x: f32,
+    /// Y position (0-1, normalized from top).
+    pub y: f32,
+    /// Width (0-1, normalized).
+    pub width: f32,
+    /// Height (0-1, normalized).
+    pub height: f32,
+    /// Type of mask effect.
+    #[serde(default)]
+    pub mask_type: MaskType,
+    /// Blur/pixelate intensity (0-100).
+    #[serde(default = "MaskSegment::default_intensity")]
+    pub intensity: f32,
+    /// Edge feather/softness (0-100).
+    #[serde(default)]
+    pub feather: f32,
+    /// Color for Solid type (hex format).
+    #[serde(default = "MaskSegment::default_color")]
+    pub color: String,
+}
+
+impl MaskSegment {
+    fn default_intensity() -> f32 {
+        50.0
+    }
+
+    fn default_color() -> String {
+        "#000000".to_string()
+    }
+}
+
+/// Mask configuration for the video.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct MaskConfig {
+    /// Mask segments.
+    pub segments: Vec<MaskSegment>,
+}
+
+impl Default for MaskConfig {
+    fn default() -> Self {
+        Self {
+            segments: Vec::new(),
+        }
+    }
+}
+
+// ============================================================================
 // Text Configuration
 // ============================================================================
+
+/// Text alignment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Default)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// Text shadow settings.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct TextShadow {
+    /// Horizontal offset in pixels.
+    pub offset_x: f32,
+    /// Vertical offset in pixels.
+    pub offset_y: f32,
+    /// Blur radius in pixels.
+    pub blur: f32,
+    /// Shadow color (hex format).
+    pub color: String,
+}
+
+impl Default for TextShadow {
+    fn default() -> Self {
+        Self {
+            offset_x: 2.0,
+            offset_y: 2.0,
+            blur: 4.0,
+            color: "rgba(0,0,0,0.5)".to_string(),
+        }
+    }
+}
 
 /// Text animation style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -861,10 +1025,37 @@ pub struct TextSegment {
     pub font_family: String,
     /// Font size in pixels.
     pub font_size: u32,
+    /// Font weight (100-900).
+    #[serde(default = "TextSegment::default_font_weight")]
+    pub font_weight: u32,
+    /// Italic style.
+    #[serde(default)]
+    pub italic: bool,
+    /// Text alignment.
+    #[serde(default)]
+    pub text_align: TextAlign,
     /// Text color (hex format).
     pub color: String,
+    /// Background color (optional, hex format).
+    #[serde(default)]
+    pub background_color: Option<String>,
+    /// Background padding in pixels.
+    #[serde(default)]
+    pub background_padding: f32,
+    /// Background border radius in pixels.
+    #[serde(default)]
+    pub background_radius: f32,
+    /// Text shadow settings (optional).
+    #[serde(default)]
+    pub shadow: Option<TextShadow>,
     /// Text animation style.
     pub animation: TextAnimation,
+}
+
+impl TextSegment {
+    fn default_font_weight() -> u32 {
+        400
+    }
 }
 
 /// Text overlay configuration.
@@ -939,6 +1130,7 @@ impl VideoProject {
             export: ExportConfig::default(),
             scene: SceneConfig::default(),
             text: TextConfig::default(),
+            mask: MaskConfig::default(),
         }
     }
 

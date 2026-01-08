@@ -16,6 +16,7 @@ import type {
   CursorConfig,
   SceneSegment,
   TextSegment,
+  MaskSegment,
   CursorRecording,
 } from '../types';
 import { STORAGE } from '../constants';
@@ -44,6 +45,7 @@ interface VideoEditorState {
   selectedWebcamSegmentIndex: number | null;
   selectedSceneSegmentId: string | null;
   selectedTextSegmentId: string | null;
+  selectedMaskSegmentId: string | null;
   
   // Timeline interaction state
   isDraggingPlayhead: boolean;
@@ -51,8 +53,10 @@ interface VideoEditorState {
   draggedZoomEdge: 'start' | 'end' | 'move' | null;
   isDraggingSceneSegment: boolean;
   draggedSceneEdge: 'start' | 'end' | 'move' | null;
+  isDraggingMaskSegment: boolean;
+  draggedMaskEdge: 'start' | 'end' | 'move' | null;
   previewTimeMs: number | null; // Hover preview time for scrubbing
-  hoveredTrack: 'video' | 'zoom' | 'audio' | 'scene' | 'text' | 'webcam' | null; // Which track is hovered
+  hoveredTrack: 'video' | 'zoom' | 'audio' | 'scene' | 'text' | 'webcam' | 'mask' | null; // Which track is hovered
   splitMode: boolean; // Split mode for cutting regions at playhead
   
   // View state
@@ -91,6 +95,12 @@ interface VideoEditorState {
   updateTextSegment: (id: string, updates: Partial<TextSegment>) => void;
   deleteTextSegment: (id: string) => void;
 
+  // Mask segment actions
+  selectMaskSegment: (id: string | null) => void;
+  addMaskSegment: (segment: MaskSegment) => void;
+  updateMaskSegment: (id: string, updates: Partial<MaskSegment>) => void;
+  deleteMaskSegment: (id: string) => void;
+
   // Scene segment actions
   selectSceneSegment: (id: string | null) => void;
   addSceneSegment: (segment: SceneSegment) => void;
@@ -121,6 +131,7 @@ interface VideoEditorState {
   setDraggingPlayhead: (dragging: boolean) => void;
   setDraggingZoomRegion: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
   setDraggingSceneSegment: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
+  setDraggingMaskSegment: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
   setPreviewTime: (timeMs: number | null) => void;
   setHoveredTrack: (track: VideoEditorState['hoveredTrack']) => void;
 
@@ -175,11 +186,14 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       selectedWebcamSegmentIndex: null,
       selectedSceneSegmentId: null,
       selectedTextSegmentId: null,
+      selectedMaskSegmentId: null,
       isDraggingPlayhead: false,
       isDraggingZoomRegion: false,
       draggedZoomEdge: null,
       isDraggingSceneSegment: false,
       draggedSceneEdge: null,
+      isDraggingMaskSegment: false,
+      draggedMaskEdge: null,
       previewTimeMs: null,
       hoveredTrack: null,
       splitMode: false,
@@ -269,6 +283,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         selectedZoomRegionId: id,
         selectedSceneSegmentId: null,
         selectedTextSegmentId: null,
+        selectedMaskSegmentId: null,
         selectedWebcamSegmentIndex: null,
       }),
 
@@ -328,6 +343,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         selectedTextSegmentId: id,
         selectedZoomRegionId: null,
         selectedSceneSegmentId: null,
+        selectedMaskSegmentId: null,
         selectedWebcamSegmentIndex: null,
       }),
 
@@ -383,11 +399,73 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         });
       },
 
+      // Mask segment actions
+      selectMaskSegment: (id) => set({
+        selectedMaskSegmentId: id,
+        selectedZoomRegionId: null,
+        selectedTextSegmentId: null,
+        selectedSceneSegmentId: null,
+        selectedWebcamSegmentIndex: null,
+      }),
+
+      addMaskSegment: (segment) => {
+        const { project } = get();
+        if (!project) return;
+
+        const segments = [...project.mask.segments, segment];
+        segments.sort((a, b) => a.startMs - b.startMs);
+
+        set({
+          project: {
+            ...project,
+            mask: {
+              ...project.mask,
+              segments,
+            },
+          },
+          selectedMaskSegmentId: segment.id,
+        });
+      },
+
+      updateMaskSegment: (id, updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            mask: {
+              ...project.mask,
+              segments: project.mask.segments.map((s) =>
+                s.id === id ? { ...s, ...updates } : s
+              ),
+            },
+          },
+        });
+      },
+
+      deleteMaskSegment: (id) => {
+        const { project, selectedMaskSegmentId } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            mask: {
+              ...project.mask,
+              segments: project.mask.segments.filter((s) => s.id !== id),
+            },
+          },
+          selectedMaskSegmentId: selectedMaskSegmentId === id ? null : selectedMaskSegmentId,
+        });
+      },
+
       // Scene segment actions
       selectSceneSegment: (id) => set({
         selectedSceneSegmentId: id,
         selectedZoomRegionId: null,
         selectedTextSegmentId: null,
+        selectedMaskSegmentId: null,
         selectedWebcamSegmentIndex: null,
       }),
 
@@ -449,6 +527,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         selectedZoomRegionId: null,
         selectedSceneSegmentId: null,
         selectedTextSegmentId: null,
+        selectedMaskSegmentId: null,
       }),
 
       addWebcamSegment: (segment) => {
@@ -636,6 +715,11 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       setDraggingSceneSegment: (dragging, edge) => set({
         isDraggingSceneSegment: dragging,
         draggedSceneEdge: dragging ? edge ?? null : null,
+      }),
+
+      setDraggingMaskSegment: (dragging, edge) => set({
+        isDraggingMaskSegment: dragging,
+        draggedMaskEdge: dragging ? edge ?? null : null,
       }),
 
       // Split mode actions

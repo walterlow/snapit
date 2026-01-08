@@ -118,6 +118,13 @@
   --track-zoom-text: rgba(147, 197, 253, 0.9);
   --track-zoom-hover: rgba(96, 165, 250, 0.5);
 
+  --track-mask-bg: rgba(168, 85, 247, 0.25);
+  --track-mask-bg-selected: rgba(168, 85, 247, 0.4);
+  --track-mask-border: rgba(168, 85, 247, 0.5);
+  --track-mask-border-selected: #C084FC;
+  --track-mask-text: rgba(216, 180, 254, 0.9);
+  --track-mask-hover: rgba(192, 132, 252, 0.5);
+
   --track-scene-default-bg: rgba(16, 185, 129, 0.2);
   --track-scene-default-border: rgba(16, 185, 129, 0.4);
   --track-scene-default-text: #34D399;
@@ -177,6 +184,13 @@ html.light,
   --track-zoom-border-selected: #3B82F6;
   --track-zoom-text: #1D4ED8;
   --track-zoom-hover: #BFDBFE;
+
+  --track-mask-bg: #F3E8FF;
+  --track-mask-bg-selected: #E9D5FF;
+  --track-mask-border: #D8B4FE;
+  --track-mask-border-selected: #A855F7;
+  --track-mask-text: #7C3AED;
+  --track-mask-hover: #E9D5FF;
 
   --track-scene-default-bg: #D1FAE5;
   --track-scene-default-border: #6EE7B7;

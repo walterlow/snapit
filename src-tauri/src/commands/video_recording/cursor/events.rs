@@ -11,6 +11,7 @@
 #![allow(dead_code)]
 #![allow(unused_must_use)]
 
+use device_query::{DeviceQuery, DeviceState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -551,6 +552,14 @@ fn get_screen_dimensions() -> (u32, u32) {
     }
 }
 
+/// Get raw cursor position using device_query (like Cap does).
+/// This is more reliable than Windows GetCursorInfo for position.
+fn get_cursor_position_raw() -> (i32, i32) {
+    let device_state = DeviceState::new();
+    let position = device_state.get_mouse().coords;
+    (position.0, position.1)
+}
+
 /// Get current cursor position and handle.
 /// Returns (x, y, cursor_handle, is_visible).
 fn get_cursor_info() -> (i32, i32, isize, bool) {
@@ -736,6 +745,7 @@ fn capture_cursor_image(_cursor_handle: isize) -> Option<CursorImage> {
 
 /// Position capture loop - runs at 100Hz to record cursor positions and images.
 /// Positions are normalized to 0.0-1.0 relative to the capture region.
+/// Uses device_query for cursor position (like Cap does - more reliable).
 fn run_position_capture_loop(
     data: Arc<Mutex<SharedCursorData>>,
     should_stop: Arc<AtomicBool>,
@@ -744,8 +754,10 @@ fn run_position_capture_loop(
 ) {
     let interval = Duration::from_millis(10); // 100Hz
 
-    // Capture initial cursor immediately so first event has a valid cursor_id
-    let (init_x, init_y, init_cursor_handle, init_cursor_visible) = get_cursor_info();
+    // Get initial position via device_query (more reliable)
+    let (init_x, init_y) = get_cursor_position_raw();
+    // Get cursor handle separately for image capture
+    let (_, _, init_cursor_handle, init_cursor_visible) = get_cursor_info();
     let mut last_x = init_x;
     let mut last_y = init_y;
     let mut last_cursor_handle: isize = 0;
@@ -804,8 +816,10 @@ fn run_position_capture_loop(
     while !should_stop.load(Ordering::SeqCst) {
         let loop_start = Instant::now();
 
-        // Get cursor position and handle
-        let (x, y, cursor_handle, cursor_visible) = get_cursor_info();
+        // Get cursor position via device_query (more reliable, like Cap does)
+        let (x, y) = get_cursor_position_raw();
+        // Get cursor handle separately for image capture
+        let (_, _, cursor_handle, cursor_visible) = get_cursor_info();
 
         // Check if cursor shape changed - update current_cursor_id if new cursor captured
         if cursor_visible && cursor_handle != last_cursor_handle && cursor_handle != 0 {

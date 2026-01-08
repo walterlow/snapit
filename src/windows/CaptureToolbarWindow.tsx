@@ -306,6 +306,9 @@ const CaptureToolbarWindow: React.FC = () => {
           ? { type: 'window' as const, windowId: bounds.windowId }
           : { type: 'region' as const, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
 
+        // Debug: Log the region coordinates being sent to backend
+        toolbarLogger.info(`[CURSOR_DEBUG] Recording region: x=${bounds.x}, y=${bounds.y}, width=${bounds.width}, height=${bounds.height}`);
+
         const recordingSettings = {
           format: captureType === 'gif' ? 'gif' : 'mp4',
           mode,

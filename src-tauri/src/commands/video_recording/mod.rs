@@ -712,6 +712,12 @@ pub async fn start_recording(
     app: AppHandle,
     settings: RecordingSettings,
 ) -> Result<StartRecordingResult, String> {
+    // Debug: Log the recording mode to verify coordinates
+    log::info!(
+        "[RECORDING] start_recording called with mode: {:?}",
+        settings.mode
+    );
+
     let mut settings = settings;
     settings.validate();
 

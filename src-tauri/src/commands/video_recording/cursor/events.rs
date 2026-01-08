@@ -227,6 +227,14 @@ pub struct CursorRecording {
     pub width: u32,
     /// Capture region height in pixels (for reference/aspect ratio).
     pub height: u32,
+    /// Capture region X offset in screen coordinates (for debugging).
+    /// This is the left edge of the capture region in virtual screen space.
+    #[serde(default)]
+    pub region_x: i32,
+    /// Capture region Y offset in screen coordinates (for debugging).
+    /// This is the top edge of the capture region in virtual screen space.
+    #[serde(default)]
+    pub region_y: i32,
     /// Offset in milliseconds to sync cursor with video.
     /// This compensates for the delay between when recording starts and when
     /// the first video frame is actually captured. Cursor timestamps should be
@@ -249,6 +257,8 @@ impl Default for CursorRecording {
             sample_rate: 100,
             width: 1920,
             height: 1080,
+            region_x: 0,
+            region_y: 0,
             video_start_offset_ms: 0,
             events: Vec::new(),
             cursor_images: HashMap::new(),
@@ -377,12 +387,16 @@ impl CursorEventCapture {
         // Set capture region (use fullscreen if not specified)
         self.capture_region = if let Some((x, y, w, h)) = region {
             log::info!(
-                "[CURSOR_EVENTS] Using provided region: ({}, {}) {}x{}",
+                "[CURSOR_EVENTS] Using provided region: origin=({}, {}) size={}x{} - cursor positions will be normalized relative to this",
                 x,
                 y,
                 w,
                 h
             );
+            // Verify the region makes sense (x,y should be screen coordinates, not 0,0 for non-primary regions)
+            if x == 0 && y == 0 {
+                log::warn!("[CURSOR_EVENTS] Region starts at (0,0) - if recording on secondary monitor, this may cause cursor offset issues!");
+            }
             CaptureRegion {
                 x,
                 y,
@@ -477,15 +491,21 @@ impl CursorEventCapture {
             .unwrap_or_default();
 
         log::info!(
-            "[CURSOR_EVENTS] Stopped capture, collected {} events, {} cursor images",
+            "[CURSOR_EVENTS] Stopped capture, collected {} events, {} cursor images, region=({}, {}) {}x{}",
             events.len(),
-            cursor_images.len()
+            cursor_images.len(),
+            self.capture_region.x,
+            self.capture_region.y,
+            self.capture_region.width,
+            self.capture_region.height
         );
 
         CursorRecording {
             sample_rate: 100,
             width: self.capture_region.width,
             height: self.capture_region.height,
+            region_x: self.capture_region.x,
+            region_y: self.capture_region.y,
             video_start_offset_ms: self.video_start_offset_ms,
             events,
             cursor_images,
@@ -765,6 +785,13 @@ fn run_position_capture_loop(
 
     // Record initial position with cursor_id (normalized)
     let (norm_x, norm_y) = region.normalize(init_x, init_y);
+
+    // DEBUG: Log initial cursor capture details
+    log::info!(
+        "[CURSOR_EVENTS] INITIAL: screen_pos=({}, {}), region=({}, {}, {}x{}), normalized=({:.4}, {:.4})",
+        init_x, init_y, region.x, region.y, region.width, region.height, norm_x, norm_y
+    );
+
     if let Ok(mut data_guard) = data.lock() {
         data_guard.events.push(CursorEvent {
             timestamp_ms: 0,
@@ -847,9 +874,9 @@ fn run_position_capture_loop(
             // Debug: Log first few cursor events to verify normalization
             if let Ok(data_guard) = data.lock() {
                 let event_count = data_guard.events.len();
-                if event_count < 5 {
-                    log::debug!(
-                        "[CURSOR_EVENTS] Event {}: screen=({}, {}), region=({}, {}, {}x{}), norm=({:.4}, {:.4})",
+                if event_count < 10 {
+                    log::info!(
+                        "[CURSOR_EVENTS] Move {}: screen=({}, {}), region=({}, {}, {}x{}), norm=({:.4}, {:.4})",
                         event_count, x, y, region.x, region.y, region.width, region.height, norm_x, norm_y
                     );
                 }

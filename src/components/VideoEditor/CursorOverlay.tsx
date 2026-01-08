@@ -295,7 +295,8 @@ export const CursorOverlay = memo(function CursorOverlay({
 
     // Calculate pixel position from normalized coordinates
     // The cursor coordinates are normalized (0-1) relative to the capture region.
-    // When video uses object-contain, we need to account for letterboxing offset.
+    // The container has CSS aspectRatio matching the video, so it should fill exactly.
+    // We use videoAspectRatio to calculate bounds in case of object-contain letterboxing.
     let pixelX: number;
     let pixelY: number;
 
@@ -312,14 +313,22 @@ export const CursorOverlay = memo(function CursorOverlay({
 
     // Debug logging for cursor position issues - log first 5 frames and then occasionally
     if (process.env.NODE_ENV === 'development') {
-      const shouldLog = currentTimeMs < 200 || Math.random() < 0.005;
+      const shouldLog = currentTimeMs < 200 || Math.random() < 0.01;
       if (shouldLog) {
+        const cursorW = cursorRecording?.width ?? 0;
+        const cursorH = cursorRecording?.height ?? 0;
+        const cursorAR = cursorW && cursorH ? (cursorW / cursorH).toFixed(3) : 'N/A';
+        const bounds = videoAspectRatio && videoAspectRatio > 0
+          ? calculateVideoBounds(containerWidth, containerHeight, videoAspectRatio)
+          : null;
         editorLogger.debug(
           `[CursorOverlay] time=${currentTimeMs.toFixed(0)}ms ` +
           `norm=(${cursorData.x.toFixed(4)}, ${cursorData.y.toFixed(4)}) ` +
           `pixel=(${pixelX.toFixed(1)}, ${pixelY.toFixed(1)}) ` +
-          `container=${containerWidth}x${containerHeight}` +
-          (videoAspectRatio ? ` videoAR=${videoAspectRatio.toFixed(3)}` : '')
+          `container=${containerWidth}x${containerHeight} ` +
+          `cursorRegion=${cursorW}x${cursorH} ` +
+          `videoAR=${videoAspectRatio?.toFixed(3) ?? 'N/A'} cursorAR=${cursorAR}` +
+          (bounds ? ` bounds=(off=${bounds.offsetX.toFixed(1)},${bounds.offsetY.toFixed(1)} size=${bounds.width.toFixed(1)}x${bounds.height.toFixed(1)})` : '')
         );
       }
     }
@@ -410,6 +419,8 @@ export const CursorOverlay = memo(function CursorOverlay({
     hideWhenIdle,
     isIdle,
     currentTimeMs,
+    cursorRecording?.width,
+    cursorRecording?.height,
   ]);
 
   // Don't render if no cursor data or not visible

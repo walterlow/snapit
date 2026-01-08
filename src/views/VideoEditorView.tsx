@@ -10,7 +10,7 @@
 
 import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
-import { X, Circle, Square, RectangleHorizontal, Crop } from 'lucide-react';
+import { X, Circle, Square, RectangleHorizontal, Crop, AlignLeft, AlignCenter, AlignRight, Italic } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -23,7 +23,7 @@ import { CropDialog } from '../components/VideoEditor/CropDialog';
 import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
-import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, VideoBackgroundType, SceneMode, ZoomRegion, CropConfig } from '../types';
+import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, VideoBackgroundType, SceneMode, ZoomRegion, CropConfig, MaskSegment, MaskType, TextSegment, TextAlign } from '../types';
 import { videoEditorLogger } from '../utils/logger';
 
 /**
@@ -310,6 +310,447 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
 }
 
 /**
+ * MaskSegmentConfig - Configuration panel for mask segments.
+ * Allows editing mask type, intensity, feather, and color.
+ */
+interface MaskSegmentConfigProps {
+  segment: MaskSegment;
+  onUpdate: (updates: Partial<MaskSegment>) => void;
+  onDelete: () => void;
+  onDone: () => void;
+}
+
+function MaskSegmentConfig({ segment, onUpdate, onDelete, onDone }: MaskSegmentConfigProps) {
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onDone}
+            className="h-7 px-2.5 bg-[var(--coral-100)] hover:bg-[var(--coral-200)] text-[var(--coral-400)] text-xs font-medium rounded-md transition-colors"
+          >
+            Done
+          </button>
+          <span className="text-xs text-[var(--ink-subtle)]">Mask segment</span>
+        </div>
+        <button
+          onClick={onDelete}
+          className="h-7 px-2.5 bg-[var(--error-light)] hover:bg-[rgba(239,68,68,0.2)] text-[var(--error)] text-xs rounded-md transition-colors"
+        >
+          Delete
+        </button>
+      </div>
+
+      {/* Mask Type */}
+      <div>
+        <span className="text-xs text-[var(--ink-muted)] block mb-2">Mask Type</span>
+        <ToggleGroup
+          type="single"
+          value={segment.maskType}
+          onValueChange={(value) => {
+            if (value) onUpdate({ maskType: value as MaskType });
+          }}
+          className="justify-start"
+        >
+          <ToggleGroupItem value="blur" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
+            Blur
+          </ToggleGroupItem>
+          <ToggleGroupItem value="pixelate" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
+            Pixelate
+          </ToggleGroupItem>
+          <ToggleGroupItem value="solid" className="text-xs h-7 px-2.5 data-[state=on]:bg-[var(--polar-frost)]">
+            Solid
+          </ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+
+      {/* Intensity (for blur/pixelate) */}
+      {segment.maskType !== 'solid' && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-[var(--ink-muted)]">Intensity</span>
+            <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(segment.intensity)}%</span>
+          </div>
+          <Slider
+            value={[segment.intensity]}
+            min={0}
+            max={100}
+            step={5}
+            onValueChange={(values) => onUpdate({ intensity: values[0] })}
+          />
+        </div>
+      )}
+
+      {/* Color (for solid) */}
+      {segment.maskType === 'solid' && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-[var(--ink-muted)]">Color</span>
+          <input
+            type="color"
+            value={segment.color}
+            onChange={(e) => onUpdate({ color: e.target.value })}
+            className="w-8 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+          />
+        </div>
+      )}
+
+      {/* Feather */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-[var(--ink-muted)]">Feather (Edge Softness)</span>
+          <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(segment.feather)}%</span>
+        </div>
+        <Slider
+          value={[segment.feather]}
+          min={0}
+          max={100}
+          step={5}
+          onValueChange={(values) => onUpdate({ feather: values[0] })}
+        />
+      </div>
+
+      {/* Position info */}
+      <div className="pt-3 border-t border-[var(--glass-border)]">
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <span className="text-[var(--ink-subtle)]">Position</span>
+            <p className="text-[var(--ink-dark)] font-mono mt-0.5">
+              {Math.round(segment.x * 100)}%, {Math.round(segment.y * 100)}%
+            </p>
+          </div>
+          <div>
+            <span className="text-[var(--ink-subtle)]">Size</span>
+            <p className="text-[var(--ink-dark)] font-mono mt-0.5">
+              {Math.round(segment.width * 100)}% × {Math.round(segment.height * 100)}%
+            </p>
+          </div>
+        </div>
+        <p className="text-[10px] text-[var(--ink-faint)] mt-2">
+          Drag the mask on the preview to reposition
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * TextSegmentConfig - Configuration panel for text segments.
+ * Allows editing text content, font, colors, and effects.
+ */
+interface TextSegmentConfigProps {
+  segment: TextSegment;
+  onUpdate: (updates: Partial<TextSegment>) => void;
+  onDelete: () => void;
+  onDone: () => void;
+}
+
+// Common font families
+const FONT_FAMILIES = [
+  'Arial',
+  'Helvetica',
+  'Times New Roman',
+  'Georgia',
+  'Verdana',
+  'Courier New',
+  'Impact',
+  'Comic Sans MS',
+];
+
+function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentConfigProps) {
+  const [showShadow, setShowShadow] = useState(segment.shadow !== null);
+  const [showBackground, setShowBackground] = useState(segment.backgroundColor !== null);
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onDone}
+            className="h-7 px-2.5 bg-[var(--coral-100)] hover:bg-[var(--coral-200)] text-[var(--coral-400)] text-xs font-medium rounded-md transition-colors"
+          >
+            Done
+          </button>
+          <span className="text-xs text-[var(--ink-subtle)]">Text segment</span>
+        </div>
+        <button
+          onClick={onDelete}
+          className="h-7 px-2.5 bg-[var(--error-light)] hover:bg-[rgba(239,68,68,0.2)] text-[var(--error)] text-xs rounded-md transition-colors"
+        >
+          Delete
+        </button>
+      </div>
+
+      {/* Text Content */}
+      <div>
+        <span className="text-xs text-[var(--ink-muted)] block mb-2">Text</span>
+        <textarea
+          value={segment.text}
+          onChange={(e) => onUpdate({ text: e.target.value })}
+          placeholder="Enter text..."
+          className="w-full h-20 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2 py-1.5 resize-none"
+        />
+      </div>
+
+      {/* Font Family */}
+      <div>
+        <span className="text-xs text-[var(--ink-muted)] block mb-2">Font</span>
+        <select
+          value={segment.fontFamily}
+          onChange={(e) => onUpdate({ fontFamily: e.target.value })}
+          className="w-full h-8 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2"
+        >
+          {FONT_FAMILIES.map((font) => (
+            <option key={font} value={font} style={{ fontFamily: font }}>
+              {font}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Font Size */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-[var(--ink-muted)]">Size</span>
+          <span className="text-xs text-[var(--ink-dark)] font-mono">{segment.fontSize}px</span>
+        </div>
+        <Slider
+          value={[segment.fontSize]}
+          min={12}
+          max={200}
+          step={2}
+          onValueChange={(values) => onUpdate({ fontSize: values[0] })}
+        />
+      </div>
+
+      {/* Font Style Row */}
+      <div className="flex items-center gap-2">
+        {/* Font Weight */}
+        <div className="flex-1">
+          <span className="text-xs text-[var(--ink-muted)] block mb-2">Weight</span>
+          <select
+            value={segment.fontWeight}
+            onChange={(e) => onUpdate({ fontWeight: parseInt(e.target.value) })}
+            className="w-full h-8 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2"
+          >
+            <option value={300}>Light</option>
+            <option value={400}>Regular</option>
+            <option value={500}>Medium</option>
+            <option value={600}>Semibold</option>
+            <option value={700}>Bold</option>
+            <option value={800}>Extra Bold</option>
+          </select>
+        </div>
+
+        {/* Italic Toggle */}
+        <div>
+          <span className="text-xs text-[var(--ink-muted)] block mb-2">Style</span>
+          <button
+            onClick={() => onUpdate({ italic: !segment.italic })}
+            className={`h-8 w-8 flex items-center justify-center rounded-md border transition-colors ${
+              segment.italic
+                ? 'bg-[var(--coral-100)] border-[var(--coral-300)] text-[var(--coral-500)]'
+                : 'bg-[var(--polar-mist)] border-[var(--glass-border)] text-[var(--ink-muted)]'
+            }`}
+          >
+            <Italic className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Text Alignment */}
+      <div>
+        <span className="text-xs text-[var(--ink-muted)] block mb-2">Alignment</span>
+        <ToggleGroup
+          type="single"
+          value={segment.textAlign}
+          onValueChange={(value) => {
+            if (value) onUpdate({ textAlign: value as TextAlign });
+          }}
+          className="justify-start"
+        >
+          <ToggleGroupItem value="left" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
+            <AlignLeft className="w-4 h-4" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="center" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
+            <AlignCenter className="w-4 h-4" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="right" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
+            <AlignRight className="w-4 h-4" />
+          </ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+
+      {/* Text Color */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-[var(--ink-muted)]">Text Color</span>
+        <input
+          type="color"
+          value={segment.color}
+          onChange={(e) => onUpdate({ color: e.target.value })}
+          className="w-8 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+        />
+      </div>
+
+      {/* Background Section */}
+      <div className="pt-3 border-t border-[var(--glass-border)]">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs text-[var(--ink-muted)]">Background</span>
+          <button
+            onClick={() => {
+              const enabled = !showBackground;
+              setShowBackground(enabled);
+              onUpdate({ backgroundColor: enabled ? '#000000' : null });
+            }}
+            className={`relative w-10 h-5 rounded-full transition-colors ${
+              showBackground ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                showBackground ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        {showBackground && (
+          <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
+              <input
+                type="color"
+                value={segment.backgroundColor || '#000000'}
+                onChange={(e) => onUpdate({ backgroundColor: e.target.value })}
+                className="w-8 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-[var(--ink-subtle)]">Padding</span>
+                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.backgroundPadding}px</span>
+              </div>
+              <Slider
+                value={[segment.backgroundPadding]}
+                min={0}
+                max={32}
+                step={2}
+                onValueChange={(values) => onUpdate({ backgroundPadding: values[0] })}
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-[var(--ink-subtle)]">Radius</span>
+                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.backgroundRadius}px</span>
+              </div>
+              <Slider
+                value={[segment.backgroundRadius]}
+                min={0}
+                max={24}
+                step={2}
+                onValueChange={(values) => onUpdate({ backgroundRadius: values[0] })}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Shadow Section */}
+      <div className="pt-3 border-t border-[var(--glass-border)]">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs text-[var(--ink-muted)]">Shadow</span>
+          <button
+            onClick={() => {
+              const enabled = !showShadow;
+              setShowShadow(enabled);
+              onUpdate({
+                shadow: enabled ? { offsetX: 2, offsetY: 2, blur: 4, color: '#000000' } : null
+              });
+            }}
+            className={`relative w-10 h-5 rounded-full transition-colors ${
+              showShadow ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                showShadow ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        {showShadow && segment.shadow && (
+          <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
+              <input
+                type="color"
+                value={segment.shadow.color}
+                onChange={(e) => onUpdate({ shadow: { ...segment.shadow!, color: e.target.value } })}
+                className="w-8 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-[var(--ink-subtle)]">Offset X</span>
+                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.shadow.offsetX}px</span>
+              </div>
+              <Slider
+                value={[segment.shadow.offsetX]}
+                min={-20}
+                max={20}
+                step={1}
+                onValueChange={(values) => onUpdate({ shadow: { ...segment.shadow!, offsetX: values[0] } })}
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-[var(--ink-subtle)]">Offset Y</span>
+                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.shadow.offsetY}px</span>
+              </div>
+              <Slider
+                value={[segment.shadow.offsetY]}
+                min={-20}
+                max={20}
+                step={1}
+                onValueChange={(values) => onUpdate({ shadow: { ...segment.shadow!, offsetY: values[0] } })}
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-[var(--ink-subtle)]">Blur</span>
+                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.shadow.blur}px</span>
+              </div>
+              <Slider
+                value={[segment.shadow.blur]}
+                min={0}
+                max={20}
+                step={1}
+                onValueChange={(values) => onUpdate({ shadow: { ...segment.shadow!, blur: values[0] } })}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Position info */}
+      <div className="pt-3 border-t border-[var(--glass-border)]">
+        <div className="text-xs">
+          <span className="text-[var(--ink-subtle)]">Position</span>
+          <p className="text-[var(--ink-dark)] font-mono mt-0.5">
+            {Math.round(segment.x * 100)}%, {Math.round(segment.y * 100)}%
+          </p>
+        </div>
+        <p className="text-[10px] text-[var(--ink-faint)] mt-2">
+          Drag the text on the preview to reposition
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Imperative API exposed by VideoEditorView
  */
 export interface VideoEditorViewRef {
@@ -353,6 +794,16 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     selectSceneSegment,
     updateSceneSegment,
     deleteSceneSegment,
+    // Mask segment
+    selectedMaskSegmentId,
+    selectMaskSegment,
+    updateMaskSegment,
+    deleteMaskSegment,
+    // Text segment
+    selectedTextSegmentId,
+    selectTextSegment,
+    updateTextSegment,
+    deleteTextSegment,
     // Save
     saveProject,
     isSaving,
@@ -586,8 +1037,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
 
           {/* Tab Content */}
           <div className="flex-1 overflow-y-auto relative">
-            {/* Selection Overlay (shown when zoom region or scene segment is selected) */}
-            {(selectedZoomRegionId || selectedSceneSegmentId) && project && (
+            {/* Selection Overlay (shown when zoom region, scene segment, mask, or text is selected) */}
+            {(selectedZoomRegionId || selectedSceneSegmentId || selectedMaskSegmentId || selectedTextSegmentId) && project && (
               <div className="absolute inset-0 p-4 bg-[var(--glass-surface-dark)] z-10 animate-in slide-in-from-bottom-2 fade-in duration-200 overflow-y-auto">
                 {/* Zoom Region Properties */}
                 {selectedZoomRegionId && project.zoom.regions.find(r => r.id === selectedZoomRegionId) && (
@@ -647,6 +1098,32 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     </div>
                   );
                 })()}
+
+                {/* Mask Segment Properties */}
+                {selectedMaskSegmentId && project.mask?.segments.find(s => s.id === selectedMaskSegmentId) && (
+                  <MaskSegmentConfig
+                    segment={project.mask.segments.find(s => s.id === selectedMaskSegmentId)!}
+                    onUpdate={(updates) => updateMaskSegment(selectedMaskSegmentId, updates)}
+                    onDelete={() => {
+                      deleteMaskSegment(selectedMaskSegmentId);
+                      selectMaskSegment(null);
+                    }}
+                    onDone={() => selectMaskSegment(null)}
+                  />
+                )}
+
+                {/* Text Segment Properties */}
+                {selectedTextSegmentId && project.text?.segments.find(s => s.id === selectedTextSegmentId) && (
+                  <TextSegmentConfig
+                    segment={project.text.segments.find(s => s.id === selectedTextSegmentId)!}
+                    onUpdate={(updates) => updateTextSegment(selectedTextSegmentId, updates)}
+                    onDelete={() => {
+                      deleteTextSegment(selectedTextSegmentId);
+                      selectTextSegment(null);
+                    }}
+                    onDone={() => selectTextSegment(null)}
+                  />
+                )}
               </div>
             )}
 

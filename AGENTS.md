@@ -181,6 +181,31 @@ setInvokeResponse('command_name', mockResult);
 | Shadows clipped | Use `filter: drop-shadow()` |
 | State not persisting | Correct store + devtools enabled |
 
+## Video Recording Gotchas
+
+### Region Capture Coordinates
+When using scap (or any capture API) with a crop region on multi-monitor setups:
+- **Screen coordinates** (e.g., `x=3840` on second monitor) must be converted to **monitor-local coordinates** (e.g., `x=0`)
+- The capture API operates in monitor-local space, not screen space
+- Cursor events are captured in screen space and normalized to the crop region
+- If coordinates aren't converted, the cursor overlay will be offset from the video
+
+```rust
+// WRONG: Passing screen coordinates directly
+let crop = Area { origin: Point { x: 3840.0, y: 0.0 }, ... };
+
+// CORRECT: Convert to monitor-local coordinates
+let local_x = screen_x - monitor_offset_x;
+let local_y = screen_y - monitor_offset_y;
+let crop = Area { origin: Point { x: local_x as f64, y: local_y as f64 }, ... };
+```
+
+### Cursor Overlay Zoom
+The cursor overlay must apply the same CSS transform as the video for zoom to work:
+- Video uses `useZoomPreview` hook for zoom transforms
+- CursorOverlay and ClickHighlightOverlay must also use `useZoomPreview`
+- Pass `zoomRegions` prop to overlay components
+
 
 ## Logging
 

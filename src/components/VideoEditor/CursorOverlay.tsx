@@ -8,7 +8,6 @@
  */
 
 import { memo, useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { useCursorInterpolation } from '../../hooks/useCursorInterpolation';
 import { usePreviewOrPlaybackTime } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
@@ -157,71 +156,6 @@ export const CursorOverlay = memo(function CursorOverlay({
   // Simple counter to force re-render when images load
   const [, forceUpdate] = useState(0);
   const triggerUpdate = useCallback(() => forceUpdate((n) => n + 1), []);
-
-  // === CONSOLIDATED DEBUG LOG - Writes to ultradebug.log ===
-  const hasLoggedDebugRef = useRef(false);
-  useEffect(() => {
-    if (cursorRecording && containerWidth > 0 && !hasLoggedDebugRef.current) {
-      hasLoggedDebugRef.current = true;
-      const events = cursorRecording.events;
-      const first = events[0];
-      const last = events[events.length - 1];
-
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const e of events) {
-        minX = Math.min(minX, e.x); maxX = Math.max(maxX, e.x);
-        minY = Math.min(minY, e.y); maxY = Math.max(maxY, e.y);
-      }
-
-      const cursorAR = cursorRecording.width / cursorRecording.height;
-      const arMatch = videoAspectRatio ? Math.abs(videoAspectRatio - cursorAR) < 0.01 : true;
-
-      // Sample 10 events evenly distributed
-      const sampleIndices = Array.from({ length: 10 }, (_, i) => Math.floor(i * events.length / 10));
-      const samples = sampleIndices.map(i => events[i]).filter(Boolean);
-
-      // regionX/regionY may not exist in older types
-      const regionX = (cursorRecording as Record<string, unknown>).regionX ?? 'N/A';
-      const regionY = (cursorRecording as Record<string, unknown>).regionY ?? 'N/A';
-
-      const debugInfo = `
-CURSOR DEBUG - ${new Date().toISOString()}
-=====================================
-
-CURSOR RECORDING:
-  Region Origin: x=${regionX}, y=${regionY}
-  Region Size: ${cursorRecording.width}x${cursorRecording.height}
-  Aspect Ratio: ${cursorAR.toFixed(6)}
-  Total Events: ${events.length}
-  Video Start Offset: ${cursorRecording.videoStartOffsetMs}ms
-
-VIDEO:
-  Aspect Ratio: ${videoAspectRatio?.toFixed(6) ?? 'N/A'}
-  AR Match: ${arMatch ? 'YES' : 'NO - MISMATCH!'}
-  AR Difference: ${videoAspectRatio ? Math.abs(videoAspectRatio - cursorAR).toFixed(6) : 'N/A'}
-
-CONTAINER:
-  Size: ${containerWidth}x${containerHeight}
-  Aspect Ratio: ${(containerWidth / containerHeight).toFixed(6)}
-
-NORMALIZED COORDINATE BOUNDS (should be 0.0-1.0):
-  X Range: ${minX.toFixed(6)} to ${maxX.toFixed(6)} ${minX < -0.01 || maxX > 1.01 ? '<-- OUT OF BOUNDS!' : 'OK'}
-  Y Range: ${minY.toFixed(6)} to ${maxY.toFixed(6)} ${minY < -0.01 || maxY > 1.01 ? '<-- OUT OF BOUNDS!' : 'OK'}
-
-SAMPLE EVENTS (10 evenly distributed):
-${samples.map((e, i) => `  [${i}] @${e.timestampMs}ms: norm=(${e.x.toFixed(6)}, ${e.y.toFixed(6)})`).join('\n')}
-
-FIRST/LAST EVENTS:
-  First @${first?.timestampMs}ms: (${first?.x.toFixed(6)}, ${first?.y.toFixed(6)})
-  Last @${last?.timestampMs}ms: (${last?.x.toFixed(6)}, ${last?.y.toFixed(6)})
-`;
-
-      // Write to ultradebug.log via Tauri command
-      invoke('write_ultradebug', { content: debugInfo })
-        .then((path) => console.log(`[CursorOverlay] Debug written to: ${path}`))
-        .catch(() => console.log('[CursorOverlay] Debug info:', debugInfo));
-    }
-  }, [cursorRecording, videoAspectRatio, containerWidth, containerHeight]);
 
   // Get interpolated cursor data
   const { getCursorAt, hasCursorData, cursorImages } = useCursorInterpolation(cursorRecording);
@@ -391,30 +325,9 @@ FIRST/LAST EVENTS:
       pixelY = cursorData.y * containerHeight;
     }
 
-    // DEBUG: Draw small red dot at current cursor position
-    const drawDebugMarker = () => {
-      ctx.fillStyle = 'red';
-      ctx.beginPath();
-      ctx.arc(pixelX, pixelY, 5, 0, Math.PI * 2);
-      ctx.fill();
-    };
-
-    // DEBUG: Log calculated positions to ultradebug.log
-    const debugMsg = `
-[CursorOverlay RENDER]
-  cursorData: x=${cursorData.x.toFixed(6)}, y=${cursorData.y.toFixed(6)}
-  container: ${containerWidth}x${containerHeight}
-  cursorAspectRatio: ${cursorAspectRatio?.toFixed(6) ?? 'N/A'}
-  calculatedPixel: x=${pixelX.toFixed(2)}, y=${pixelY.toFixed(2)}
-  cursorRecordingDims: ${cursorRecording ? `${cursorRecording.width}x${cursorRecording.height}` : 'N/A'}
-  timeMs: ${currentTimeMs}
-`;
-    invoke('write_ultradebug', { content: debugMsg }).catch(() => {});
-
     // Helper to draw circle cursor
     const drawCircle = () => {
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      drawDebugMarker(); // DEBUG
       const radius = (DEFAULT_CIRCLE_SIZE / 2) * scale;
       ctx.beginPath();
       ctx.arc(pixelX, pixelY, radius, 0, Math.PI * 2);
@@ -428,7 +341,6 @@ FIRST/LAST EVENTS:
     // Helper to draw cursor with image and definition
     const drawCursor = (img: HTMLImageElement, def: CursorDefinition) => {
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      drawDebugMarker(); // DEBUG
       const drawHeight = DEFAULT_CURSOR_SIZE * scale;
       const drawWidth = (img.width / img.height) * drawHeight;
       const drawX = pixelX - drawWidth * def.hotspotX;
@@ -439,7 +351,6 @@ FIRST/LAST EVENTS:
     // Helper to draw bitmap cursor with pixel hotspot
     const drawBitmap = (img: HTMLImageElement, hotspotX: number, hotspotY: number) => {
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      drawDebugMarker(); // DEBUG
       const drawWidth = img.width * scale;
       const drawHeight = img.height * scale;
       const drawX = pixelX - hotspotX * scale;

@@ -76,7 +76,7 @@ impl GraphicsCaptureApiHandler for Capturer {
         frame: &mut WCFrame,
         _: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
-        let elapsed = frame.timestamp().Duration - self.start_time.0;
+        let elapsed = frame.timestamp().unwrap().Duration - self.start_time.0;
         let display_time = self
             .start_time
             .1
@@ -94,7 +94,7 @@ impl GraphicsCaptureApiHandler for Capturer {
                 let end_y = (cropped_area.origin.y + cropped_area.size.height) as u32;
 
                 // crop the frame - handle errors gracefully instead of panicking
-                let mut cropped_buffer = match frame.buffer_crop(start_x, start_y, end_x, end_y) {
+                let cropped_buffer = match frame.buffer_crop(start_x, start_y, end_x, end_y) {
                     Ok(buf) => buf,
                     Err(e) => {
                         // GPU device errors can be transient, skip this frame
@@ -104,15 +104,8 @@ impl GraphicsCaptureApiHandler for Capturer {
                 };
 
                 // get raw frame buffer
-                let raw_frame_buffer = match cropped_buffer.as_nopadding_buffer() {
-                    Ok(buffer) => buffer,
-                    Err(_) => return Err(("Failed to get raw buffer").into()),
-                };
-
-                let current_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Failed to get current time")
-                    .as_nanos() as u64;
+                let mut temp_buffer = Vec::new();
+                let raw_frame_buffer = cropped_buffer.as_nopadding_buffer(&mut temp_buffer);
 
                 let bgr_frame = BGRAFrame {
                     display_time,
@@ -134,10 +127,6 @@ impl GraphicsCaptureApiHandler for Capturer {
                 };
                 let raw_frame_buffer = frame_buffer.as_raw_buffer();
                 let frame_data = raw_frame_buffer.to_vec();
-                let current_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Failed to get current time")
-                    .as_nanos() as u64;
                 let bgr_frame = BGRAFrame {
                     display_time,
                     width: frame.width() as i32,

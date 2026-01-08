@@ -73,19 +73,6 @@ impl CaptureSource {
         fps: u32,
         include_cursor: bool,
     ) -> Result<Self, String> {
-        // Debug log
-        let debug_info = format!(
-            "\n=== USING SCAP FOR REGION CAPTURE ===\nMonitor index: {}\nRegion (screen): ({}, {}) {}x{}\nMonitor offset: ({}, {})\nFPS: {}\nInclude cursor: {}\n",
-            monitor_index, region.0, region.1, region.2, region.3, monitor_offset.0, monitor_offset.1, fps, include_cursor
-        );
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
-        {
-            let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
-        }
-
         let scap = ScapVideoCapture::new_region(
             monitor_index,
             Some(region),

@@ -941,7 +941,6 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           await invoke('save_video_project', { project });
           const savedAt = new Date().toISOString();
           set({ isSaving: false, lastSavedAt: savedAt });
-          videoEditorLogger.info('Project saved successfully');
         } catch (error) {
           videoEditorLogger.error('Failed to save project:', error);
           set({ isSaving: false });

@@ -1039,12 +1039,6 @@ pub async fn extract_audio_waveform(
         samples.push(sample.abs().min(1.0));
     }
 
-    log::info!(
-        "[AUDIO_WAVEFORM] Extracted {} samples for {:.1}s audio",
-        samples.len(),
-        duration_secs
-    );
-
     Ok(AudioWaveform {
         samples,
         duration_ms,

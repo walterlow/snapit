@@ -72,32 +72,6 @@ impl ScapVideoCapture {
         // Get all targets (monitors)
         let targets = scap::get_all_targets();
 
-        // DEBUG: Log all targets
-        let mut debug_info = String::from("\n=== SCAP TARGET ENUMERATION ===\n");
-        for (i, target) in targets.iter().enumerate() {
-            match target {
-                Target::Display(display) => {
-                    debug_info.push_str(&format!(
-                        "  Display {}: '{}' (id={})\n",
-                        i, display.title, display.id
-                    ));
-                },
-                Target::Window(window) => {
-                    debug_info.push_str(&format!(
-                        "  Window {}: '{}' (id={})\n",
-                        i, window.title, window.id
-                    ));
-                },
-            }
-        }
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
-        {
-            let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
-        }
-
         // Verify monitor exists
         let display_count = targets
             .iter()
@@ -160,18 +134,6 @@ impl ScapVideoCapture {
                 // Convert screen coords to monitor-local coords
                 let local_x = (x - monitor_offset.0).max(0);
                 let local_y = (y - monitor_offset.1).max(0);
-
-                let debug_crop = format!(
-                    "\n=== SCAP CROP_AREA (in thread) ===\nScreen origin: ({}, {})\nMonitor offset: ({}, {})\nLocal origin: ({}, {})\nSize: {}x{}\n",
-                    x, y, monitor_offset.0, monitor_offset.1, local_x, local_y, w, h
-                );
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
-                {
-                    let _ = std::io::Write::write_all(&mut f, debug_crop.as_bytes());
-                }
 
                 Area {
                     origin: Point {

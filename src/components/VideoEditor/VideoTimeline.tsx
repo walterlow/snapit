@@ -193,11 +193,6 @@ const WaveformCanvas = memo(function WaveformCanvas({
 
         if (!cancelled) {
           setWaveform(data);
-          videoEditorLogger.debug('WaveformCanvas loaded waveform:', {
-            samples: data.samples.length,
-            duration: data.durationMs,
-            sampleRange: [Math.min(...data.samples.slice(0, 100)), Math.max(...data.samples.slice(0, 100))],
-          });
         }
       } catch (err) {
         videoEditorLogger.error('WaveformCanvas failed to load waveform:', err);

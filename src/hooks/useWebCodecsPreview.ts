@@ -177,8 +177,6 @@ export function useWebCodecsPreview(videoPath: string | null): WebCodecsPreviewR
         setDimensions({ width, height });
         setIsReady(true);
         setError(null);
-
-        videoEditorLogger.debug('WebCodecs initialized:', { duration, width, height });
       } catch (err) {
         if (cancelled) return;
         videoEditorLogger.error('WebCodecs init error:', err);

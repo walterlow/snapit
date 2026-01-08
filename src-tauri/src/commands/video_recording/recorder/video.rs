@@ -105,19 +105,6 @@ pub fn run_video_capture(
                     my
                 );
 
-                // DEBUG: Log monitor enumeration from both sources to check for mismatch
-                let debug_info = format!(
-                    "\n=== MONITOR ENUMERATION DEBUG ===\nRegion origin: ({}, {})\nFound on GDI monitor {} '{}' at ({}, {})\n",
-                    x, y, idx, name, mx, my
-                );
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
-                {
-                    let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
-                }
-
                 (idx, (mx, my))
             } else {
                 (0, (0, 0))
@@ -130,9 +117,13 @@ pub fn run_video_capture(
     // - Window mode: WGC window capture
     // - Region mode: Scap with built-in crop_area (ensures cursor/video alignment)
     // - Monitor mode: WGC monitor capture
+    //
+    // NOTE: We always capture WITHOUT the baked-in cursor. The cursor is rendered
+    // separately via the cursor overlay in the video editor, which allows for
+    // customization (size, style, visibility) and proper zoom tracking.
     let (capture_source, first_frame) = if let Some(wid) = window_id {
         log::debug!("[CAPTURE] Using WGC window capture for hwnd={}", wid);
-        let source = CaptureSource::new_window(wid, settings.include_cursor)
+        let source = CaptureSource::new_window(wid, false)
             .map_err(|e| format!("Failed to create WGC window capture: {}", e))?;
 
         // Wait for first frame to get actual dimensions (important for DPI scaling)
@@ -155,7 +146,7 @@ pub fn run_video_capture(
             (x, y, w, h),
             monitor_offset,
             settings.fps,
-            settings.include_cursor,
+            false,
         )
         .map_err(|e| format!("Failed to create Scap region capture: {}", e))?;
 
@@ -168,7 +159,7 @@ pub fn run_video_capture(
             "[CAPTURE] Using WGC monitor capture, index={}",
             monitor_index
         );
-        let source = CaptureSource::new_monitor(monitor_index, settings.include_cursor)
+        let source = CaptureSource::new_monitor(monitor_index, false)
             .map_err(|e| format!("Failed to create WGC capture: {}", e))?;
         (source, None)
     };
@@ -538,25 +529,6 @@ pub fn run_video_capture(
 
         let frame_acquired = match frame_data {
             Some(data) => {
-                // DEBUG: Log first frame info
-                if !first_frame_captured {
-                    let debug_info = format!(
-                        "\n=== FRAME CAPTURE DEBUG ===\nCapture source: {}\nFrame data size: {} bytes\nExpected size: {} ({}x{}x4)\nUsing scap (no manual crop): {}\n",
-                        if capture_source.is_scap() { "Scap (built-in crop)" } else { "WGC" },
-                        data.len(),
-                        width * height * 4,
-                        width, height,
-                        capture_source.is_scap()
-                    );
-                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
-                    {
-                        let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
-                    }
-                }
-
                 // Copy frame data to buffer - no manual cropping needed
                 // Scap handles cropping internally, WGC returns the full capture area
                 let len = data.len().min(buffer_pool.frame_size);

@@ -83,22 +83,6 @@ pub fn get_monitor_bounds() -> Vec<MonitorBounds> {
 pub fn find_monitor_for_point(x: i32, y: i32) -> Option<(usize, String, i32, i32)> {
     let monitors = get_monitor_bounds();
 
-    // DEBUG: Log all GDI monitors
-    let mut debug_info = String::from("\n=== GDI MONITOR ENUMERATION ===\n");
-    for (idx, m) in monitors.iter().enumerate() {
-        debug_info.push_str(&format!(
-            "  GDI Monitor {}: '{}' at ({}, {}) {}x{}\n",
-            idx, m.name, m.x, m.y, m.width, m.height
-        ));
-    }
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
-    {
-        let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
-    }
-
     for (idx, m) in monitors.into_iter().enumerate() {
         let mx = m.x;
         let my = m.y;

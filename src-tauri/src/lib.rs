@@ -267,7 +267,6 @@ pub fn run() {
             commands::logging::get_log_dir,
             commands::logging::open_log_dir,
             commands::logging::get_recent_logs,
-            commands::logging::write_ultradebug,
             // Capture overlay for video/gif region selection (uses DirectComposition to avoid video blackout)
             commands::capture_overlay::show_capture_overlay,
             commands::capture_overlay::commands::capture_overlay_confirm,

@@ -83,7 +83,7 @@ impl GraphicsCaptureApiHandler for VideoCaptureHandler {
         let height = frame.height();
 
         // Get frame buffer
-        let mut buffer = match frame.buffer() {
+        let buffer = match frame.buffer() {
             Ok(b) => b,
             Err(e) => {
                 log::warn!("[WGC] Failed to get buffer on frame {}: {:?}", count, e);
@@ -91,17 +91,8 @@ impl GraphicsCaptureApiHandler for VideoCaptureHandler {
             },
         };
 
-        let pixel_data = match buffer.as_nopadding_buffer() {
-            Ok(data) => data,
-            Err(e) => {
-                log::warn!(
-                    "[WGC] Failed to get no-padding buffer on frame {}: {:?}",
-                    count,
-                    e
-                );
-                return Ok(()); // Skip this frame
-            },
-        };
+        let mut raw_data = Vec::new();
+        let pixel_data = buffer.as_nopadding_buffer(&mut raw_data);
 
         if pixel_data.is_empty() {
             return Ok(()); // Skip empty frames
@@ -195,23 +186,6 @@ impl WgcVideoCapture {
     pub fn new(monitor_index: usize, include_cursor: bool) -> Result<Self, String> {
         let monitors =
             Monitor::enumerate().map_err(|e| format!("Failed to enumerate monitors: {:?}", e))?;
-
-        // DEBUG: Log all monitors from WGC enumeration
-        let mut debug_info = String::from("\n=== WGC MONITOR ENUMERATION ===\n");
-        for (i, m) in monitors.iter().enumerate() {
-            let name = m.device_name().unwrap_or_default();
-            let w = m.width().unwrap_or(0);
-            let h = m.height().unwrap_or(0);
-            debug_info.push_str(&format!("  WGC Monitor {}: '{}' {}x{}\n", i, name, w, h));
-        }
-        debug_info.push_str(&format!("Using WGC monitor index: {}\n", monitor_index));
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("T:\\PersonalProjects\\snapit\\ultradebug.log")
-        {
-            let _ = std::io::Write::write_all(&mut f, debug_info.as_bytes());
-        }
 
         let monitor = monitors
             .get(monitor_index)

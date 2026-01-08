@@ -270,29 +270,6 @@ pub async fn open_log_dir(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Write debug info to ultradebug.log in the project directory
-/// This is a simple file that Claude can read directly
-#[command]
-pub fn write_ultradebug(content: String) -> Result<String, String> {
-    let debug_path = std::path::PathBuf::from("T:\\PersonalProjects\\snapit\\ultradebug.log");
-
-    // Append timestamp
-    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    let content_with_time = format!("\n=== {} ===\n{}\n", timestamp, content);
-
-    // Append to file (create if doesn't exist)
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&debug_path)
-        .map_err(|e| format!("Failed to open ultradebug.log: {}", e))?;
-
-    file.write_all(content_with_time.as_bytes())
-        .map_err(|e| format!("Failed to write to ultradebug.log: {}", e))?;
-
-    Ok(debug_path.to_string_lossy().to_string())
-}
-
 /// Get recent logs (last N lines) for debugging
 #[command]
 pub fn get_recent_logs(app: AppHandle, lines: Option<usize>) -> Result<String, String> {

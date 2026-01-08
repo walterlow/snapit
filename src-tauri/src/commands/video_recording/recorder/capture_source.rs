@@ -1,27 +1,21 @@
 //! Unified capture source abstraction for video recording.
 //!
-//! Provides a common interface for different capture backends:
-//! - WGC (Windows Graphics Capture) - for monitor and window capture
-//! - Scap - for region capture with built-in crop support
+//! Uses Scap for all capture types (monitor, window, region) for:
+//! - Consistent timestamp handling via SystemTime
+//! - Native crop support for region capture
+//! - Unified API across capture modes
 
 use super::super::scap_capture::{ScapFrame, ScapVideoCapture};
-use super::super::wgc_capture::{WgcFrame, WgcVideoCapture};
+use super::super::timestamp::PerformanceCounterTimestamp;
 
 /// A captured video frame.
 pub struct CapturedFrame {
     pub data: Vec<u8>,
     pub width: u32,
     pub height: u32,
-}
-
-impl From<WgcFrame> for CapturedFrame {
-    fn from(f: WgcFrame) -> Self {
-        CapturedFrame {
-            data: f.data,
-            width: f.width,
-            height: f.height,
-        }
-    }
+    /// Timestamp in 100-nanosecond units since UNIX_EPOCH (from Scap's SystemTime).
+    /// Used for cursor-video synchronization.
+    pub timestamp_100ns: i64,
 }
 
 impl From<ScapFrame> for CapturedFrame {
@@ -30,35 +24,31 @@ impl From<ScapFrame> for CapturedFrame {
             data: f.data,
             width: f.width,
             height: f.height,
+            timestamp_100ns: f.timestamp_100ns,
         }
     }
 }
 
-/// Unified capture source that can use either WGC or Scap.
-pub enum CaptureSource {
-    /// WGC-based capture (monitor or window)
-    Wgc(WgcVideoCapture),
-    /// Scap-based capture (region with built-in crop)
-    Scap(ScapVideoCapture),
+/// Unified capture source using Scap for all capture types.
+pub struct CaptureSource {
+    scap: ScapVideoCapture,
 }
 
 impl CaptureSource {
-    /// Create a capture source for a monitor.
+    /// Create a capture source for a monitor (full monitor capture).
     pub fn new_monitor(monitor_index: usize, include_cursor: bool) -> Result<Self, String> {
-        let wgc = WgcVideoCapture::new(monitor_index, include_cursor)?;
-        Ok(CaptureSource::Wgc(wgc))
+        // Use Scap with no crop region for full monitor capture
+        let scap = ScapVideoCapture::new_monitor(monitor_index, include_cursor)?;
+        Ok(CaptureSource { scap })
     }
 
     /// Create a capture source for a window.
     pub fn new_window(window_id: u32, include_cursor: bool) -> Result<Self, String> {
-        let wgc = WgcVideoCapture::new_window(window_id, include_cursor)?;
-        Ok(CaptureSource::Wgc(wgc))
+        let scap = ScapVideoCapture::new_window(window_id, include_cursor)?;
+        Ok(CaptureSource { scap })
     }
 
-    /// Create a capture source for a region using scap's built-in crop.
-    ///
-    /// This uses scap's crop_area feature which handles cropping internally,
-    /// ensuring cursor coordinates and video frames are in the same space.
+    /// Create a capture source for a region using Scap's built-in crop.
     ///
     /// # Arguments
     /// * `monitor_index` - Index of the monitor to capture
@@ -80,55 +70,61 @@ impl CaptureSource {
             fps,
             include_cursor,
         )?;
-        Ok(CaptureSource::Scap(scap))
+        Ok(CaptureSource { scap })
     }
 
     /// Get the capture width.
     pub fn width(&self) -> u32 {
-        match self {
-            CaptureSource::Wgc(wgc) => wgc.width(),
-            CaptureSource::Scap(scap) => scap.width(),
-        }
+        self.scap.width()
     }
 
     /// Get the capture height.
     pub fn height(&self) -> u32 {
-        match self {
-            CaptureSource::Wgc(wgc) => wgc.height(),
-            CaptureSource::Scap(scap) => scap.height(),
-        }
+        self.scap.height()
     }
 
     /// Wait for first frame and get actual dimensions.
     pub fn wait_for_first_frame(&self, timeout_ms: u64) -> Option<(u32, u32, CapturedFrame)> {
-        match self {
-            CaptureSource::Wgc(wgc) => wgc
-                .wait_for_first_frame(timeout_ms)
-                .map(|(w, h, f)| (w, h, f.into())),
-            CaptureSource::Scap(scap) => scap
-                .wait_for_first_frame(timeout_ms)
-                .map(|(w, h, f)| (w, h, f.into())),
-        }
+        self.scap
+            .wait_for_first_frame(timeout_ms)
+            .map(|(w, h, f)| (w, h, f.into()))
     }
 
     /// Get next frame with timeout.
     pub fn get_frame(&self, timeout_ms: u64) -> Option<CapturedFrame> {
-        match self {
-            CaptureSource::Wgc(wgc) => wgc.get_frame(timeout_ms).map(|f| f.into()),
-            CaptureSource::Scap(scap) => scap.get_frame(timeout_ms).map(|f| f.into()),
-        }
+        self.scap.get_frame(timeout_ms).map(|f| f.into())
     }
 
     /// Stop the capture.
     pub fn stop(&self) {
-        match self {
-            CaptureSource::Wgc(wgc) => wgc.stop(),
-            CaptureSource::Scap(scap) => scap.stop(),
-        }
+        self.scap.stop();
     }
 
-    /// Check if this is a scap-based capture (no manual cropping needed).
-    pub fn is_scap(&self) -> bool {
-        matches!(self, CaptureSource::Scap(_))
+    /// Drain any buffered frames to ensure the next frame is fresh.
+    ///
+    /// Returns the number of frames drained.
+    pub fn drain_buffer(&self) -> usize {
+        let mut count = 0;
+        while self.get_frame(1).is_some() {
+            count += 1;
+            if count > 120 {
+                log::warn!(
+                    "[CAPTURE] Drained {} frames, stopping to prevent infinite loop",
+                    count
+                );
+                break;
+            }
+        }
+        if count > 0 {
+            log::debug!("[CAPTURE] Drained {} buffered frames", count);
+        }
+        count
+    }
+
+    /// Get the next frame with its receive timestamp.
+    pub fn get_frame_with_timestamp(&self, timeout_ms: u64) -> Option<(CapturedFrame, i64)> {
+        let frame = self.get_frame(timeout_ms)?;
+        let timestamp = PerformanceCounterTimestamp::now().raw();
+        Some((frame, timestamp))
     }
 }

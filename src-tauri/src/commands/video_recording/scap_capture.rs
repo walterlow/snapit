@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use scap::capturer::{Area, Capturer, Options, Point, Resolution, Size};
 use scap::frame::{Frame, FrameType, VideoFrame};
@@ -22,6 +22,9 @@ pub struct ScapFrame {
     pub width: u32,
     /// Frame height in pixels
     pub height: u32,
+    /// Timestamp in 100-nanosecond units since UNIX_EPOCH.
+    /// This is converted from SystemTime for compatibility with WGC timestamps.
+    pub timestamp_100ns: i64,
 }
 
 /// Scap-based video capture session with built-in crop support.
@@ -38,6 +41,148 @@ pub struct ScapVideoCapture {
 }
 
 impl ScapVideoCapture {
+    /// Create a new scap video capture session for a full monitor.
+    ///
+    /// # Arguments
+    /// * `monitor_index` - Index of the monitor to capture
+    /// * `include_cursor` - Whether to include the cursor in capture
+    pub fn new_monitor(monitor_index: usize, include_cursor: bool) -> Result<Self, String> {
+        // Full monitor capture = region capture with no crop
+        Self::new_region(monitor_index, None, (0, 0), 60, include_cursor)
+    }
+
+    /// Create a new scap video capture session for a window.
+    ///
+    /// # Arguments
+    /// * `window_id` - Window handle (HWND on Windows)
+    /// * `include_cursor` - Whether to include the cursor in capture
+    pub fn new_window(window_id: u32, include_cursor: bool) -> Result<Self, String> {
+        // Check platform support
+        if !scap::is_supported() {
+            return Err("Scap is not supported on this platform".to_string());
+        }
+
+        // Check permissions
+        if !scap::has_permission() {
+            log::info!("[SCAP] Requesting screen capture permission");
+            if !scap::request_permission() {
+                return Err("Screen capture permission denied".to_string());
+            }
+        }
+
+        // Window dimensions will be determined from first frame
+        let width = 1920;
+        let height = 1080;
+
+        // Create channel for frames
+        let (tx, rx) = mpsc::sync_channel::<ScapFrame>(60);
+        let should_stop = Arc::new(AtomicBool::new(false));
+        let should_stop_clone = Arc::clone(&should_stop);
+
+        log::info!(
+            "[SCAP] Creating window capturer: hwnd={}, cursor={}",
+            window_id,
+            include_cursor
+        );
+
+        // Start capture in background thread
+        let handle = std::thread::spawn(move || {
+            // Find window target
+            let targets = scap::get_all_targets();
+            let window_target = targets.into_iter().find_map(|t| {
+                if let Target::Window(w) = t {
+                    // Compare window handles
+                    if w.raw_handle.0 as u32 == window_id {
+                        Some(Target::Window(w))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
+
+            let target = match window_target {
+                Some(t) => t,
+                None => {
+                    log::error!("[SCAP] Window {} not found", window_id);
+                    return;
+                },
+            };
+
+            let options = Options {
+                fps: 60,
+                target: Some(target),
+                show_cursor: include_cursor,
+                show_highlight: false,
+                excluded_targets: None,
+                output_type: FrameType::BGRAFrame,
+                output_resolution: Resolution::Captured,
+                crop_area: None,
+                ..Default::default()
+            };
+
+            let mut capturer = match Capturer::build(options) {
+                Ok(c) => c,
+                Err(e) => {
+                    log::error!("[SCAP] Failed to build window capturer: {:?}", e);
+                    return;
+                },
+            };
+
+            capturer.start_capture();
+            log::info!("[SCAP] Window capture started");
+
+            loop {
+                if should_stop_clone.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                match capturer.get_next_frame() {
+                    Ok(frame) => {
+                        let scap_frame = match frame {
+                            Frame::Video(VideoFrame::BGRA(bgra_frame)) => {
+                                let timestamp_100ns = bgra_frame
+                                    .display_time
+                                    .duration_since(UNIX_EPOCH)
+                                    .map(|d| (d.as_nanos() / 100) as i64)
+                                    .unwrap_or(0);
+
+                                ScapFrame {
+                                    data: bgra_frame.data,
+                                    width: bgra_frame.width as u32,
+                                    height: bgra_frame.height as u32,
+                                    timestamp_100ns,
+                                }
+                            },
+                            _ => continue,
+                        };
+                        let _ = tx.try_send(scap_frame);
+                    },
+                    Err(e) => {
+                        if !should_stop_clone.load(Ordering::SeqCst) {
+                            log::trace!("[SCAP] Window frame error: {:?}", e);
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                    },
+                }
+            }
+
+            capturer.stop_capture();
+            log::debug!("[SCAP] Window capture stopped");
+        });
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        Ok(Self {
+            frame_rx: rx,
+            should_stop,
+            _thread_handle: handle,
+            width,
+            height,
+        })
+    }
+
     /// Create a new scap video capture session for a region.
     ///
     /// The crop_area is applied internally by scap, ensuring cursor and video
@@ -182,10 +327,21 @@ impl ScapVideoCapture {
                     Ok(frame) => {
                         // Extract BGRA data from frame
                         let scap_frame = match frame {
-                            Frame::Video(VideoFrame::BGRA(bgra_frame)) => ScapFrame {
-                                data: bgra_frame.data,
-                                width: bgra_frame.width as u32,
-                                height: bgra_frame.height as u32,
+                            Frame::Video(VideoFrame::BGRA(bgra_frame)) => {
+                                // Convert SystemTime to 100ns units since UNIX_EPOCH
+                                // This makes it comparable to WGC timestamps (also in 100ns units)
+                                let timestamp_100ns = bgra_frame
+                                    .display_time
+                                    .duration_since(UNIX_EPOCH)
+                                    .map(|d| (d.as_nanos() / 100) as i64)
+                                    .unwrap_or(0);
+
+                                ScapFrame {
+                                    data: bgra_frame.data,
+                                    width: bgra_frame.width as u32,
+                                    height: bgra_frame.height as u32,
+                                    timestamp_100ns,
+                                }
                             },
                             _ => {
                                 // Skip non-BGRA frames (e.g., audio frames)

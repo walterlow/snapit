@@ -1,6 +1,6 @@
 //! Video (MP4) capture implementation.
 //!
-//! Uses Windows Graphics Capture (WGC) for frame capture
+//! Uses Scap for frame capture (with SystemTime-based timestamps)
 //! and VideoEncoder for hardware-accelerated MP4 encoding.
 
 use std::path::PathBuf;
@@ -18,6 +18,7 @@ use windows_capture::encoder::{
 use super::super::audio_multitrack::MultiTrackAudioRecorder;
 use super::super::cursor::{save_cursor_recording, CursorEventCapture};
 use super::super::state::{RecorderCommand, RecordingProgress};
+use super::super::timestamp::Timestamps;
 use super::super::webcam::{stop_capture_service, WebcamEncoderPipe};
 use super::super::{
     emit_state_change, find_monitor_for_point, get_monitor_bounds, get_webcam_settings,
@@ -114,26 +115,26 @@ pub fn run_video_capture(
     };
 
     // Create capture source based on mode
-    // - Window mode: WGC window capture
-    // - Region mode: Scap with built-in crop_area (ensures cursor/video alignment)
-    // - Monitor mode: WGC monitor capture
+    // All modes use Scap for consistent timestamp handling and native crop support.
+    // - Window mode: Scap window capture
+    // - Region mode: Scap with built-in crop_area
+    // - Monitor mode: Scap full monitor capture
     //
     // NOTE: We always capture WITHOUT the baked-in cursor. The cursor is rendered
     // separately via the cursor overlay in the video editor, which allows for
     // customization (size, style, visibility) and proper zoom tracking.
     let (capture_source, first_frame) = if let Some(wid) = window_id {
-        log::debug!("[CAPTURE] Using WGC window capture for hwnd={}", wid);
+        log::debug!("[CAPTURE] Using Scap window capture for hwnd={}", wid);
         let source = CaptureSource::new_window(wid, false)
-            .map_err(|e| format!("Failed to create WGC window capture: {}", e))?;
+            .map_err(|e| format!("Failed to create Scap window capture: {}", e))?;
 
         // Wait for first frame to get actual dimensions (important for DPI scaling)
         let first_frame = source.wait_for_first_frame(1000);
         (source, first_frame)
     } else if let Some((x, y, w, h)) = crop_region {
-        // Region mode: use Scap with built-in crop support
-        // This ensures cursor coordinates and video frames are in the same coordinate space
+        // Region mode: use WGC with manual crop for consistent hardware timestamps
         log::debug!(
-            "[CAPTURE] Using Scap region capture: ({}, {}) {}x{} on monitor {} (offset {:?})",
+            "[CAPTURE] Using WGC region capture: ({}, {}) {}x{} on monitor {} (offset {:?})",
             x,
             y,
             w,
@@ -148,7 +149,7 @@ pub fn run_video_capture(
             settings.fps,
             false,
         )
-        .map_err(|e| format!("Failed to create Scap region capture: {}", e))?;
+        .map_err(|e| format!("Failed to create WGC region capture: {}", e))?;
 
         // Wait for first frame to get actual dimensions
         let first_frame = source.wait_for_first_frame(1000);
@@ -156,11 +157,11 @@ pub fn run_video_capture(
     } else {
         // Monitor mode
         log::debug!(
-            "[CAPTURE] Using WGC monitor capture, index={}",
+            "[CAPTURE] Using Scap monitor capture, index={}",
             monitor_index
         );
         let source = CaptureSource::new_monitor(monitor_index, false)
-            .map_err(|e| format!("Failed to create WGC capture: {}", e))?;
+            .map_err(|e| format!("Failed to create Scap capture: {}", e))?;
         (source, None)
     };
 
@@ -325,6 +326,7 @@ pub fn run_video_capture(
     let mut pause_time = Duration::ZERO;
     let mut pause_start: Option<Instant> = None;
     let mut first_frame_captured = false;
+    let mut first_frame_hw_timestamp: i64 = 0; // Hardware timestamp of first video frame
 
     // === START RECORDING ===
     // Recording state was already emitted before thread started (optimistic UI)
@@ -336,9 +338,11 @@ pub fn run_video_capture(
         webcam_pipe.is_some()
     );
 
-    // Create shared start time FIRST - this is the reference point for both
-    // video timestamps and cursor timestamps to ensure perfect synchronization.
-    let start_time = Instant::now();
+    // Create shared start time using high-precision Timestamps.
+    // This captures both Instant (for cursor) and PerformanceCounter (for precise sync).
+    // The Timestamps struct ensures both use the exact same reference point.
+    let timestamps = Timestamps::now();
+    let start_time = timestamps.instant();
     let mut last_frame_time = start_time;
 
     // === CURSOR EVENT CAPTURE ===
@@ -433,6 +437,43 @@ pub fn run_video_capture(
     // We only use first_frame for dimension detection, then wait for a fresh frame.
     let mut pending_first_frame: Option<Vec<u8>> = None;
 
+    // Wait for a frame captured AFTER our start time.
+    // Pre-buffered frames have timestamps before start_time, which would cause
+    // cursor to appear ahead of video. We skip these stale frames.
+    // Scap uses SystemTime (UNIX_EPOCH-based), stored in timestamps.system_time_100ns()
+    let start_system_time = timestamps.system_time_100ns();
+    let mut stale_frames_skipped = 0;
+    loop {
+        if let Some(frame) = capture_source.get_frame(50) {
+            if frame.timestamp_100ns > 0 {
+                // Compare frame timestamp to start time (both in 100ns since UNIX_EPOCH)
+                if frame.timestamp_100ns >= start_system_time {
+                    // Frame was captured after start - this is the first valid frame
+                    let offset_ms = (frame.timestamp_100ns - start_system_time) / 10_000;
+                    log::debug!(
+                        "[RECORDING] Skipped {} stale frames, first valid frame captured {}ms after start",
+                        stale_frames_skipped,
+                        offset_ms
+                    );
+                    break;
+                }
+            }
+            // Frame was captured before start, skip it
+            stale_frames_skipped += 1;
+            if stale_frames_skipped > 10 {
+                // Safety limit - just proceed with what we have
+                log::warn!(
+                    "[RECORDING] Skipped {} stale frames, proceeding anyway",
+                    stale_frames_skipped
+                );
+                break;
+            }
+        } else {
+            // No frame available, timeout - just proceed
+            break;
+        }
+    }
+
     loop {
         // Check for commands
         match command_rx.try_recv() {
@@ -520,41 +561,58 @@ pub fn run_video_capture(
             continue;
         }
 
-        // Acquire next frame from capture source
-        // - For Scap (region mode): frames are already cropped
-        // - For WGC (monitor/window mode): frames are full capture area
-        let frame_data = if let Some(data) = pending_first_frame.take() {
-            Some(data)
+        // Acquire next frame from capture source (WGC for all modes)
+        // Get frame with hardware timestamp for precise cursor synchronization
+        // Note: Region capture frames are already cropped by CaptureSource
+        let frame = if let Some(data) = pending_first_frame.take() {
+            // Fallback: use application timing if we have a pending frame
+            Some((data, 0i64))
         } else {
-            capture_source.get_frame(100).map(|f| f.data)
+            capture_source
+                .get_frame(100)
+                .map(|f| (f.data, f.timestamp_100ns))
         };
 
-        let frame_acquired = match frame_data {
-            Some(data) => {
-                // Copy frame data to buffer - no manual cropping needed
-                // Scap handles cropping internally, WGC returns the full capture area
+        let (frame_data, frame_hw_timestamp) = match frame {
+            Some((data, ts)) => {
+                // Copy frame data to buffer
                 let len = data.len().min(buffer_pool.frame_size);
                 buffer_pool.frame_buffer[..len].copy_from_slice(&data[..len]);
-                true
+                (true, ts)
             },
-            None => false, // Timeout or no frame
+            None => (false, 0), // Timeout or no frame
         };
 
         // Skip if no frame was acquired
-        if !frame_acquired {
+        if !frame_data {
             continue;
         }
 
-        // Track first frame timing for cursor sync
-        // The first video frame may be delayed due to WGC/encoder initialization.
-        // We record this offset so cursor timestamps can be adjusted during playback.
+        // Track first frame timing for cursor sync using HARDWARE timestamp.
+        // The frame we're processing was captured BEFORE we receive it (buffering latency).
+        // Using actual_elapsed (processing time) would make cursor ahead of video.
+        // Instead, compute offset = (frame_capture_time - recording_start_time).
         if !first_frame_captured {
             first_frame_captured = true;
-            let first_frame_offset_ms = actual_elapsed.as_millis() as u64;
+            first_frame_hw_timestamp = frame_hw_timestamp;
+
+            // Compute offset from hardware timestamps:
+            // WGC's timestamp is in 100-nanosecond units (since system boot)
+            // QPC is in raw ticks at hardware-specific frequency
+            // Use frame_time_to_ms() which properly converts WGC time to QPC and computes delta
+            let first_frame_offset_ms = if frame_hw_timestamp > 0 {
+                timestamps.frame_time_to_ms(frame_hw_timestamp)
+            } else {
+                actual_elapsed.as_millis() as u64
+            };
             cursor_event_capture.set_video_start_offset(first_frame_offset_ms);
+
             log::info!(
-                "[RECORDING] First frame captured at {}ms offset from start",
-                first_frame_offset_ms
+                "[RECORDING] First frame: offset={}ms (elapsed={}ms, hw_ts={}, qpc={})",
+                first_frame_offset_ms,
+                actual_elapsed.as_millis(),
+                frame_hw_timestamp,
+                timestamps.performance_counter().raw()
             );
         }
 
@@ -571,7 +629,10 @@ pub fn run_video_capture(
         // Flip vertically using pooled buffer (both DXGI and WGC return top-down, encoder expects bottom-up)
         let flipped_data = buffer_pool.flip_vertical(width, height);
 
-        // Get video timestamp
+        // Get video timestamp using Instant-based timing (same as cursor)
+        // This ensures video and cursor timestamps are in the same time domain,
+        // eliminating any drift from mixing clock sources.
+        // Hardware timestamps are captured above but used only for debugging.
         let video_timestamp = (actual_elapsed.as_micros() * 10) as i64;
 
         // Send video frame to encoder

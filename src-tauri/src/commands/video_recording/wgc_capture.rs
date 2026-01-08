@@ -34,6 +34,10 @@ pub struct WgcFrame {
     pub width: u32,
     /// Frame height in pixels
     pub height: u32,
+    /// Hardware timestamp from WGC (100-nanosecond units since system boot).
+    /// This is the exact time the frame was captured by the GPU, independent
+    /// of application-level timing. Use this for precise cursor synchronization.
+    pub timestamp_100ns: i64,
 }
 
 /// Message sent from capture handler to receiver.
@@ -82,6 +86,10 @@ impl GraphicsCaptureApiHandler for VideoCaptureHandler {
         let width = frame.width();
         let height = frame.height();
 
+        // Get hardware timestamp FIRST (before buffer borrow) - this is when the
+        // frame was actually captured by the GPU, independent of application timing.
+        let timestamp_100ns = frame.timestamp().map(|ts| ts.Duration).unwrap_or(0);
+
         // Get frame buffer
         let buffer = match frame.buffer() {
             Ok(b) => b,
@@ -103,6 +111,7 @@ impl GraphicsCaptureApiHandler for VideoCaptureHandler {
             data: pixel_data.to_vec(),
             width,
             height,
+            timestamp_100ns,
         };
 
         // Send frame (drop if channel is full - receiver is behind)
@@ -473,6 +482,7 @@ mod tests {
             data: vec![0u8; (width * height * 4) as usize],
             width,
             height,
+            timestamp_100ns: 0, // Mock frames don't have real timestamps
         }
     }
 

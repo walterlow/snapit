@@ -42,6 +42,7 @@ pub mod master_clock;
 pub mod recorder;
 pub mod scap_capture;
 pub mod state;
+pub mod timestamp;
 pub mod types;
 pub mod video_export;
 pub mod video_project;

@@ -34,6 +34,7 @@ pub mod audio_multitrack;
 pub mod audio_sync;
 pub mod audio_wasapi;
 pub mod cursor;
+pub mod d3d_capture;
 pub mod desktop_icons;
 pub mod ffmpeg_gif_encoder;
 pub mod gif_encoder;

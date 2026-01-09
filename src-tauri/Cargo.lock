@@ -5524,6 +5524,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "scap-direct3d"
+version = "0.1.0"
+dependencies = [
+ "thiserror 1.0.69",
+ "tracing",
+ "windows 0.58.0",
+]
+
+[[package]]
+name = "scap-targets"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tracing",
+ "windows 0.58.0",
+]
+
+[[package]]
 name = "schemars"
 version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5892,6 +5910,8 @@ dependencies = [
  "rand 0.8.5",
  "resvg",
  "scap",
+ "scap-direct3d",
+ "scap-targets",
  "serde",
  "serde_json",
  "sha2",

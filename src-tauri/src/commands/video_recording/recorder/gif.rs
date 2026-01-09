@@ -1,6 +1,6 @@
 //! GIF capture implementation.
 //!
-//! Uses WGC (Windows Graphics Capture) for fast async capture at 30+ FPS.
+//! Uses D3D capture (scap-direct3d) for fast async capture at 30+ FPS.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -11,13 +11,13 @@ use tauri::AppHandle;
 
 use super::super::gif_encoder::GifRecorder;
 use super::super::state::{RecorderCommand, RecordingProgress};
-use super::super::wgc_capture::WgcVideoCapture;
 use super::super::{
     emit_state_change, find_monitor_for_point, RecordingMode, RecordingSettings, RecordingState,
 };
+use super::capture_source::CaptureSource;
 use super::helpers::is_window_mode;
 
-/// Run GIF capture using WGC (Windows Graphics Capture).
+/// Run GIF capture using D3D capture (scap-direct3d).
 /// Fast async capture at 30+ FPS for smooth GIFs.
 /// Returns the actual recording duration in seconds.
 pub fn run_gif_capture(
@@ -30,10 +30,10 @@ pub fn run_gif_capture(
 ) -> Result<f64, String> {
     log::debug!("[GIF] Starting capture, mode={:?}", settings.mode);
 
-    // Check if this is Window mode (native window capture via WGC)
+    // Check if this is Window mode
     let window_id = is_window_mode(&settings.mode);
 
-    // Get crop region if in region mode (not used for Window mode)
+    // Get crop region if in region mode
     let crop_region = match &settings.mode {
         RecordingMode::Region {
             x,
@@ -45,12 +45,9 @@ pub fn run_gif_capture(
     };
 
     // Determine monitor index and offset for Region mode
-    // We need the monitor offset to convert screen-space crop coords to monitor-local coords
-    // We also need to find the correct WGC monitor index by matching names
     let (monitor_index, monitor_offset) = match &settings.mode {
         RecordingMode::Monitor { monitor_index } => (*monitor_index, (0, 0)),
         RecordingMode::Region { x, y, .. } => {
-            // Find monitor that contains this region's top-left corner using Windows API
             if let Some((idx, name, mx, my)) = find_monitor_for_point(*x, *y) {
                 log::info!(
                     "[GIF] Region ({}, {}) is on monitor {} '{}' at offset ({}, {})",
@@ -69,31 +66,49 @@ pub fn run_gif_capture(
         _ => (0, (0, 0)),
     };
 
-    // Start WGC capture based on mode
-    // For window capture, wait for first frame to ensure capture is ready
-    let (wgc, first_frame_dims) = if let Some(wid) = window_id {
-        log::debug!("[GIF] Using window capture for hwnd={}", wid);
-        let wgc = WgcVideoCapture::new_window(wid, settings.include_cursor)
-            .map_err(|e| format!("Failed to start WGC window capture: {}", e))?;
+    // Create capture source based on mode (all use D3D now)
+    let (mut capture, first_frame_dims) = if let Some(wid) = window_id {
+        log::debug!("[GIF] Using D3D window capture for hwnd={}", wid);
+        let capture = CaptureSource::new_window(wid, settings.include_cursor)
+            .map_err(|e| format!("Failed to start D3D window capture: {}", e))?;
 
-        // Wait for first frame to get actual dimensions (important for DPI scaling)
-        let first_frame = wgc.wait_for_first_frame(1000);
+        // Wait for first frame to get actual dimensions
+        let first_frame = capture.wait_for_first_frame(1000);
         if first_frame.is_none() {
             log::warn!("[GIF] Timeout waiting for first frame from window capture");
         }
         let dims = first_frame.as_ref().map(|(w, h, _)| (*w, *h));
-        (wgc, dims)
+        (capture, dims)
+    } else if crop_region.is_some() {
+        // Region mode: use D3D with crop
+        log::debug!("[GIF] Using D3D region capture, monitor={}", monitor_index);
+        let (x, y, w, h) = crop_region.unwrap();
+        let capture = CaptureSource::new_region(
+            monitor_index,
+            (x, y, w, h),
+            monitor_offset,
+            settings.fps,
+            settings.include_cursor,
+        )
+        .map_err(|e| format!("Failed to start D3D region capture: {}", e))?;
+
+        let first_frame = capture.wait_for_first_frame(1000);
+        let dims = first_frame.as_ref().map(|(w, h, _)| (*w, *h));
+        (capture, dims)
     } else {
-        // Monitor/Region mode: use monitor capture with correct monitor
-        log::debug!("[GIF] Using monitor capture, index={}", monitor_index);
-        let wgc = WgcVideoCapture::new(monitor_index, settings.include_cursor)
-            .map_err(|e| format!("Failed to start WGC capture: {}", e))?;
-        (wgc, None)
+        // Monitor mode
+        log::debug!("[GIF] Using D3D monitor capture, index={}", monitor_index);
+        let capture = CaptureSource::new_monitor(monitor_index, settings.include_cursor)
+            .map_err(|e| format!("Failed to start D3D capture: {}", e))?;
+
+        let first_frame = capture.wait_for_first_frame(1000);
+        let dims = first_frame.as_ref().map(|(w, h, _)| (*w, *h));
+        (capture, dims)
     };
 
-    // Get capture dimensions - prefer first frame dims for window capture (DPI accuracy)
+    // Get capture dimensions from first frame
     let (capture_width, capture_height) =
-        first_frame_dims.unwrap_or_else(|| (wgc.width(), wgc.height()));
+        first_frame_dims.unwrap_or_else(|| (capture.width(), capture.height()));
     let (width, height) = if let Some((_, _, w, h)) = crop_region {
         (w, h)
     } else {
@@ -150,46 +165,17 @@ pub fn run_gif_capture(
             std::thread::sleep(sleep_time);
         }
 
-        // Drain channel to get the most recent frame (skip stale frames)
-        let mut frame = match wgc.get_frame(frame_timeout_ms) {
+        // Get the most recent frame
+        let frame = match capture.get_frame(frame_timeout_ms) {
             Some(f) => f,
             None => continue,
         };
 
-        // Keep draining to get the freshest frame
-        while let Some(newer_frame) = wgc.try_get_frame() {
-            frame = newer_frame;
-        }
-
         last_frame_time = Instant::now();
 
-        // WGC returns BGRA - keep it as BGRA, FFmpeg will handle it
-        let bgra_data = frame.data;
-
-        // Crop if needed - convert screen-space coords to monitor-local coords
-        let final_data = if let Some((screen_x, screen_y, w, h)) = crop_region {
-            // Subtract monitor offset to get monitor-local coordinates
-            let local_x = (screen_x - monitor_offset.0).max(0) as u32;
-            let local_y = (screen_y - monitor_offset.1).max(0) as u32;
-            let mut cropped = Vec::with_capacity((w * h * 4) as usize);
-
-            // Skip if crop region is outside frame bounds
-            if local_x < frame.width && local_y < frame.height {
-                let available_width = frame.width.saturating_sub(local_x);
-                let crop_w = w.min(available_width);
-
-                for row in local_y..(local_y + h).min(frame.height) {
-                    let start = ((row * frame.width + local_x) * 4) as usize;
-                    let end = ((row * frame.width + local_x + crop_w) * 4) as usize;
-                    if start < bgra_data.len() && end <= bgra_data.len() {
-                        cropped.extend_from_slice(&bgra_data[start..end]);
-                    }
-                }
-            }
-            cropped
-        } else {
-            bgra_data
-        };
+        // D3D returns BGRA - keep it as BGRA, FFmpeg will handle it
+        // Note: D3D capture with crop already returns cropped frames, no manual crop needed
+        let final_data = frame.data;
 
         // Add frame with actual elapsed timestamp
         let timestamp = elapsed.as_secs_f64();
@@ -212,8 +198,8 @@ pub fn run_gif_capture(
         }
     }
 
-    // Stop WGC capture
-    wgc.stop();
+    // Stop D3D capture
+    capture.stop();
 
     // Capture duration before any post-processing
     let recording_duration = start_time.elapsed().as_secs_f64();

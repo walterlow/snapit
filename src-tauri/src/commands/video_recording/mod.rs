@@ -41,14 +41,12 @@ pub mod gif_encoder;
 pub mod gpu_editor;
 pub mod master_clock;
 pub mod recorder;
-pub mod scap_capture;
 pub mod state;
 pub mod timestamp;
 pub mod types;
 pub mod video_export;
 pub mod video_project;
 pub mod webcam;
-pub mod wgc_capture;
 
 use lazy_static::lazy_static;
 use std::path::PathBuf;
@@ -61,9 +59,8 @@ use tauri::{command, AppHandle, Emitter, Manager};
 
 // Types (from types.rs)
 pub use types::{
-    find_monitor_for_point, get_monitor_bounds, get_scap_display_bounds, AudioInputDevice,
-    RecordingFormat, RecordingMode, RecordingSettings, RecordingState, RecordingStatus,
-    StartRecordingResult,
+    find_monitor_for_point, get_scap_display_bounds, AudioInputDevice, RecordingFormat,
+    RecordingMode, RecordingSettings, RecordingState, RecordingStatus, StartRecordingResult,
 };
 // StopRecordingResult is available via types:: but not re-exported (unused)
 

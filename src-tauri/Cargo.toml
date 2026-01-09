@@ -42,9 +42,6 @@ xcap = "0.8"
 # Screen capture - windows-capture for video recording and window capture
 windows-capture = "2.0.0-alpha.7"
 
-# Screen capture - scap for region capture with built-in crop support (local patched version)
-scap = { path = "crates/scap" }
-
 # Clean D3D capture infrastructure (ported from Cap)
 scap-direct3d = { path = "crates/scap-direct3d" }
 scap-targets = { path = "crates/scap-targets" }

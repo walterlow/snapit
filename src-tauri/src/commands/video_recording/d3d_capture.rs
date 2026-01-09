@@ -4,7 +4,7 @@
 //! based on Cap's capture architecture.
 
 use scap_direct3d::{Capturer, Frame, PixelFormat, Settings};
-use scap_targets::{Display, Window};
+use scap_targets::Display;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{self, Receiver},

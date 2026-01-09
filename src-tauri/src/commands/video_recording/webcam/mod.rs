@@ -21,6 +21,7 @@ mod feed;
 mod gpu_preview;
 mod native_frame;
 mod preview;
+mod preview_manager;
 mod segmented;
 
 // Legacy capture API (deprecated - use feed/preview instead)
@@ -49,6 +50,12 @@ pub use encoder::{FeedWebcamEncoder, WebcamEncoderPipe};
 pub use segmented::{
     concatenate_segments, SegmentInfo, SegmentedRecordingResult, SegmentedWebcamConfig,
     SegmentedWebcamMuxer,
+};
+
+// Centralized camera preview manager (Cap-style)
+pub use preview_manager::{
+    get_preview_manager, hide_camera_preview, is_camera_preview_showing, on_preview_window_close,
+    show_camera_preview_async, update_preview_settings, CameraPreviewManager,
 };
 
 use serde::{Deserialize, Serialize};

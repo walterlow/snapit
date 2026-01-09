@@ -29,6 +29,8 @@ pub const MAX_PREVIEW_SIZE: f32 = 250.0;
 pub const DEFAULT_PREVIEW_SIZE: f32 = 160.0;
 
 /// GPU surface scale for anti-aliasing (higher = smoother edges)
+/// Note: Must be 1 on Windows/Vulkan as surface size must match window size.
+/// Shader-based AA via fwidth() handles edge smoothing.
 const GPU_SURFACE_SCALE: u32 = 1;
 
 /// State for GPU preview configuration
@@ -285,19 +287,29 @@ async fn run_gpu_preview(
         // Try to get a frame
         match subscription.recv_timeout(timeout_remaining) {
             Some(frame) => {
+                if !received_first_frame {
+                    log::info!(
+                        "[GPU_PREVIEW] Received first frame: {}x{}",
+                        frame.width,
+                        frame.height
+                    );
+                }
                 received_first_frame = true;
 
                 // Update aspect ratio if changed
                 let aspect = frame.width as f32 / frame.height as f32;
                 if (aspect - renderer.aspect_ratio).abs() > 0.01 {
+                    log::info!("[GPU_PREVIEW] Updating aspect ratio: {}", aspect);
                     renderer.aspect_ratio = aspect;
                     renderer.update_camera_uniforms(aspect);
                     if let Ok((w, h)) = resize_window(&window, &state, aspect) {
+                        log::info!("[GPU_PREVIEW] Reconfiguring surface: {}x{}", w, h);
                         renderer.reconfigure_surface(w, h);
                     }
                 }
 
                 // Render frame
+                log::trace!("[GPU_PREVIEW] Rendering frame");
                 if let Err(e) = renderer.render_frame(&frame) {
                     log::warn!("[GPU_PREVIEW] Render error: {}", e);
                 }
@@ -313,22 +325,25 @@ async fn run_gpu_preview(
     Ok(())
 }
 
-/// Resize window based on state
+/// Resize window based on state.
+/// Returns physical dimensions for surface configuration.
 fn resize_window(
     window: &WebviewWindow,
     state: &GpuPreviewState,
     _aspect: f32,
 ) -> Result<(u32, u32), String> {
-    let size = state.size.clamp(MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE);
+    let logical_size = state.size.clamp(MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE);
 
-    // For circle/square, use equal width/height
-    let (width, height) = (size as u32, size as u32);
-
+    // Set window size (logical coordinates)
     window
-        .set_size(LogicalSize::new(width as f64, height as f64))
+        .set_size(LogicalSize::new(logical_size as f64, logical_size as f64))
         .map_err(|e| format!("Failed to resize window: {}", e))?;
 
-    Ok((width, height))
+    // Return physical dimensions for surface configuration
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let physical_size = (logical_size * scale_factor as f32) as u32;
+
+    Ok((physical_size, physical_size))
 }
 
 // ============================================================================
@@ -384,15 +399,56 @@ struct CameraUniforms {
 }
 
 async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Renderer, String> {
-    let size = state.size.clamp(MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE) as u32;
+    let logical_size = state.size.clamp(MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE) as u32;
+
+    // Get the scale factor to convert to physical pixels
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let physical_size = (logical_size as f64 * scale_factor) as u32;
+
+    log::info!(
+        "[GPU_PREVIEW] Initializing: logical={}x{}, scale={:.2}, physical={}x{}",
+        logical_size,
+        logical_size,
+        scale_factor,
+        physical_size,
+        physical_size
+    );
+
+    // TODO: Re-enable after fixing crash on toggle
+    // Exclude from screen capture is temporarily disabled to debug crash
+    // #[cfg(target_os = "windows")]
+    // {
+    //     use windows::Win32::Foundation::HWND;
+    //     use windows::Win32::UI::WindowsAndMessaging::{
+    //         SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+    //     };
+    //
+    //     if let Ok(hwnd) = window.hwnd() {
+    //         unsafe {
+    //             let _ = SetWindowDisplayAffinity(HWND(hwnd.0), WDA_EXCLUDEFROMCAPTURE);
+    //         }
+    //         log::info!("[GPU_PREVIEW] Window excluded from screen capture");
+    //     }
+    // }
 
     // Create wgpu instance and surface on main thread (required for window handle)
+    // Try Vulkan first with implicit layers disabled (Bandicam, OBS hooks cause crashes)
+    // Fall back to DX12 if Vulkan fails
     let (tx, rx) = tokio::sync::oneshot::channel();
     window
         .run_on_main_thread({
             let window = window.clone();
             move || {
-                let instance = wgpu::Instance::default();
+                // Disable Vulkan implicit layers that cause crashes (Bandicam, OBS)
+                // This env var tells the Vulkan loader to skip implicit layers
+                std::env::set_var("VK_LOADER_LAYERS_DISABLE", "*");
+
+                // Try Vulkan first (supports transparency)
+                let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                    backends: wgpu::Backends::VULKAN,
+                    ..Default::default()
+                });
+
                 let surface = instance.create_surface(window.clone());
                 let _ = tx.send((instance, surface));
             }
@@ -581,8 +637,13 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
         .contains(&CompositeAlphaMode::PostMultiplied)
     {
         CompositeAlphaMode::PostMultiplied
+    } else if surface_caps
+        .alpha_modes
+        .contains(&CompositeAlphaMode::Inherit)
+    {
+        CompositeAlphaMode::Inherit
     } else {
-        // Use the first supported alpha mode (usually Opaque on Windows)
+        // Use first available - Opaque won't give transparency but at least won't crash
         surface_caps
             .alpha_modes
             .first()
@@ -598,8 +659,8 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
     let surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
-        width: size * GPU_SURFACE_SCALE,
-        height: size * GPU_SURFACE_SCALE,
+        width: physical_size * GPU_SURFACE_SCALE,
+        height: physical_size * GPU_SURFACE_SCALE,
         present_mode: wgpu::PresentMode::Fifo,
         alpha_mode,
         view_formats: vec![],
@@ -636,10 +697,19 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
 
     // Initialize uniforms
     renderer.update_state_uniforms(state);
-    renderer.update_window_uniforms(size, size);
+    renderer.update_window_uniforms(physical_size, physical_size);
     renderer.update_camera_uniforms(1.0);
 
-    log::info!("[GPU_PREVIEW] wgpu initialized: {}x{}", size, size);
+    log::info!(
+        "[GPU_PREVIEW] wgpu initialized: {}x{} (physical)",
+        physical_size,
+        physical_size
+    );
+
+    // Small delay to ensure window is fully ready for rendering
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    log::info!("[GPU_PREVIEW] Ready for rendering");
+
     Ok(renderer)
 }
 
@@ -705,6 +775,7 @@ impl Renderer {
     }
 
     fn render_frame(&mut self, frame: &NativeCameraFrame) -> Result<(), String> {
+        log::trace!("[GPU_PREVIEW] render_frame: converting to RGBA");
         // Convert frame to RGBA for GPU upload
         let rgba_data = frame_to_rgba(frame)?;
         let width = frame.width;
@@ -718,6 +789,7 @@ impl Renderer {
             .unwrap_or(true);
 
         if needs_new_texture {
+            log::info!("[GPU_PREVIEW] Creating new texture: {}x{}", width, height);
             self.texture_cache = Some(self.create_texture(width, height));
         }
 
@@ -745,9 +817,14 @@ impl Renderer {
         );
 
         // Get surface texture - handle Outdated by reconfiguring
+        log::trace!("[GPU_PREVIEW] Getting surface texture");
         let surface_texture = match self.surface.get_current_texture() {
-            Ok(tex) => tex,
+            Ok(tex) => {
+                log::trace!("[GPU_PREVIEW] Got surface texture");
+                tex
+            },
             Err(wgpu::SurfaceError::Outdated) => {
+                log::info!("[GPU_PREVIEW] Surface outdated, reconfiguring");
                 // Surface needs reconfiguration (window resized/region changed)
                 self.surface.configure(&self.device, &self.surface_config);
                 self.surface

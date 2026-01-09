@@ -363,19 +363,42 @@ pub async fn start_gpu_webcam_preview(
         .get_webview_window("webcam-preview")
         .ok_or_else(|| "Webcam preview window not found".to_string())?;
 
-    // Apply circular window region for true transparency (Windows clips the window at OS level)
-    let preview_size = match size {
-        WebcamSize::Small => 120,
-        WebcamSize::Medium => 160,
-        WebcamSize::Large => 200,
-    };
-    if shape == WebcamShape::Circle {
-        if let Err(e) = crate::commands::window::apply_circular_region(&window, preview_size) {
-            log::warn!("[WEBCAM] Failed to apply circular region: {}", e);
+    // Ensure window has no decorations (title bar) - might get reset on restart
+    let _ = window.set_decorations(false);
+
+    // Also use Windows API directly to remove title bar (belt and suspenders)
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+            WS_SYSMENU, WS_THICKFRAME,
+        };
+
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let hwnd = HWND(hwnd.0);
+                let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+                // Remove title bar and related styles
+                let new_style = style
+                    & !(WS_CAPTION.0
+                        | WS_THICKFRAME.0
+                        | WS_SYSMENU.0
+                        | WS_MINIMIZEBOX.0
+                        | WS_MAXIMIZEBOX.0);
+                SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
+                log::debug!(
+                    "[WEBCAM] Removed window decorations via Win32 API: 0x{:X} -> 0x{:X}",
+                    style,
+                    new_style
+                );
+            }
         }
     }
 
-    webcam::start_gpu_preview(window, device_index)
+    // Start GPU preview - shape masking is done purely in shader (like Cap)
+    // No SetWindowRgn needed - shader handles circular/rectangular masking with anti-aliasing
+    webcam::start_gpu_preview(window.clone(), device_index)
 }
 
 /// Stop GPU-accelerated webcam preview.
@@ -393,15 +416,59 @@ pub fn is_gpu_webcam_preview_running() -> bool {
 
 /// Update GPU webcam preview settings (shape, size, mirror).
 #[command]
-pub fn update_gpu_webcam_preview_settings(size: WebcamSize, shape: WebcamShape, mirror: bool) {
+pub async fn update_gpu_webcam_preview_settings(
+    app: tauri::AppHandle,
+    size: WebcamSize,
+    shape: WebcamShape,
+    mirror: bool,
+) {
     log::debug!(
         "[WEBCAM] update_gpu_webcam_preview_settings(size={:?}, shape={:?}, mirror={})",
         size,
         shape,
         mirror
     );
-    let state = webcam::GpuPreviewState::from_settings(size, shape, mirror);
-    webcam::update_gpu_preview_state(state);
+    // Update both GPU state and window region (for transparency on Windows)
+    webcam::update_preview_settings(&app, size, shape, mirror);
+}
+
+// ============================================================================
+// New Camera Preview Manager Commands (Cap-style centralized lifecycle)
+// ============================================================================
+
+/// Show camera preview window.
+///
+/// Creates window HIDDEN, initializes wgpu, then shows window (Cap pattern).
+/// Uses the CameraPreviewManager to ensure only ONE preview exists at a time.
+#[command]
+pub async fn show_camera_preview(app: tauri::AppHandle, device_index: usize) -> Result<(), String> {
+    log::info!(
+        "[WEBCAM] show_camera_preview(device_index={})",
+        device_index
+    );
+    webcam::show_camera_preview_async(app, device_index).await
+}
+
+/// Hide camera preview window.
+///
+/// Stops GPU preview and destroys the window.
+#[command]
+pub fn hide_camera_preview(app: tauri::AppHandle) {
+    log::info!("[WEBCAM] hide_camera_preview()");
+    webcam::hide_camera_preview(&app);
+}
+
+/// Check if camera preview is currently showing.
+#[command]
+pub fn is_camera_preview_showing() -> bool {
+    webcam::is_camera_preview_showing()
+}
+
+/// Notify that preview window was closed (called from window event listener).
+#[command]
+pub fn notify_preview_window_closed() {
+    log::info!("[WEBCAM] notify_preview_window_closed()");
+    webcam::on_preview_window_close();
 }
 
 /// Get available audio input devices (microphones).
@@ -460,6 +527,10 @@ pub fn list_audio_input_devices() -> Result<Vec<AudioInputDevice>, String> {
 /// Close the webcam preview window.
 #[command]
 pub async fn close_webcam_preview(app: tauri::AppHandle) -> Result<(), String> {
+    // IMPORTANT: Stop GPU preview FIRST before destroying the window
+    // This ensures the render thread exits cleanly
+    webcam::stop_gpu_preview();
+
     if let Some(window) = app.get_webview_window("webcam-preview") {
         window.destroy().map_err(|e| e.to_string())?;
         log::debug!("[WEBCAM] Preview window closed");

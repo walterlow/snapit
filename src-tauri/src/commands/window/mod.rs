@@ -206,6 +206,76 @@ pub fn apply_circular_region(_window: &tauri::WebviewWindow, _diameter: i32) -> 
     Ok(())
 }
 
+/// Apply a rounded rectangle window region.
+/// Used for rectangle webcam shape with rounded corners.
+#[cfg(target_os = "windows")]
+pub fn apply_rounded_region(
+    window: &tauri::WebviewWindow,
+    width: i32,
+    height: i32,
+    corner_radius: i32,
+) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
+
+    let hwnd = window
+        .hwnd()
+        .map_err(|e| format!("Failed to get HWND: {}", e))?;
+
+    unsafe {
+        // Create rounded rectangle region
+        let hrgn = CreateRoundRectRgn(0, 0, width, height, corner_radius, corner_radius);
+        if hrgn.is_invalid() {
+            return Err("Failed to create rounded rectangle region".to_string());
+        }
+
+        // Apply region to window - Windows takes ownership of the region
+        let result = SetWindowRgn(HWND(hwnd.0), hrgn, true);
+        if result == 0 {
+            return Err("Failed to set window region".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn apply_rounded_region(
+    _window: &tauri::WebviewWindow,
+    _width: i32,
+    _height: i32,
+    _corner_radius: i32,
+) -> Result<(), String> {
+    Ok(())
+}
+
+/// Clear window region (restore to rectangular shape).
+/// Used when switching from circle to rectangle shape.
+#[cfg(target_os = "windows")]
+pub fn clear_window_region(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{SetWindowRgn, HRGN};
+
+    let hwnd = window
+        .hwnd()
+        .map_err(|e| format!("Failed to get HWND: {}", e))?;
+
+    unsafe {
+        // Pass NULL region to restore default rectangular shape
+        let result = SetWindowRgn(HWND(hwnd.0), HRGN::default(), true);
+        if result == 0 {
+            return Err("Failed to clear window region".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn clear_window_region(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
 /// Exclude a window from screen capture using Windows API.
 /// This prevents the window from appearing in screenshots and screen recordings.
 #[cfg(target_os = "windows")]

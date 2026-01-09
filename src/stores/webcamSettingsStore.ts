@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { WebcamDevice, WebcamSettings, WebcamPosition, WebcamSize, WebcamShape } from '../types/generated';
 import { createErrorHandler } from '../utils/errorReporting';
 import { webcamLogger } from '../utils/logger';
@@ -36,13 +35,8 @@ const DEFAULT_WEBCAM_SETTINGS: WebcamSettings = {
   mirror: true,
 };
 
-// Preview window size based on webcam size setting
-const PREVIEW_SIZES: Record<WebcamSize, number> = {
-  small: 120,
-  medium: 160,
-  large: 200,
-};
-
+// Guard against concurrent preview creation
+let isCreatingPreview = false;
 
 export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => ({
   settings: { ...DEFAULT_WEBCAM_SETTINGS },
@@ -190,114 +184,58 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       // Close preview using the reliable closePreview method
       await closePreview();
     } else {
-      // First ensure any stale preview is closed
-      try {
-        await invoke('stop_native_webcam_preview');
-      } catch {
-        // Ignore - might not be running
+      // Prevent concurrent preview creation (race from multiple focus events)
+      if (isCreatingPreview) {
+        webcamLogger.debug('Preview creation already in progress, skipping');
+        return;
       }
-      try {
-        await invoke('stop_webcam_preview');
-      } catch {
-        // Ignore - might not be running
-      }
-      try {
-        await invoke('close_webcam_preview');
-      } catch {
-        // Ignore - window might not exist
-      }
+      isCreatingPreview = true;
 
-      // Small delay to ensure cleanup
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // Create WebView-based preview window
-      // The window polls JPEG frames from native Rust webcam capture service
       try {
-        const size = PREVIEW_SIZES[settings.size];
-        const win = new WebviewWindow('webcam-preview', {
-          url: '/webcam-preview.html',
-          title: 'Webcam Preview',
-          width: size,
-          height: size,
-          resizable: false,
-          decorations: false,
-          alwaysOnTop: true,
-          transparent: true,
-          skipTaskbar: true,
-          shadow: false,
-          center: false,
-          x: 100,
-          y: 100,
-        });
+        webcamLogger.debug('Opening preview via Rust (Cap pattern)');
 
-        win.once('tauri://created', async () => {
-          set({ previewOpen: true });
-          // Emit settings to the new window
-          emit('webcam-settings-changed', settings).catch(
-            createErrorHandler({ operation: 'emit webcam-settings-changed', silent: true })
-          );
-          
-          // Exclude preview from screen capture (so it doesn't appear in recordings)
+        // Use new Rust-controlled flow (Cap pattern):
+        // - Creates window HIDDEN
+        // - Initializes wgpu
+        // - Shows window after GPU is ready
+        await invoke('show_camera_preview', { deviceIndex: settings.deviceIndex });
+
+        set({ previewOpen: true });
+        webcamLogger.debug('Preview opened successfully');
+
+        // Trigger anchor positioning after a delay
+        setTimeout(async () => {
           try {
-            await invoke('exclude_webcam_from_capture');
-          } catch (e) {
-            webcamLogger.warn('Failed to exclude preview from capture:', e);
-          }
-          
-          // Trigger anchor positioning after a delay
-          setTimeout(async () => {
-            try {
-              await invoke('bring_webcam_preview_to_front');
-              // Emit anchor change so CaptureToolbarWindow can position the webcam
-              if (settings.position.type !== 'custom') {
-                emit('webcam-anchor-changed', { anchor: settings.position.type }).catch(
-                  createErrorHandler({ operation: 'emit webcam-anchor-changed', silent: true })
-                );
-              }
-            } catch {
-              // Ignore
+            await invoke('bring_webcam_preview_to_front');
+            // Emit anchor change so CaptureToolbarWindow can position the webcam
+            if (settings.position.type !== 'custom') {
+              emit('webcam-anchor-changed', { anchor: settings.position.type }).catch(
+                createErrorHandler({ operation: 'emit webcam-anchor-changed', silent: true })
+              );
             }
-          }, 300);
-        });
-
-        win.once('tauri://close-requested', () => {
-          set({ previewOpen: false });
-        });
-
-        win.once('tauri://destroyed', () => {
-          set({ previewOpen: false });
-        });
-
-        win.once('tauri://error', (e) => {
-          webcamLogger.error('Failed to create webcam preview:', e);
-          set({ previewOpen: false });
-        });
+          } catch {
+            // Ignore
+          }
+        }, 300);
       } catch (error) {
         webcamLogger.error('Failed to open webcam preview:', error);
+        set({ previewOpen: false });
+      } finally {
+        isCreatingPreview = false;
       }
     }
   },
 
   closePreview: async () => {
-    // Stop native preview (Windows GDI)
-    try {
-      await invoke('stop_native_webcam_preview');
-    } catch {
-      // Ignore - might not be running
-    }
+    // Reset creation guard first to allow re-creation after close
+    isCreatingPreview = false;
 
-    // Use Rust command to close the WebView window (most reliable)
+    // Use new Rust-controlled hide (Cap pattern)
     try {
-      await invoke('close_webcam_preview');
+      await invoke('hide_camera_preview');
+      webcamLogger.debug('Preview closed via Rust');
     } catch (e) {
-      webcamLogger.error('Failed to close preview via Rust:', e);
-    }
-
-    // Also emit event as backup
-    try {
-      await emit('webcam-preview-close');
-    } catch {
-      // Ignore
+      webcamLogger.error('Failed to close preview:', e);
     }
 
     set({ previewOpen: false });

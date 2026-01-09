@@ -154,7 +154,8 @@ export const CursorOverlay = memo(function CursorOverlay({
   const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs, cursorRecording);
 
   // Simple counter to force re-render when images load
-  const [, forceUpdate] = useState(0);
+  // This counter is included in render useEffect deps to ensure canvas redraws after SVG load
+  const [imageLoadCounter, forceUpdate] = useState(0);
   const triggerUpdate = useCallback(() => forceUpdate((n) => n + 1), []);
 
   // Get interpolated cursor data
@@ -413,6 +414,7 @@ export const CursorOverlay = memo(function CursorOverlay({
     currentTimeMs,
     cursorRecording?.width,
     cursorRecording?.height,
+    imageLoadCounter, // Re-run when SVG/bitmap images finish loading
   ]);
 
   // Don't render if no cursor data or not visible

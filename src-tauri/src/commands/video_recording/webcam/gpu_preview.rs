@@ -414,22 +414,7 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
         physical_size
     );
 
-    // TODO: Re-enable after fixing crash on toggle
-    // Exclude from screen capture is temporarily disabled to debug crash
-    // #[cfg(target_os = "windows")]
-    // {
-    //     use windows::Win32::Foundation::HWND;
-    //     use windows::Win32::UI::WindowsAndMessaging::{
-    //         SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
-    //     };
-    //
-    //     if let Ok(hwnd) = window.hwnd() {
-    //         unsafe {
-    //             let _ = SetWindowDisplayAffinity(HWND(hwnd.0), WDA_EXCLUDEFROMCAPTURE);
-    //         }
-    //         log::info!("[GPU_PREVIEW] Window excluded from screen capture");
-    //     }
-    // }
+    // NOTE: SetWindowDisplayAffinity is called AFTER wgpu init to avoid interference
 
     // Create wgpu instance and surface on main thread (required for window handle)
     // Try Vulkan first with implicit layers disabled (Bandicam, OBS hooks cause crashes)
@@ -705,6 +690,26 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
         physical_size,
         physical_size
     );
+
+    // Exclude webcam preview from screen capture (called AFTER wgpu init to avoid interference)
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+        };
+
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let result = SetWindowDisplayAffinity(HWND(hwnd.0), WDA_EXCLUDEFROMCAPTURE);
+                if result.is_ok() {
+                    log::info!("[GPU_PREVIEW] Window excluded from screen capture");
+                } else {
+                    log::warn!("[GPU_PREVIEW] Failed to exclude window from screen capture");
+                }
+            }
+        }
+    }
 
     // Small delay to ensure window is fully ready for rendering
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;

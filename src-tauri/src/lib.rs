@@ -34,6 +34,7 @@ use tauri_plugin_autostart::MacosLauncher;
 pub mod app;
 mod commands;
 pub mod config;
+pub mod cursor;
 pub mod error;
 pub mod rendering;
 

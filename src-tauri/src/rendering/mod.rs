@@ -20,6 +20,7 @@ pub mod exporter;
 pub mod renderer;
 pub mod scene;
 pub mod stream_decoder;
+pub mod svg_cursor;
 pub mod types;
 pub mod zoom;
 
@@ -28,12 +29,16 @@ pub use coord::{
     CaptureSpace, Coord, FrameSpace, Rect, ScreenSpace, ScreenUVSpace, Size, TransformParams,
     ZoomedFrameSpace,
 };
-pub use cursor::{composite_cursor, CursorInterpolator, InterpolatedCursor};
+pub use cursor::{
+    composite_cursor, composite_cursor_with_motion_blur, get_svg_cursor_image, CursorInterpolator,
+    DecodedCursorImage, InterpolatedCursor,
+};
 pub use decoder::VideoDecoder;
 pub use editor_instance::EditorInstance;
 pub use exporter::export_video_gpu;
 pub use renderer::Renderer;
 pub use scene::{InterpolatedScene, SceneInterpolator};
 pub use stream_decoder::StreamDecoder;
+pub use svg_cursor::{get_svg_cursor, render_svg_cursor, RenderedSvgCursor};
 pub use types::*;
 pub use zoom::ZoomInterpolator;

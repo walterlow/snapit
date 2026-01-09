@@ -68,6 +68,231 @@ const MIN_CURSOR_TRAVEL_FOR_INTERPOLATION: f32 = 0.02;
 const MAX_INTERPOLATED_STEPS: usize = 120;
 
 // ============================================================================
+// Cursor Idle Fade-Out (from Cap)
+// ============================================================================
+
+/// Minimum delay before cursor starts fading out when idle (ms).
+const CURSOR_IDLE_MIN_DELAY_MS: f64 = 500.0;
+
+/// Duration of the fade-out animation (ms).
+const CURSOR_IDLE_FADE_OUT_MS: f64 = 400.0;
+
+// ============================================================================
+// Cursor Click Animation (from Cap)
+// ============================================================================
+
+/// Duration of the click animation (seconds).
+const CURSOR_CLICK_DURATION: f64 = 0.25;
+
+/// Duration of the click animation (ms).
+const CURSOR_CLICK_DURATION_MS: f64 = CURSOR_CLICK_DURATION * 1000.0;
+
+/// Scale factor when cursor is "shrunk" during click (0.7 = 30% smaller).
+const CLICK_SHRINK_SIZE: f32 = 0.7;
+
+// ============================================================================
+// Motion Blur Configuration
+// ============================================================================
+
+/// Number of trail samples for motion blur effect.
+const MOTION_BLUR_SAMPLES: usize = 8;
+
+/// Minimum velocity (normalized units/frame) to trigger motion blur.
+/// Below this threshold, no blur is applied.
+const MOTION_BLUR_MIN_VELOCITY: f32 = 0.005;
+
+/// Maximum trail length as fraction of frame diagonal.
+/// Limits how far back the motion blur trail extends.
+const MOTION_BLUR_MAX_TRAIL: f32 = 0.15;
+
+/// Velocity multiplier for trail length calculation.
+/// Higher values = longer trails for same velocity.
+const MOTION_BLUR_VELOCITY_SCALE: f32 = 2.0;
+
+// ============================================================================
+// Idle Fade-Out & Click Animation Functions (from Cap)
+// ============================================================================
+
+/// Smooth interpolation function (cubic Hermite).
+fn smoothstep64(edge0: f64, edge1: f64, x: f64) -> f64 {
+    if edge1 <= edge0 {
+        return if x < edge0 { 0.0 } else { 1.0 };
+    }
+
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Smooth interpolation function (f32 version for click animation).
+fn smoothstep(low: f32, high: f32, v: f32) -> f32 {
+    let t = f32::clamp((v - low) / (high - low), 0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Compute cursor opacity based on idle time.
+///
+/// Returns 0-1 opacity value. Cursor fades out after being idle for `hide_delay_ms`,
+/// and fades back in when movement resumes.
+///
+/// # Arguments
+/// * `events` - All cursor events (moves and clicks)
+/// * `current_time_ms` - Current playback time in milliseconds
+/// * `hide_delay_ms` - Delay before fade-out starts (default: CURSOR_IDLE_MIN_DELAY_MS)
+fn compute_cursor_idle_opacity(
+    events: &[CursorEvent],
+    current_time_ms: u64,
+    hide_delay_ms: f64,
+) -> f32 {
+    // Filter to move events only
+    let moves: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e.event_type, CursorEventType::Move))
+        .collect();
+
+    if moves.is_empty() {
+        return 0.0;
+    }
+
+    let current_time = current_time_ms as f64;
+
+    if current_time <= moves[0].timestamp_ms as f64 {
+        return 1.0;
+    }
+
+    // Find last move before current time
+    let last_move = moves
+        .iter()
+        .rev()
+        .find(|e| (e.timestamp_ms as f64) <= current_time);
+
+    let Some(last_move) = last_move else {
+        return 1.0;
+    };
+
+    let time_since_move = (current_time - last_move.timestamp_ms as f64).max(0.0);
+
+    // Calculate fade-in (in case cursor just resumed moving after being idle)
+    let mut opacity = compute_cursor_fade_in(&moves, current_time, hide_delay_ms);
+
+    // Calculate fade-out
+    let fade_out = if time_since_move <= hide_delay_ms {
+        1.0
+    } else {
+        let delta = time_since_move - hide_delay_ms;
+        let fade = 1.0 - smoothstep64(0.0, CURSOR_IDLE_FADE_OUT_MS, delta);
+        fade.clamp(0.0, 1.0) as f32
+    };
+
+    opacity *= fade_out;
+    opacity.clamp(0.0, 1.0)
+}
+
+/// Compute fade-in opacity when cursor resumes moving after being idle.
+fn compute_cursor_fade_in(moves: &[&CursorEvent], current_time_ms: f64, hide_delay_ms: f64) -> f32 {
+    // Find the most recent "resume" point - where cursor started moving again
+    // after a gap longer than hide_delay_ms
+    let resume_time = moves
+        .windows(2)
+        .rev()
+        .find(|pair| {
+            let prev = pair[0];
+            let next = pair[1];
+            let next_time = next.timestamp_ms as f64;
+            let gap = next_time - prev.timestamp_ms as f64;
+            next_time <= current_time_ms && gap > hide_delay_ms
+        })
+        .map(|pair| pair[1].timestamp_ms as f64);
+
+    let Some(resume_time_ms) = resume_time else {
+        return 1.0;
+    };
+
+    let time_since_resume = (current_time_ms - resume_time_ms).max(0.0);
+
+    smoothstep64(0.0, CURSOR_IDLE_FADE_OUT_MS, time_since_resume) as f32
+}
+
+/// Get click animation progress (0-1).
+///
+/// Returns a value that can be used to animate the cursor during clicks:
+/// - 0.0 = button is pressed (cursor should shrink to CLICK_SHRINK_SIZE)
+/// - 1.0 = normal state (no click happening)
+/// - Values in between = animating from/to click
+fn get_click_t(events: &[CursorEvent], time_ms: u64) -> f32 {
+    // Filter to click events only
+    let clicks: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e.event_type, CursorEventType::LeftClick { .. }))
+        .collect();
+
+    if clicks.len() < 2 {
+        return 1.0;
+    }
+
+    let time = time_ms as f64;
+
+    // Find the click event just before current time
+    let mut prev_i = None;
+    for (i, pair) in clicks.windows(2).enumerate() {
+        let left = pair[0];
+        let right = pair[1];
+
+        if (left.timestamp_ms as f64) <= time && (right.timestamp_ms as f64) > time {
+            prev_i = Some(i);
+            break;
+        }
+    }
+
+    let Some(prev_i) = prev_i else {
+        return 1.0;
+    };
+
+    let prev = clicks[prev_i];
+
+    // Check if button is currently pressed
+    if let CursorEventType::LeftClick { pressed: true } = prev.event_type {
+        return 0.0;
+    }
+
+    // Check if we're in the release animation window
+    if let CursorEventType::LeftClick { pressed: false } = prev.event_type {
+        let time_since_release = time - prev.timestamp_ms as f64;
+        if time_since_release <= CURSOR_CLICK_DURATION_MS {
+            return smoothstep(
+                0.0,
+                CURSOR_CLICK_DURATION_MS as f32,
+                time_since_release as f32,
+            );
+        }
+    }
+
+    // Check if we're approaching a press event
+    if let Some(next) = clicks.get(prev_i + 1) {
+        if let CursorEventType::LeftClick { pressed: true } = next.event_type {
+            let time_until_press = next.timestamp_ms as f64 - time;
+            if time_until_press <= CURSOR_CLICK_DURATION_MS && time_until_press >= 0.0 {
+                return smoothstep(
+                    0.0,
+                    CURSOR_CLICK_DURATION_MS as f32,
+                    time_until_press as f32,
+                );
+            }
+        }
+    }
+
+    1.0
+}
+
+/// Calculate cursor scale based on click state.
+///
+/// Returns a scale factor (0.7-1.0) based on click animation progress.
+fn get_cursor_click_scale(events: &[CursorEvent], time_ms: u64) -> f32 {
+    let t = get_click_t(events, time_ms);
+    // Interpolate between CLICK_SHRINK_SIZE (0.7) and 1.0
+    CLICK_SHRINK_SIZE + (1.0 - CLICK_SHRINK_SIZE) * t
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -98,6 +323,10 @@ pub struct InterpolatedCursor {
     pub velocity_y: f32,
     /// Active cursor image ID (references cursor_images map).
     pub cursor_id: Option<String>,
+    /// Opacity (0-1) based on idle fade-out.
+    pub opacity: f32,
+    /// Scale factor (0.7-1.0) based on click animation.
+    pub scale: f32,
 }
 
 impl Default for InterpolatedCursor {
@@ -108,6 +337,8 @@ impl Default for InterpolatedCursor {
             velocity_x: 0.0,
             velocity_y: 0.0,
             cursor_id: None,
+            opacity: 1.0,
+            scale: 1.0,
         }
     }
 }
@@ -292,9 +523,22 @@ impl CursorInterpolator {
     }
 
     /// Get interpolated cursor position at a specific timestamp.
+    ///
+    /// This returns the smoothed cursor position along with:
+    /// - `opacity`: Fades out when idle, fades in when movement resumes
+    /// - `scale`: Shrinks during click animation
     pub fn get_cursor_at(&self, time_ms: u64) -> InterpolatedCursor {
         let cursor_id = get_active_cursor_id(&self.original_events, time_ms);
-        interpolate_at_time(&self.smoothed_events, time_ms, cursor_id)
+        let mut cursor = interpolate_at_time(&self.smoothed_events, time_ms, cursor_id);
+
+        // Compute opacity based on idle time
+        cursor.opacity =
+            compute_cursor_idle_opacity(&self.original_events, time_ms, CURSOR_IDLE_MIN_DELAY_MS);
+
+        // Compute scale based on click animation
+        cursor.scale = get_cursor_click_scale(&self.original_events, time_ms);
+
+        cursor
     }
 
     /// Get decoded cursor image by ID.
@@ -542,6 +786,8 @@ fn interpolate_at_time(
             velocity_x: e.velocity.x,
             velocity_y: e.velocity.y,
             cursor_id,
+            opacity: 1.0, // Will be set by get_cursor_at
+            scale: 1.0,   // Will be set by get_cursor_at
         };
     }
 
@@ -554,6 +800,8 @@ fn interpolate_at_time(
             velocity_x: last.velocity.x,
             velocity_y: last.velocity.y,
             cursor_id,
+            opacity: 1.0,
+            scale: 1.0,
         };
     }
 
@@ -578,6 +826,8 @@ fn interpolate_at_time(
                 velocity_x: sim.velocity.x,
                 velocity_y: sim.velocity.y,
                 cursor_id,
+                opacity: 1.0,
+                scale: 1.0,
             };
         }
     }
@@ -589,6 +839,8 @@ fn interpolate_at_time(
         velocity_x: last.velocity.x,
         velocity_y: last.velocity.y,
         cursor_id,
+        opacity: 1.0,
+        scale: 1.0,
     }
 }
 
@@ -655,21 +907,32 @@ fn decode_cursor_images(
 
 /// Composite cursor image onto frame (CPU-based).
 ///
+/// Uses the cursor's opacity and scale properties for idle fade-out and click animation.
+/// The `base_scale` parameter allows additional scaling on top of the cursor's animated scale.
+///
 /// # Arguments
 /// * `frame_data` - Mutable reference to frame RGBA data
 /// * `frame_width` - Frame width in pixels
 /// * `frame_height` - Frame height in pixels
-/// * `cursor` - Interpolated cursor position (normalized 0-1)
+/// * `cursor` - Interpolated cursor position (normalized 0-1) with opacity and scale
 /// * `cursor_image` - Decoded cursor image
-/// * `scale` - Cursor scale factor (1.0 = native size)
+/// * `base_scale` - Base cursor scale factor (1.0 = native size), multiplied with cursor.scale
 pub fn composite_cursor(
     frame_data: &mut [u8],
     frame_width: u32,
     frame_height: u32,
     cursor: &InterpolatedCursor,
     cursor_image: &DecodedCursorImage,
-    scale: f32,
+    base_scale: f32,
 ) {
+    // Skip if cursor is fully transparent
+    if cursor.opacity <= 0.0 {
+        return;
+    }
+
+    // Combine base scale with click animation scale
+    let scale = base_scale * cursor.scale;
+
     // Convert normalized position to pixel position
     let pixel_x = cursor.x * frame_width as f32;
     let pixel_y = cursor.y * frame_height as f32;
@@ -716,8 +979,8 @@ pub fn composite_cursor(
                 continue;
             }
 
-            // Alpha blending
-            let alpha = src_a as f32 / 255.0;
+            // Alpha blending with cursor opacity (idle fade-out)
+            let alpha = (src_a as f32 / 255.0) * cursor.opacity;
             let inv_alpha = 1.0 - alpha;
 
             frame_data[dst_idx] =
@@ -729,6 +992,107 @@ pub fn composite_cursor(
             // Keep destination alpha (frame_data[dst_idx + 3])
         }
     }
+}
+
+/// Composite cursor with motion blur effect onto frame (CPU-based).
+///
+/// Renders a trail of semi-transparent cursor copies behind the main cursor
+/// based on velocity. The trail fades out towards the tail.
+///
+/// # Arguments
+/// * `frame_data` - Mutable reference to frame RGBA data
+/// * `frame_width` - Frame width in pixels
+/// * `frame_height` - Frame height in pixels
+/// * `cursor` - Interpolated cursor position with velocity
+/// * `cursor_image` - Decoded cursor image
+/// * `base_scale` - Base cursor scale factor
+pub fn composite_cursor_with_motion_blur(
+    frame_data: &mut [u8],
+    frame_width: u32,
+    frame_height: u32,
+    cursor: &InterpolatedCursor,
+    cursor_image: &DecodedCursorImage,
+    base_scale: f32,
+) {
+    // Calculate velocity magnitude (in normalized units)
+    let velocity_magnitude =
+        (cursor.velocity_x * cursor.velocity_x + cursor.velocity_y * cursor.velocity_y).sqrt();
+
+    // If velocity is below threshold, just render normally without blur
+    if velocity_magnitude < MOTION_BLUR_MIN_VELOCITY {
+        composite_cursor(
+            frame_data,
+            frame_width,
+            frame_height,
+            cursor,
+            cursor_image,
+            base_scale,
+        );
+        return;
+    }
+
+    // Calculate trail length based on velocity (clamped to max)
+    let trail_length = (velocity_magnitude * MOTION_BLUR_VELOCITY_SCALE).min(MOTION_BLUR_MAX_TRAIL);
+
+    // Normalize velocity direction
+    let dir_x = -cursor.velocity_x / velocity_magnitude;
+    let dir_y = -cursor.velocity_y / velocity_magnitude;
+
+    // Render trail samples from back to front (so front cursor is on top)
+    for i in (0..MOTION_BLUR_SAMPLES).rev() {
+        let t = i as f32 / (MOTION_BLUR_SAMPLES - 1) as f32;
+
+        // Position along the trail (0 = current position, 1 = trail end)
+        let offset_x = dir_x * trail_length * t;
+        let offset_y = dir_y * trail_length * t;
+
+        // Create a modified cursor for this trail sample
+        let trail_cursor = InterpolatedCursor {
+            x: cursor.x + offset_x,
+            y: cursor.y + offset_y,
+            velocity_x: cursor.velocity_x,
+            velocity_y: cursor.velocity_y,
+            cursor_id: cursor.cursor_id.clone(),
+            // Fade out towards the tail: front (t=0) is full opacity, tail (t=1) is 0
+            opacity: cursor.opacity * (1.0 - t * 0.85),
+            scale: cursor.scale,
+        };
+
+        composite_cursor(
+            frame_data,
+            frame_width,
+            frame_height,
+            &trail_cursor,
+            cursor_image,
+            base_scale,
+        );
+    }
+}
+
+/// Get an SVG cursor as a DecodedCursorImage if the shape is known.
+///
+/// This allows using SVG cursors with the existing composite functions.
+/// Returns None if the shape is not recognized or SVG rendering fails.
+///
+/// # Arguments
+/// * `shape` - The Windows cursor shape
+/// * `target_height` - Target height in pixels (used for scaling)
+pub fn get_svg_cursor_image(
+    shape: crate::commands::video_recording::cursor::events::WindowsCursorShape,
+    target_height: u32,
+) -> Option<DecodedCursorImage> {
+    use super::svg_cursor::render_svg_cursor;
+
+    let scale = target_height as f32 / 24.0;
+    let rendered = render_svg_cursor(shape, scale)?;
+
+    Some(DecodedCursorImage {
+        width: rendered.width,
+        height: rendered.height,
+        hotspot_x: rendered.hotspot_x,
+        hotspot_y: rendered.hotspot_y,
+        data: rendered.data,
+    })
 }
 
 #[cfg(test)]

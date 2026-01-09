@@ -110,6 +110,68 @@ export const WINDOWS_CURSORS: Record<WindowsCursorShape, CursorDefinition> = {
     hotspotX: 0.055,
     hotspotY: 0.945,
   },
+  // Scroll cursors - no SVGs yet, use sizeAll as visual fallback
+  // These will typically use bitmap capture which is more accurate
+  scrollNS: {
+    svg: '/cursors/windows/size-ns.svg', // Fallback to vertical resize
+    hotspotX: 0.5,
+    hotspotY: 0.5,
+  },
+  scrollWE: {
+    svg: '/cursors/windows/idcsizewe.svg', // Fallback to horizontal resize
+    hotspotX: 0.5,
+    hotspotY: 0.5,
+  },
+  scrollNSEW: {
+    svg: '/cursors/windows/sizeall.svg', // Fallback to 4-way
+    hotspotX: 0.5,
+    hotspotY: 0.5,
+  },
+  scrollN: {
+    svg: '/cursors/windows/uparrow.svg', // Fallback to up arrow
+    hotspotX: 0.5,
+    hotspotY: 0.05,
+  },
+  scrollS: {
+    svg: '/cursors/windows/uparrow.svg', // Fallback (rotated in CSS if needed)
+    hotspotX: 0.5,
+    hotspotY: 0.95,
+  },
+  scrollW: {
+    svg: '/cursors/windows/idcsizewe.svg', // Fallback
+    hotspotX: 0.05,
+    hotspotY: 0.5,
+  },
+  scrollE: {
+    svg: '/cursors/windows/idcsizewe.svg', // Fallback
+    hotspotX: 0.95,
+    hotspotY: 0.5,
+  },
+  scrollNW: {
+    svg: '/cursors/windows/idcsizenwse.svg', // Fallback to diagonal
+    hotspotX: 0.5,
+    hotspotY: 0.5,
+  },
+  scrollNE: {
+    svg: '/cursors/windows/size-nesw.svg', // Fallback to diagonal
+    hotspotX: 0.5,
+    hotspotY: 0.5,
+  },
+  scrollSW: {
+    svg: '/cursors/windows/size-nesw.svg', // Fallback to diagonal
+    hotspotX: 0.5,
+    hotspotY: 0.5,
+  },
+  scrollSE: {
+    svg: '/cursors/windows/idcsizenwse.svg', // Fallback to diagonal
+    hotspotX: 0.5,
+    hotspotY: 0.5,
+  },
+  arrowCD: {
+    svg: '/cursors/windows/arrow.svg', // Fallback to standard arrow
+    hotspotX: 0.288,
+    hotspotY: 0.189,
+  },
 };
 
 /**

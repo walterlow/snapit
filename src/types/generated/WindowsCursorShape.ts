@@ -4,4 +4,4 @@
  * Standard Windows cursor shapes.
  * These map to Windows IDC_* cursor constants.
  */
-export type WindowsCursorShape = "arrow" | "iBeam" | "wait" | "cross" | "upArrow" | "sizeNWSE" | "sizeNESW" | "sizeWE" | "sizeNS" | "sizeAll" | "no" | "hand" | "appStarting" | "help" | "pin" | "person" | "pen";
+export type WindowsCursorShape = "arrow" | "iBeam" | "wait" | "cross" | "upArrow" | "sizeNWSE" | "sizeNESW" | "sizeWE" | "sizeNS" | "sizeAll" | "no" | "hand" | "appStarting" | "help" | "pin" | "person" | "pen" | "scrollNS" | "scrollWE" | "scrollNSEW" | "scrollN" | "scrollS" | "scrollW" | "scrollE" | "scrollNW" | "scrollNE" | "scrollSW" | "scrollSE" | "arrowCD";

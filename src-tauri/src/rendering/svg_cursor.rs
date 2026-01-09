@@ -136,6 +136,19 @@ fn get_svg_data(shape: WindowsCursorShape) -> Option<SvgCursorData> {
             hotspot_x: 0.5,
             hotspot_y: 0.5,
         }),
+        // Scroll cursors - no SVG assets yet, fall back to bitmap
+        WindowsCursorShape::ScrollNS
+        | WindowsCursorShape::ScrollWE
+        | WindowsCursorShape::ScrollNSEW
+        | WindowsCursorShape::ScrollN
+        | WindowsCursorShape::ScrollS
+        | WindowsCursorShape::ScrollW
+        | WindowsCursorShape::ScrollE
+        | WindowsCursorShape::ScrollNW
+        | WindowsCursorShape::ScrollNE
+        | WindowsCursorShape::ScrollSW
+        | WindowsCursorShape::ScrollSE
+        | WindowsCursorShape::ArrowCD => None,
     }
 }
 

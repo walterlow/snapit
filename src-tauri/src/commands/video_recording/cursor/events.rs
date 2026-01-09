@@ -47,6 +47,19 @@ pub enum WindowsCursorShape {
     Pin,
     Person,
     Pen,
+    // Scroll cursors (MAKEINTRESOURCE values)
+    ScrollNS,   // 32652
+    ScrollWE,   // 32653
+    ScrollNSEW, // 32654
+    ScrollN,    // 32655
+    ScrollS,    // 32656
+    ScrollW,    // 32657
+    ScrollE,    // 32658
+    ScrollNW,   // 32659
+    ScrollNE,   // 32660
+    ScrollSW,   // 32661
+    ScrollSE,   // 32662
+    ArrowCD,    // 32663
 }
 
 impl WindowsCursorShape {
@@ -70,6 +83,18 @@ impl WindowsCursorShape {
             Self::Pin => "pin",
             Self::Person => "person",
             Self::Pen => "pen",
+            Self::ScrollNS => "scrollNS",
+            Self::ScrollWE => "scrollWE",
+            Self::ScrollNSEW => "scrollNSEW",
+            Self::ScrollN => "scrollN",
+            Self::ScrollS => "scrollS",
+            Self::ScrollW => "scrollW",
+            Self::ScrollE => "scrollE",
+            Self::ScrollNW => "scrollNW",
+            Self::ScrollNE => "scrollNE",
+            Self::ScrollSW => "scrollSW",
+            Self::ScrollSE => "scrollSE",
+            Self::ArrowCD => "arrowCD",
         }
     }
 }
@@ -117,6 +142,22 @@ fn get_cursor_handle_cache() -> &'static HashMap<isize, WindowsCursorShape> {
         insert(IDC_PERSON, WindowsCursorShape::Person);
         // Pen cursor uses MAKEINTRESOURCE(32631)
         insert(PCWSTR(32631u16 as *const u16), WindowsCursorShape::Pen);
+        // Scroll cursors (MAKEINTRESOURCE values)
+        insert(PCWSTR(32652u16 as *const u16), WindowsCursorShape::ScrollNS);
+        insert(PCWSTR(32653u16 as *const u16), WindowsCursorShape::ScrollWE);
+        insert(
+            PCWSTR(32654u16 as *const u16),
+            WindowsCursorShape::ScrollNSEW,
+        );
+        insert(PCWSTR(32655u16 as *const u16), WindowsCursorShape::ScrollN);
+        insert(PCWSTR(32656u16 as *const u16), WindowsCursorShape::ScrollS);
+        insert(PCWSTR(32657u16 as *const u16), WindowsCursorShape::ScrollW);
+        insert(PCWSTR(32658u16 as *const u16), WindowsCursorShape::ScrollE);
+        insert(PCWSTR(32659u16 as *const u16), WindowsCursorShape::ScrollNW);
+        insert(PCWSTR(32660u16 as *const u16), WindowsCursorShape::ScrollNE);
+        insert(PCWSTR(32661u16 as *const u16), WindowsCursorShape::ScrollSW);
+        insert(PCWSTR(32662u16 as *const u16), WindowsCursorShape::ScrollSE);
+        insert(PCWSTR(32663u16 as *const u16), WindowsCursorShape::ArrowCD);
 
         log::debug!("[CURSOR_EVENTS] Loaded {} system cursor handles", map.len());
         map

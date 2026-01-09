@@ -4,13 +4,14 @@
 //! based on Cap's capture architecture.
 
 use scap_direct3d::{Capturer, Frame, PixelFormat, Settings};
-use scap_targets::Display;
+use scap_targets::{Display, Window};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    mpsc::{self, Receiver, Sender},
+    mpsc::{self, Receiver},
     Arc,
 };
 use std::time::Duration;
+use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct3D11::D3D11_BOX;
 
 /// A captured video frame with metadata.
@@ -168,6 +169,97 @@ impl D3DVideoCapture {
             fps,
             show_cursor,
             crop: None,
+        })
+    }
+
+    /// Create capture for a window by HWND.
+    pub fn new_window(window_hwnd: isize, fps: u32, show_cursor: bool) -> Result<Self, String> {
+        use windows::Graphics::Capture::GraphicsCaptureItem;
+        use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
+
+        let hwnd = HWND(window_hwnd as *mut _);
+
+        // Create capture item from window
+        let capture_item: GraphicsCaptureItem = unsafe {
+            let interop =
+                windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+                    .map_err(|e| format!("Failed to get interop: {}", e))?;
+            interop
+                .CreateForWindow(hwnd)
+                .map_err(|e| format!("Failed to create capture item for window: {}", e))?
+        };
+
+        // Get window size
+        let size = capture_item
+            .Size()
+            .map_err(|e| format!("Failed to get window size: {}", e))?;
+
+        let width = size.Width as u32;
+        let height = size.Height as u32;
+
+        // Build settings
+        let mut settings = Settings {
+            pixel_format: PixelFormat::B8G8R8A8Unorm,
+            fps: Some(fps),
+            ..Default::default()
+        };
+
+        // Configure border (hide yellow border on Win11+)
+        if Settings::can_is_border_required().unwrap_or(false) {
+            settings.is_border_required = Some(false);
+        }
+
+        // Configure cursor capture
+        if Settings::can_is_cursor_capture_enabled().unwrap_or(false) {
+            settings.is_cursor_capture_enabled = Some(show_cursor);
+        }
+
+        // Configure frame rate
+        if Settings::can_min_update_interval().unwrap_or(false) {
+            settings.min_update_interval = Some(Duration::from_secs_f64(1.0 / fps as f64));
+        }
+
+        // Create channel for frames
+        let (frame_tx, frame_rx) = mpsc::sync_channel::<D3DFrame>(4);
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_flag_callback = stop_flag.clone();
+
+        // Create capturer with frame callback
+        let capturer = Capturer::new(
+            capture_item,
+            settings,
+            move |frame: Frame| {
+                if stop_flag_callback.load(Ordering::Relaxed) {
+                    return Ok(());
+                }
+
+                let buffer = frame.as_buffer()?;
+                let data = buffer.to_vec_no_stride();
+
+                let d3d_frame = D3DFrame {
+                    data,
+                    width: frame.width(),
+                    height: frame.height(),
+                    timestamp_100ns: frame.inner().SystemRelativeTime()?.Duration,
+                };
+
+                let _ = frame_tx.try_send(d3d_frame);
+                Ok(())
+            },
+            || {
+                log::debug!("Window capture session closed");
+                Ok(())
+            },
+            None,
+        )
+        .map_err(|e| format!("Failed to create window capturer: {}", e))?;
+
+        Ok(Self {
+            frame_rx,
+            stop_flag,
+            width,
+            height,
+            _capturer: Some(capturer),
         })
     }
 

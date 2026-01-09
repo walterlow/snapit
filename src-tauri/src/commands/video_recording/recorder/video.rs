@@ -162,7 +162,12 @@ pub fn run_video_capture(
         );
         let source = CaptureSource::new_monitor(monitor_index, false)
             .map_err(|e| format!("Failed to create Scap capture: {}", e))?;
-        (source, None)
+
+        // Wait for first frame to get actual dimensions (critical for correct encoder init)
+        // Without this, we use placeholder 1920x1080 which causes tiling artifacts on
+        // monitors with different resolutions
+        let first_frame = source.wait_for_first_frame(1000);
+        (source, first_frame)
     };
 
     // Get capture dimensions - use actual frame dimensions when available

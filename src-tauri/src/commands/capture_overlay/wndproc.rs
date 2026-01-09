@@ -279,7 +279,7 @@ fn handle_region_selection_complete(state: &mut OverlayState) {
             // For video/gif, enter adjustment mode
             state.enter_adjustment_mode(local_bounds);
             emit_adjustment_ready(state, screen_bounds);
-            show_toolbar(state, screen_bounds);
+            show_toolbar(state, screen_bounds, SourceType::Area);
         }
     }
 
@@ -321,7 +321,14 @@ fn handle_window_selection(state: &mut OverlayState, window_bounds: Rect, window
         let local_bounds = state.monitor.screen_rect_to_local(window_bounds);
         state.enter_adjustment_mode_locked(local_bounds);
         emit_adjustment_ready(state, window_bounds);
-        show_toolbar(state, window_bounds);
+        show_toolbar(
+            state,
+            window_bounds,
+            SourceType::Window {
+                id: window_id,
+                title,
+            },
+        );
     }
     let _ = render::render(state);
 }
@@ -332,7 +339,8 @@ fn handle_monitor_selection(state: &mut OverlayState) {
     let screen_y = state.monitor.y + state.drag.start.y;
 
     if let Ok(monitors) = xcap::Monitor::all() {
-        if let Some(mon) = monitors.iter().find(|m| {
+        // Find monitor containing the click point along with its index
+        if let Some((monitor_index, mon)) = monitors.iter().enumerate().find(|(_, m)| {
             let mx = m.x().unwrap_or(0);
             let my = m.y().unwrap_or(0);
             let mw = m.width().unwrap_or(1920) as i32;
@@ -343,6 +351,7 @@ fn handle_monitor_selection(state: &mut OverlayState) {
             let mon_y = mon.y().unwrap_or(0);
             let mon_w = mon.width().unwrap_or(1920);
             let mon_h = mon.height().unwrap_or(1080);
+            let mon_name = mon.name().ok();
 
             let screen_bounds = Rect::from_xywh(mon_x, mon_y, mon_w, mon_h);
 
@@ -356,7 +365,14 @@ fn handle_monitor_selection(state: &mut OverlayState) {
                 let local_bounds = state.monitor.screen_rect_to_local(screen_bounds);
                 state.enter_adjustment_mode_locked(local_bounds);
                 emit_adjustment_ready(state, screen_bounds);
-                show_toolbar(state, screen_bounds);
+                show_toolbar(
+                    state,
+                    screen_bounds,
+                    SourceType::Display {
+                        index: monitor_index,
+                        name: mon_name,
+                    },
+                );
             }
             let _ = render::render(state);
         }
@@ -488,7 +504,14 @@ fn emit_final_selection(state: &OverlayState) {
 
 /// Emit event to create capture toolbar window from frontend
 /// Frontend has full control over sizing/positioning without hardcoded dimensions
-fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
+/// Source type for recording mode selection
+enum SourceType {
+    Area,
+    Window { id: isize, title: String },
+    Display { index: usize, name: Option<String> },
+}
+
+fn show_toolbar(state: &OverlayState, screen_bounds: Rect, source: SourceType) {
     // For locked selections (display/window), make overlay click-through
     // This is bulletproof - no Z-order fighting needed
     if state.adjustment.is_locked {
@@ -497,15 +520,31 @@ fn show_toolbar(state: &OverlayState, screen_bounds: Rect) {
     // For unlocked selections (region), overlay stays interactive for adjustment handles
     // The toolbar will still appear on top due to TOPMOST flag
 
-    let _ = state.app_handle.emit(
-        "create-capture-toolbar",
-        serde_json::json!({
-            "x": screen_bounds.left,
-            "y": screen_bounds.top,
-            "width": screen_bounds.width(),
-            "height": screen_bounds.height()
-        }),
-    );
+    let mut payload = serde_json::json!({
+        "x": screen_bounds.left,
+        "y": screen_bounds.top,
+        "width": screen_bounds.width(),
+        "height": screen_bounds.height()
+    });
+
+    // Add source-specific metadata for recording mode selection
+    match source {
+        SourceType::Area => {
+            payload["sourceType"] = serde_json::json!("area");
+        },
+        SourceType::Window { id, title } => {
+            payload["sourceType"] = serde_json::json!("window");
+            payload["windowId"] = serde_json::json!(id);
+            payload["sourceTitle"] = serde_json::json!(title);
+        },
+        SourceType::Display { index, name } => {
+            payload["sourceType"] = serde_json::json!("display");
+            payload["monitorIndex"] = serde_json::json!(index);
+            payload["monitorName"] = serde_json::json!(name);
+        },
+    }
+
+    let _ = state.app_handle.emit("create-capture-toolbar", payload);
 }
 
 /// Make the overlay click-through so the toolbar receives all mouse events.

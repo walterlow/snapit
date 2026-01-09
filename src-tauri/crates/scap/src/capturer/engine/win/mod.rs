@@ -85,58 +85,73 @@ impl GraphicsCaptureApiHandler for Capturer {
             ))
             .unwrap();
 
-        match &self.crop {
+        // Get actual frame dimensions (physical pixels from GPU)
+        let frame_width = frame.width();
+        let frame_height = frame.height();
+
+        // Get raw buffer with stride padding removed using as_nopadding_buffer
+        // This is the robust approach - the windows_capture crate handles stride internally
+        let frame_buffer = match frame.buffer() {
+            Ok(buf) => buf,
+            Err(e) => {
+                eprintln!("[SCAP] buffer error (skipping frame): {:?}", e);
+                return Ok(());
+            },
+        };
+
+        // Use as_nopadding_buffer to get pixel data without stride padding
+        // This is the same approach used in wgc_capture.rs and properly handles
+        // all GPU buffer layouts regardless of row_pitch accuracy
+        let mut temp_buffer = Vec::new();
+        let output_data = frame_buffer.as_nopadding_buffer(&mut temp_buffer).to_vec();
+
+        // Handle crop if specified
+        let (final_data, output_width, output_height) = match &self.crop {
             Some(cropped_area) => {
-                // get the cropped area
                 let start_x = cropped_area.origin.x as u32;
                 let start_y = cropped_area.origin.y as u32;
                 let end_x = (cropped_area.origin.x + cropped_area.size.width) as u32;
                 let end_y = (cropped_area.origin.y + cropped_area.size.height) as u32;
 
-                // crop the frame - handle errors gracefully instead of panicking
-                let cropped_buffer = match frame.buffer_crop(start_x, start_y, end_x, end_y) {
-                    Ok(buf) => buf,
-                    Err(e) => {
-                        // GPU device errors can be transient, skip this frame
-                        eprintln!("[SCAP] buffer_crop error (skipping frame): {:?}", e);
-                        return Ok(());
-                    },
-                };
+                // Check if crop area matches or exceeds frame (DPI scaling or full-frame)
+                let is_full_frame =
+                    start_x == 0 && start_y == 0 && (end_x >= frame_width || end_y >= frame_height);
 
-                // get raw frame buffer
-                let mut temp_buffer = Vec::new();
-                let raw_frame_buffer = cropped_buffer.as_nopadding_buffer(&mut temp_buffer);
+                if is_full_frame {
+                    // Full frame - use as-is
+                    (output_data, frame_width as i32, frame_height as i32)
+                } else {
+                    // Actual crop needed - clamp to frame bounds and extract region
+                    let clamped_end_x = end_x.min(frame_width);
+                    let clamped_end_y = end_y.min(frame_height);
+                    let crop_w = (clamped_end_x - start_x) as usize;
+                    let crop_h = (clamped_end_y - start_y) as usize;
 
-                let bgr_frame = BGRAFrame {
-                    display_time,
-                    width: cropped_area.size.width as i32,
-                    height: cropped_area.size.height as i32,
-                    data: raw_frame_buffer.to_vec(),
-                };
-
-                let _ = self.tx.send(Frame::Video(VideoFrame::BGRA(bgr_frame)));
+                    let mut cropped = Vec::with_capacity(crop_w * crop_h * 4);
+                    for y in start_y as usize..clamped_end_y as usize {
+                        let src_start = (y * frame_width as usize + start_x as usize) * 4;
+                        let src_end = src_start + crop_w * 4;
+                        if src_end <= output_data.len() {
+                            cropped.extend_from_slice(&output_data[src_start..src_end]);
+                        }
+                    }
+                    (cropped, crop_w as i32, crop_h as i32)
+                }
             },
             None => {
-                // get raw frame buffer - handle errors gracefully
-                let mut frame_buffer = match frame.buffer() {
-                    Ok(buf) => buf,
-                    Err(e) => {
-                        eprintln!("[SCAP] buffer error (skipping frame): {:?}", e);
-                        return Ok(());
-                    },
-                };
-                let raw_frame_buffer = frame_buffer.as_raw_buffer();
-                let frame_data = raw_frame_buffer.to_vec();
-                let bgr_frame = BGRAFrame {
-                    display_time,
-                    width: frame.width() as i32,
-                    height: frame.height() as i32,
-                    data: frame_data,
-                };
-
-                let _ = self.tx.send(Frame::Video(VideoFrame::BGRA(bgr_frame)));
+                // No crop - full frame
+                (output_data, frame_width as i32, frame_height as i32)
             },
-        }
+        };
+
+        let bgr_frame = BGRAFrame {
+            display_time,
+            width: output_width,
+            height: output_height,
+            data: final_data,
+        };
+
+        let _ = self.tx.send(Frame::Video(VideoFrame::BGRA(bgr_frame)));
         Ok(())
     }
 
@@ -210,6 +225,11 @@ pub fn create_capturer(
         DrawBorderSettings::Default
     };
 
+    // Only set crop when there's an explicit crop_area.
+    // For full-screen capture (crop_area = None), we use crop: None to avoid
+    // coordinate mismatch between logical dimensions and physical capture resolution.
+    let crop = options.crop_area.as_ref().map(|_| get_crop_area(options));
+
     let settings = match target {
         Target::Display(display) => Settings::Display(WCSettings::new(
             WCMonitor::from_raw_hmonitor(display.raw_handle.0),
@@ -221,7 +241,7 @@ pub fn create_capturer(
             color_format,
             FlagStruct {
                 tx: tx.clone(),
-                crop: Some(get_crop_area(options)),
+                crop: crop.clone(),
             },
         )),
         Target::Window(window) => Settings::Window(WCSettings::new(
@@ -234,7 +254,7 @@ pub fn create_capturer(
             color_format,
             FlagStruct {
                 tx: tx.clone(),
-                crop: Some(get_crop_area(options)),
+                crop,
             },
         )),
     };

@@ -80,17 +80,35 @@ export function useAppEventListeners(callbacks: AppEventCallbacks) {
     // Update capture toolbar bounds from D2D overlay
     // If toolbar exists, confirm selection and update; if not, let Rust create it
     unlisteners.push(
-      listen<{ x: number; y: number; width: number; height: number }>(
+      listen<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        sourceType?: 'area' | 'window' | 'display';
+        windowId?: number | null;
+        sourceTitle?: string | null;
+        monitorIndex?: number | null;
+        monitorName?: string | null;
+      }>(
         'create-capture-toolbar',
         async (event) => {
-          const { x, y, width, height } = event.payload;
+          const { x, y, width, height, sourceType, windowId, sourceTitle, monitorIndex, monitorName } = event.payload;
 
           // Check if toolbar already exists
           const existing = await WebviewWindow.getByLabel('capture-toolbar');
           if (existing) {
             // Toolbar exists - emit confirm-selection to mark selection confirmed and reposition
             // This is a NEW selection from overlay, not an adjustment update
-            await existing.emit('confirm-selection', { x, y, width, height });
+            // Pass through all metadata for proper recording mode
+            await existing.emit('confirm-selection', {
+              x, y, width, height,
+              sourceType,
+              windowId,
+              sourceTitle,
+              monitorIndex,
+              monitorName
+            });
             // Bring to front
             await existing.show();
             await existing.setFocus();

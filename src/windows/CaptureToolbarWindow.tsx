@@ -302,13 +302,18 @@ const CaptureToolbarWindow: React.FC = () => {
           });
         }
 
-        // Use window mode if we have a windowId, otherwise use region mode
-        const mode = bounds.windowId
-          ? { type: 'window' as const, windowId: bounds.windowId }
-          : { type: 'region' as const, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+        // Determine recording mode based on sourceType
+        // Display mode uses monitor capture (no crop, avoids DPI scaling issues)
+        // Window mode uses window capture
+        // Otherwise use region mode
+        const mode = bounds.sourceType === 'display' && bounds.monitorIndex != null
+          ? { type: 'monitor' as const, monitorIndex: bounds.monitorIndex }
+          : bounds.windowId
+            ? { type: 'window' as const, windowId: bounds.windowId }
+            : { type: 'region' as const, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
 
-        // Debug: Log the region coordinates being sent to backend
-        toolbarLogger.info(`[CURSOR_DEBUG] Recording region: x=${bounds.x}, y=${bounds.y}, width=${bounds.width}, height=${bounds.height}`);
+        // Debug: Log the recording mode and coordinates
+        toolbarLogger.info(`[CURSOR_DEBUG] Recording mode: ${JSON.stringify(mode)}, sourceType=${bounds.sourceType}, monitorIndex=${bounds.monitorIndex}`);
 
         const recordingSettings = {
           format: captureType === 'gif' ? 'gif' : 'mp4',

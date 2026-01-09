@@ -19,7 +19,10 @@ use super::super::audio_multitrack::MultiTrackAudioRecorder;
 use super::super::cursor::{save_cursor_recording, CursorEventCapture};
 use super::super::state::{RecorderCommand, RecordingProgress};
 use super::super::timestamp::Timestamps;
-use super::super::webcam::{stop_capture_service, WebcamEncoderPipe};
+use super::super::webcam::{
+    global_feed_dimensions, start_global_feed, stop_capture_service, stop_global_feed,
+    FeedWebcamEncoder, WebcamEncoderPipe,
+};
 use super::super::{
     emit_state_change, find_monitor_for_point, get_scap_display_bounds, get_webcam_settings,
     RecordingMode, RecordingSettings, RecordingState,
@@ -217,41 +220,44 @@ pub fn run_video_capture(
     // NOTE: Cursor is now captured via CursorEventCapture (events + images)
     // and rendered by the video editor/exporter - not composited during recording.
 
-    // === WEBCAM ENCODER SETUP ===
-    // Try to use pre-spawned FFmpeg pipe (from prepare_recording).
-    // Falls back to spawning new one if not available.
-    let mut webcam_pipe: Option<WebcamEncoderPipe> = if webcam_output_path.is_some() {
-        use super::super::take_prepared_webcam_pipe;
-        use super::super::webcam::WEBCAM_BUFFER;
-
-        // Quick check if webcam is ready (should be, since we pre-warmed)
-        if WEBCAM_BUFFER.current_frame_id() == 0 {
-            let deadline = Instant::now() + Duration::from_millis(100);
-            while Instant::now() < deadline && WEBCAM_BUFFER.current_frame_id() == 0 {
-                std::thread::sleep(Duration::from_millis(5));
+    // === WEBCAM ENCODER SETUP (Feed-based) ===
+    // Uses the camera feed subscription system for zero-copy frame sharing.
+    let mut webcam_encoder: Option<FeedWebcamEncoder> =
+        if let Some(ref webcam_path) = webcam_output_path {
+            // Ensure camera feed is running (should be from GPU preview pre-warm)
+            let device_index = get_webcam_settings().map(|s| s.device_index).unwrap_or(0);
+            if let Err(e) = start_global_feed(device_index) {
+                log::warn!("[WEBCAM] Failed to start camera feed: {}", e);
             }
-        }
 
-        // Try to use pre-spawned pipe first (instant!)
-        if let Some(pipe) = take_prepared_webcam_pipe() {
-            Some(pipe)
-        } else if let Some(ref webcam_path) = webcam_output_path {
-            // Fallback: spawn new FFmpeg (slower)
-            log::debug!("[WEBCAM] No prepared pipe, spawning FFmpeg now");
-            match WebcamEncoderPipe::new(webcam_path.clone()) {
-                Ok(pipe) => Some(pipe),
+            // Wait briefly for feed to produce frames
+            let deadline = Instant::now() + Duration::from_millis(200);
+            while Instant::now() < deadline {
+                if let Some((w, h)) = global_feed_dimensions() {
+                    if w > 0 && h > 0 {
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+
+            // Get dimensions from feed
+            let (width, height) = global_feed_dimensions().unwrap_or((1280, 720));
+
+            // Create feed-based encoder
+            match FeedWebcamEncoder::new(webcam_path.clone(), width, height) {
+                Ok(encoder) => {
+                    log::info!("[WEBCAM] Feed encoder started: {}x{}", width, height);
+                    Some(encoder)
+                },
                 Err(e) => {
-                    log::warn!("Webcam encoder failed: {}", e);
-                    stop_capture_service();
+                    log::warn!("[WEBCAM] Feed encoder failed: {}", e);
                     None
                 },
             }
         } else {
             None
-        }
-    } else {
-        None
-    };
+        };
 
     // === MULTI-TRACK AUDIO RECORDING ===
     // Record system audio and microphone to separate WAV files for later mixing.
@@ -340,7 +346,7 @@ pub fn run_video_capture(
         width,
         height,
         settings.fps,
-        webcam_pipe.is_some()
+        webcam_encoder.is_some()
     );
 
     // Create shared start time using high-precision Timestamps.
@@ -638,11 +644,7 @@ pub fn run_video_capture(
         // Audio is NOT sent to encoder - see comment at audio_settings creation.
         // MultiTrackAudioRecorder handles WAV capture, FFmpeg muxes post-recording.
 
-        // === WEBCAM FRAME (synchronized with screen frame) ===
-        // Write webcam frame for each screen frame - ensures 1:1 correspondence
-        if let Some(ref mut pipe) = webcam_pipe {
-            pipe.write_frame();
-        }
+        // Webcam frames are captured automatically by FeedWebcamEncoder subscription
 
         frame_count += 1;
         progress.increment_frame();
@@ -663,9 +665,9 @@ pub fn run_video_capture(
     // Calculate recording stats
     let total_elapsed = start_time.elapsed();
     let recording_duration = total_elapsed - pause_time;
-    let webcam_frames = webcam_pipe
+    let webcam_frames = webcam_encoder
         .as_ref()
-        .map(|p| p.frames_written())
+        .map(|e| e.frames_written())
         .unwrap_or(0);
     log::debug!(
         "[RECORDING] Complete: {:.2}s, {} frames ({:.1} fps), webcam: {} frames",
@@ -680,19 +682,20 @@ pub fn run_video_capture(
 
     // Finish webcam encoder BEFORE stopping capture service
     // Pass the actual recording duration so webcam syncs perfectly with screen
-    if let Some(pipe) = webcam_pipe {
+    if let Some(encoder) = webcam_encoder {
         if was_cancelled {
-            pipe.cancel();
+            encoder.cancel();
             if let Some(ref path) = webcam_output_path {
                 let _ = std::fs::remove_file(path);
             }
-        } else if let Err(e) = pipe.finish_with_duration(recording_duration.as_secs_f64()) {
+        } else if let Err(e) = encoder.finish_with_duration(recording_duration.as_secs_f64()) {
             log::warn!("Webcam encoding failed: {}", e);
         }
     }
 
-    // Stop capture services
+    // Stop capture services (both old buffer and new feed system)
     stop_capture_service();
+    stop_global_feed();
     let _ = multitrack_audio.stop();
     let cursor_recording = cursor_event_capture.stop();
 

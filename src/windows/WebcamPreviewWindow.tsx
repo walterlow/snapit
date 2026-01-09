@@ -1,17 +1,16 @@
 /**
- * WebcamPreviewWindow - Native webcam preview using Rust capture service.
+ * WebcamPreviewWindow - GPU-accelerated webcam preview.
  *
- * Uses native webcam capture via nokhwa (Rust) for consistent timing with recording.
- * Polls for JPEG frames from Rust and displays them in an <img> element.
- * Recording is handled entirely in Rust (WebcamEncoder) - no browser MediaRecorder.
- * The window is excluded from screen capture (SetWindowDisplayAffinity).
+ * Uses wgpu to render camera frames directly to the window surface.
+ * No JPEG encoding, no IPC polling - smooth 30fps GPU-rendered preview.
+ * The window content is transparent; GPU draws the webcam feed with shape masking.
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { WebcamSettings, WebcamSize, WebcamShape } from '@/types/generated';
+import type { WebcamSettings, WebcamSize } from '@/types/generated';
 import { webcamLogger } from '@/utils/logger';
 
 // Preview window size based on webcam size setting
@@ -31,28 +30,34 @@ const DEFAULT_SETTINGS: WebcamSettings = {
   mirror: false,
 };
 
-// Frame polling interval (ms) - ~30fps
-const FRAME_POLL_INTERVAL = 33;
-
-// JPEG quality for preview (0-100)
-const PREVIEW_QUALITY = 75;
-
 const WebcamPreviewWindow: React.FC = () => {
-  const [frameData, setFrameData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [settings, setSettings] = useState<WebcamSettings>(DEFAULT_SETTINGS);
+  const [gpuReady, setGpuReady] = useState(false);
   
-  const frameIntervalRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
-  const captureStartedRef = useRef(false);
+  const gpuStartedRef = useRef(false);
   const currentDeviceRef = useRef<number | null>(null);
 
   // Listen for settings changes from the toolbar
   useEffect(() => {
-    const unlisten = listen<WebcamSettings>('webcam-settings-changed', (event) => {
+    const unlisten = listen<WebcamSettings>('webcam-settings-changed', async (event) => {
       webcamLogger.debug('Settings changed:', event.payload);
       setSettings(event.payload);
+      
+      // Update GPU preview settings if running
+      if (gpuStartedRef.current) {
+        try {
+          await invoke('update_gpu_webcam_preview_settings', {
+            size: event.payload.size,
+            shape: event.payload.shape,
+            mirror: event.payload.mirror,
+          });
+        } catch (e) {
+          webcamLogger.warn('Failed to update GPU preview settings:', e);
+        }
+      }
     });
 
     return () => {
@@ -75,62 +80,34 @@ const WebcamPreviewWindow: React.FC = () => {
     resizeWindow();
   }, [settings.size]);
 
-  // Poll for frames from native capture service
-  const pollFrame = useCallback(async () => {
-    if (!mountedRef.current) return;
-
-    try {
-      const frame = await invoke<string | null>('get_webcam_preview_frame', {
-        quality: PREVIEW_QUALITY,
-      });
-
-      if (frame && mountedRef.current) {
-        setFrameData(`data:image/jpeg;base64,${frame}`);
-        setError(null);
-      }
-    } catch (e) {
-      // Only log errors occasionally to avoid spam
-      webcamLogger.debug('Frame poll error:', e);
-    }
-  }, []);
-
-  // Start frame polling (separate from capture start to avoid re-polling issues)
-  const startPolling = useCallback(() => {
-    if (frameIntervalRef.current) return; // Already polling
-    frameIntervalRef.current = window.setInterval(pollFrame, FRAME_POLL_INTERVAL);
-    webcamLogger.debug('Frame polling started');
-  }, [pollFrame]);
-
-  const stopPolling = useCallback(() => {
-    if (frameIntervalRef.current) {
-      clearInterval(frameIntervalRef.current);
-      frameIntervalRef.current = null;
-      webcamLogger.debug('Frame polling stopped');
-    }
-  }, []);
-
-  // Start native webcam capture service (only once on mount, or when device changes)
+  // Start GPU webcam preview
   useEffect(() => {
     mountedRef.current = true;
     
-    const startCapture = async () => {
+    const startGpuPreview = async () => {
       const deviceIndex = settings.deviceIndex;
       
       // Skip if already started with this device
-      if (captureStartedRef.current && currentDeviceRef.current === deviceIndex) {
-        webcamLogger.debug('Capture already running for device', deviceIndex);
+      if (gpuStartedRef.current && currentDeviceRef.current === deviceIndex) {
+        webcamLogger.debug('GPU preview already running for device', deviceIndex);
         return;
       }
       
       try {
-        webcamLogger.debug('Starting native capture, device:', deviceIndex);
-        await invoke('start_webcam_preview', { deviceIndex });
-        captureStartedRef.current = true;
+        webcamLogger.debug('Starting GPU webcam preview, device:', deviceIndex);
+        
+        await invoke('start_gpu_webcam_preview', {
+          deviceIndex,
+          size: settings.size,
+          shape: settings.shape,
+          mirror: settings.mirror,
+        });
+        
+        gpuStartedRef.current = true;
         currentDeviceRef.current = deviceIndex;
-        webcamLogger.debug('Native capture started');
-
-        // Start polling for frames
-        startPolling();
+        setGpuReady(true);
+        setError(null);
+        webcamLogger.debug('GPU webcam preview started');
 
         // Exclude window from screen capture
         try {
@@ -140,37 +117,34 @@ const WebcamPreviewWindow: React.FC = () => {
           webcamLogger.warn('Failed to exclude from capture:', e);
         }
       } catch (e) {
-        webcamLogger.error('Failed to start native capture:', e);
+        webcamLogger.error('Failed to start GPU webcam preview:', e);
         if (mountedRef.current) {
-          setError(e instanceof Error ? e.message : 'Failed to access webcam');
+          setError(e instanceof Error ? e.message : String(e));
         }
       }
     };
 
-    startCapture();
+    startGpuPreview();
 
-    // Cleanup only stops polling, NOT the capture service
-    // Capture service is stopped by closePreview in the store
     return () => {
       mountedRef.current = false;
-      stopPolling();
     };
-  }, [settings.deviceIndex, startPolling, stopPolling]);
+  }, [settings.deviceIndex, settings.size, settings.shape, settings.mirror]);
 
-  // Stop capture when window is closed (called from close event)
-  const stopCapture = useCallback(async () => {
-    stopPolling();
-    if (captureStartedRef.current) {
+  // Stop GPU preview when window is closed
+  const stopGpuPreview = useCallback(async () => {
+    if (gpuStartedRef.current) {
       try {
-        await invoke('stop_webcam_preview');
-        captureStartedRef.current = false;
+        await invoke('stop_gpu_webcam_preview');
+        gpuStartedRef.current = false;
         currentDeviceRef.current = null;
-        webcamLogger.debug('Native capture stopped');
+        setGpuReady(false);
+        webcamLogger.debug('GPU webcam preview stopped');
       } catch (e) {
-        webcamLogger.error('Failed to stop capture:', e);
+        webcamLogger.error('Failed to stop GPU preview:', e);
       }
     }
-  }, [stopPolling]);
+  }, []);
 
   // Listen for recording state changes (for visual indicator only)
   useEffect(() => {
@@ -192,7 +166,7 @@ const WebcamPreviewWindow: React.FC = () => {
   useEffect(() => {
     const unlisten = listen('webcam-preview-close', async () => {
       webcamLogger.debug('Received close event');
-      await stopCapture();
+      await stopGpuPreview();
       try {
         const win = getCurrentWindow();
         await win.close();
@@ -204,7 +178,7 @@ const WebcamPreviewWindow: React.FC = () => {
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
     };
-  }, [stopCapture]);
+  }, [stopGpuPreview]);
 
   // Enable window dragging
   const handleMouseDown = useCallback(async () => {
@@ -216,28 +190,10 @@ const WebcamPreviewWindow: React.FC = () => {
     }
   }, []);
 
-  // Get shape styles
-  const getShapeStyles = (shape: WebcamShape): React.CSSProperties => {
-    const baseStyles: React.CSSProperties = {
-      width: '100%',
-      height: '100%',
-      objectFit: 'cover',
-      transform: settings.mirror ? 'scaleX(-1)' : undefined,
-    };
-
-    if (shape === 'circle') {
-      return {
-        ...baseStyles,
-        borderRadius: '50%',
-      };
-    }
-
-    return {
-      ...baseStyles,
-      borderRadius: '12px',
-    };
-  };
-
+  // The GPU renders directly to the window surface, so we only need:
+  // 1. A transparent container for dragging
+  // 2. An error overlay if GPU init failed
+  // 3. A recording indicator border
   return (
     <div
       onMouseDown={handleMouseDown}
@@ -249,61 +205,49 @@ const WebcamPreviewWindow: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        // Recording indicator border
+        boxSizing: 'border-box',
+        border: isRecording ? '3px solid #ef4444' : 'none',
+        borderRadius: settings.shape === 'circle' ? '50%' : '12px',
       }}
     >
-      <div
-        style={{
-          width: '100%',
-          height: '100%',
-          borderRadius: settings.shape === 'circle' ? '50%' : '12px',
-          overflow: 'hidden',
-          background: 'rgba(0, 0, 0, 0.8)',
-          border: isRecording
-            ? '3px solid #ef4444'
-            : '2px solid rgba(255, 255, 255, 0.2)',
-        }}
-      >
-        {error ? (
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              background: 'rgba(0, 0, 0, 0.8)',
-              color: '#ff6b6b',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '12px',
-              padding: '8px',
-              textAlign: 'center',
-            }}
-          >
-            {error}
-          </div>
-        ) : frameData ? (
-          <img
-            src={frameData}
-            alt="Webcam preview"
-            style={getShapeStyles(settings.shape)}
-            draggable={false}
-          />
-        ) : (
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              background: 'rgba(0, 0, 0, 0.8)',
-              color: '#888',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '12px',
-            }}
-          >
-            Loading...
-          </div>
-        )}
-      </div>
+      {error && (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            background: 'rgba(0, 0, 0, 0.9)',
+            color: '#ff6b6b',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '12px',
+            padding: '8px',
+            textAlign: 'center',
+            borderRadius: settings.shape === 'circle' ? '50%' : '12px',
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {!error && !gpuReady && (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            background: 'rgba(0, 0, 0, 0.8)',
+            color: '#888',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '12px',
+            borderRadius: settings.shape === 'circle' ? '50%' : '12px',
+          }}
+        >
+          Loading...
+        </div>
+      )}
+      {/* GPU renders webcam directly to window surface - no <img> needed */}
     </div>
   );
 };

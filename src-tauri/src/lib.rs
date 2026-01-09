@@ -235,6 +235,11 @@ pub fn run() {
             commands::video_recording::stop_mf_webcam_preview,
             #[cfg(target_os = "windows")]
             commands::video_recording::is_mf_webcam_preview_running,
+            // GPU-accelerated webcam preview (Cap-style direct rendering)
+            commands::video_recording::start_gpu_webcam_preview,
+            commands::video_recording::stop_gpu_webcam_preview,
+            commands::video_recording::is_gpu_webcam_preview_running,
+            commands::video_recording::update_gpu_webcam_preview_settings,
             // Browser-based webcam recording (MediaRecorder chunks)
             commands::video_recording::webcam_recording_start,
             commands::video_recording::webcam_recording_chunk,

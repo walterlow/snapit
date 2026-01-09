@@ -172,6 +172,40 @@ pub(crate) fn apply_rounded_corners(_window: &tauri::WebviewWindow) -> Result<()
     Ok(())
 }
 
+/// Apply a circular window region to make the window actually circular.
+/// This is needed for wgpu transparency to work on Windows - the window shape
+/// is clipped at the OS level so alpha blending isn't needed.
+#[cfg(target_os = "windows")]
+pub fn apply_circular_region(window: &tauri::WebviewWindow, diameter: i32) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{CreateEllipticRgn, SetWindowRgn};
+
+    let hwnd = window
+        .hwnd()
+        .map_err(|e| format!("Failed to get HWND: {}", e))?;
+
+    unsafe {
+        // Create elliptic (circular) region
+        let hrgn = CreateEllipticRgn(0, 0, diameter, diameter);
+        if hrgn.is_invalid() {
+            return Err("Failed to create elliptic region".to_string());
+        }
+
+        // Apply region to window - Windows takes ownership of the region
+        let result = SetWindowRgn(HWND(hwnd.0), hrgn, true);
+        if result == 0 {
+            return Err("Failed to set window region".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn apply_circular_region(_window: &tauri::WebviewWindow, _diameter: i32) -> Result<(), String> {
+    Ok(())
+}
+
 /// Exclude a window from screen capture using Windows API.
 /// This prevents the window from appearing in screenshots and screen recordings.
 #[cfg(target_os = "windows")]

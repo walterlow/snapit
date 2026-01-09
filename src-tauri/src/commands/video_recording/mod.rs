@@ -37,6 +37,7 @@ pub mod cursor;
 pub mod d3d_capture;
 pub mod desktop_icons;
 pub mod ffmpeg_gif_encoder;
+pub mod fragmentation;
 pub mod gif_encoder;
 pub mod gpu_editor;
 pub mod master_clock;
@@ -69,7 +70,7 @@ pub use ffmpeg_gif_encoder::GifQualityPreset;
 pub use state::RECORDING_CONTROLLER;
 
 // Webcam config - re-export only what's actually used
-pub use crate::config::webcam::{get_webcam_settings, WebcamSize, WEBCAM_CONFIG};
+pub use crate::config::webcam::{get_webcam_settings, WebcamShape, WebcamSize, WEBCAM_CONFIG};
 
 // Video editor types
 pub use cursor::CursorRecording;
@@ -287,7 +288,7 @@ pub fn start_webcam_preview(device_index: usize) -> Result<(), String> {
         "[WEBCAM] start_webcam_preview(device_index={})",
         device_index
     );
-    webcam::start_capture_service(device_index)
+    webcam::start_preview_service(device_index)
 }
 
 /// Stop native webcam capture service.
@@ -295,7 +296,7 @@ pub fn start_webcam_preview(device_index: usize) -> Result<(), String> {
 #[command]
 pub fn stop_webcam_preview() {
     log::debug!("[WEBCAM] stop_webcam_preview()");
-    webcam::stop_capture_service();
+    webcam::stop_preview_service();
 }
 
 /// Get the latest webcam preview frame as base64 JPEG.
@@ -328,7 +329,79 @@ pub fn get_webcam_preview_dimensions() -> Option<(u32, u32)> {
 /// Check if native webcam capture is running.
 #[command]
 pub fn is_webcam_preview_running() -> bool {
-    webcam::is_preview_running()
+    webcam::is_preview_active()
+}
+
+// ============================================================================
+// GPU-Accelerated Webcam Preview Commands (Cap-style direct rendering)
+// ============================================================================
+
+/// Start GPU-accelerated webcam preview.
+/// Renders camera frames directly to the window surface - no JPEG encoding or IPC polling.
+#[command]
+pub async fn start_gpu_webcam_preview(
+    app: tauri::AppHandle,
+    device_index: usize,
+    size: WebcamSize,
+    shape: WebcamShape,
+    mirror: bool,
+) -> Result<(), String> {
+    log::info!(
+        "[WEBCAM] start_gpu_webcam_preview(device_index={}, size={:?}, shape={:?}, mirror={})",
+        device_index,
+        size,
+        shape,
+        mirror
+    );
+
+    // Set initial state before starting
+    let state = webcam::GpuPreviewState::from_settings(size, shape, mirror);
+    webcam::update_gpu_preview_state(state);
+
+    // Get the webcam preview window
+    let window = app
+        .get_webview_window("webcam-preview")
+        .ok_or_else(|| "Webcam preview window not found".to_string())?;
+
+    // Apply circular window region for true transparency (Windows clips the window at OS level)
+    let preview_size = match size {
+        WebcamSize::Small => 120,
+        WebcamSize::Medium => 160,
+        WebcamSize::Large => 200,
+    };
+    if shape == WebcamShape::Circle {
+        if let Err(e) = crate::commands::window::apply_circular_region(&window, preview_size) {
+            log::warn!("[WEBCAM] Failed to apply circular region: {}", e);
+        }
+    }
+
+    webcam::start_gpu_preview(window, device_index)
+}
+
+/// Stop GPU-accelerated webcam preview.
+#[command]
+pub fn stop_gpu_webcam_preview() {
+    log::info!("[WEBCAM] stop_gpu_webcam_preview()");
+    webcam::stop_gpu_preview();
+}
+
+/// Check if GPU webcam preview is running.
+#[command]
+pub fn is_gpu_webcam_preview_running() -> bool {
+    webcam::is_gpu_preview_running()
+}
+
+/// Update GPU webcam preview settings (shape, size, mirror).
+#[command]
+pub fn update_gpu_webcam_preview_settings(size: WebcamSize, shape: WebcamShape, mirror: bool) {
+    log::debug!(
+        "[WEBCAM] update_gpu_webcam_preview_settings(size={:?}, shape={:?}, mirror={})",
+        size,
+        shape,
+        mirror
+    );
+    let state = webcam::GpuPreviewState::from_settings(size, shape, mirror);
+    webcam::update_gpu_preview_state(state);
 }
 
 /// Get available audio input devices (microphones).

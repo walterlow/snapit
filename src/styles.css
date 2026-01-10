@@ -326,6 +326,15 @@ textarea,
   background: var(--polar-ice);
 }
 
+/* Hide scrollbar utility */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Smooth momentum scrolling */
 .scroll-smooth {
   scroll-behavior: smooth;

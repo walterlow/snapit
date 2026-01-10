@@ -10,7 +10,7 @@
 
 import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
-import { X, Circle, Square, RectangleHorizontal, Crop, AlignLeft, AlignCenter, AlignRight, Italic } from 'lucide-react';
+import { X, Circle, Square, Monitor, Crop, AlignLeft, AlignCenter, AlignRight, Italic } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -1682,14 +1682,14 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                     <ToggleGroupItem value="roundedRectangle" aria-label="Squircle" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
                       <Square className="h-4 w-4" />
                     </ToggleGroupItem>
-                    <ToggleGroupItem value="rectangle" aria-label="Rectangle" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
-                      <RectangleHorizontal className="h-4 w-4" />
+                    <ToggleGroupItem value="source" aria-label="Source" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
+                      <Monitor className="h-4 w-4" />
                     </ToggleGroupItem>
                   </ToggleGroup>
                 </div>
 
-                {/* Rounding (only for roundedRectangle) */}
-                {project.webcam.shape === 'roundedRectangle' && (
+                {/* Rounding (for roundedRectangle and source shapes) */}
+                {(project.webcam.shape === 'roundedRectangle' || project.webcam.shape === 'source') && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs text-[var(--ink-muted)]">Rounding</span>

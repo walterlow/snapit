@@ -125,6 +125,8 @@ pub struct WebcamOverlay {
     pub shape: WebcamShape,
     /// Whether to mirror horizontally.
     pub mirror: bool,
+    /// Whether to use native source aspect ratio (vs forcing 1:1 square).
+    pub use_source_aspect: bool,
     /// Shadow strength (0.0 = no shadow, 1.0 = full shadow).
     pub shadow: f32,
     /// Shadow size as fraction of webcam size (0.0-1.0).

@@ -3,4 +3,4 @@
 /**
  * Webcam overlay shape.
  */
-export type WebcamOverlayShape = "circle" | "rectangle" | "roundedRectangle";
+export type WebcamOverlayShape = "circle" | "rectangle" | "roundedRectangle" | "source";

@@ -597,10 +597,22 @@ impl Compositor {
                 // Calculate webcam texture aspect ratio for proper cropping
                 let webcam_aspect = webcam.frame.width as f32 / webcam.frame.height as f32;
 
-                // Make webcam overlay square in PIXELS (not normalized coords)
+                // Calculate webcam overlay dimensions
                 let output_aspect = options.output_width as f32 / options.output_height as f32;
-                let webcam_width_norm = webcam.size;
-                let webcam_height_norm = webcam.size * output_aspect;
+                let (webcam_width_norm, webcam_height_norm) = if webcam.use_source_aspect {
+                    // Source shape: preserve native webcam aspect ratio
+                    // Like Cap: base size is the smaller dimension
+                    if webcam_aspect >= 1.0 {
+                        // Landscape webcam: width = size * aspect, height = size (in pixels)
+                        (webcam.size * webcam_aspect, webcam.size * output_aspect)
+                    } else {
+                        // Portrait webcam: width = size, height = size / aspect (in pixels)
+                        (webcam.size, webcam.size * output_aspect / webcam_aspect)
+                    }
+                } else {
+                    // Square/Circle/Rectangle: force 1:1 in PIXELS (not normalized coords)
+                    (webcam.size, webcam.size * output_aspect)
+                };
 
                 (
                     [webcam.x, webcam.y, webcam_width_norm, webcam_height_norm],

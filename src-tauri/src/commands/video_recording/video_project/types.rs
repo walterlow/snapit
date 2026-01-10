@@ -559,9 +559,14 @@ pub enum WebcamOverlayPosition {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub enum WebcamOverlayShape {
+    /// Perfect circle (forces 1:1 aspect ratio).
     Circle,
+    /// Rectangle with no rounding (forces 16:9 aspect ratio).
     Rectangle,
+    /// Squircle shape (forces 1:1 aspect ratio).
     RoundedRectangle,
+    /// Native aspect ratio with squircle rounding.
+    Source,
 }
 
 /// Corner style for rounded shapes.

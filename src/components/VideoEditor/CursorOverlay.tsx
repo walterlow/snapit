@@ -3,7 +3,7 @@
  *
  * Uses SVG as PRIMARY cursor rendering (when cursor_shape is detected).
  * Falls back to captured bitmap for custom/unknown cursors.
- * 
+ *
  * This matches Cap's approach for consistent, resolution-independent cursors.
  */
 
@@ -109,8 +109,8 @@ function loadBitmapCursor(
 
 /**
  * CursorOverlay component - renders cursor on video preview.
- * 
- * Priority order:
+ *
+ * Priority order (matches Cap):
  * 1. SVG cursor (if cursorShape is detected) - PRIMARY
  * 2. Bitmap cursor (fallback for custom cursors)
  * 3. Default arrow SVG (fallback when nothing else available)

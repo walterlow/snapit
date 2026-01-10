@@ -49,22 +49,23 @@ const PIN_SVG: &str = include_str!("../cursor/info/assets/windows/pin.svg");
 const PERSON_SVG: &str = include_str!("../cursor/info/assets/windows/person.svg");
 
 /// Get SVG data and hotspot for a cursor shape.
+/// Hotspot values match Cap's implementation from CursorShapeWindows::resolve()
 fn get_svg_data(shape: WindowsCursorShape) -> Option<SvgCursorData> {
     match shape {
         WindowsCursorShape::Arrow => Some(SvgCursorData {
             svg_data: ARROW_SVG,
-            hotspot_x: 0.18, // Arrow tip is near top-left
-            hotspot_y: 0.12,
+            hotspot_x: 0.288,
+            hotspot_y: 0.189,
         }),
         WindowsCursorShape::IBeam => Some(SvgCursorData {
             svg_data: IBEAM_SVG,
-            hotspot_x: 0.5, // Center
-            hotspot_y: 0.5,
+            hotspot_x: 0.490,
+            hotspot_y: 0.471,
         }),
         WindowsCursorShape::Wait => Some(SvgCursorData {
             svg_data: WAIT_SVG,
             hotspot_x: 0.5,
-            hotspot_y: 0.5,
+            hotspot_y: 0.52,
         }),
         WindowsCursorShape::Cross => Some(SvgCursorData {
             svg_data: CROSS_SVG,
@@ -74,12 +75,12 @@ fn get_svg_data(shape: WindowsCursorShape) -> Option<SvgCursorData> {
         WindowsCursorShape::UpArrow => Some(SvgCursorData {
             svg_data: UPARROW_SVG,
             hotspot_x: 0.5,
-            hotspot_y: 0.1,
+            hotspot_y: 0.05,
         }),
         WindowsCursorShape::Hand => Some(SvgCursorData {
             svg_data: HAND_SVG,
-            hotspot_x: 0.35, // Pointing finger
-            hotspot_y: 0.15,
+            hotspot_x: 0.441,
+            hotspot_y: 0.143,
         }),
         WindowsCursorShape::No => Some(SvgCursorData {
             svg_data: NO_SVG,
@@ -113,28 +114,28 @@ fn get_svg_data(shape: WindowsCursorShape) -> Option<SvgCursorData> {
         }),
         WindowsCursorShape::AppStarting => Some(SvgCursorData {
             svg_data: APPSTARTING_SVG,
-            hotspot_x: 0.18,
-            hotspot_y: 0.12,
+            hotspot_x: 0.055,
+            hotspot_y: 0.368,
         }),
         WindowsCursorShape::Help => Some(SvgCursorData {
             svg_data: HELP_SVG,
-            hotspot_x: 0.18,
-            hotspot_y: 0.12,
+            hotspot_x: 0.056,
+            hotspot_y: 0.127,
         }),
         WindowsCursorShape::Pen => Some(SvgCursorData {
             svg_data: PEN_SVG,
-            hotspot_x: 0.1,
-            hotspot_y: 0.9, // Pen tip at bottom
+            hotspot_x: 0.055,
+            hotspot_y: 0.945,
         }),
         WindowsCursorShape::Pin => Some(SvgCursorData {
             svg_data: PIN_SVG,
-            hotspot_x: 0.5,
-            hotspot_y: 0.9, // Pin point at bottom
+            hotspot_x: 0.245,
+            hotspot_y: 0.05,
         }),
         WindowsCursorShape::Person => Some(SvgCursorData {
             svg_data: PERSON_SVG,
-            hotspot_x: 0.5,
-            hotspot_y: 0.5,
+            hotspot_x: 0.235,
+            hotspot_y: 0.05,
         }),
         // Scroll cursors - no SVG assets yet, fall back to bitmap
         WindowsCursorShape::ScrollNS
@@ -187,19 +188,10 @@ pub fn render_svg_cursor(shape: WindowsCursorShape, scale: f32) -> Option<Render
     // Render SVG to pixmap
     resvg::render(&tree, transform, &mut pixmap.as_mut());
 
-    // Convert to RGBA (resvg uses premultiplied alpha, we need straight alpha)
+    // Keep premultiplied alpha (like Cap) for correct compositing
     let mut rgba_data = Vec::with_capacity((scaled_width * scaled_height * 4) as usize);
     for pixel in pixmap.pixels() {
-        let a = pixel.alpha();
-        if a == 0 {
-            rgba_data.extend_from_slice(&[0, 0, 0, 0]);
-        } else {
-            // Unpremultiply alpha
-            let r = ((pixel.red() as u32 * 255) / a as u32) as u8;
-            let g = ((pixel.green() as u32 * 255) / a as u32) as u8;
-            let b = ((pixel.blue() as u32 * 255) / a as u32) as u8;
-            rgba_data.extend_from_slice(&[r, g, b, a]);
-        }
+        rgba_data.extend_from_slice(&[pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]);
     }
 
     // Calculate hotspot in pixels

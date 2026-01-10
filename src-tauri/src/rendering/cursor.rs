@@ -11,7 +11,7 @@
 use super::coord::{Coord, FrameSpace, ScreenUVSpace, Size, ZoomedFrameSpace};
 use super::zoom::InterpolatedZoom;
 use crate::commands::video_recording::cursor::events::{
-    CursorEvent, CursorEventType, CursorImage, CursorRecording,
+    CursorEvent, CursorEventType, CursorImage, CursorRecording, WindowsCursorShape,
 };
 use std::collections::HashMap;
 
@@ -91,11 +91,11 @@ const CURSOR_CLICK_DURATION_MS: f64 = CURSOR_CLICK_DURATION * 1000.0;
 const CLICK_SHRINK_SIZE: f32 = 0.7;
 
 // ============================================================================
-// Motion Blur Configuration
+// Motion Blur Configuration (aligned with Cap)
 // ============================================================================
 
-/// Number of trail samples for motion blur effect.
-const MOTION_BLUR_SAMPLES: usize = 8;
+/// Number of samples for motion blur effect (Cap uses 20 for GPU shader).
+const MOTION_BLUR_SAMPLES: usize = 20;
 
 /// Minimum velocity (normalized units/frame) to trigger motion blur.
 /// Below this threshold, no blur is applied.
@@ -108,6 +108,19 @@ const MOTION_BLUR_MAX_TRAIL: f32 = 0.15;
 /// Velocity multiplier for trail length calculation.
 /// Higher values = longer trails for same velocity.
 const MOTION_BLUR_VELOCITY_SCALE: f32 = 2.0;
+
+/// Maximum motion in pixels before clamping (from Cap).
+const MAX_MOTION_PIXELS: f32 = 320.0;
+
+/// Minimum motion threshold in normalized coords (from Cap).
+const MIN_MOTION_THRESHOLD: f32 = 0.01;
+
+// ============================================================================
+// Cursor Scaling Configuration (aligned with Cap)
+// ============================================================================
+
+/// Standard cursor height baseline for scaling (from Cap).
+const STANDARD_CURSOR_HEIGHT: f32 = 200.0;
 
 // ============================================================================
 // Idle Fade-Out & Click Animation Functions (from Cap)
@@ -323,6 +336,8 @@ pub struct InterpolatedCursor {
     pub velocity_y: f32,
     /// Active cursor image ID (references cursor_images map).
     pub cursor_id: Option<String>,
+    /// Detected cursor shape (for SVG rendering).
+    pub cursor_shape: Option<WindowsCursorShape>,
     /// Opacity (0-1) based on idle fade-out.
     pub opacity: f32,
     /// Scale factor (0.7-1.0) based on click animation.
@@ -337,6 +352,7 @@ impl Default for InterpolatedCursor {
             velocity_x: 0.0,
             velocity_y: 0.0,
             cursor_id: None,
+            cursor_shape: None,
             opacity: 1.0,
             scale: 1.0,
         }
@@ -489,6 +505,11 @@ pub struct CursorInterpolator {
     cursor_images: HashMap<String, CursorImage>,
     /// Decoded cursor images (RGBA data).
     decoded_images: HashMap<String, DecodedCursorImage>,
+    /// Fallback cursor ID (first available cursor in the recording).
+    fallback_cursor_id: Option<String>,
+    /// Fallback cursor shape (most common shape found in cursor_images).
+    /// Used when cursor_id points to an image without a detected shape.
+    fallback_cursor_shape: Option<WindowsCursorShape>,
     /// Region dimensions (for reference).
     width: u32,
     height: u32,
@@ -512,11 +533,37 @@ impl CursorInterpolator {
         // Decode cursor images from base64 PNG
         let decoded_images = decode_cursor_images(&recording.cursor_images);
 
+        // Find fallback cursor_id (first available in the recording)
+        // This ensures cursor is always rendered even if cursor_id is lost
+        let fallback_cursor_id = recording.cursor_images.keys().next().cloned();
+
+        // Find fallback cursor shape (most common shape found in cursor_images)
+        // This provides consistent cursor rendering when shape detection was spotty during recording
+        let fallback_cursor_shape = {
+            let mut shape_counts: HashMap<WindowsCursorShape, usize> = HashMap::new();
+            for img in recording.cursor_images.values() {
+                if let Some(shape) = img.cursor_shape {
+                    *shape_counts.entry(shape).or_insert(0) += 1;
+                }
+            }
+            // Get the most common shape
+            shape_counts
+                .into_iter()
+                .max_by_key(|(_, count)| *count)
+                .map(|(shape, _)| shape)
+        };
+
+        if let Some(ref shape) = fallback_cursor_shape {
+            log::info!("[CURSOR] Using fallback cursor shape: {:?}", shape);
+        }
+
         Self {
             smoothed_events,
             original_events: recording.events.clone(),
             cursor_images: recording.cursor_images.clone(),
             decoded_images,
+            fallback_cursor_id,
+            fallback_cursor_shape,
             width: recording.width,
             height: recording.height,
         }
@@ -527,9 +574,29 @@ impl CursorInterpolator {
     /// This returns the smoothed cursor position along with:
     /// - `opacity`: Fades out when idle, fades in when movement resumes
     /// - `scale`: Shrinks during click animation
+    /// - `cursor_id`: Active cursor image ID (with fallback)
+    /// - `cursor_shape`: Detected cursor shape for SVG rendering
     pub fn get_cursor_at(&self, time_ms: u64) -> InterpolatedCursor {
         let cursor_id = get_active_cursor_id(&self.original_events, time_ms);
         let mut cursor = interpolate_at_time(&self.smoothed_events, time_ms, cursor_id);
+
+        // Use fallback cursor_id if none found (prevents cursor from disappearing)
+        if cursor.cursor_id.is_none() {
+            cursor.cursor_id = self.fallback_cursor_id.clone();
+        }
+
+        // Look up cursor_shape from cursor_images for SVG rendering
+        if let Some(ref id) = cursor.cursor_id {
+            if let Some(image) = self.cursor_images.get(id) {
+                cursor.cursor_shape = image.cursor_shape;
+            }
+        }
+
+        // Use fallback cursor_shape if current cursor doesn't have a detected shape.
+        // This ensures SVG cursors are used consistently (matching Cap's approach).
+        if cursor.cursor_shape.is_none() {
+            cursor.cursor_shape = self.fallback_cursor_shape;
+        }
 
         // Compute opacity based on idle time
         cursor.opacity =
@@ -631,7 +698,8 @@ fn densify_cursor_moves(events: &[CursorEvent], _recording: &CursorRecording) ->
                     x: current.x + (next.x - current.x) * t_f64,
                     y: current.y + (next.y - current.y) * t_f64,
                     event_type: CursorEventType::Move,
-                    cursor_id: None,
+                    // Preserve cursor_id from current event to avoid cursor disappearing
+                    cursor_id: current.cursor_id.clone(),
                 });
             }
         }
@@ -786,8 +854,9 @@ fn interpolate_at_time(
             velocity_x: e.velocity.x,
             velocity_y: e.velocity.y,
             cursor_id,
-            opacity: 1.0, // Will be set by get_cursor_at
-            scale: 1.0,   // Will be set by get_cursor_at
+            cursor_shape: None, // Will be set by get_cursor_at
+            opacity: 1.0,       // Will be set by get_cursor_at
+            scale: 1.0,         // Will be set by get_cursor_at
         };
     }
 
@@ -800,6 +869,7 @@ fn interpolate_at_time(
             velocity_x: last.velocity.x,
             velocity_y: last.velocity.y,
             cursor_id,
+            cursor_shape: None,
             opacity: 1.0,
             scale: 1.0,
         };
@@ -826,6 +896,7 @@ fn interpolate_at_time(
                 velocity_x: sim.velocity.x,
                 velocity_y: sim.velocity.y,
                 cursor_id,
+                cursor_shape: None,
                 opacity: 1.0,
                 scale: 1.0,
             };
@@ -839,6 +910,7 @@ fn interpolate_at_time(
         velocity_x: last.velocity.x,
         velocity_y: last.velocity.y,
         cursor_id,
+        cursor_shape: None,
         opacity: 1.0,
         scale: 1.0,
     }
@@ -905,10 +977,48 @@ fn decode_cursor_images(
     decoded
 }
 
+/// Calculate aspect-ratio aware cursor scale (like Cap).
+///
+/// Prevents wide cursors from becoming excessively large by basing
+/// the scale on width for wide cursors and height for normal cursors.
+///
+/// # Arguments
+/// * `cursor_width` - Cursor image width in pixels
+/// * `cursor_height` - Cursor image height in pixels
+/// * `output_height` - Output frame height in pixels
+/// * `user_scale` - User-configured cursor size (0-100, where 100 = 100%)
+pub fn calculate_aspect_aware_scale(
+    cursor_width: u32,
+    cursor_height: u32,
+    output_height: u32,
+    user_scale: f32,
+) -> f32 {
+    let texture_aspect = cursor_width as f32 / cursor_height.max(1) as f32;
+
+    // Base size calculation (like Cap)
+    let base_size = STANDARD_CURSOR_HEIGHT / output_height as f32;
+
+    // User scale factor (user_scale is 0-100, convert to multiplier)
+    let user_factor = user_scale / 100.0;
+
+    // For wide cursors (aspect > 1), base scaling on width to prevent excess
+    // For normal cursors, base scaling on height
+    let scale = if texture_aspect > 1.0 {
+        // Wide cursor - use width-based scaling
+        base_size * user_factor / texture_aspect
+    } else {
+        // Normal cursor - use height-based scaling
+        base_size * user_factor
+    };
+
+    scale.max(0.1) // Ensure minimum scale
+}
+
 /// Composite cursor image onto frame (CPU-based).
 ///
 /// Uses the cursor's opacity and scale properties for idle fade-out and click animation.
 /// The `base_scale` parameter allows additional scaling on top of the cursor's animated scale.
+/// Supports premultiplied alpha for SVG cursors (like Cap).
 ///
 /// # Arguments
 /// * `frame_data` - Mutable reference to frame RGBA data
@@ -944,7 +1054,7 @@ pub fn composite_cursor(
     let scaled_width = (cursor_image.width as f32 * scale).round() as i32;
     let scaled_height = (cursor_image.height as f32 * scale).round() as i32;
 
-    // Simple alpha blending (nearest-neighbor for speed)
+    // Alpha blending with premultiplied alpha support (like Cap)
     for sy in 0..scaled_height {
         for sx in 0..scaled_width {
             // Calculate destination pixel
@@ -968,27 +1078,33 @@ pub fn composite_cursor(
                 continue;
             }
 
-            // Get source pixel (cursor)
-            let src_r = cursor_image.data[src_idx];
-            let src_g = cursor_image.data[src_idx + 1];
-            let src_b = cursor_image.data[src_idx + 2];
-            let src_a = cursor_image.data[src_idx + 3];
+            // Get source pixel (cursor) - premultiplied alpha
+            let src_r = cursor_image.data[src_idx] as f32;
+            let src_g = cursor_image.data[src_idx + 1] as f32;
+            let src_b = cursor_image.data[src_idx + 2] as f32;
+            let src_a = cursor_image.data[src_idx + 3] as f32;
 
             // Skip fully transparent pixels
-            if src_a == 0 {
+            if src_a == 0.0 {
                 continue;
             }
 
-            // Alpha blending with cursor opacity (idle fade-out)
-            let alpha = (src_a as f32 / 255.0) * cursor.opacity;
+            // For premultiplied alpha blending:
+            // result = src + dst * (1 - src_alpha)
+            // Where src is already premultiplied by its alpha
+            let alpha = (src_a / 255.0) * cursor.opacity;
             let inv_alpha = 1.0 - alpha;
 
-            frame_data[dst_idx] =
-                ((src_r as f32 * alpha) + (frame_data[dst_idx] as f32 * inv_alpha)) as u8;
-            frame_data[dst_idx + 1] =
-                ((src_g as f32 * alpha) + (frame_data[dst_idx + 1] as f32 * inv_alpha)) as u8;
-            frame_data[dst_idx + 2] =
-                ((src_b as f32 * alpha) + (frame_data[dst_idx + 2] as f32 * inv_alpha)) as u8;
+            // Source is premultiplied, so we multiply by opacity, not full alpha
+            frame_data[dst_idx] = ((src_r * cursor.opacity)
+                + (frame_data[dst_idx] as f32 * inv_alpha))
+                .min(255.0) as u8;
+            frame_data[dst_idx + 1] = ((src_g * cursor.opacity)
+                + (frame_data[dst_idx + 1] as f32 * inv_alpha))
+                .min(255.0) as u8;
+            frame_data[dst_idx + 2] = ((src_b * cursor.opacity)
+                + (frame_data[dst_idx + 2] as f32 * inv_alpha))
+                .min(255.0) as u8;
             // Keep destination alpha (frame_data[dst_idx + 3])
         }
     }
@@ -997,7 +1113,8 @@ pub fn composite_cursor(
 /// Composite cursor with motion blur effect onto frame (CPU-based).
 ///
 /// Renders a trail of semi-transparent cursor copies behind the main cursor
-/// based on velocity. The trail fades out towards the tail.
+/// based on velocity. Uses smoothstep easing for smooth weight distribution
+/// like Cap's GPU implementation.
 ///
 /// # Arguments
 /// * `frame_data` - Mutable reference to frame RGBA data
@@ -1031,20 +1148,33 @@ pub fn composite_cursor_with_motion_blur(
         return;
     }
 
-    // Calculate trail length based on velocity (clamped to max)
-    let trail_length = (velocity_magnitude * MOTION_BLUR_VELOCITY_SCALE).min(MOTION_BLUR_MAX_TRAIL);
+    // Calculate motion in pixels and clamp to max (like Cap)
+    let frame_diagonal = ((frame_width * frame_width + frame_height * frame_height) as f32).sqrt();
+    let motion_pixels = velocity_magnitude * frame_diagonal;
+    let clamped_motion = motion_pixels.min(MAX_MOTION_PIXELS);
+
+    // Convert back to normalized trail length
+    let trail_length = (clamped_motion / frame_diagonal).min(MOTION_BLUR_MAX_TRAIL);
 
     // Normalize velocity direction
     let dir_x = -cursor.velocity_x / velocity_magnitude;
     let dir_y = -cursor.velocity_y / velocity_magnitude;
 
     // Render trail samples from back to front (so front cursor is on top)
+    // Using 20 samples like Cap's GPU shader
     for i in (0..MOTION_BLUR_SAMPLES).rev() {
         let t = i as f32 / (MOTION_BLUR_SAMPLES - 1) as f32;
 
+        // Use smoothstep easing for smooth deceleration (like Cap's GPU shader)
+        let eased_t = smoothstep(0.0, 1.0, t);
+
         // Position along the trail (0 = current position, 1 = trail end)
-        let offset_x = dir_x * trail_length * t;
-        let offset_y = dir_y * trail_length * t;
+        let offset_x = dir_x * trail_length * eased_t;
+        let offset_y = dir_y * trail_length * eased_t;
+
+        // Weight distribution like Cap: weight = 1.0 - t * 0.75
+        // This creates smoother falloff than our previous 0.85
+        let weight = 1.0 - t * 0.75;
 
         // Create a modified cursor for this trail sample
         let trail_cursor = InterpolatedCursor {
@@ -1053,8 +1183,8 @@ pub fn composite_cursor_with_motion_blur(
             velocity_x: cursor.velocity_x,
             velocity_y: cursor.velocity_y,
             cursor_id: cursor.cursor_id.clone(),
-            // Fade out towards the tail: front (t=0) is full opacity, tail (t=1) is 0
-            opacity: cursor.opacity * (1.0 - t * 0.85),
+            cursor_shape: cursor.cursor_shape,
+            opacity: cursor.opacity * weight,
             scale: cursor.scale,
         };
 

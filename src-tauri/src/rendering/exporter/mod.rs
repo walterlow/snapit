@@ -22,6 +22,7 @@ use super::cursor::{composite_cursor, CursorInterpolator};
 use super::renderer::Renderer;
 use super::scene::SceneInterpolator;
 use super::stream_decoder::StreamDecoder;
+use super::svg_cursor::render_svg_cursor;
 use super::types::{BackgroundStyle, RenderOptions};
 use super::zoom::ZoomInterpolator;
 use crate::commands::video_recording::cursor::events::load_cursor_recording;
@@ -185,6 +186,16 @@ pub async fn export_video_gpu(
                             recording.events.len(),
                             recording.cursor_images.len()
                         );
+                        // Debug: log cursor shapes for each cursor image
+                        for (id, img) in &recording.cursor_images {
+                            log::debug!(
+                                "[EXPORT] Cursor image '{}': shape={:?}, size={}x{}",
+                                id,
+                                img.cursor_shape,
+                                img.width,
+                                img.height
+                            );
+                        }
                         Some(CursorInterpolator::new(&recording))
                     },
                     Err(e) => {
@@ -385,17 +396,54 @@ pub async fn export_video_gpu(
                         cursor.y,
                         project.cursor.scale,
                     );
-                } else if let Some(ref cursor_id) = cursor.cursor_id {
-                    // Draw actual cursor image
-                    if let Some(cursor_image) = cursor_interp.get_cursor_image(cursor_id) {
-                        composite_cursor(
-                            &mut rgba_data,
-                            out_w,
-                            out_h,
-                            &cursor,
-                            cursor_image,
-                            project.cursor.scale,
-                        );
+                } else {
+                    // Priority: SVG cursor (if shape detected) > Bitmap cursor (fallback)
+                    // This matches Cap's approach for consistent, resolution-independent cursors.
+                    let mut rendered = false;
+
+                    // Try SVG cursor first (if shape is detected)
+                    if let Some(shape) = cursor.cursor_shape {
+                        // Scale based on output height (like editor does)
+                        let target_height =
+                            (out_h as f32 * project.cursor.scale / 100.0 * 0.08) as u32;
+                        let target_height = target_height.clamp(16, 128);
+
+                        if let Some(svg_cursor) =
+                            render_svg_cursor(shape, target_height as f32 / 24.0)
+                        {
+                            let svg_decoded = super::cursor::DecodedCursorImage {
+                                width: svg_cursor.width,
+                                height: svg_cursor.height,
+                                hotspot_x: svg_cursor.hotspot_x,
+                                hotspot_y: svg_cursor.hotspot_y,
+                                data: svg_cursor.data,
+                            };
+                            composite_cursor(
+                                &mut rgba_data,
+                                out_w,
+                                out_h,
+                                &cursor,
+                                &svg_decoded,
+                                project.cursor.scale,
+                            );
+                            rendered = true;
+                        }
+                    }
+
+                    // Fall back to bitmap cursor if SVG not available
+                    if !rendered {
+                        if let Some(ref cursor_id) = cursor.cursor_id {
+                            if let Some(cursor_image) = cursor_interp.get_cursor_image(cursor_id) {
+                                composite_cursor(
+                                    &mut rgba_data,
+                                    out_w,
+                                    out_h,
+                                    &cursor,
+                                    cursor_image,
+                                    project.cursor.scale,
+                                );
+                            }
+                        }
                     }
                 }
             }

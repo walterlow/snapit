@@ -26,7 +26,7 @@ use ts_rs::TS;
 
 /// Standard Windows cursor shapes.
 /// These map to Windows IDC_* cursor constants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub enum WindowsCursorShape {

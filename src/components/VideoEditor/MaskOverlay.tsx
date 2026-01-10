@@ -1,4 +1,4 @@
-import { memo, useCallback, useState, useRef } from 'react';
+import { memo, useCallback, useState, useRef, useEffect } from 'react';
 import type { MaskSegment, MaskType } from '../../types';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
 
@@ -7,6 +7,11 @@ interface MaskOverlayProps {
   currentTimeMs: number;
   previewWidth: number;
   previewHeight: number;
+  /** Video element to sample from for pixelation */
+  videoElement: HTMLVideoElement | null;
+  /** Original video dimensions for proper sampling */
+  videoWidth: number;
+  videoHeight: number;
 }
 
 interface MaskItemProps {
@@ -14,12 +19,15 @@ interface MaskItemProps {
   isSelected: boolean;
   previewWidth: number;
   previewHeight: number;
+  videoElement: HTMLVideoElement | null;
+  videoWidth: number;
+  videoHeight: number;
   onSelect: (id: string) => void;
   onUpdate: (id: string, updates: Partial<MaskSegment>) => void;
 }
 
 /**
- * Get mask style based on type
+ * Get mask style based on type (for blur and solid only)
  */
 const getMaskStyle = (maskType: MaskType, intensity: number): React.CSSProperties => {
   switch (maskType) {
@@ -28,19 +36,6 @@ const getMaskStyle = (maskType: MaskType, intensity: number): React.CSSPropertie
         backdropFilter: `blur(${intensity / 5}px)`,
         WebkitBackdropFilter: `blur(${intensity / 5}px)`,
         backgroundColor: `rgba(0, 0, 0, ${intensity / 500})`,
-      };
-    case 'pixelate':
-      // Pixelate effect simulated with a pattern
-      return {
-        backgroundColor: `rgba(128, 128, 128, ${intensity / 100})`,
-        backgroundImage: `
-          linear-gradient(45deg, rgba(0,0,0,0.1) 25%, transparent 25%),
-          linear-gradient(-45deg, rgba(0,0,0,0.1) 25%, transparent 25%),
-          linear-gradient(45deg, transparent 75%, rgba(0,0,0,0.1) 75%),
-          linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.1) 75%)
-        `,
-        backgroundSize: `${Math.max(4, intensity / 5)}px ${Math.max(4, intensity / 5)}px`,
-        backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
       };
     case 'solid':
       return {
@@ -52,6 +47,151 @@ const getMaskStyle = (maskType: MaskType, intensity: number): React.CSSPropertie
 };
 
 /**
+ * Canvas-based pixelation component that samples from video
+ */
+const PixelateCanvas = memo(function PixelateCanvas({
+  videoElement,
+  videoWidth,
+  videoHeight,
+  segmentX,
+  segmentY,
+  segmentWidth,
+  segmentHeight,
+  previewWidth,
+  previewHeight,
+  intensity,
+}: {
+  videoElement: HTMLVideoElement | null;
+  videoWidth: number;
+  videoHeight: number;
+  segmentX: number;
+  segmentY: number;
+  segmentWidth: number;
+  segmentHeight: number;
+  previewWidth: number;
+  previewHeight: number;
+  intensity: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !videoElement || videoWidth === 0 || videoHeight === 0) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Calculate source region in video coordinates
+    const srcX = Math.round(segmentX * videoWidth);
+    const srcY = Math.round(segmentY * videoHeight);
+    const srcW = Math.round(segmentWidth * videoWidth);
+    const srcH = Math.round(segmentHeight * videoHeight);
+
+    if (srcW <= 0 || srcH <= 0) return;
+
+    // Canvas size matches display size
+    const displayW = Math.round(segmentWidth * previewWidth);
+    const displayH = Math.round(segmentHeight * previewHeight);
+
+    if (canvas.width !== displayW || canvas.height !== displayH) {
+      canvas.width = displayW;
+      canvas.height = displayH;
+    }
+
+    // Block size based on intensity (higher intensity = larger blocks = more pixelated)
+    const blockSize = Math.max(2, Math.round(intensity / 5));
+
+    // Create small temp canvas for downsampling
+    const smallW = Math.max(1, Math.floor(displayW / blockSize));
+    const smallH = Math.max(1, Math.floor(displayH / blockSize));
+
+    // Draw video region to small size (downsamples)
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(
+      videoElement,
+      srcX, srcY, srcW, srcH,  // Source region
+      0, 0, smallW, smallH     // Small destination
+    );
+
+    // Draw small canvas back to full size with nearest-neighbor (pixelates)
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      canvas,
+      0, 0, smallW, smallH,      // Source (small)
+      0, 0, displayW, displayH   // Destination (full size)
+    );
+  }, [videoElement, videoWidth, videoHeight, segmentX, segmentY, segmentWidth, segmentHeight, previewWidth, previewHeight, intensity]);
+
+  // Continuously update canvas when video plays
+  useEffect(() => {
+    if (!videoElement) return;
+
+    let animationId: number;
+
+    const updateCanvas = () => {
+      const canvas = canvasRef.current;
+      if (!canvas || videoWidth === 0 || videoHeight === 0) {
+        animationId = requestAnimationFrame(updateCanvas);
+        return;
+      }
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        animationId = requestAnimationFrame(updateCanvas);
+        return;
+      }
+
+      // Calculate source region in video coordinates
+      const srcX = Math.round(segmentX * videoWidth);
+      const srcY = Math.round(segmentY * videoHeight);
+      const srcW = Math.round(segmentWidth * videoWidth);
+      const srcH = Math.round(segmentHeight * videoHeight);
+
+      if (srcW <= 0 || srcH <= 0) {
+        animationId = requestAnimationFrame(updateCanvas);
+        return;
+      }
+
+      const displayW = canvas.width;
+      const displayH = canvas.height;
+
+      const blockSize = Math.max(2, Math.round(intensity / 5));
+      const smallW = Math.max(1, Math.floor(displayW / blockSize));
+      const smallH = Math.max(1, Math.floor(displayH / blockSize));
+
+      // Draw video region to small size (downsamples)
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(
+        videoElement,
+        srcX, srcY, srcW, srcH,
+        0, 0, smallW, smallH
+      );
+
+      // Draw small canvas back to full size with nearest-neighbor
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        canvas,
+        0, 0, smallW, smallH,
+        0, 0, displayW, displayH
+      );
+
+      animationId = requestAnimationFrame(updateCanvas);
+    };
+
+    animationId = requestAnimationFrame(updateCanvas);
+    return () => cancelAnimationFrame(animationId);
+  }, [videoElement, videoWidth, videoHeight, segmentX, segmentY, segmentWidth, segmentHeight, intensity]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 w-full h-full"
+      style={{ imageRendering: 'pixelated' }}
+    />
+  );
+});
+
+/**
  * Individual mask overlay item with drag/resize handles
  */
 const MaskItem = memo(function MaskItem({
@@ -59,6 +199,9 @@ const MaskItem = memo(function MaskItem({
   isSelected,
   previewWidth,
   previewHeight,
+  videoElement,
+  videoWidth,
+  videoHeight,
   onSelect,
   onUpdate,
 }: MaskItemProps) {
@@ -156,24 +299,42 @@ const MaskItem = memo(function MaskItem({
   const width = segment.width * previewWidth;
   const height = segment.height * previewHeight;
 
+  const isPixelate = segment.maskType === 'pixelate';
+
   return (
     <div
-      className={`absolute transition-shadow ${isSelected ? 'ring-2 ring-purple-500 ring-offset-1' : ''}`}
+      className={`absolute transition-shadow overflow-hidden ${isSelected ? 'ring-2 ring-purple-500 ring-offset-1' : ''}`}
       style={{
         left: `${left}px`,
         top: `${top}px`,
         width: `${width}px`,
         height: `${height}px`,
         cursor: isDragging ? (dragType === 'move' ? 'grabbing' : 'nwse-resize') : 'pointer',
-        ...getMaskStyle(segment.maskType, segment.intensity),
+        ...(isPixelate ? {} : getMaskStyle(segment.maskType, segment.intensity)),
         '--mask-solid-color': segment.color,
         borderRadius: `${segment.feather / 10}px`,
       } as React.CSSProperties}
       onClick={handleClick}
     >
+      {/* Canvas-based pixelation for pixelate type */}
+      {isPixelate && (
+        <PixelateCanvas
+          videoElement={videoElement}
+          videoWidth={videoWidth}
+          videoHeight={videoHeight}
+          segmentX={segment.x}
+          segmentY={segment.y}
+          segmentWidth={segment.width}
+          segmentHeight={segment.height}
+          previewWidth={previewWidth}
+          previewHeight={previewHeight}
+          intensity={segment.intensity}
+        />
+      )}
+
       {/* Move handle (center) */}
       <div
-        className="absolute inset-0 cursor-grab active:cursor-grabbing"
+        className="absolute inset-0 cursor-grab active:cursor-grabbing z-10"
         onMouseDown={(e) => handleMouseDown(e, 'move')}
       />
 
@@ -182,27 +343,27 @@ const MaskItem = memo(function MaskItem({
         <>
           {/* Top-left */}
           <div
-            className="absolute -left-1.5 -top-1.5 w-3 h-3 bg-purple-500 rounded-full cursor-nwse-resize shadow-md hover:scale-125 transition-transform"
+            className="absolute -left-1.5 -top-1.5 w-3 h-3 bg-purple-500 rounded-full cursor-nwse-resize shadow-md hover:scale-125 transition-transform z-20"
             onMouseDown={(e) => handleMouseDown(e, 'resize-tl')}
           />
           {/* Top-right */}
           <div
-            className="absolute -right-1.5 -top-1.5 w-3 h-3 bg-purple-500 rounded-full cursor-nesw-resize shadow-md hover:scale-125 transition-transform"
+            className="absolute -right-1.5 -top-1.5 w-3 h-3 bg-purple-500 rounded-full cursor-nesw-resize shadow-md hover:scale-125 transition-transform z-20"
             onMouseDown={(e) => handleMouseDown(e, 'resize-tr')}
           />
           {/* Bottom-left */}
           <div
-            className="absolute -left-1.5 -bottom-1.5 w-3 h-3 bg-purple-500 rounded-full cursor-nesw-resize shadow-md hover:scale-125 transition-transform"
+            className="absolute -left-1.5 -bottom-1.5 w-3 h-3 bg-purple-500 rounded-full cursor-nesw-resize shadow-md hover:scale-125 transition-transform z-20"
             onMouseDown={(e) => handleMouseDown(e, 'resize-bl')}
           />
           {/* Bottom-right */}
           <div
-            className="absolute -right-1.5 -bottom-1.5 w-3 h-3 bg-purple-500 rounded-full cursor-nwse-resize shadow-md hover:scale-125 transition-transform"
+            className="absolute -right-1.5 -bottom-1.5 w-3 h-3 bg-purple-500 rounded-full cursor-nwse-resize shadow-md hover:scale-125 transition-transform z-20"
             onMouseDown={(e) => handleMouseDown(e, 'resize-br')}
           />
 
           {/* Info badge */}
-          <div className="absolute -top-6 left-0 bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap">
+          <div className="absolute -top-6 left-0 bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap z-20">
             {segment.maskType === 'blur' ? 'Blur' : segment.maskType === 'pixelate' ? 'Pixelate' : 'Solid'} {segment.intensity}%
           </div>
         </>
@@ -214,12 +375,16 @@ const MaskItem = memo(function MaskItem({
 /**
  * MaskOverlay - Renders mask overlays on the video preview.
  * Shows only masks that are active at the current time.
+ * Uses canvas-based rendering for pixelation to properly sample from video.
  */
 export const MaskOverlay = memo(function MaskOverlay({
   segments,
   currentTimeMs,
   previewWidth,
   previewHeight,
+  videoElement,
+  videoWidth,
+  videoHeight,
 }: MaskOverlayProps) {
   const selectedMaskSegmentId = useVideoEditorStore((s) => s.selectedMaskSegmentId);
   const selectMaskSegment = useVideoEditorStore((s) => s.selectMaskSegment);
@@ -251,6 +416,9 @@ export const MaskOverlay = memo(function MaskOverlay({
             isSelected={segment.id === selectedMaskSegmentId}
             previewWidth={previewWidth}
             previewHeight={previewHeight}
+            videoElement={videoElement}
+            videoWidth={videoWidth}
+            videoHeight={videoHeight}
             onSelect={selectMaskSegment}
             onUpdate={updateMaskSegment}
           />

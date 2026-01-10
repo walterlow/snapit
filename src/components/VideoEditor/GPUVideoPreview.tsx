@@ -1,7 +1,6 @@
 import { memo, useCallback, useRef, useEffect, useState, useMemo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { resolveResource } from '@tauri-apps/api/path';
-import { Play } from 'lucide-react';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { videoEditorLogger } from '../../utils/logger';
 import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine, startPlaybackLoop, stopPlaybackLoop } from '../../hooks/usePlaybackEngine';
@@ -246,6 +245,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   containerWidth,
   containerHeight,
   videoAspectRatio,
+  videoWidth,
+  videoHeight,
   maskSegments,
   textSegments,
   onVideoClick,
@@ -263,6 +264,10 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   containerHeight: number;
   /** Video aspect ratio for cursor offset calculation */
   videoAspectRatio: number;
+  /** Original video width for mask sampling */
+  videoWidth: number;
+  /** Original video height for mask sampling */
+  videoHeight: number;
   /** Mask segments for blur/pixelate overlays */
   maskSegments: MaskSegment[] | undefined;
   /** Text segments for text overlays */
@@ -386,6 +391,9 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           currentTimeMs={currentTimeMs}
           previewWidth={containerWidth}
           previewHeight={containerHeight}
+          videoElement={videoRef.current}
+          videoWidth={videoWidth}
+          videoHeight={videoHeight}
         />
       )}
 
@@ -899,6 +907,8 @@ export function GPUVideoPreview() {
               containerWidth={containerSize.width}
               containerHeight={containerSize.height}
               videoAspectRatio={aspectRatio}
+              videoWidth={project?.sources.originalWidth ?? 1920}
+              videoHeight={project?.sources.originalHeight ?? 1080}
               maskSegments={project?.mask?.segments}
               textSegments={project?.text?.segments}
               onVideoClick={handleVideoClick}
@@ -920,17 +930,6 @@ export function GPUVideoPreview() {
             </div>
           )}
 
-          {/* Play button overlay */}
-          {!isPlaying && videoSrc && !videoError && (
-            <div
-              className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-              onClick={handleVideoClick}
-            >
-              <div className="w-16 h-16 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center">
-                <Play className="w-8 h-8 text-white ml-1" />
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

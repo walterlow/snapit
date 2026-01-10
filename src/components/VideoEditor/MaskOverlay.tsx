@@ -27,6 +27,33 @@ interface MaskItemProps {
 }
 
 /**
+ * Generate CSS mask for feathered (soft) edges.
+ * Uses multiple linear gradients to create smooth fade on all edges.
+ * Feather value is 0-100, where 0 = hard edge, 100 = maximum softness.
+ */
+const getFeatherMask = (feather: number, width: number, height: number): React.CSSProperties => {
+  if (feather <= 0) return {};
+
+  // Calculate feather size in pixels (percentage of smaller dimension)
+  const minDim = Math.min(width, height);
+  const featherPx = Math.max(1, (feather / 100) * minDim * 0.5);
+
+  // Create gradient masks for each edge
+  // Each gradient goes from transparent at edge to opaque after featherPx
+  const maskImage = `
+    linear-gradient(to right, transparent, black ${featherPx}px, black calc(100% - ${featherPx}px), transparent),
+    linear-gradient(to bottom, transparent, black ${featherPx}px, black calc(100% - ${featherPx}px), transparent)
+  `;
+
+  return {
+    maskImage,
+    WebkitMaskImage: maskImage,
+    maskComposite: 'intersect',
+    WebkitMaskComposite: 'source-in',
+  };
+};
+
+/**
  * Get mask style based on type (for blur and solid only)
  */
 const getMaskStyle = (maskType: MaskType, intensity: number): React.CSSProperties => {
@@ -60,6 +87,7 @@ const PixelateCanvas = memo(function PixelateCanvas({
   previewWidth,
   previewHeight,
   intensity,
+  feather,
 }: {
   videoElement: HTMLVideoElement | null;
   videoWidth: number;
@@ -71,6 +99,7 @@ const PixelateCanvas = memo(function PixelateCanvas({
   previewWidth: number;
   previewHeight: number;
   intensity: number;
+  feather: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -182,11 +211,19 @@ const PixelateCanvas = memo(function PixelateCanvas({
     return () => cancelAnimationFrame(animationId);
   }, [videoElement, videoWidth, videoHeight, segmentX, segmentY, segmentWidth, segmentHeight, intensity]);
 
+  // Calculate display dimensions for feather
+  const displayW = Math.round(segmentWidth * previewWidth);
+  const displayH = Math.round(segmentHeight * previewHeight);
+  const featherStyle = getFeatherMask(feather, displayW, displayH);
+
   return (
     <canvas
       ref={canvasRef}
       className="absolute inset-0 w-full h-full"
-      style={{ imageRendering: 'pixelated' }}
+      style={{
+        imageRendering: 'pixelated',
+        ...featherStyle,
+      }}
     />
   );
 });
@@ -301,6 +338,10 @@ const MaskItem = memo(function MaskItem({
 
   const isPixelate = segment.maskType === 'pixelate';
 
+  // Get feather (soft edge) styling - applies to blur and solid masks
+  // Pixelate handles feather internally via the canvas
+  const featherStyle = !isPixelate ? getFeatherMask(segment.feather, width, height) : {};
+
   return (
     <div
       className={`absolute transition-shadow overflow-hidden ${isSelected ? 'ring-2 ring-purple-500 ring-offset-1' : ''}`}
@@ -312,7 +353,7 @@ const MaskItem = memo(function MaskItem({
         cursor: isDragging ? (dragType === 'move' ? 'grabbing' : 'nwse-resize') : 'pointer',
         ...(isPixelate ? {} : getMaskStyle(segment.maskType, segment.intensity)),
         '--mask-solid-color': segment.color,
-        borderRadius: `${segment.feather / 10}px`,
+        ...featherStyle,
       } as React.CSSProperties}
       onClick={handleClick}
     >
@@ -329,6 +370,7 @@ const MaskItem = memo(function MaskItem({
           previewWidth={previewWidth}
           previewHeight={previewHeight}
           intensity={segment.intensity}
+          feather={segment.feather}
         />
       )}
 

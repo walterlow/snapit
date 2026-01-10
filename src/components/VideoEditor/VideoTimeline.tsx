@@ -678,7 +678,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
             durationMs={durationMs}
             timelineZoom={timelineZoom}
             width={timelineWidth + trackLabelWidth}
-            audioPath={project?.sources.screenVideo ?? project?.sources.systemAudio ?? project?.sources.microphoneAudio ?? undefined}
+            audioPath={project?.sources.systemAudio ?? project?.sources.microphoneAudio ?? project?.sources.screenVideo ?? undefined}
           />
 
           {/* Zoom Track */}

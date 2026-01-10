@@ -17,7 +17,7 @@ use super::compositor::Compositor;
 use super::decoder::VideoDecoder;
 use super::renderer::Renderer;
 use super::types::{
-    EditorInstanceInfo, PlaybackEvent, PlaybackState, RenderOptions, RenderedFrame,
+    BackgroundStyle, EditorInstanceInfo, PlaybackEvent, PlaybackState, RenderOptions, RenderedFrame,
 };
 use super::zoom::ZoomInterpolator;
 use crate::commands::video_recording::video_project::VideoProject;
@@ -231,6 +231,9 @@ impl EditorInstance {
         // Get zoom state
         let zoom_state = self.zoom.get_zoom_at(timestamp_ms);
 
+        // Use project's background settings for WYSIWYG preview
+        let background_style = BackgroundStyle::from_config(&self.project.export.background);
+
         // Set up render options
         let options = RenderOptions {
             output_width: self.screen_decoder.width(),
@@ -238,7 +241,7 @@ impl EditorInstance {
             zoom: zoom_state,
             webcam: None, // TODO: Add webcam overlay
             cursor: None, // TODO: Add cursor overlay
-            background: Default::default(),
+            background: background_style,
         };
 
         // Composite frame

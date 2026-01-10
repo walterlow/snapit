@@ -142,7 +142,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     let border_enabled = uniforms.frame_border.x > 0.5;
     let border_width = uniforms.frame_border.y;
-    let border_opacity = uniforms.frame_border.z / 100.0;
+    // border_opacity not used - Cap uses border_color.w directly
 
     // Calculate SDF for video frame
     let rel_pos = pixel_pos - frame_center;
@@ -151,14 +151,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Start with transparent (background shows through)
     var color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
 
-    // Render shadow behind video frame
-    if (shadow_enabled && frame_dist > 0.0) {
+    // Render shadow behind video frame (matching Cap's approach)
+    if (shadow_enabled) {
         let min_frame_size = min(frame_half_size.x, frame_half_size.y);
         let shadow_spread = (shadow_size / 100.0) * min_frame_size;
         let blur_amount = (shadow_blur / 100.0) * min_frame_size;
 
-        let shadow_dist = frame_dist - shadow_spread;
-        let shadow_alpha = (1.0 - smoothstep(-blur_amount, blur_amount * 2.0, shadow_dist)) * shadow_opacity;
+        // Cap's shadow formula: symmetric smoothstep with abs(distance)
+        let shadow_strength = smoothstep(shadow_spread + blur_amount, -blur_amount, abs(frame_dist));
+        let shadow_alpha = shadow_strength * shadow_opacity;
 
         if (shadow_alpha > 0.001) {
             color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
@@ -180,7 +181,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             let outer_alpha = 1.0 - smoothstep(-0.5, 0.5, border_outer_dist);
             let edge_alpha = inner_alpha * outer_alpha;
 
-            let border_alpha = edge_alpha * uniforms.border_color.w * border_opacity;
+            let border_alpha = edge_alpha * uniforms.border_color.w;
             let border_rgb = uniforms.border_color.xyz;
             color = mix(color, vec4<f32>(border_rgb, 1.0), border_alpha);
         }
@@ -204,10 +205,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         // Sample video
         var video_color = textureSample(video_texture, video_sampler, video_uv);
 
-        // Anti-alias the edges
-        let aa_width = 1.0;
-        let edge_alpha = 1.0 - smoothstep(-aa_width, 0.0, frame_dist);
-        video_color.a = video_color.a * edge_alpha;
+        // Anti-alias the edges (matching Cap's approach)
+        let anti_alias_width = max(fwidth(frame_dist), 0.5);
+        let coverage = clamp(1.0 - smoothstep(0.0, anti_alias_width, frame_dist), 0.0, 1.0);
+        video_color.a = video_color.a * coverage;
 
         // Blend video over shadow/border
         color = mix(color, video_color, video_color.a);
@@ -400,7 +401,8 @@ impl Compositor {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: renderer.format(),
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    // Use alpha blending so background shows through transparent areas
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -519,6 +521,24 @@ impl Compositor {
     ) -> wgpu::Texture {
         // Prepare background if needed
         let background = Self::background_from_style(&options.background);
+
+        // Log background setup on first frame (time_ms near 0)
+        if time_ms < 100.0 && time_ms >= 0.0 {
+            match &background {
+                Background::None => log::info!("[COMPOSITOR] Background: None"),
+                Background::Color(c) => log::info!("[COMPOSITOR] Background: Color {:?}", c),
+                Background::Gradient { start, end, angle } => {
+                    log::info!(
+                        "[COMPOSITOR] Background: Gradient start={:?} end={:?} angle={}",
+                        start,
+                        end,
+                        angle
+                    );
+                },
+                Background::Image { path } => log::info!("[COMPOSITOR] Background: Image {}", path),
+            }
+        }
+
         if !matches!(background, Background::None) {
             if let Err(e) = self
                 .background_layer
@@ -659,7 +679,7 @@ impl Compositor {
                 0.0
             },
             options.background.border.width,
-            options.background.border.opacity * 100.0, // Convert 0-1 to 0-100 for shader
+            0.0, // unused - border opacity comes from border_color.w
             0.0,
         ];
         let border_color = options.background.border.color;

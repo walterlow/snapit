@@ -332,6 +332,16 @@ pub async fn export_video_gpu(
         // Convert background config to rendering style
         let background_style = BackgroundStyle::from_config(&project.export.background);
 
+        // Log background config on first frame
+        if frame_idx == 0 {
+            log::info!(
+                "[EXPORT] Background: type={:?}, padding={}, rounding={}",
+                background_style.background_type,
+                background_style.padding,
+                background_style.rounding
+            );
+        }
+
         let render_options = RenderOptions {
             output_width: out_w,
             output_height: out_h,

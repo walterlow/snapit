@@ -336,11 +336,15 @@ impl BackgroundStyle {
             blur: config.shadow.blur,
         };
 
+        // Bake border opacity into color's alpha channel (matching Cap's approach)
+        let mut border_color = hex_to_linear_rgba(&config.border.color);
+        border_color[3] *= config.border.opacity / 100.0; // Apply opacity to alpha
+
         let border = BorderStyle {
             enabled: config.border.enabled,
             width: config.border.width,
-            color: hex_to_linear_rgba(&config.border.color),
-            opacity: config.border.opacity / 100.0, // Convert from 0-100 to 0-1
+            color: border_color,
+            opacity: 1.0, // Opacity is now baked into color alpha
         };
 
         Self {

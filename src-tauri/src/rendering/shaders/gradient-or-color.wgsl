@@ -5,7 +5,9 @@ struct Uniforms {
     start: vec4<f32>,
     end: vec4<f32>,
     angle: f32,
-    _padding: vec3<f32>,
+    _padding1: f32,
+    _padding2: f32,
+    _padding3: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;

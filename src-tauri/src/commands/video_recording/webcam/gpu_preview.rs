@@ -831,8 +831,24 @@ impl Renderer {
     fn render_frame(&mut self, frame: &NativeCameraFrame) -> Result<(), String> {
         use snapit_camera_windows::PixelFormat;
 
-        let width = frame.width;
-        let height = frame.height;
+        // For preview, downsample to max 320px to reduce upload bandwidth.
+        // Full 1080p = 3MB+, 320px = ~150KB per frame (20x smaller!)
+        const PREVIEW_MAX_DIM: u32 = 320;
+
+        let src_width = frame.width;
+        let src_height = frame.height;
+
+        // Calculate downsampled dimensions (keep aspect ratio)
+        let scale = if src_width > PREVIEW_MAX_DIM || src_height > PREVIEW_MAX_DIM {
+            let scale_w = PREVIEW_MAX_DIM as f32 / src_width as f32;
+            let scale_h = PREVIEW_MAX_DIM as f32 / src_height as f32;
+            scale_w.min(scale_h)
+        } else {
+            1.0
+        };
+
+        let dst_width = ((src_width as f32 * scale) as u32).max(2) & !1; // Round to even
+        let dst_height = ((src_height as f32 * scale) as u32).max(2) & !1;
 
         // Determine YUV format for this frame
         let yuv_format = match frame.pixel_format {
@@ -853,17 +869,19 @@ impl Renderer {
         let needs_new_texture = self
             .texture_cache
             .as_ref()
-            .map(|t| t.width != width || t.height != height || t.format != yuv_format)
+            .map(|t| t.width != dst_width || t.height != dst_height || t.format != yuv_format)
             .unwrap_or(true);
 
         if needs_new_texture || yuv_format != self.current_yuv_format {
             log::info!(
-                "[GPU_PREVIEW] Creating YUV textures: {}x{} format={:?}",
-                width,
-                height,
+                "[GPU_PREVIEW] Creating YUV textures: {}x{} (from {}x{}) format={:?}",
+                dst_width,
+                dst_height,
+                src_width,
+                src_height,
                 yuv_format
             );
-            self.texture_cache = Some(self.create_yuv_textures(width, height, yuv_format));
+            self.texture_cache = Some(self.create_yuv_textures(dst_width, dst_height, yuv_format));
             self.current_yuv_format = yuv_format;
             // Update state uniforms with new format
             let state = self.current_state.clone();
@@ -875,85 +893,23 @@ impl Renderer {
 
         let cached = self.texture_cache.as_ref().unwrap();
 
-        // Upload frame data based on format
+        // Upload frame data based on format (with downsampling)
         match yuv_format {
             YuvFormat::Nv12 => {
                 let bytes = frame.bytes();
-                let y_size = (width * height) as usize;
-                let uv_height = height / 2;
+                let y_size = (src_width * src_height) as usize;
 
-                // Upload Y plane (R8)
-                self.queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &cached.y_texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &bytes[..y_size],
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(width),
-                        rows_per_image: Some(height),
-                    },
-                    wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                );
-
-                // Upload UV plane (RG8, half height)
-                if let Some(ref uv_tex) = cached.uv_texture {
-                    self.queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: uv_tex,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        &bytes[y_size..],
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(width), // UV interleaved, same width as Y
-                            rows_per_image: Some(uv_height),
-                        },
-                        wgpu::Extent3d {
-                            width: width / 2,
-                            height: uv_height,
-                            depth_or_array_layers: 1,
-                        },
-                    );
-                }
-            },
-            YuvFormat::Yuyv422 => {
-                // YUYV422: packed as YUYV YUYV... (2 bytes per pixel)
-                // Upload as RGBA8 texture for shader to decode
-                let bytes = frame.bytes();
-                self.queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &cached.y_texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    bytes,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(width * 2),
-                        rows_per_image: Some(height),
-                    },
-                    wgpu::Extent3d {
-                        width: width / 2, // RGBA8 texture stores 2 pixels per texel
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                );
-            },
-            YuvFormat::Rgba => {
-                // MJPEG/RGB: decode to RGBA on CPU, upload as RGBA8
+                // Downsample Y plane
                 self.rgba_buffer.clear();
-                frame_to_rgba_into(frame, &mut self.rgba_buffer)?;
+                subsample_plane(
+                    &bytes[..y_size],
+                    src_width as usize,
+                    src_height as usize,
+                    dst_width as usize,
+                    dst_height as usize,
+                    1, // 1 byte per pixel for Y
+                    &mut self.rgba_buffer,
+                );
 
                 self.queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
@@ -965,12 +921,104 @@ impl Renderer {
                     &self.rgba_buffer,
                     wgpu::TexelCopyBufferLayout {
                         offset: 0,
-                        bytes_per_row: Some(width * 4),
-                        rows_per_image: Some(height),
+                        bytes_per_row: Some(dst_width),
+                        rows_per_image: Some(dst_height),
                     },
                     wgpu::Extent3d {
-                        width,
-                        height,
+                        width: dst_width,
+                        height: dst_height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+
+                // Downsample UV plane
+                if let Some(ref uv_tex) = cached.uv_texture {
+                    self.rgba_buffer.clear();
+                    subsample_plane(
+                        &bytes[y_size..],
+                        src_width as usize, // UV row stride = src_width (interleaved)
+                        (src_height / 2) as usize,
+                        dst_width as usize,
+                        (dst_height / 2) as usize,
+                        2, // 2 bytes per UV pair
+                        &mut self.rgba_buffer,
+                    );
+
+                    self.queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: uv_tex,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &self.rgba_buffer,
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(dst_width),
+                            rows_per_image: Some(dst_height / 2),
+                        },
+                        wgpu::Extent3d {
+                            width: dst_width / 2,
+                            height: dst_height / 2,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+            },
+            YuvFormat::Yuyv422 => {
+                // YUYV422: downsample by skipping pixel pairs
+                let bytes = frame.bytes();
+                self.rgba_buffer.clear();
+                subsample_yuyv(
+                    bytes,
+                    src_width as usize,
+                    src_height as usize,
+                    dst_width as usize,
+                    dst_height as usize,
+                    &mut self.rgba_buffer,
+                );
+
+                self.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &cached.y_texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &self.rgba_buffer,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(dst_width * 2),
+                        rows_per_image: Some(dst_height),
+                    },
+                    wgpu::Extent3d {
+                        width: dst_width / 2,
+                        height: dst_height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            },
+            YuvFormat::Rgba => {
+                // MJPEG/RGB: decode and downsample
+                self.rgba_buffer.clear();
+                frame_to_rgba_downsampled(frame, dst_width, dst_height, &mut self.rgba_buffer)?;
+
+                self.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &cached.y_texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &self.rgba_buffer,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(dst_width * 4),
+                        rows_per_image: Some(dst_height),
+                    },
+                    wgpu::Extent3d {
+                        width: dst_width,
+                        height: dst_height,
                         depth_or_array_layers: 1,
                     },
                 );
@@ -1167,8 +1215,259 @@ impl Renderer {
     }
 }
 
+/// Bilinear downscaling for planar data (Y plane).
+/// Samples 4 neighbors and blends based on fractional position.
+fn subsample_plane(
+    src: &[u8],
+    src_width: usize,
+    src_height: usize,
+    dst_width: usize,
+    dst_height: usize,
+    bytes_per_sample: usize, // 1 for Y, 2 for UV pairs
+    dst: &mut Vec<u8>,
+) {
+    dst.reserve_exact(dst_width * dst_height * bytes_per_sample);
+
+    // Use floating point for bilinear interpolation
+    let x_scale = src_width as f32 / dst_width as f32;
+    let y_scale = src_height as f32 / dst_height as f32;
+
+    for dst_y in 0..dst_height {
+        let src_yf = dst_y as f32 * y_scale;
+        let src_y0 = (src_yf as usize).min(src_height - 1);
+        let src_y1 = (src_y0 + 1).min(src_height - 1);
+        let y_frac = src_yf - src_y0 as f32;
+
+        for dst_x in 0..dst_width {
+            let src_xf = dst_x as f32 * x_scale;
+            let src_x0 = (src_xf as usize).min(src_width - 1);
+            let src_x1 = (src_x0 + 1).min(src_width - 1);
+            let x_frac = src_xf - src_x0 as f32;
+
+            // Bilinear blend for each byte in sample
+            for i in 0..bytes_per_sample {
+                let get_pixel = |x: usize, y: usize| -> f32 {
+                    src.get(y * src_width * bytes_per_sample + x * bytes_per_sample + i)
+                        .copied()
+                        .unwrap_or(128) as f32
+                };
+
+                let p00 = get_pixel(src_x0, src_y0);
+                let p10 = get_pixel(src_x1, src_y0);
+                let p01 = get_pixel(src_x0, src_y1);
+                let p11 = get_pixel(src_x1, src_y1);
+
+                // Bilinear interpolation
+                let top = p00 + (p10 - p00) * x_frac;
+                let bot = p01 + (p11 - p01) * x_frac;
+                let val = top + (bot - top) * y_frac;
+
+                dst.push(val.clamp(0.0, 255.0) as u8);
+            }
+        }
+    }
+}
+
+/// Bilinear downscaling for YUYV422 data.
+/// Converts to YUV per-pixel, bilinear samples, then re-packs to YUYV.
+fn subsample_yuyv(
+    src: &[u8],
+    src_width: usize,
+    src_height: usize,
+    dst_width: usize,
+    dst_height: usize,
+    dst: &mut Vec<u8>,
+) {
+    dst.reserve_exact(dst_width * dst_height * 2);
+
+    let x_scale = src_width as f32 / dst_width as f32;
+    let y_scale = src_height as f32 / dst_height as f32;
+    let src_stride = src_width * 2;
+
+    // Helper to get Y value at pixel position
+    let get_y = |x: usize, y: usize| -> f32 {
+        let row = y * src_stride;
+        let pair_offset = (x / 2) * 4;
+        let y_offset = if x % 2 == 0 { 0 } else { 2 };
+        src.get(row + pair_offset + y_offset)
+            .copied()
+            .unwrap_or(128) as f32
+    };
+
+    // Helper to get U value at pixel position
+    let get_u = |x: usize, y: usize| -> f32 {
+        let row = y * src_stride;
+        let pair_offset = (x / 2) * 4;
+        src.get(row + pair_offset + 1).copied().unwrap_or(128) as f32
+    };
+
+    // Helper to get V value at pixel position
+    let get_v = |x: usize, y: usize| -> f32 {
+        let row = y * src_stride;
+        let pair_offset = (x / 2) * 4;
+        src.get(row + pair_offset + 3).copied().unwrap_or(128) as f32
+    };
+
+    // Bilinear sample a component
+    let bilinear = |get_fn: &dyn Fn(usize, usize) -> f32, src_xf: f32, src_yf: f32| -> u8 {
+        let src_x0 = (src_xf as usize).min(src_width - 1);
+        let src_x1 = (src_x0 + 1).min(src_width - 1);
+        let src_y0 = (src_yf as usize).min(src_height - 1);
+        let src_y1 = (src_y0 + 1).min(src_height - 1);
+        let x_frac = src_xf - src_x0 as f32;
+        let y_frac = src_yf - src_y0 as f32;
+
+        let p00 = get_fn(src_x0, src_y0);
+        let p10 = get_fn(src_x1, src_y0);
+        let p01 = get_fn(src_x0, src_y1);
+        let p11 = get_fn(src_x1, src_y1);
+
+        let top = p00 + (p10 - p00) * x_frac;
+        let bot = p01 + (p11 - p01) * x_frac;
+        let val = top + (bot - top) * y_frac;
+        val.clamp(0.0, 255.0) as u8
+    };
+
+    for dst_y in 0..dst_height {
+        let src_yf = dst_y as f32 * y_scale;
+
+        for dst_x in (0..dst_width).step_by(2) {
+            // Sample two pixels for YUYV pair
+            let src_xf0 = dst_x as f32 * x_scale;
+            let src_xf1 = (dst_x + 1) as f32 * x_scale;
+
+            let y0 = bilinear(&get_y, src_xf0, src_yf);
+            let y1 = bilinear(&get_y, src_xf1, src_yf);
+            // Average U and V from both pixel positions
+            let u = ((bilinear(&get_u, src_xf0, src_yf) as u16
+                + bilinear(&get_u, src_xf1, src_yf) as u16)
+                / 2) as u8;
+            let v = ((bilinear(&get_v, src_xf0, src_yf) as u16
+                + bilinear(&get_v, src_xf1, src_yf) as u16)
+                / 2) as u8;
+
+            dst.extend_from_slice(&[y0, u, y1, v]);
+        }
+    }
+}
+
+/// Decode MJPEG/RGB to RGBA with downsampling.
+fn frame_to_rgba_downsampled(
+    frame: &NativeCameraFrame,
+    dst_width: u32,
+    dst_height: u32,
+    rgba: &mut Vec<u8>,
+) -> Result<(), String> {
+    use snapit_camera_windows::PixelFormat;
+
+    let bytes = frame.bytes();
+
+    match frame.pixel_format {
+        PixelFormat::MJPEG => {
+            // Decode JPEG with bilinear resize for smooth downscaling
+            let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg)
+                .map_err(|e| format!("Failed to decode MJPEG: {}", e))?;
+            let img = img.resize(dst_width, dst_height, image::imageops::FilterType::Triangle);
+            let rgb = img.to_rgb8();
+            rgba.reserve_exact((dst_width * dst_height * 4) as usize);
+            rgba.extend(rgb.pixels().flat_map(|p| [p[0], p[1], p[2], 255]));
+        },
+        PixelFormat::RGB24 => {
+            // Bilinear sample RGB24
+            let src_width = frame.width as usize;
+            let src_height = frame.height as usize;
+            let x_scale = src_width as f32 / dst_width as f32;
+            let y_scale = src_height as f32 / dst_height as f32;
+            rgba.reserve_exact((dst_width * dst_height * 4) as usize);
+
+            for dst_y in 0..dst_height as usize {
+                let src_yf = dst_y as f32 * y_scale;
+                let src_y0 = (src_yf as usize).min(src_height - 1);
+                let src_y1 = (src_y0 + 1).min(src_height - 1);
+                let y_frac = src_yf - src_y0 as f32;
+
+                for dst_x in 0..dst_width as usize {
+                    let src_xf = dst_x as f32 * x_scale;
+                    let src_x0 = (src_xf as usize).min(src_width - 1);
+                    let src_x1 = (src_x0 + 1).min(src_width - 1);
+                    let x_frac = src_xf - src_x0 as f32;
+
+                    // Bilinear for each RGB channel
+                    for c in 0..3 {
+                        let get = |x: usize, y: usize| -> f32 {
+                            bytes
+                                .get(y * src_width * 3 + x * 3 + c)
+                                .copied()
+                                .unwrap_or(128) as f32
+                        };
+                        let p00 = get(src_x0, src_y0);
+                        let p10 = get(src_x1, src_y0);
+                        let p01 = get(src_x0, src_y1);
+                        let p11 = get(src_x1, src_y1);
+                        let top = p00 + (p10 - p00) * x_frac;
+                        let bot = p01 + (p11 - p01) * x_frac;
+                        let val = top + (bot - top) * y_frac;
+                        rgba.push(val.clamp(0.0, 255.0) as u8);
+                    }
+                    rgba.push(255); // Alpha
+                }
+            }
+        },
+        PixelFormat::RGB32 | PixelFormat::ARGB => {
+            // Bilinear sample BGRA
+            let src_width = frame.width as usize;
+            let src_height = frame.height as usize;
+            let x_scale = src_width as f32 / dst_width as f32;
+            let y_scale = src_height as f32 / dst_height as f32;
+            rgba.reserve_exact((dst_width * dst_height * 4) as usize);
+
+            for dst_y in 0..dst_height as usize {
+                let src_yf = dst_y as f32 * y_scale;
+                let src_y0 = (src_yf as usize).min(src_height - 1);
+                let src_y1 = (src_y0 + 1).min(src_height - 1);
+                let y_frac = src_yf - src_y0 as f32;
+
+                for dst_x in 0..dst_width as usize {
+                    let src_xf = dst_x as f32 * x_scale;
+                    let src_x0 = (src_xf as usize).min(src_width - 1);
+                    let src_x1 = (src_x0 + 1).min(src_width - 1);
+                    let x_frac = src_xf - src_x0 as f32;
+
+                    // Bilinear for BGRA (reorder to RGBA)
+                    let bgra_order = [2, 1, 0, 3]; // B->R, G->G, R->B, A->A
+                    for &c in &bgra_order {
+                        let get = |x: usize, y: usize| -> f32 {
+                            bytes
+                                .get(y * src_width * 4 + x * 4 + c)
+                                .copied()
+                                .unwrap_or(128) as f32
+                        };
+                        let p00 = get(src_x0, src_y0);
+                        let p10 = get(src_x1, src_y0);
+                        let p01 = get(src_x0, src_y1);
+                        let p11 = get(src_x1, src_y1);
+                        let top = p00 + (p10 - p00) * x_frac;
+                        let bot = p01 + (p11 - p01) * x_frac;
+                        let val = top + (bot - top) * y_frac;
+                        rgba.push(val.clamp(0.0, 255.0) as u8);
+                    }
+                }
+            }
+        },
+        _ => {
+            return Err(format!(
+                "frame_to_rgba_downsampled: unsupported format {:?}",
+                frame.pixel_format
+            ))
+        },
+    }
+
+    Ok(())
+}
+
 /// Convert MJPEG/RGB frame to RGBA (no scaling - GPU handles that).
 /// Only used for non-YUV formats; YUV formats go directly to GPU.
+#[allow(dead_code)]
 fn frame_to_rgba_into(frame: &NativeCameraFrame, rgba: &mut Vec<u8>) -> Result<(), String> {
     use snapit_camera_windows::PixelFormat;
 

@@ -34,7 +34,6 @@ const WebcamPreviewWindow: React.FC = () => {
     size: 'medium',
     shape: 'circle',
     mirror: true,
-    resolution: '720p',
   });
 
   const mountedRef = useRef(true);

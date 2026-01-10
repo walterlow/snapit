@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 
 // Re-export webcam types for convenience
 pub use crate::commands::video_recording::webcam::{
-    WebcamPosition, WebcamResolution, WebcamSettings, WebcamShape, WebcamSize,
+    WebcamPosition, WebcamSettings, WebcamShape, WebcamSize,
 };
 
 use crate::error::SnapItResult;
@@ -113,35 +113,4 @@ pub fn set_webcam_mirror(mirror: bool) -> SnapItResult<()> {
     log::debug!("[CONFIG] set_webcam_mirror({})", mirror);
     WEBCAM_CONFIG.write().mirror = mirror;
     Ok(())
-}
-
-/// Set webcam capture resolution.
-/// If the camera feed is running, it will be restarted to apply the new resolution.
-#[tauri::command]
-pub fn set_webcam_resolution(resolution: WebcamResolution) -> SnapItResult<()> {
-    log::debug!("[CONFIG] set_webcam_resolution({:?})", resolution);
-    let device_index = WEBCAM_CONFIG.read().device_index;
-    WEBCAM_CONFIG.write().resolution = resolution;
-
-    // Restart feed if running to apply new resolution
-    use crate::commands::video_recording::webcam::restart_global_feed;
-    match restart_global_feed(device_index) {
-        Ok(Some(_)) => log::info!(
-            "[CONFIG] Feed restarted for new resolution {:?}",
-            resolution
-        ),
-        Ok(None) => log::debug!("[CONFIG] Feed not running, resolution will apply on next start"),
-        Err(e) => log::warn!(
-            "[CONFIG] Failed to restart feed for resolution change: {}",
-            e
-        ),
-    }
-
-    Ok(())
-}
-
-/// Get the current webcam resolution setting.
-#[tauri::command]
-pub fn get_webcam_resolution() -> WebcamResolution {
-    WEBCAM_CONFIG.read().resolution
 }

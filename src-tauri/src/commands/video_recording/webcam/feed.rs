@@ -210,7 +210,6 @@ impl CameraFeed {
         is_starting: Arc<AtomicBool>,
         dimensions: Arc<RwLock<(u32, u32)>>,
     ) -> Result<(), String> {
-        use crate::config::webcam::WEBCAM_CONFIG;
         use nokhwa::utils::{
             CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
             Resolution,
@@ -222,14 +221,12 @@ impl CameraFeed {
             device_index
         );
 
-        // Use configured resolution from settings
-        let configured_resolution = WEBCAM_CONFIG.read().resolution;
-        let (target_width, target_height) = configured_resolution.to_dimensions();
+        // Always capture at 1080p - output is capped at 1280 width by encoder (like Cap)
+        let (target_width, target_height) = (1920, 1080);
         log::info!(
-            "[CAMERA_FEED] Requesting resolution: {}x{} ({:?})",
+            "[CAMERA_FEED] Requesting resolution: {}x{} (output capped at 1280)",
             target_width,
-            target_height,
-            configured_resolution
+            target_height
         );
 
         // YUYV is used for fast CPU conversion - MJPEG requires expensive JPEG decode.

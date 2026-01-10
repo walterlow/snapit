@@ -390,37 +390,67 @@ impl FeedWebcamEncoder {
             log::warn!("[FEED_ENCODER] WARNING: First frame appears to be mostly black!");
         }
 
+        // Cap output resolution to 1280 width (like Cap does) for consistent output
+        const MAX_OUTPUT_WIDTH: u32 = 1280;
+        let (output_width, output_height) = if width > MAX_OUTPUT_WIDTH {
+            let scale = MAX_OUTPUT_WIDTH as f32 / width as f32;
+            let scaled_height = ((height as f32 * scale) as u32) & !1; // Ensure even
+            (MAX_OUTPUT_WIDTH, scaled_height)
+        } else {
+            (width, height)
+        };
+
         log::info!(
-            "[FEED_ENCODER] First frame: {}x{}, starting FFmpeg with rawvideo input",
+            "[FEED_ENCODER] Input: {}x{}, Output: {}x{} (capped at {})",
             width,
-            height
+            height,
+            output_width,
+            output_height,
+            MAX_OUTPUT_WIDTH
         );
 
+        // Build FFmpeg args - use scale filter if downscaling needed
+        let scale_filter = if width > MAX_OUTPUT_WIDTH {
+            format!("scale={}:{}:flags=bilinear", output_width, output_height)
+        } else {
+            String::new()
+        };
+
         // Spawn FFmpeg with rawvideo input (much faster than image2pipe + JPEG)
-        let mut child = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
-            .args([
-                "-y",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                "bgra",
-                "-s",
-                &format!("{}x{}", width, height),
-                "-r",
-                "30",
-                "-i",
-                "pipe:0",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-crf",
-                "23",
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-            ])
+        let mut cmd = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path);
+        cmd.args([
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgra",
+            "-s",
+            &format!("{}x{}", width, height),
+            "-r",
+            "30",
+            "-i",
+            "pipe:0",
+        ]);
+
+        // Add scale filter if needed (with bilinear for quality)
+        if !scale_filter.is_empty() {
+            cmd.args(["-vf", &scale_filter]);
+        }
+
+        cmd.args([
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+        ]);
+
+        let mut child = cmd
             .arg(&output_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())

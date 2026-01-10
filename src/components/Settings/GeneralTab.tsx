@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
-import { FolderOpen, ExternalLink, RefreshCw, Sun, Moon, Monitor, FileText, Video } from 'lucide-react';
+import { FolderOpen, ExternalLink, RefreshCw, Sun, Moon, Monitor, FileText } from 'lucide-react';
 import { useUpdater } from '@/hooks/useUpdater';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,72 +16,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useWebcamSettingsStore } from '@/stores/webcamSettingsStore';
 import type { ImageFormat, Theme } from '@/types';
-import type { WebcamResolution, SupportedResolutions } from '@/types/generated';
 import { settingsLogger } from '@/utils/logger';
 
 export const GeneralTab: React.FC = () => {
   const { settings, updateGeneralSettings } = useSettingsStore();
   const { general } = settings;
-  const { settings: webcamSettings, devices, setResolution, loadSettings: loadWebcamSettings, loadDevices } = useWebcamSettingsStore();
 
   const [isAutostartEnabled, setIsAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(true);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [appVersion, setAppVersion] = useState<string>('');
   const { version: updateVersion, available, checkForUpdates, downloadAndInstall, downloading } = useUpdater(false);
-
-  // Load webcam settings and devices on mount
-  useEffect(() => {
-    loadWebcamSettings();
-    loadDevices();
-  }, [loadWebcamSettings, loadDevices]);
-
-  // Get supported resolutions for current device
-  const currentDevice = useMemo(() => {
-    return devices.find((d) => d.index === webcamSettings.deviceIndex);
-  }, [devices, webcamSettings.deviceIndex]);
-
-  const supportedResolutions = useMemo((): SupportedResolutions => {
-    if (!currentDevice?.supportedResolutions) {
-      // Default: assume 720p and 480p are always supported
-      return {
-        supports1080p: false,
-        supports720p: true,
-        supports480p: true,
-        maxWidth: 1280,
-        maxHeight: 720,
-      };
-    }
-    return currentDevice.supportedResolutions;
-  }, [currentDevice]);
-
-  // Auto-downgrade resolution if current selection is not supported by device
-  useEffect(() => {
-    const resolution = webcamSettings.resolution;
-    if (resolution === 'auto') return; // Auto is always valid
-
-    const isSupported = (res: WebcamResolution): boolean => {
-      switch (res) {
-        case '1080p': return supportedResolutions.supports1080p;
-        case '720p': return supportedResolutions.supports720p;
-        case '480p': return supportedResolutions.supports480p;
-        default: return true;
-      }
-    };
-
-    if (!isSupported(resolution)) {
-      // Find the highest supported resolution and switch to it
-      const fallback: WebcamResolution = supportedResolutions.supports1080p ? '1080p'
-        : supportedResolutions.supports720p ? '720p'
-        : supportedResolutions.supports480p ? '480p'
-        : 'auto';
-
-      settingsLogger.info(`Resolution ${resolution} not supported, falling back to ${fallback}`);
-      setResolution(fallback);
-    }
-  }, [webcamSettings.resolution, supportedResolutions, setResolution]);
 
   // Load app version on mount
   useEffect(() => {
@@ -399,49 +345,6 @@ export const GeneralTab: React.FC = () => {
                 </Button>
               )}
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Webcam Section */}
-      <section>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
-          Webcam
-        </h3>
-        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)] space-y-4">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Video className="w-4 h-4 text-[var(--ink-muted)]" />
-              <label className="text-sm text-[var(--ink-black)]">
-                Recording resolution
-              </label>
-            </div>
-            <Select
-              value={webcamSettings.resolution}
-              onValueChange={(value) => setResolution(value as WebcamResolution)}
-            >
-              <SelectTrigger className="w-full max-w-[200px] bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-black)]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">Auto (up to 1080p)</SelectItem>
-                {supportedResolutions.supports1080p && (
-                  <SelectItem value="1080p">1080p (1920x1080)</SelectItem>
-                )}
-                {supportedResolutions.supports720p && (
-                  <SelectItem value="720p">720p (1280x720)</SelectItem>
-                )}
-                {supportedResolutions.supports480p && (
-                  <SelectItem value="480p">480p (640x480)</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-[var(--ink-muted)] mt-2">
-              Resolution used when recording webcam overlay. Higher resolutions require more processing power.
-              {currentDevice && supportedResolutions.maxWidth > 0 && (
-                <> Your webcam supports up to {supportedResolutions.maxWidth}x{supportedResolutions.maxHeight}.</>
-              )}
-            </p>
           </div>
         </div>
       </section>

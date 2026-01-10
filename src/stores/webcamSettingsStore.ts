@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
-import type { WebcamDevice, WebcamSettings, WebcamPosition, WebcamSize, WebcamShape, WebcamResolution } from '../types/generated';
+import type { WebcamDevice, WebcamSettings, WebcamPosition, WebcamSize, WebcamShape } from '../types/generated';
 import { createErrorHandler } from '../utils/errorReporting';
 import { webcamLogger } from '../utils/logger';
 
@@ -22,7 +22,6 @@ interface WebcamSettingsState {
   setSize: (size: WebcamSize) => Promise<void>;
   setShape: (shape: WebcamShape) => Promise<void>;
   setMirror: (mirror: boolean) => Promise<void>;
-  setResolution: (resolution: WebcamResolution) => Promise<void>;
   togglePreview: () => Promise<void>;
   closePreview: () => Promise<void>;
 }
@@ -34,7 +33,6 @@ const DEFAULT_WEBCAM_SETTINGS: WebcamSettings = {
   size: 'medium',
   shape: 'circle',
   mirror: true,
-  resolution: '720p',
 };
 
 // Guard against concurrent preview creation
@@ -176,17 +174,6 @@ export const useWebcamSettingsStore = create<WebcamSettingsState>((set, get) => 
       }
     } catch (error) {
       webcamLogger.error('Failed to set webcam mirror:', error);
-    }
-  },
-
-  setResolution: async (resolution: WebcamResolution) => {
-    try {
-      await invoke('set_webcam_resolution', { resolution });
-      const newSettings = { ...get().settings, resolution };
-      set({ settings: newSettings });
-      webcamLogger.debug('Webcam resolution set to:', resolution);
-    } catch (error) {
-      webcamLogger.error('Failed to set webcam resolution:', error);
     }
   },
 

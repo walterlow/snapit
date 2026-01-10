@@ -264,6 +264,7 @@ fn wait_for_first_frame(
 }
 
 /// Spawn FFmpeg encoder process.
+/// Output is capped at 1280 width (like Cap) for consistent file sizes.
 fn spawn_ffmpeg(
     output_path: &PathBuf,
     width: u32,
@@ -271,33 +272,50 @@ fn spawn_ffmpeg(
 ) -> Result<(ChildStdin, Child), String> {
     let ffmpeg_path = crate::commands::storage::find_ffmpeg().ok_or("FFmpeg not found")?;
 
+    // Cap output resolution to 1280 width (like Cap does)
+    const MAX_OUTPUT_WIDTH: u32 = 1280;
+    let (output_width, output_height) = if width > MAX_OUTPUT_WIDTH {
+        let scale = MAX_OUTPUT_WIDTH as f32 / width as f32;
+        let scaled_height = ((height as f32 * scale) as u32) & !1; // Ensure even
+        (MAX_OUTPUT_WIDTH, scaled_height)
+    } else {
+        (width, height)
+    };
+
+    let needs_scale = width > MAX_OUTPUT_WIDTH;
+
     log::info!(
-        "[ENCODER] Spawning FFmpeg: {}x{} -> {:?}",
+        "[ENCODER] Spawning FFmpeg: {}x{} -> {}x{} (output) -> {:?}",
         width,
         height,
+        output_width,
+        output_height,
         output_path
     );
 
-    let mut child = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
-        .args([
-            "-y",
-            "-f",
-            "image2pipe",
-            "-framerate",
-            "30",
-            "-i",
-            "pipe:0",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-crf",
-            "18",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-        ])
+    let mut cmd = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path);
+    cmd.args(["-y", "-f", "image2pipe", "-framerate", "30", "-i", "pipe:0"]);
+
+    // Add scale filter if needed (with bilinear for quality)
+    if needs_scale {
+        let scale_filter = format!("scale={}:{}:flags=bilinear", output_width, output_height);
+        cmd.args(["-vf", &scale_filter]);
+    }
+
+    cmd.args([
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+    ]);
+
+    let mut child = cmd
         .arg(output_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())

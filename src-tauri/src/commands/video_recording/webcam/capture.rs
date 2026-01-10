@@ -204,13 +204,12 @@ impl WebcamCaptureService {
 
     /// Run the capture loop (blocking - call from a thread).
     pub fn run(self) -> Result<(), String> {
-        use crate::config::webcam::WEBCAM_CONFIG;
         use snapit_camera_windows::{FormatPreference, PixelFormat};
 
         let device = get_device_by_index(self.device_index)?;
 
-        // Get resolution from config
-        let (target_width, target_height) = WEBCAM_CONFIG.read().resolution.to_dimensions();
+        // Always capture at 1080p - output is capped at 1280 width by encoder (like Cap)
+        let (target_width, target_height) = (1920, 1080);
 
         // Prefer MJPEG for preview - camera does hardware compression, no CPU conversion needed.
         // For recording/encoding, NV12 would be better but preview is the bottleneck.

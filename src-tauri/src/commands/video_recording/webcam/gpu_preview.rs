@@ -362,17 +362,33 @@ struct Renderer {
     window_uniform_buffer: wgpu::Buffer,
     camera_uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
-    texture_cache: Option<CachedTexture>,
+    texture_cache: Option<CachedYuvTextures>,
     aspect_ratio: f32,
-    /// Reusable RGBA buffer to avoid allocation per frame
+    current_yuv_format: YuvFormat,
+    current_state: GpuPreviewState,
+    /// Reusable RGBA buffer for MJPEG decoding only
     rgba_buffer: Vec<u8>,
 }
 
-struct CachedTexture {
-    texture: wgpu::Texture,
+/// Cached textures for GPU YUV conversion
+struct CachedYuvTextures {
+    /// Y plane texture (R8 for NV12) or packed YUYV/RGBA texture
+    y_texture: wgpu::Texture,
+    /// UV plane texture (RG8 for NV12) - None for YUYV/RGBA
+    uv_texture: Option<wgpu::Texture>,
     bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
+    format: YuvFormat,
+}
+
+/// YUV format for GPU shader
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum YuvFormat {
+    Nv12 = 0,
+    Yuyv422 = 1,
+    Rgba = 2, // For MJPEG/RGB formats - pass through as-is
 }
 
 #[repr(C)]
@@ -381,7 +397,7 @@ struct StateUniforms {
     shape: f32,
     size: f32,
     mirrored: f32,
-    _padding: f32,
+    yuv_format: f32, // 0 = NV12, 1 = YUYV422, 2 = RGBA (pass-through)
 }
 
 #[repr(C)]
@@ -389,8 +405,8 @@ struct StateUniforms {
 struct WindowUniforms {
     window_height: f32,
     window_width: f32,
-    _padding1: f32,
-    _padding2: f32,
+    tex_width: f32,  // Texture width for YUYV decoding
+    tex_height: f32, // Texture height
 }
 
 #[repr(C)]
@@ -468,10 +484,12 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
         .await
         .map_err(|e| format!("Failed to create device: {}", e))?;
 
-    // Load shader
+    // Load YUV shader for GPU-based color conversion
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("camera-shader"),
-        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("camera.wgsl"))),
+        label: Some("camera-yuv-shader"),
+        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+            "camera_yuv.wgsl"
+        ))),
     });
 
     // Create bind group layouts
@@ -512,10 +530,12 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
             ],
         });
 
+    // Texture bind group layout for YUV textures (Y plane, UV plane, sampler)
     let texture_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("texture-bind-group-layout"),
+            label: Some("yuv-texture-bind-group-layout"),
             entries: &[
+                // Y plane texture (R8 for NV12, RGBA8 for YUYV/RGB)
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -526,8 +546,20 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
                     },
                     count: None,
                 },
+                // UV plane texture (RG8 for NV12, dummy for others)
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Sampler
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
@@ -666,7 +698,7 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
         ..Default::default()
     });
 
-    // Pre-allocate RGBA buffer for max preview size (avoids allocation per frame)
+    // Pre-allocate RGBA buffer for MJPEG decoding only (other formats use GPU conversion)
     let max_pixels = (PREVIEW_MAX_TEXTURE_SIZE * PREVIEW_MAX_TEXTURE_SIZE) as usize;
     let rgba_buffer = Vec::with_capacity(max_pixels * 4);
 
@@ -684,6 +716,8 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
         uniform_bind_group,
         texture_cache: None,
         aspect_ratio: 1.0,
+        current_yuv_format: YuvFormat::Nv12, // Default, will be updated on first frame
+        current_state: state.clone(),
         rgba_buffer,
     };
 
@@ -726,7 +760,7 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
 }
 
 impl Renderer {
-    fn update_state_uniforms(&self, state: &GpuPreviewState) {
+    fn update_state_uniforms(&mut self, state: &GpuPreviewState) {
         let normalized_size =
             (state.size - MIN_PREVIEW_SIZE) / (MAX_PREVIEW_SIZE - MIN_PREVIEW_SIZE);
         let uniforms = StateUniforms {
@@ -736,21 +770,29 @@ impl Renderer {
             },
             size: normalized_size.clamp(0.0, 1.0),
             mirrored: if state.mirrored { 1.0 } else { 0.0 },
-            _padding: 0.0,
+            yuv_format: self.current_yuv_format as u32 as f32,
         };
         self.queue.write_buffer(
             &self.state_uniform_buffer,
             0,
             bytemuck::cast_slice(&[uniforms]),
         );
+        self.current_state = state.clone();
     }
 
     fn update_window_uniforms(&self, width: u32, height: u32) {
+        // Get texture dimensions if cached, otherwise use window size
+        let (tex_width, tex_height) = self
+            .texture_cache
+            .as_ref()
+            .map(|t| (t.width as f32, t.height as f32))
+            .unwrap_or((width as f32, height as f32));
+
         let uniforms = WindowUniforms {
             window_width: (width * GPU_SURFACE_SCALE) as f32,
             window_height: (height * GPU_SURFACE_SCALE) as f32,
-            _padding1: 0.0,
-            _padding2: 0.0,
+            tex_width,
+            tex_height,
         };
         self.queue.write_buffer(
             &self.window_uniform_buffer,
@@ -787,58 +829,159 @@ impl Renderer {
     }
 
     fn render_frame(&mut self, frame: &NativeCameraFrame) -> Result<(), String> {
-        log::trace!("[GPU_PREVIEW] render_frame: converting to RGBA (scaled)");
-        // Convert frame to RGBA with downscaling for preview performance
-        // Reuse the rgba_buffer to avoid allocation per frame
-        self.rgba_buffer.clear();
-        let (width, height) =
-            frame_to_rgba_scaled_into(frame, PREVIEW_MAX_TEXTURE_SIZE, &mut self.rgba_buffer)?;
+        use snapit_camera_windows::PixelFormat;
 
-        // Get or create texture
+        let width = frame.width;
+        let height = frame.height;
+
+        // Determine YUV format for this frame
+        let yuv_format = match frame.pixel_format {
+            PixelFormat::NV12 => YuvFormat::Nv12,
+            PixelFormat::YUYV422 => YuvFormat::Yuyv422,
+            PixelFormat::MJPEG | PixelFormat::RGB24 | PixelFormat::RGB32 | PixelFormat::ARGB => {
+                YuvFormat::Rgba
+            },
+            _ => {
+                return Err(format!(
+                    "Unsupported pixel format: {:?}",
+                    frame.pixel_format
+                ))
+            },
+        };
+
+        // Check if we need new textures (size or format changed)
         let needs_new_texture = self
             .texture_cache
             .as_ref()
-            .map(|t| t.width != width || t.height != height)
+            .map(|t| t.width != width || t.height != height || t.format != yuv_format)
             .unwrap_or(true);
 
-        if needs_new_texture {
-            log::info!("[GPU_PREVIEW] Creating new texture: {}x{}", width, height);
-            self.texture_cache = Some(self.create_texture(width, height));
+        if needs_new_texture || yuv_format != self.current_yuv_format {
+            log::info!(
+                "[GPU_PREVIEW] Creating YUV textures: {}x{} format={:?}",
+                width,
+                height,
+                yuv_format
+            );
+            self.texture_cache = Some(self.create_yuv_textures(width, height, yuv_format));
+            self.current_yuv_format = yuv_format;
+            // Update state uniforms with new format
+            let state = self.current_state.clone();
+            self.update_state_uniforms(&state);
+            // Update window uniforms with texture dimensions
+            let (sw, sh) = (self.surface_config.width, self.surface_config.height);
+            self.update_window_uniforms(sw / GPU_SURFACE_SCALE, sh / GPU_SURFACE_SCALE);
         }
 
         let cached = self.texture_cache.as_ref().unwrap();
 
-        // Upload frame data to texture (using reusable buffer)
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &cached.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &self.rgba_buffer,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
+        // Upload frame data based on format
+        match yuv_format {
+            YuvFormat::Nv12 => {
+                let bytes = frame.bytes();
+                let y_size = (width * height) as usize;
+                let uv_height = height / 2;
 
-        // Get surface texture - handle Outdated by reconfiguring
-        log::trace!("[GPU_PREVIEW] Getting surface texture");
-        let surface_texture = match self.surface.get_current_texture() {
-            Ok(tex) => {
-                log::trace!("[GPU_PREVIEW] Got surface texture");
-                tex
+                // Upload Y plane (R8)
+                self.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &cached.y_texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &bytes[..y_size],
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(width),
+                        rows_per_image: Some(height),
+                    },
+                    wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+
+                // Upload UV plane (RG8, half height)
+                if let Some(ref uv_tex) = cached.uv_texture {
+                    self.queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: uv_tex,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &bytes[y_size..],
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(width), // UV interleaved, same width as Y
+                            rows_per_image: Some(uv_height),
+                        },
+                        wgpu::Extent3d {
+                            width: width / 2,
+                            height: uv_height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
             },
+            YuvFormat::Yuyv422 => {
+                // YUYV422: packed as YUYV YUYV... (2 bytes per pixel)
+                // Upload as RGBA8 texture for shader to decode
+                let bytes = frame.bytes();
+                self.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &cached.y_texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    bytes,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(width * 2),
+                        rows_per_image: Some(height),
+                    },
+                    wgpu::Extent3d {
+                        width: width / 2, // RGBA8 texture stores 2 pixels per texel
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            },
+            YuvFormat::Rgba => {
+                // MJPEG/RGB: decode to RGBA on CPU, upload as RGBA8
+                self.rgba_buffer.clear();
+                frame_to_rgba_into(frame, &mut self.rgba_buffer)?;
+
+                self.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &cached.y_texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &self.rgba_buffer,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(width * 4),
+                        rows_per_image: Some(height),
+                    },
+                    wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            },
+        }
+
+        // Get surface texture
+        let surface_texture = match self.surface.get_current_texture() {
+            Ok(tex) => tex,
             Err(wgpu::SurfaceError::Outdated) => {
                 log::info!("[GPU_PREVIEW] Surface outdated, reconfiguring");
-                // Surface needs reconfiguration (window resized/region changed)
                 self.surface.configure(&self.device, &self.surface_config);
                 self.surface
                     .get_current_texture()
@@ -891,44 +1034,130 @@ impl Renderer {
         Ok(())
     }
 
-    fn create_texture(&self, width: u32, height: u32) -> CachedTexture {
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("camera-texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+    fn create_yuv_textures(&self, width: u32, height: u32, format: YuvFormat) -> CachedYuvTextures {
+        let (y_texture, uv_texture) = match format {
+            YuvFormat::Nv12 => {
+                // NV12: Y plane (R8) + UV plane (RG8, half resolution)
+                let y_tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("nv12-y-texture"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::R8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let uv_tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("nv12-uv-texture"),
+                    size: wgpu::Extent3d {
+                        width: width / 2,
+                        height: height / 2,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rg8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+
+                (y_tex, Some(uv_tex))
+            },
+            YuvFormat::Yuyv422 => {
+                // YUYV422: packed as RGBA8 (Y0, U, Y1, V per texel = 2 pixels)
+                let y_tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("yuyv-texture"),
+                    size: wgpu::Extent3d {
+                        width: width / 2,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+                (y_tex, None)
+            },
+            YuvFormat::Rgba => {
+                // RGBA: direct RGBA8 texture
+                let y_tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("rgba-texture"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+                (y_tex, None)
+            },
+        };
+
+        let y_view = y_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create dummy UV texture view if we don't have one
+        let uv_view = if let Some(ref uv_tex) = uv_texture {
+            uv_tex.create_view(&wgpu::TextureViewDescriptor::default())
+        } else {
+            // Create a 1x1 dummy UV texture for non-NV12 formats
+            let dummy_uv = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("dummy-uv-texture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rg8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            dummy_uv.create_view(&wgpu::TextureViewDescriptor::default())
+        };
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("texture-bind-group"),
+            label: Some("yuv-texture-bind-group"),
             layout: &self.bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                    resource: wgpu::BindingResource::TextureView(&y_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&uv_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
             ],
         });
 
-        CachedTexture {
-            texture,
+        CachedYuvTextures {
+            y_texture,
+            uv_texture,
             bind_group,
             width,
             height,
+            format,
         }
     }
 
@@ -938,13 +1167,72 @@ impl Renderer {
     }
 }
 
-/// Maximum texture size for preview (CPU downscales before GPU upload)
-/// 400px provides good quality while still reducing CPU work significantly.
-/// GPU's bilinear sampling smooths the final display to window size.
-const PREVIEW_MAX_TEXTURE_SIZE: u32 = 400;
+/// Convert MJPEG/RGB frame to RGBA (no scaling - GPU handles that).
+/// Only used for non-YUV formats; YUV formats go directly to GPU.
+fn frame_to_rgba_into(frame: &NativeCameraFrame, rgba: &mut Vec<u8>) -> Result<(), String> {
+    use snapit_camera_windows::PixelFormat;
 
-/// Convert NativeCameraFrame to RGBA bytes, writing into a pre-allocated buffer.
-/// Returns the output dimensions. Buffer is cleared and filled with RGBA data.
+    let bytes = frame.bytes();
+    let width = frame.width as usize;
+    let height = frame.height as usize;
+    let pixel_count = width * height;
+
+    rgba.clear();
+    rgba.reserve_exact(pixel_count * 4);
+
+    match frame.pixel_format {
+        PixelFormat::MJPEG => {
+            // Decode JPEG to RGB, then add alpha
+            let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg)
+                .map_err(|e| format!("Failed to decode MJPEG: {}", e))?;
+            let rgb = img.to_rgb8();
+            rgba.extend(rgb.pixels().flat_map(|p| [p[0], p[1], p[2], 255]));
+        },
+        PixelFormat::RGB24 => {
+            let expected = width * height * 3;
+            if bytes.len() < expected {
+                return Err("RGB24 buffer too small".into());
+            }
+            rgba.extend(
+                bytes
+                    .chunks_exact(3)
+                    .take(pixel_count)
+                    .flat_map(|p| [p[0], p[1], p[2], 255]),
+            );
+        },
+        PixelFormat::RGB32 | PixelFormat::ARGB => {
+            // BGRA to RGBA
+            let expected = width * height * 4;
+            if bytes.len() < expected {
+                return Err("RGB32 buffer too small".into());
+            }
+            rgba.extend(
+                bytes
+                    .chunks_exact(4)
+                    .take(pixel_count)
+                    .flat_map(|p| [p[2], p[1], p[0], p[3]]),
+            );
+        },
+        _ => {
+            return Err(format!(
+                "frame_to_rgba_into: unsupported format {:?}",
+                frame.pixel_format
+            ))
+        },
+    }
+
+    Ok(())
+}
+
+/// Maximum texture size for preview (now unused - GPU handles full resolution).
+/// Kept for reference; previously used for CPU downscaling before GPU upload.
+#[allow(dead_code)]
+const PREVIEW_MAX_TEXTURE_SIZE: u32 = 1280;
+
+/// Convert NativeCameraFrame to RGBA bytes with optional downscaling.
+/// **DEPRECATED**: No longer used - YUV frames go directly to GPU for conversion.
+/// Kept for potential future use or fallback scenarios.
+#[allow(dead_code)]
 fn frame_to_rgba_scaled_into(
     frame: &NativeCameraFrame,
     max_size: u32,
@@ -957,42 +1245,51 @@ fn frame_to_rgba_scaled_into(
     let src_height = frame.height as usize;
 
     // Calculate scale factor to fit within max_size
-    let scale = if src_width > max_size as usize || src_height > max_size as usize {
+    let needs_scale = src_width > max_size as usize || src_height > max_size as usize;
+    let (dst_width, dst_height) = if needs_scale {
         let scale_w = max_size as f32 / src_width as f32;
         let scale_h = max_size as f32 / src_height as f32;
-        scale_w.min(scale_h)
+        let scale = scale_w.min(scale_h);
+        (
+            ((src_width as f32 * scale) as u32).max(1),
+            ((src_height as f32 * scale) as u32).max(1),
+        )
     } else {
-        1.0
+        (src_width as u32, src_height as u32)
     };
 
-    let dst_width = ((src_width as f32 * scale) as u32).max(1);
-    let dst_height = ((src_height as f32 * scale) as u32).max(1);
     let dst_pixel_count = (dst_width * dst_height) as usize;
 
-    // Ensure buffer has enough capacity
-    rgba.reserve(dst_pixel_count * 4);
+    // Pre-allocate exact size to avoid reallocations
+    rgba.clear();
+    rgba.reserve_exact(dst_pixel_count * 4);
 
-    // Helper to map destination coordinate to source coordinate (proper linear mapping)
-    let map_x =
-        |dst_x: usize| -> usize { ((dst_x as f32 / dst_width as f32) * src_width as f32) as usize };
-    let map_y = |dst_y: usize| -> usize {
-        ((dst_y as f32 / dst_height as f32) * src_height as f32) as usize
+    // Pre-calculate mapping ratios as fixed-point (16.16) for speed
+    let x_ratio = if needs_scale {
+        ((src_width << 16) / dst_width as usize) as usize
+    } else {
+        1 << 16
+    };
+    let y_ratio = if needs_scale {
+        ((src_height << 16) / dst_height as usize) as usize
+    } else {
+        1 << 16
     };
 
     match frame.pixel_format {
         PixelFormat::MJPEG => {
-            // Decode JPEG and resize
+            // Decode JPEG - use Nearest for speed when scaling
             let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg)
                 .map_err(|e| format!("Failed to decode MJPEG: {}", e))?;
-            let img = if scale < 1.0 {
-                img.resize(dst_width, dst_height, image::imageops::FilterType::Triangle)
+            let img = if needs_scale {
+                // Use Nearest for speed - GPU bilinear will smooth it
+                img.resize(dst_width, dst_height, image::imageops::FilterType::Nearest)
             } else {
                 img
             };
             let rgb = img.to_rgb8();
-            for pixel in rgb.pixels() {
-                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
-            }
+            // Bulk extend - faster than per-pixel
+            rgba.extend(rgb.pixels().flat_map(|p| [p[0], p[1], p[2], 255]));
         },
         PixelFormat::NV12 => {
             let y_size = src_width * src_height;
@@ -1004,17 +1301,23 @@ fn frame_to_rgba_scaled_into(
             let uv_plane = &bytes[y_size..y_size + uv_size];
 
             for dst_y in 0..dst_height as usize {
-                let src_y = map_y(dst_y).min(src_height - 1);
-                for dst_x in 0..dst_width as usize {
-                    let src_x = map_x(dst_x).min(src_width - 1);
-                    let y = y_plane[src_y * src_width + src_x] as f32;
-                    let uv_idx = (src_y / 2) * src_width + (src_x / 2 * 2);
-                    let u = uv_plane.get(uv_idx).copied().unwrap_or(128) as f32 - 128.0;
-                    let v = uv_plane.get(uv_idx + 1).copied().unwrap_or(128) as f32 - 128.0;
+                let src_y = ((dst_y * y_ratio) >> 16).min(src_height - 1);
+                let row_offset = src_y * src_width;
+                let uv_row = (src_y / 2) * src_width;
 
-                    let r = (y + 1.402 * v).clamp(0.0, 255.0) as u8;
-                    let g = (y - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
-                    let b = (y + 1.772 * u).clamp(0.0, 255.0) as u8;
+                for dst_x in 0..dst_width as usize {
+                    let src_x = ((dst_x * x_ratio) >> 16).min(src_width - 1);
+
+                    // Integer YUV to RGB (BT.601, scaled by 256)
+                    let y = y_plane[row_offset + src_x] as i32;
+                    let uv_idx = uv_row + (src_x / 2 * 2);
+                    let u = uv_plane.get(uv_idx).copied().unwrap_or(128) as i32 - 128;
+                    let v = uv_plane.get(uv_idx + 1).copied().unwrap_or(128) as i32 - 128;
+
+                    // BT.601 coefficients scaled by 256
+                    let r = (y + ((359 * v) >> 8)).clamp(0, 255) as u8;
+                    let g = (y - ((88 * u + 183 * v) >> 8)).clamp(0, 255) as u8;
+                    let b = (y + ((454 * u) >> 8)).clamp(0, 255) as u8;
                     rgba.extend_from_slice(&[r, g, b, 255]);
                 }
             }
@@ -1026,25 +1329,28 @@ fn frame_to_rgba_scaled_into(
             }
 
             for dst_y in 0..dst_height as usize {
-                let src_y = map_y(dst_y).min(src_height - 1);
+                let src_y = ((dst_y * y_ratio) >> 16).min(src_height - 1);
+                let row_base = src_y * src_width * 2;
+
                 for dst_x in 0..dst_width as usize {
-                    let src_x = map_x(dst_x).min(src_width - 1);
+                    let src_x = ((dst_x * x_ratio) >> 16).min(src_width - 1);
                     let pair_x = src_x / 2 * 2;
-                    let chunk_offset = (src_y * src_width + pair_x) * 2;
+                    let chunk_offset = row_base + pair_x * 2;
 
                     if chunk_offset + 4 > bytes.len() {
                         rgba.extend_from_slice(&[128, 128, 128, 255]);
                         continue;
                     }
-                    let chunk = &bytes[chunk_offset..chunk_offset + 4];
 
-                    let y = if src_x % 2 == 0 { chunk[0] } else { chunk[2] } as f32;
-                    let u = chunk[1] as f32 - 128.0;
-                    let v = chunk[3] as f32 - 128.0;
+                    // YUYV: Y0 U Y1 V
+                    let y = bytes[chunk_offset + (src_x & 1) * 2] as i32;
+                    let u = bytes[chunk_offset + 1] as i32 - 128;
+                    let v = bytes[chunk_offset + 3] as i32 - 128;
 
-                    let r = (y + 1.402 * v).clamp(0.0, 255.0) as u8;
-                    let g = (y - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
-                    let b = (y + 1.772 * u).clamp(0.0, 255.0) as u8;
+                    // BT.601 coefficients scaled by 256
+                    let r = (y + ((359 * v) >> 8)).clamp(0, 255) as u8;
+                    let g = (y - ((88 * u + 183 * v) >> 8)).clamp(0, 255) as u8;
+                    let b = (y + ((454 * u) >> 8)).clamp(0, 255) as u8;
                     rgba.extend_from_slice(&[r, g, b, 255]);
                 }
             }
@@ -1054,17 +1360,29 @@ fn frame_to_rgba_scaled_into(
             if bytes.len() < expected {
                 return Err("RGB24 buffer too small".into());
             }
-            for dst_y in 0..dst_height as usize {
-                let src_y = map_y(dst_y).min(src_height - 1);
-                for dst_x in 0..dst_width as usize {
-                    let src_x = map_x(dst_x).min(src_width - 1);
-                    let offset = (src_y * src_width + src_x) * 3;
-                    rgba.extend_from_slice(&[
-                        bytes[offset],
-                        bytes[offset + 1],
-                        bytes[offset + 2],
-                        255,
-                    ]);
+
+            if !needs_scale {
+                // Fast path: no scaling, just add alpha channel
+                rgba.extend(
+                    bytes
+                        .chunks_exact(3)
+                        .take(src_width * src_height)
+                        .flat_map(|p| [p[0], p[1], p[2], 255]),
+                );
+            } else {
+                for dst_y in 0..dst_height as usize {
+                    let src_y = ((dst_y * y_ratio) >> 16).min(src_height - 1);
+                    let row_offset = src_y * src_width * 3;
+                    for dst_x in 0..dst_width as usize {
+                        let src_x = ((dst_x * x_ratio) >> 16).min(src_width - 1);
+                        let offset = row_offset + src_x * 3;
+                        rgba.extend_from_slice(&[
+                            bytes[offset],
+                            bytes[offset + 1],
+                            bytes[offset + 2],
+                            255,
+                        ]);
+                    }
                 }
             }
         },
@@ -1073,17 +1391,29 @@ fn frame_to_rgba_scaled_into(
             if bytes.len() < expected {
                 return Err("RGB32 buffer too small".into());
             }
-            for dst_y in 0..dst_height as usize {
-                let src_y = map_y(dst_y).min(src_height - 1);
-                for dst_x in 0..dst_width as usize {
-                    let src_x = map_x(dst_x).min(src_width - 1);
-                    let offset = (src_y * src_width + src_x) * 4;
-                    rgba.extend_from_slice(&[
-                        bytes[offset + 2],
-                        bytes[offset + 1],
-                        bytes[offset],
-                        bytes[offset + 3],
-                    ]);
+
+            if !needs_scale {
+                // Fast path: no scaling, just reorder BGRA to RGBA
+                rgba.extend(
+                    bytes
+                        .chunks_exact(4)
+                        .take(src_width * src_height)
+                        .flat_map(|p| [p[2], p[1], p[0], p[3]]),
+                );
+            } else {
+                for dst_y in 0..dst_height as usize {
+                    let src_y = ((dst_y * y_ratio) >> 16).min(src_height - 1);
+                    let row_offset = src_y * src_width * 4;
+                    for dst_x in 0..dst_width as usize {
+                        let src_x = ((dst_x * x_ratio) >> 16).min(src_width - 1);
+                        let offset = row_offset + src_x * 4;
+                        rgba.extend_from_slice(&[
+                            bytes[offset + 2],
+                            bytes[offset + 1],
+                            bytes[offset],
+                            bytes[offset + 3],
+                        ]);
+                    }
                 }
             }
         },

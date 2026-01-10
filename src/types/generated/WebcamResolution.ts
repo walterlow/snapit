@@ -5,5 +5,6 @@
  *
  * These presets are matched against the webcam's native capabilities.
  * If a resolution is not supported, the closest available will be used.
+ * Note: 4K is not supported to ensure smooth preview performance.
  */
-export type WebcamResolution = "auto" | "4k" | "1080p" | "720p" | "480p";
+export type WebcamResolution = "auto" | "1080p" | "720p" | "480p";

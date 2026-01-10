@@ -47,7 +47,6 @@ export const GeneralTab: React.FC = () => {
     if (!currentDevice?.supportedResolutions) {
       // Default: assume 720p and 480p are always supported
       return {
-        supports4k: false,
         supports1080p: false,
         supports720p: true,
         supports480p: true,
@@ -65,7 +64,6 @@ export const GeneralTab: React.FC = () => {
 
     const isSupported = (res: WebcamResolution): boolean => {
       switch (res) {
-        case '4k': return supportedResolutions.supports4k;
         case '1080p': return supportedResolutions.supports1080p;
         case '720p': return supportedResolutions.supports720p;
         case '480p': return supportedResolutions.supports480p;
@@ -426,10 +424,7 @@ export const GeneralTab: React.FC = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="auto">Auto</SelectItem>
-                {supportedResolutions.supports4k && (
-                  <SelectItem value="4k">4K (3840x2160)</SelectItem>
-                )}
+                <SelectItem value="auto">Auto (up to 1080p)</SelectItem>
                 {supportedResolutions.supports1080p && (
                   <SelectItem value="1080p">1080p (1920x1080)</SelectItem>
                 )}

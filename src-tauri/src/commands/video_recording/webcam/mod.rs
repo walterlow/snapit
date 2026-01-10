@@ -167,15 +167,13 @@ impl Default for WebcamShape {
 ///
 /// These presets are matched against the webcam's native capabilities.
 /// If a resolution is not supported, the closest available will be used.
+/// Note: 4K is not supported to ensure smooth preview performance.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub enum WebcamResolution {
-    /// Automatic - let the system choose the best resolution.
+    /// Automatic - let the system choose the best resolution (up to 1080p).
     Auto,
-    /// 4K UHD (3840x2160) - highest quality, more CPU/GPU intensive.
-    #[serde(rename = "4k")]
-    UHD4K,
     /// Full HD (1920x1080) - high quality, good balance.
     #[serde(rename = "1080p")]
     FullHD,
@@ -197,8 +195,7 @@ impl WebcamResolution {
     /// Get the target resolution (width, height) for this preset.
     pub fn to_dimensions(&self) -> (u32, u32) {
         match self {
-            WebcamResolution::Auto => (1280, 720), // Default to 720p for auto
-            WebcamResolution::UHD4K => (3840, 2160),
+            WebcamResolution::Auto => (1920, 1080), // Default to 1080p for auto (capped at 1080p)
             WebcamResolution::FullHD => (1920, 1080),
             WebcamResolution::HD720 => (1280, 720),
             WebcamResolution::SD480 => (640, 480),
@@ -209,7 +206,6 @@ impl WebcamResolution {
     pub fn display_name(&self) -> &'static str {
         match self {
             WebcamResolution::Auto => "Auto",
-            WebcamResolution::UHD4K => "4K (3840x2160)",
             WebcamResolution::FullHD => "1080p (1920x1080)",
             WebcamResolution::HD720 => "720p (1280x720)",
             WebcamResolution::SD480 => "480p (640x480)",

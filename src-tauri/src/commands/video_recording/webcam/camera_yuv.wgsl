@@ -7,7 +7,7 @@ struct StateUniforms {
     shape: f32,      // 0 = Circle, 1 = Rectangle
     size: f32,       // Normalized size (0-1)
     mirrored: f32,   // 1.0 if mirrored, 0.0 otherwise
-    yuv_format: f32, // 0 = NV12, 1 = YUYV422
+    yuv_format: f32, // 0 = NV12, 1 = YUYV422, 2 = RGBA (pass-through)
 }
 
 struct WindowUniforms {
@@ -139,7 +139,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
 
-    // Sample YUV and convert to RGB
+    // Sample and convert based on format
     var rgb: vec3<f32>;
 
     if (uniforms.yuv_format == 0.0) {
@@ -147,24 +147,29 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let y = textureSample(t_y, s_camera, final_uv).r;
         let uv = textureSample(t_uv, s_camera, final_uv).rg;
         rgb = yuv_to_rgb(y, uv.r, uv.g);
-    } else {
+    } else if (uniforms.yuv_format == 1.0) {
         // YUYV422: Packed as RGBA where each 4 bytes = 2 pixels
-        // We sample the Y value for this pixel and shared U/V
+        // Each texel stores (Y0, U, Y1, V) for two horizontal pixels
         let tex_width = window_uniforms.tex_width;
         let pixel_x = final_uv.x * tex_width;
-        let pair_x = floor(pixel_x / 2.0) * 2.0;
 
-        // Sample the YUYV pair (stored as RGBA: Y0, U, Y1, V)
-        let pair_uv = vec2<f32>((pair_x + 0.5) / tex_width, final_uv.y);
-        let yuyv = textureSample(t_y, s_camera, pair_uv);
+        // Find the pair this pixel belongs to
+        let pair_index = floor(pixel_x / 2.0);
 
-        // Determine if we're the first or second pixel in the pair
-        let is_second = fract(pixel_x) >= 0.5;
+        // Sample the YUYV texel (texture is half width, UV auto-scales)
+        let yuyv = textureSample(t_y, s_camera, final_uv);
+
+        // Determine if we're the first (even) or second (odd) pixel in the pair
+        // fract(pixel_x / 2.0) >= 0.5 means odd pixel (second in pair)
+        let is_second = fract(pixel_x / 2.0) >= 0.5;
         let y = select(yuyv.r, yuyv.b, is_second);
         let u = yuyv.g;
         let v = yuyv.a;
 
         rgb = yuv_to_rgb(y, u, v);
+    } else {
+        // RGBA pass-through (format 2): already RGB, just sample
+        rgb = textureSample(t_y, s_camera, final_uv).rgb;
     }
 
     let final_alpha = select(1.0, mask, mask < 0.95);

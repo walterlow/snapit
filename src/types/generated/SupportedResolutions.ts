@@ -2,12 +2,9 @@
 
 /**
  * Supported resolution presets that a webcam can handle.
+ * Note: 4K is not supported to ensure smooth preview performance.
  */
 export type SupportedResolutions = { 
-/**
- * Whether the webcam supports 4K (3840x2160 or higher).
- */
-supports4k: boolean, 
 /**
  * Whether the webcam supports 1080p (1920x1080).
  */
@@ -21,10 +18,10 @@ supports720p: boolean,
  */
 supports480p: boolean, 
 /**
- * Maximum resolution width.
+ * Maximum resolution width (capped at 1920 for performance).
  */
 maxWidth: number, 
 /**
- * Maximum resolution height.
+ * Maximum resolution height (capped at 1080 for performance).
  */
 maxHeight: number, };

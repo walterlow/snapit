@@ -15,7 +15,7 @@ mod tests;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use super::compositor::Compositor;
 use super::cursor::{composite_cursor, CursorInterpolator};
@@ -48,6 +48,9 @@ pub async fn export_video_gpu(
     output_path: String,
 ) -> Result<ExportResult, String> {
     let start_time = std::time::Instant::now();
+
+    // Get resource directory for wallpaper path resolution
+    let resource_dir = app.path().resource_dir().ok();
     let output_path = PathBuf::from(&output_path);
 
     if let Some(parent) = output_path.parent() {
@@ -330,7 +333,8 @@ pub async fn export_video_gpu(
         };
 
         // Convert background config to rendering style
-        let background_style = BackgroundStyle::from_config(&project.export.background);
+        let background_style =
+            BackgroundStyle::from_config(&project.export.background, resource_dir.as_deref());
 
         // Log background config on first frame
         if frame_idx == 0 {

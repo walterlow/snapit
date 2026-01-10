@@ -4,6 +4,10 @@
 
 **Generated:** 2026-01-05 | **Commit:** 949207b | **Branch:** videoeditor
 
+
+do not  do `cargo build --release` unless i asked for it.
+the project uses `bun` 
+
 ## Overview
 
 Screen capture & annotation tool for Windows. Tauri 2 + React 19 + Rust + wgpu GPU rendering.

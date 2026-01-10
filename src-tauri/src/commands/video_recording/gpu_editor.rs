@@ -5,7 +5,7 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::commands::video_recording::video_project::VideoProject;
 use crate::rendering::{EditorInstance, EditorInstanceInfo, PlaybackState, RenderedFrame};
@@ -41,8 +41,11 @@ pub async fn create_editor_instance(
         project.id
     );
 
+    // Get resource directory for wallpaper path resolution
+    let resource_dir = app_handle.path().resource_dir().ok();
+
     // Create the editor instance
-    let mut instance = EditorInstance::new(project).await?;
+    let mut instance = EditorInstance::new(project, resource_dir).await?;
     let info = instance.info();
     let instance_id = info.instance_id.clone();
 

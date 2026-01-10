@@ -9,7 +9,7 @@ import type { CornerStyle } from "./CornerStyle";
  */
 export type BackgroundConfig = {
   /**
-   * Type of background.
+   * Type of background (Solid, Gradient, Wallpaper, Image).
    */
   bgType: BackgroundType;
   /**
@@ -29,9 +29,25 @@ export type BackgroundConfig = {
    */
   gradientAngle: number;
   /**
+   * Wallpaper preset name (e.g., "macOS/sequoia-dark").
+   */
+  wallpaper: string | null;
+  /**
+   * Custom image path.
+   */
+  imagePath: string | null;
+  /**
+   * Background blur amount (0-100%).
+   */
+  blur: number;
+  /**
    * Padding around video frame (0-200 pixels).
    */
   padding: number;
+  /**
+   * Inset value (0-100 pixels).
+   */
+  inset: number;
   /**
    * Corner rounding radius (0-100 pixels).
    */

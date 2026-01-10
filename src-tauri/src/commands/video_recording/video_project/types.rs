@@ -719,6 +719,7 @@ pub enum AspectRatio {
 }
 
 /// Background type for letterboxing.
+/// Matches Cap's BackgroundSource enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
@@ -727,6 +728,10 @@ pub enum BackgroundType {
     Solid,
     /// Gradient background.
     Gradient,
+    /// Built-in wallpaper preset.
+    Wallpaper,
+    /// Custom image background.
+    Image,
 }
 
 /// Shadow configuration for video frame background.
@@ -736,6 +741,10 @@ pub enum BackgroundType {
 pub struct BackgroundShadowConfig {
     /// Shadow enabled.
     pub enabled: bool,
+    /// Master shadow strength (0-100). Multiplies all other shadow parameters.
+    /// This matches Cap's shadow model where strength modulates size/opacity/blur.
+    #[serde(default = "default_shadow_strength")]
+    pub strength: f32,
     /// Shadow size/spread (0-100).
     pub size: f32,
     /// Shadow opacity (0-100).
@@ -744,10 +753,15 @@ pub struct BackgroundShadowConfig {
     pub blur: f32,
 }
 
+fn default_shadow_strength() -> f32 {
+    73.6 // Cap's default
+}
+
 impl Default for BackgroundShadowConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            strength: default_shadow_strength(),
             size: 14.4,
             opacity: 68.1,
             blur: 3.8,
@@ -774,7 +788,7 @@ impl Default for BorderConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            width: 2.0,
+            width: 5.0, // Cap's default
             color: "#ffffff".to_string(),
             opacity: 80.0,
         }
@@ -782,11 +796,12 @@ impl Default for BorderConfig {
 }
 
 /// Background configuration for letterboxing/padding.
+/// Matches Cap's BackgroundConfiguration struct.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct BackgroundConfig {
-    /// Type of background.
+    /// Type of background (Solid, Gradient, Wallpaper, Image).
     pub bg_type: BackgroundType,
     /// Solid color (hex format, e.g., "#000000").
     pub solid_color: String,
@@ -796,9 +811,21 @@ pub struct BackgroundConfig {
     pub gradient_end: String,
     /// Gradient angle in degrees (0-360).
     pub gradient_angle: f32,
+    /// Wallpaper preset name (e.g., "macOS/sequoia-dark").
+    #[serde(default)]
+    pub wallpaper: Option<String>,
+    /// Custom image path.
+    #[serde(default)]
+    pub image_path: Option<String>,
+    /// Background blur amount (0-100%).
+    #[serde(default)]
+    pub blur: f32,
     /// Padding around video frame (0-200 pixels).
     #[serde(default)]
     pub padding: f32,
+    /// Inset value (pixels).
+    #[serde(default)]
+    pub inset: u32,
     /// Corner rounding radius (0-100 pixels).
     #[serde(default)]
     pub rounding: f32,
@@ -817,11 +844,15 @@ impl Default for BackgroundConfig {
     fn default() -> Self {
         Self {
             bg_type: BackgroundType::Solid,
-            solid_color: "#000000".to_string(),
-            gradient_start: "#1a1a2e".to_string(),
-            gradient_end: "#16213e".to_string(),
+            solid_color: "#ffffff".to_string(), // Cap's default: white
+            gradient_start: "#4785ff".to_string(), // Cap's default: blue [71, 133, 255]
+            gradient_end: "#ff4766".to_string(), // Cap's default: red/pink [255, 71, 102]
             gradient_angle: 135.0,
+            wallpaper: None,
+            image_path: None,
+            blur: 0.0,
             padding: 0.0,
+            inset: 0,
             rounding: 0.0,
             rounding_type: CornerStyle::default(),
             shadow: BackgroundShadowConfig::default(),

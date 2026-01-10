@@ -9,6 +9,10 @@ export type BackgroundShadowConfig = {
    */
   enabled: boolean;
   /**
+   * Master shadow strength (0-100). Multiplies all other shadow parameters.
+   */
+  strength: number;
+  /**
    * Shadow size/spread (0-100).
    */
   size: number;

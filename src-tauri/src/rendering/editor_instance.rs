@@ -7,7 +7,7 @@
 //! - Event emission to frontend
 
 use parking_lot::Mutex;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -53,6 +53,8 @@ pub struct EditorInstance {
     command_tx: Option<mpsc::Sender<PlaybackCommand>>,
     /// Playback task handle.
     playback_task: Option<tokio::task::JoinHandle<()>>,
+    /// Resource directory for resolving wallpaper paths.
+    resource_dir: Option<PathBuf>,
 }
 
 struct PlaybackStateInner {
@@ -64,7 +66,8 @@ struct PlaybackStateInner {
 
 impl EditorInstance {
     /// Create a new editor instance for a video project.
-    pub async fn new(project: VideoProject) -> Result<Self, String> {
+    /// `resource_dir` is used to resolve wallpaper paths for backgrounds.
+    pub async fn new(project: VideoProject, resource_dir: Option<PathBuf>) -> Result<Self, String> {
         let id = uuid::Uuid::new_v4().to_string();
 
         // Initialize GPU renderer
@@ -122,6 +125,7 @@ impl EditorInstance {
             state,
             command_tx: None,
             playback_task: None,
+            resource_dir,
         })
     }
 
@@ -232,7 +236,10 @@ impl EditorInstance {
         let zoom_state = self.zoom.get_zoom_at(timestamp_ms);
 
         // Use project's background settings for WYSIWYG preview
-        let background_style = BackgroundStyle::from_config(&self.project.export.background);
+        let background_style = BackgroundStyle::from_config(
+            &self.project.export.background,
+            self.resource_dir.as_deref(),
+        );
 
         // Set up render options
         let options = RenderOptions {

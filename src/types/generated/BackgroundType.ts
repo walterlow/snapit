@@ -3,4 +3,4 @@
 /**
  * Background type for letterboxing.
  */
-export type BackgroundType = "solid" | "gradient";
+export type BackgroundType = "solid" | "gradient" | "wallpaper" | "image";

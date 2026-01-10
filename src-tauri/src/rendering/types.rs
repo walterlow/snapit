@@ -1,10 +1,11 @@
 //! Core types for GPU-accelerated video rendering.
 
+use std::path::Path;
+
 use super::background::hex_to_linear_rgba;
 use super::coord::{Coord, FrameSpace, Size};
 use crate::commands::video_recording::video_project::{
-    BackgroundConfig, BackgroundShadowConfig as ProjectShadowConfig,
-    BackgroundType as ProjectBackgroundType, CornerStyle as ProjectCornerStyle,
+    BackgroundConfig, BackgroundType as ProjectBackgroundType, CornerStyle as ProjectCornerStyle,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -237,6 +238,8 @@ pub enum CornerStyle {
 pub struct ShadowStyle {
     /// Shadow enabled.
     pub enabled: bool,
+    /// Master shadow strength (0-100). Multiplies all shadow parameters.
+    pub strength: f32,
     /// Shadow size/spread (0-100).
     pub size: f32,
     /// Shadow opacity (0-100, converted to 0-1 for shader).
@@ -249,6 +252,7 @@ impl Default for ShadowStyle {
     fn default() -> Self {
         Self {
             enabled: false,
+            strength: 73.6, // Cap's default
             size: 14.4,
             opacity: 68.1,
             blur: 3.8,
@@ -273,7 +277,7 @@ impl Default for BorderStyle {
     fn default() -> Self {
         Self {
             enabled: false,
-            width: 2.0,
+            width: 5.0,                  // Cap's default
             color: [1.0, 1.0, 1.0, 1.0], // White
             opacity: 0.8,
         }
@@ -281,12 +285,17 @@ impl Default for BorderStyle {
 }
 
 /// Background styling for video output.
+/// Matches Cap's BackgroundConfiguration struct.
 #[derive(Debug, Clone)]
 pub struct BackgroundStyle {
     /// Background type.
     pub background_type: BackgroundType,
+    /// Background blur amount (0-100%).
+    pub blur: f32,
     /// Padding around video (pixels).
     pub padding: f32,
+    /// Inset value (pixels).
+    pub inset: u32,
     /// Corner rounding radius (pixels).
     pub rounding: f32,
     /// Corner rounding style (squircle or rounded).
@@ -301,7 +310,9 @@ impl Default for BackgroundStyle {
     fn default() -> Self {
         Self {
             background_type: BackgroundType::None,
+            blur: 0.0,
             padding: 0.0,
+            inset: 0,
             rounding: 0.0,
             rounding_type: CornerStyle::default(),
             shadow: ShadowStyle::default(),
@@ -312,7 +323,8 @@ impl Default for BackgroundStyle {
 
 impl BackgroundStyle {
     /// Create a BackgroundStyle from a project BackgroundConfig.
-    pub fn from_config(config: &BackgroundConfig) -> Self {
+    /// `resource_dir` is used to resolve wallpaper paths (assets/backgrounds/).
+    pub fn from_config(config: &BackgroundConfig, resource_dir: Option<&Path>) -> Self {
         let background_type = match config.bg_type {
             ProjectBackgroundType::Solid => {
                 BackgroundType::Solid(hex_to_linear_rgba(&config.solid_color))
@@ -321,6 +333,42 @@ impl BackgroundStyle {
                 start: hex_to_linear_rgba(&config.gradient_start),
                 end: hex_to_linear_rgba(&config.gradient_end),
                 angle: config.gradient_angle,
+            },
+            ProjectBackgroundType::Wallpaper => {
+                if let Some(ref wallpaper) = config.wallpaper {
+                    // Resolve wallpaper path relative to resource directory
+                    // wallpaper is just the ID (e.g., "macOS/sequoia-dark"), add .jpg extension
+                    let wallpaper_filename = format!("{}.jpg", wallpaper);
+                    let resolved_path = if let Some(res_dir) = resource_dir {
+                        let wallpaper_path = res_dir
+                            .join("assets")
+                            .join("backgrounds")
+                            .join(&wallpaper_filename);
+                        if wallpaper_path.exists() {
+                            wallpaper_path.to_string_lossy().to_string()
+                        } else {
+                            log::warn!(
+                                "Wallpaper not found at {:?}, using name as-is",
+                                wallpaper_path
+                            );
+                            wallpaper_filename
+                        }
+                    } else {
+                        wallpaper_filename
+                    };
+                    BackgroundType::Wallpaper(resolved_path)
+                } else {
+                    // Fallback to solid color if no wallpaper specified
+                    BackgroundType::Solid(hex_to_linear_rgba(&config.solid_color))
+                }
+            },
+            ProjectBackgroundType::Image => {
+                if let Some(ref image_path) = config.image_path {
+                    BackgroundType::Image(image_path.clone())
+                } else {
+                    // Fallback to solid color if no image specified
+                    BackgroundType::Solid(hex_to_linear_rgba(&config.solid_color))
+                }
             },
         };
 
@@ -331,6 +379,7 @@ impl BackgroundStyle {
 
         let shadow = ShadowStyle {
             enabled: config.shadow.enabled,
+            strength: config.shadow.strength,
             size: config.shadow.size,
             opacity: config.shadow.opacity,
             blur: config.shadow.blur,
@@ -349,7 +398,9 @@ impl BackgroundStyle {
 
         Self {
             background_type,
+            blur: config.blur,
             padding: config.padding,
+            inset: config.inset,
             rounding: config.rounding,
             rounding_type,
             shadow,
@@ -359,6 +410,7 @@ impl BackgroundStyle {
 }
 
 /// Background type for video output.
+/// Matches Cap's Background enum structure.
 #[derive(Debug, Clone)]
 pub enum BackgroundType {
     /// No background (transparent or black).
@@ -371,8 +423,10 @@ pub enum BackgroundType {
         end: [f32; 4],
         angle: f32,
     },
-    /// Wallpaper image.
-    Wallpaper(Vec<u8>),
+    /// Built-in wallpaper preset (path relative to assets/backgrounds/).
+    Wallpaper(String),
+    /// Custom image file path.
+    Image(String),
 }
 
 /// Uniforms passed to the compositor shader.

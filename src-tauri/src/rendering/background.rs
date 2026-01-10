@@ -13,6 +13,7 @@ use wgpu::util::DeviceExt;
 use super::types::BackgroundType as RenderBackgroundType;
 
 /// Background variant for rendering.
+/// Matches Cap's Background enum structure.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Background {
     /// No background (transparent).
@@ -25,7 +26,9 @@ pub enum Background {
         end: [f32; 4],
         angle: f32,
     },
-    /// Image background from file path.
+    /// Built-in wallpaper preset (path relative to assets/backgrounds/).
+    Wallpaper { path: String },
+    /// Custom image background from file path.
     Image { path: String },
 }
 
@@ -56,10 +59,8 @@ impl Background {
                 end: *end,
                 angle: *angle,
             },
-            RenderBackgroundType::Wallpaper(_) => {
-                // Wallpaper not yet supported, fall back to none
-                Self::None
-            },
+            RenderBackgroundType::Wallpaper(path) => Self::Wallpaper { path: path.clone() },
+            RenderBackgroundType::Image(path) => Self::Image { path: path.clone() },
         }
     }
 }
@@ -304,6 +305,129 @@ impl BackgroundLayer {
                     value: Background::Gradient { start, end, angle },
                     bind_group: self.color_pipeline.bind_group(device, &buffer),
                     buffer,
+                });
+            },
+            Background::Wallpaper { ref path } => {
+                // Wallpaper is similar to Image but path is relative to assets/backgrounds/
+                // For now, treat it the same as Image - the path resolution happens at a higher level
+                // Check if we already have this wallpaper loaded
+                match &self.inner {
+                    Some(BackgroundInner::Image {
+                        path: current_path, ..
+                    }) if current_path == path => {
+                        return Ok(());
+                    },
+                    _ => {},
+                }
+
+                // Load and cache wallpaper texture (same as Image)
+                let mut textures = self.image_textures.write().await;
+                let texture = match textures.entry(path.clone()) {
+                    std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        let img = match image::open(path) {
+                            Ok(img) => img,
+                            Err(err) => {
+                                log::warn!(
+                                    "Failed to load wallpaper '{}': {}. Falling back to black.",
+                                    path,
+                                    err
+                                );
+                                let buffer =
+                                    GradientOrColorUniforms::from_color([0.0, 0.0, 0.0, 1.0])
+                                        .to_buffer(device);
+                                self.inner = Some(BackgroundInner::ColorOrGradient {
+                                    value: Background::Color([0.0, 0.0, 0.0, 1.0]),
+                                    bind_group: self.color_pipeline.bind_group(device, &buffer),
+                                    buffer,
+                                });
+                                return Ok(());
+                            },
+                        };
+                        let rgba = img.to_rgba8();
+                        let dimensions = img.dimensions();
+
+                        let texture = device.create_texture(&wgpu::TextureDescriptor {
+                            label: Some("Wallpaper Texture"),
+                            size: wgpu::Extent3d {
+                                width: dimensions.0,
+                                height: dimensions.1,
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                | wgpu::TextureUsages::COPY_DST,
+                            view_formats: &[],
+                        });
+
+                        queue.write_texture(
+                            wgpu::TexelCopyTextureInfo {
+                                texture: &texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            &rgba,
+                            wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(4 * dimensions.0),
+                                rows_per_image: Some(dimensions.1),
+                            },
+                            wgpu::Extent3d {
+                                width: dimensions.0,
+                                height: dimensions.1,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+
+                        e.insert(texture)
+                    },
+                };
+
+                // Calculate aspect ratio correction for cover scaling
+                let output_ar = output_height as f32 / output_width as f32;
+                let image_ar = texture.height() as f32 / texture.width() as f32;
+
+                let y_height = if output_ar < image_ar {
+                    ((image_ar - output_ar) / 2.0) / image_ar
+                } else {
+                    0.0
+                };
+
+                let x_width = if output_ar > image_ar {
+                    let output_ar_inv = 1.0 / output_ar;
+                    let image_ar_inv = 1.0 / image_ar;
+                    ((image_ar_inv - output_ar_inv) / 2.0) / image_ar_inv
+                } else {
+                    0.0
+                };
+
+                let image_uniforms = ImageBackgroundUniforms {
+                    output_size: [output_width as f32, output_height as f32],
+                    padding: 0.0,
+                    x_width,
+                    y_height,
+                    _padding: 0.0,
+                };
+
+                let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Wallpaper Uniforms"),
+                    contents: bytemuck::cast_slice(&[image_uniforms]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+                let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                self.inner = Some(BackgroundInner::Image {
+                    path: path.clone(),
+                    bind_group: self.image_pipeline.bind_group(
+                        device,
+                        &uniform_buffer,
+                        &texture_view,
+                    ),
                 });
             },
         }

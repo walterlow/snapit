@@ -1,5 +1,6 @@
 import { memo, useCallback, useRef, useEffect, useState, useMemo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { resolveResource } from '@tauri-apps/api/path';
 import { Play } from 'lucide-react';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { videoEditorLogger } from '../../utils/logger';
@@ -412,6 +413,7 @@ export function GPUVideoPreview() {
   const micAudioRef = useRef<HTMLAudioElement>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null);
 
   // Use selectors for stable subscriptions
   const project = useVideoEditorStore(selectProject);
@@ -423,22 +425,40 @@ export function GPUVideoPreview() {
   const controls = usePlaybackControls();
 
   // Track container size for webcam overlay positioning
+  // Debounced to only update when resize settles (avoids lag during panel resize)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
-        setContainerSize({
+        const newSize = {
           width: entry.contentRect.width,
           height: entry.contentRect.height,
-        });
+        };
+
+        // Clear any pending update
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+
+        // Only update state after resize settles (150ms debounce)
+        debounceTimer = setTimeout(() => {
+          setContainerSize(newSize);
+        }, 150);
       }
     });
 
     observer.observe(container);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+    };
   }, []);
 
   // Convert file path to asset URL (memoized)
@@ -488,6 +508,30 @@ export function GPUVideoPreview() {
     );
   }, [backgroundConfig]);
 
+  // Resolve wallpaper ID to URL when it changes
+  // backgroundConfig.wallpaper contains just the ID (e.g., "macOS/sequoia-dark")
+  useEffect(() => {
+    if (backgroundConfig?.bgType !== 'wallpaper' || !backgroundConfig.wallpaper) {
+      setWallpaperUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    resolveResource(`assets/backgrounds/${backgroundConfig.wallpaper}.jpg`)
+      .then(path => {
+        if (!cancelled) {
+          setWallpaperUrl(convertFileSrc(path));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWallpaperUrl(null);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [backgroundConfig?.bgType, backgroundConfig?.wallpaper]);
+
   // Calculate composite dimensions including padding
   const compositeWidth = originalWidth + (backgroundConfig?.padding ?? 0) * 2;
   const compositeHeight = (project?.sources.originalHeight ?? 1080) + (backgroundConfig?.padding ?? 0) * 2;
@@ -508,27 +552,7 @@ export function GPUVideoPreview() {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
-  // Background style for the outer wrapper (scaled padding)
-  const backgroundWrapperStyle = useMemo((): React.CSSProperties => {
-    if (!backgroundConfig || !hasFrameStyling) return {};
-
-    // Scale padding proportionally to preview size
-    const scaledPadding = backgroundConfig.padding * previewScale;
-
-    const bgStyle: React.CSSProperties = {
-      padding: scaledPadding,
-    };
-
-    // Background color/gradient
-    if (backgroundConfig.bgType === 'solid') {
-      bgStyle.backgroundColor = backgroundConfig.solidColor;
-    } else if (backgroundConfig.bgType === 'gradient') {
-      bgStyle.background = `linear-gradient(${backgroundConfig.gradientAngle}deg, ${backgroundConfig.gradientStart}, ${backgroundConfig.gradientEnd})`;
-    }
-
-    return bgStyle;
-  }, [backgroundConfig, hasFrameStyling, previewScale]);
-
+  
   // Frame style for the video container (scaled rounding, shadow, border)
   const frameStyle = useMemo((): React.CSSProperties => {
     if (!backgroundConfig) return {};
@@ -773,7 +797,7 @@ export function GPUVideoPreview() {
   }, [controls]);
 
   return (
-    <div className="flex items-center justify-center h-full bg-[var(--polar-snow)] rounded-lg overflow-hidden">
+    <div className="flex items-center justify-center h-full bg-[var(--polar-snow)] overflow-hidden">
       {/* Hidden audio elements for playback */}
       {systemAudioSrc && (
         <audio
@@ -806,18 +830,53 @@ export function GPUVideoPreview() {
 
       {/* Outer wrapper for background (shows when frame styling is enabled) */}
       <div
-        className="flex items-center justify-center rounded-lg"
+        className="flex items-center justify-center relative"
         style={{
           // Use composite aspect ratio when frame styling is enabled
           aspectRatio: hasFrameStyling ? compositeAspectRatio : undefined,
           maxWidth: '100%',
           maxHeight: '100%',
-          ...backgroundWrapperStyle,
+          padding: hasFrameStyling ? (backgroundConfig?.padding ?? 0) * previewScale : undefined,
+          backgroundColor: backgroundConfig?.bgType === 'solid' ? backgroundConfig.solidColor : undefined,
+          background: backgroundConfig?.bgType === 'gradient'
+            ? `linear-gradient(${backgroundConfig.gradientAngle}deg, ${backgroundConfig.gradientStart}, ${backgroundConfig.gradientEnd})`
+            : undefined,
         }}
       >
+        {/* Wallpaper background layer - GPU accelerated */}
+        {hasFrameStyling && backgroundConfig?.bgType === 'wallpaper' && wallpaperUrl && (
+          <img
+            src={wallpaperUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={{
+              objectFit: 'cover',
+              willChange: 'transform',
+              transform: 'translateZ(0)', // Force GPU layer
+              zIndex: 0,
+            }}
+          />
+        )}
+        {/* Custom image background layer */}
+        {hasFrameStyling && backgroundConfig?.bgType === 'image' && backgroundConfig.imagePath && (
+          <img
+            src={backgroundConfig.imagePath.startsWith('data:')
+              ? backgroundConfig.imagePath  // Data URL from file upload
+              : convertFileSrc(backgroundConfig.imagePath)  // File path
+            }
+            alt=""
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={{
+              objectFit: 'cover',
+              willChange: 'transform',
+              transform: 'translateZ(0)', // Force GPU layer
+              zIndex: 0,
+            }}
+          />
+        )}
         <div
           ref={containerRef}
-          className="relative bg-black overflow-hidden"
+          className="relative bg-black overflow-hidden z-10"
           style={{
             // Inner container fills the space minus padding
             width: hasFrameStyling ? '100%' : undefined,

@@ -135,10 +135,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let rounding_px = uniforms.frame_rounding.x;
     let rounding_type = uniforms.frame_rounding.y;
 
-    let shadow_enabled = uniforms.frame_shadow.x > 0.5;
-    let shadow_size = uniforms.frame_shadow.y;
-    let shadow_opacity = uniforms.frame_shadow.z / 100.0;
-    let shadow_blur = uniforms.frame_shadow.w;
+    // Master shadow strength (0-100) - matches Cap's model where strength modulates all params
+    let master_shadow = uniforms.frame_shadow.x;
+    let shadow_enabled = master_shadow > 0.0;
+    let shadow_size_param = uniforms.frame_shadow.y;
+    let shadow_opacity_param = uniforms.frame_shadow.z;
+    let shadow_blur_param = uniforms.frame_shadow.w;
 
     let border_enabled = uniforms.frame_border.x > 0.5;
     let border_width = uniforms.frame_border.y;
@@ -152,10 +154,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
 
     // Render shadow behind video frame (matching Cap's approach)
+    // Master strength multiplies all shadow parameters
     if (shadow_enabled) {
         let min_frame_size = min(frame_half_size.x, frame_half_size.y);
-        let shadow_spread = (shadow_size / 100.0) * min_frame_size;
-        let blur_amount = (shadow_blur / 100.0) * min_frame_size;
+        let strength = master_shadow / 100.0;
+
+        // Apply master strength to all shadow parameters (Cap's formula)
+        let shadow_spread = strength * (shadow_size_param / 100.0) * min_frame_size;
+        let shadow_opacity = strength * (shadow_opacity_param / 100.0);
+        let blur_amount = strength * (shadow_blur_param / 100.0) * min_frame_size;
 
         // Cap's shadow formula: symmetric smoothstep with abs(distance)
         let shadow_strength = smoothstep(shadow_spread + blur_amount, -blur_amount, abs(frame_dist));
@@ -503,10 +510,8 @@ impl Compositor {
                 end: *end,
                 angle: *angle,
             },
-            BackgroundType::Wallpaper(_) => {
-                // Wallpaper support could be added later
-                Background::None
-            },
+            BackgroundType::Wallpaper(path) => Background::Wallpaper { path: path.clone() },
+            BackgroundType::Image(path) => Background::Image { path: path.clone() },
         }
     }
 
@@ -534,6 +539,9 @@ impl Compositor {
                         end,
                         angle
                     );
+                },
+                Background::Wallpaper { path } => {
+                    log::info!("[COMPOSITOR] Background: Wallpaper {}", path)
                 },
                 Background::Image { path } => log::info!("[COMPOSITOR] Background: Image {}", path),
             }
@@ -662,9 +670,10 @@ impl Compositor {
         // Frame styling uniforms
         let frame_bounds = [frame_x, frame_y, frame_w, frame_h];
         let frame_rounding = [options.background.rounding, rounding_type, 0.0, 0.0];
+        // frame_shadow.x = master strength (0-100, 0 = disabled) - matches Cap's model
         let frame_shadow = [
             if options.background.shadow.enabled {
-                1.0
+                options.background.shadow.strength
             } else {
                 0.0
             },

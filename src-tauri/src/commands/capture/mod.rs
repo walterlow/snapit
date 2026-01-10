@@ -64,19 +64,6 @@ pub async fn get_windows() -> Result<Vec<WindowInfo>, String> {
     fallback::get_windows().map_err(|e| e.to_string())
 }
 
-/// Capture a specific window by its HWND.
-/// Uses xcap (PrintWindow) for clean edges without DWM artifacts.
-#[command]
-pub async fn capture_window(hwnd: isize) -> Result<CaptureResult, String> {
-    fallback::capture_window(hwnd).map_err(|e| e.to_string())
-}
-
-/// Capture a specific region from the screen.
-#[command]
-pub async fn capture_region(selection: RegionSelection) -> Result<CaptureResult, String> {
-    fallback::capture_region(selection).map_err(|e| e.to_string())
-}
-
 /// Get window at a specific screen coordinate.
 ///
 /// The monitor_index parameter is used to track which overlay is currently detecting windows.
@@ -434,23 +421,18 @@ fn write_rgba_to_temp_file(rgba_data: &[u8], width: u32, height: u32) -> Result<
 // Internal Capture Functions
 // ============================================================================
 
-/// Capture fullscreen using xcap (BitBlt-based).
-fn capture_fullscreen_bitblt() -> Result<(Vec<u8>, u32, u32), String> {
+/// Capture fullscreen using DXGI Desktop Duplication.
+fn capture_fullscreen_dxgi() -> Result<(Vec<u8>, u32, u32), String> {
     fallback::capture_fullscreen_raw().map_err(|e| e.to_string())
 }
 
-/// Capture window using BitBlt (screen region at window bounds).
-fn capture_window_bitblt(hwnd: isize) -> Result<(Vec<u8>, u32, u32), String> {
-    fallback::capture_window_raw(hwnd).map_err(|e| e.to_string())
-}
-
-/// Capture window using screen capture at DWM bounds with border inset.
-fn capture_window_xcap(hwnd: isize) -> Result<(Vec<u8>, u32, u32), String> {
+/// Capture window using DXGI (full monitor capture + crop at window bounds).
+fn capture_window_dxgi(hwnd: isize) -> Result<(Vec<u8>, u32, u32), String> {
     fallback::capture_window_xcap(hwnd).map_err(|e| e.to_string())
 }
 
-/// Capture a screen region using xcap (BitBlt-based).
-fn capture_region_bitblt(selection: &ScreenRegionSelection) -> Result<(Vec<u8>, u32, u32), String> {
+/// Capture a screen region using DXGI (full monitor capture + crop).
+fn capture_region_dxgi(selection: &ScreenRegionSelection) -> Result<(Vec<u8>, u32, u32), String> {
     fallback::capture_screen_region_raw(selection.clone()).map_err(|e| e.to_string())
 }
 
@@ -459,46 +441,25 @@ fn capture_region_bitblt(selection: &ScreenRegionSelection) -> Result<(Vec<u8>, 
 // ============================================================================
 
 /// Fast capture of a window - returns file path instead of base64.
-/// Tries xcap (PrintWindow) first, falls back to screen region capture.
+/// Uses DXGI Desktop Duplication (full monitor capture + crop at window bounds).
 #[command]
 pub async fn capture_window_fast(hwnd: isize) -> Result<FastCaptureResult, String> {
     println!("[CAPTURE] Window capture for hwnd={}", hwnd);
 
-    // Try xcap first (uses PrintWindow internally - direct window content)
-    match capture_window_xcap(hwnd) {
-        Ok((rgba_data, width, height)) => {
-            println!("[CAPTURE] xcap capture succeeded: {}x{}", width, height);
-            let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-            return Ok(FastCaptureResult {
-                file_path,
-                width,
-                height,
-                has_transparency: false,
-            });
-        },
-        Err(e) => {
-            println!(
-                "[CAPTURE] xcap failed ({}), falling back to screen capture...",
-                e
-            );
-        },
-    }
+    let (rgba_data, width, height) = capture_window_dxgi(hwnd)?;
+    println!("[CAPTURE] DXGI capture succeeded: {}x{}", width, height);
 
-    // Fallback to screen region capture at window bounds
-    capture_window_bitblt(hwnd).and_then(|(rgba_data, width, height)| {
-        println!("[CAPTURE] Screen capture succeeded: {}x{}", width, height);
-        let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-        Ok(FastCaptureResult {
-            file_path,
-            width,
-            height,
-            has_transparency: false,
-        })
+    let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+    Ok(FastCaptureResult {
+        file_path,
+        width,
+        height,
+        has_transparency: false,
     })
 }
 
 /// Fast capture of a region - returns file path instead of base64.
-/// Uses monitor-relative coordinates. Currently uses BitBlt.
+/// Uses monitor-relative coordinates. Uses DXGI Desktop Duplication.
 #[command]
 pub async fn capture_region_fast(selection: RegionSelection) -> Result<FastCaptureResult, String> {
     // Convert to screen coordinates and use screen region capture
@@ -515,46 +476,43 @@ pub async fn capture_region_fast(selection: RegionSelection) -> Result<FastCaptu
         height: selection.height,
     };
 
-    capture_region_bitblt(&screen_selection).and_then(|(rgba_data, width, height)| {
-        let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-        Ok(FastCaptureResult {
-            file_path,
-            width,
-            height,
-            has_transparency: false,
-        })
+    let (rgba_data, width, height) = capture_region_dxgi(&screen_selection)?;
+    let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+    Ok(FastCaptureResult {
+        file_path,
+        width,
+        height,
+        has_transparency: false,
     })
 }
 
 /// Fast capture of a screen region (multi-monitor support).
-/// Uses absolute screen coordinates. Currently uses BitBlt.
+/// Uses absolute screen coordinates. Uses DXGI Desktop Duplication.
 #[command]
 pub async fn capture_screen_region_fast(
     selection: ScreenRegionSelection,
 ) -> Result<FastCaptureResult, String> {
-    capture_region_bitblt(&selection).and_then(|(rgba_data, width, height)| {
-        let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-        Ok(FastCaptureResult {
-            file_path,
-            width,
-            height,
-            has_transparency: false,
-        })
+    let (rgba_data, width, height) = capture_region_dxgi(&selection)?;
+    let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+    Ok(FastCaptureResult {
+        file_path,
+        width,
+        height,
+        has_transparency: false,
     })
 }
 
 /// Fast capture of fullscreen - returns file path instead of base64.
-/// Currently uses BitBlt (xcap). Switch to WGC if transparent window issues.
+/// Uses DXGI Desktop Duplication.
 #[command]
 pub async fn capture_fullscreen_fast() -> Result<FastCaptureResult, String> {
-    capture_fullscreen_bitblt().and_then(|(rgba_data, width, height)| {
-        let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
-        Ok(FastCaptureResult {
-            file_path,
-            width,
-            height,
-            has_transparency: false,
-        })
+    let (rgba_data, width, height) = capture_fullscreen_dxgi()?;
+    let file_path = write_rgba_to_temp_file(&rgba_data, width, height)?;
+    Ok(FastCaptureResult {
+        file_path,
+        width,
+        height,
+        has_transparency: false,
     })
 }
 

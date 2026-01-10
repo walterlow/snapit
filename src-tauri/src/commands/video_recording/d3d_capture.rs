@@ -173,6 +173,12 @@ impl D3DVideoCapture {
     }
 
     /// Create capture for a window by HWND.
+    ///
+    /// **DEPRECATED**: This uses WGC's CreateForWindow which fails for WebView2/transparent windows.
+    /// Use display capture + crop instead (see `CaptureSource::new_window` in `capture_source.rs`).
+    #[deprecated(
+        note = "WGC window capture fails for WebView2/transparent windows. Use display capture + crop via CaptureSource::new_window instead."
+    )]
     pub fn new_window(window_hwnd: isize, fps: u32, show_cursor: bool) -> Result<Self, String> {
         use windows::Graphics::Capture::GraphicsCaptureItem;
         use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;

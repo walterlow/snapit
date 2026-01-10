@@ -1,18 +1,18 @@
-//! Screen capture using xcap library.
+//! Screen capture using xcap library (DXGI Desktop Duplication).
 //!
 //! Simple, reliable screenshot capture for monitors, windows, and regions.
+//! Uses DXGI Desktop Duplication which properly captures DWM-composited content
+//! including WebView2 and transparent windows.
 //!
-//! Note: For layered windows (WS_EX_LAYERED), we call DwmFlush() before capture
-//! to ensure DWM completes compositing, avoiding artifacts with transparent windows.
+//! Note: We call DwmFlush() before capture to ensure DWM completes compositing.
 
-use base64::{engine::general_purpose::STANDARD, Engine};
-use image::{DynamicImage, RgbaImage};
-use std::io::Cursor;
 use xcap::{Monitor, Window};
+
+use super::types::{CaptureError, MonitorInfo, ScreenRegionSelection, WindowInfo};
 
 /// Flush DWM composition before capture.
 /// This ensures layered windows (transparent windows) are properly composited
-/// before BitBlt captures them, preventing flickering/black artifacts.
+/// before DXGI captures them, preventing flickering/black artifacts.
 #[cfg(target_os = "windows")]
 fn flush_dwm() {
     use windows::Win32::Graphics::Dwm::DwmFlush;
@@ -20,10 +20,6 @@ fn flush_dwm() {
         let _ = DwmFlush();
     }
 }
-
-use super::types::{
-    CaptureError, CaptureResult, MonitorInfo, RegionSelection, ScreenRegionSelection, WindowInfo,
-};
 
 // ============================================================================
 // Monitor Functions
@@ -116,19 +112,6 @@ pub fn get_windows() -> Result<Vec<WindowInfo>, CaptureError> {
     Ok(infos)
 }
 
-/// Capture a specific window by HWND.
-/// Uses screen region capture (BitBlt) instead of PrintWindow to avoid DWM artifacts.
-pub fn capture_window(hwnd: isize) -> Result<CaptureResult, CaptureError> {
-    let (rgba_data, width, height) = capture_window_raw(hwnd)?;
-
-    // Convert to image and encode
-    let image = image::RgbaImage::from_raw(width, height, rgba_data).ok_or_else(|| {
-        CaptureError::CaptureFailed("Failed to create image from raw data".into())
-    })?;
-
-    encode_image_to_result(image, false)
-}
-
 /// Capture a window using full monitor capture + crop.
 /// This properly captures WebView2/DWM-composited windows that PrintWindow misses.
 /// Reuses capture_screen_region_raw which handles DXGI capture properly.
@@ -201,112 +184,9 @@ pub fn capture_window_xcap(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), Cap
     Ok((image.into_raw(), image.width(), image.height()))
 }
 
-/// Capture a specific window and return raw RGBA data.
-/// Uses screen region capture (BitBlt) instead of PrintWindow to avoid DWM artifacts.
-#[cfg(target_os = "windows")]
-pub fn capture_window_raw(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
-    use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
-    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
-
-    let hwnd = HWND(hwnd_value as *mut std::ffi::c_void);
-
-    // Get both regular and DWM bounds for comparison
-    let mut window_rect = RECT::default();
-    let mut dwm_rect = RECT::default();
-
-    unsafe {
-        let _ = GetWindowRect(hwnd, &mut window_rect);
-        let _ = DwmGetWindowAttribute(
-            hwnd,
-            DWMWA_EXTENDED_FRAME_BOUNDS,
-            &mut dwm_rect as *mut _ as *mut _,
-            std::mem::size_of::<RECT>() as u32,
-        );
-    }
-
-    println!("[CAPTURE] Window rect: {:?}", window_rect);
-    println!("[CAPTURE] DWM rect: {:?}", dwm_rect);
-
-    // Use DWM bounds (excludes shadow)
-    let x = dwm_rect.left;
-    let y = dwm_rect.top;
-    let width = (dwm_rect.right - dwm_rect.left) as u32;
-    let height = (dwm_rect.bottom - dwm_rect.top) as u32;
-
-    println!(
-        "[CAPTURE] Capturing region: x={}, y={}, w={}, h={}",
-        x, y, width, height
-    );
-
-    if width == 0 || height == 0 {
-        return Err(CaptureError::CaptureFailed(
-            "Window has zero dimensions".into(),
-        ));
-    }
-
-    // Use screen region capture instead of PrintWindow (avoids DWM artifacts)
-    capture_screen_region_raw(super::types::ScreenRegionSelection {
-        x,
-        y,
-        width,
-        height,
-    })
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn capture_window_raw(hwnd_value: isize) -> Result<(Vec<u8>, u32, u32), CaptureError> {
-    let window_id = hwnd_value as u32;
-    let windows = Window::all()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get windows: {}", e)))?;
-
-    let window = windows
-        .into_iter()
-        .find(|w| w.id().unwrap_or(0) == window_id)
-        .ok_or(CaptureError::WindowNotFound)?;
-
-    let image = window
-        .capture_image()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture window: {}", e)))?;
-
-    let width = image.width();
-    let height = image.height();
-    let rgba_data = image.into_raw();
-
-    Ok((rgba_data, width, height))
-}
-
 // ============================================================================
 // Region Capture
 // ============================================================================
-
-/// Capture a specific region from the screen.
-pub fn capture_region(selection: RegionSelection) -> Result<CaptureResult, CaptureError> {
-    // Flush DWM before capture for proper layered window composition
-    #[cfg(target_os = "windows")]
-    flush_dwm();
-
-    let monitors = Monitor::all()
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to get monitors: {}", e)))?;
-
-    // Find the monitor for this region
-    let monitor = monitors
-        .get(selection.monitor_id as usize)
-        .ok_or(CaptureError::MonitorNotFound)?;
-
-    // Calculate region relative to monitor
-    let mon_x = monitor.x().unwrap_or(0);
-    let mon_y = monitor.y().unwrap_or(0);
-    let rel_x = (selection.x - mon_x).max(0) as u32;
-    let rel_y = (selection.y - mon_y).max(0) as u32;
-
-    // Capture the region directly using xcap
-    let image = monitor
-        .capture_region(rel_x, rel_y, selection.width, selection.height)
-        .map_err(|e| CaptureError::CaptureFailed(format!("Failed to capture region: {}", e)))?;
-
-    encode_image_to_result(image, false)
-}
 
 /// Capture a region using absolute screen coordinates (can span multiple monitors).
 pub fn capture_screen_region_raw(
@@ -461,33 +341,4 @@ pub fn capture_screen_region_raw(
     }
 
     Ok((output, selection.width, selection.height))
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-/// Encode an RGBA image to base64 PNG for the frontend.
-fn encode_image_to_result(
-    image: RgbaImage,
-    has_transparency: bool,
-) -> Result<CaptureResult, CaptureError> {
-    let width = image.width();
-    let height = image.height();
-
-    let dynamic_image = DynamicImage::ImageRgba8(image);
-
-    let mut buffer = Cursor::new(Vec::new());
-    dynamic_image
-        .write_to(&mut buffer, image::ImageFormat::Png)
-        .map_err(|e| CaptureError::EncodingFailed(e.to_string()))?;
-
-    let base64_data = STANDARD.encode(buffer.into_inner());
-
-    Ok(CaptureResult {
-        image_data: base64_data,
-        width,
-        height,
-        has_transparency,
-    })
 }

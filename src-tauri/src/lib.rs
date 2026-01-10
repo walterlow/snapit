@@ -99,8 +99,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             // Capture commands (with transparency support)
-            commands::capture::capture_region,
-            commands::capture::capture_window,
             commands::capture::get_monitors,
             commands::capture::get_virtual_screen_bounds,
             commands::capture::get_windows,

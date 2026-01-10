@@ -453,6 +453,7 @@ export function GPUVideoPreview() {
 
   // Get background config for frame styling preview
   const backgroundConfig = project?.export?.background;
+  const originalWidth = project?.sources.originalWidth ?? 1920;
 
   // Check if frame styling is enabled (has any visual effect)
   const hasFrameStyling = useMemo(() => {
@@ -466,12 +467,35 @@ export function GPUVideoPreview() {
     );
   }, [backgroundConfig]);
 
-  // Background style for the outer wrapper
+  // Calculate composite dimensions including padding
+  const compositeWidth = originalWidth + (backgroundConfig?.padding ?? 0) * 2;
+  const compositeHeight = (project?.sources.originalHeight ?? 1080) + (backgroundConfig?.padding ?? 0) * 2;
+  const compositeAspectRatio = compositeWidth / compositeHeight;
+
+  // Calculate scale factor for preview (preview size / original size)
+  // This ensures padding, rounding, etc. scale proportionally with the preview
+  const previewScale = useMemo(() => {
+    if (containerSize.width === 0 || originalWidth === 0) return 1;
+    return containerSize.width / originalWidth;
+  }, [containerSize.width, originalWidth]);
+
+  // Helper to convert hex to rgba
+  const hexToRgba = (hex: string, alpha: number) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  // Background style for the outer wrapper (scaled padding)
   const backgroundWrapperStyle = useMemo((): React.CSSProperties => {
     if (!backgroundConfig || !hasFrameStyling) return {};
 
+    // Scale padding proportionally to preview size
+    const scaledPadding = backgroundConfig.padding * previewScale;
+
     const bgStyle: React.CSSProperties = {
-      padding: backgroundConfig.padding,
+      padding: scaledPadding,
     };
 
     // Background color/gradient
@@ -482,56 +506,52 @@ export function GPUVideoPreview() {
     }
 
     return bgStyle;
-  }, [backgroundConfig, hasFrameStyling]);
+  }, [backgroundConfig, hasFrameStyling, previewScale]);
 
-  // Frame style for the video container (rounding, shadow, border)
+  // Frame style for the video container (scaled rounding, shadow, border)
   const frameStyle = useMemo((): React.CSSProperties => {
     if (!backgroundConfig) return {};
 
     const style: React.CSSProperties = {};
 
+    // Scale rounding proportionally
+    const scaledRounding = backgroundConfig.rounding * previewScale;
+
     // Border radius with squircle/rounded support
-    if (backgroundConfig.rounding > 0) {
+    if (scaledRounding > 0) {
       if (backgroundConfig.roundingType === 'squircle') {
         // Squircle approximation using superellipse-like border-radius
-        // A true squircle would require SVG or canvas, but this is a good approximation
-        style.borderRadius = backgroundConfig.rounding;
-        // Squircle-like effect via larger corner radius ratio
-        style.borderRadius = `${backgroundConfig.rounding * 1.2}px / ${backgroundConfig.rounding}px`;
+        style.borderRadius = `${scaledRounding * 1.2}px / ${scaledRounding}px`;
       } else {
-        style.borderRadius = backgroundConfig.rounding;
+        style.borderRadius = scaledRounding;
       }
     }
 
-    // Shadow
+    // Shadow (scaled)
     if (backgroundConfig.shadow?.enabled) {
-      const shadowSize = backgroundConfig.shadow.size * 0.5; // Scale to pixels
+      const shadowSize = backgroundConfig.shadow.size * 0.5 * previewScale;
       const shadowOpacity = backgroundConfig.shadow.opacity / 100;
-      const shadowBlur = backgroundConfig.shadow.blur * 0.5;
+      const shadowBlur = backgroundConfig.shadow.blur * 0.5 * previewScale;
       style.boxShadow = `0 ${shadowSize}px ${shadowBlur * 2}px rgba(0, 0, 0, ${shadowOpacity * 0.5}), 0 ${shadowSize * 2}px ${shadowBlur * 4}px rgba(0, 0, 0, ${shadowOpacity * 0.3})`;
     }
 
-    // Border
+    // Border (scaled)
     if (backgroundConfig.border?.enabled) {
+      const scaledBorderWidth = Math.max(1, backgroundConfig.border.width * previewScale);
       const borderOpacity = backgroundConfig.border.opacity / 100;
-      // Convert hex color to rgba with opacity
-      const hexToRgba = (hex: string, alpha: number) => {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-      };
-      style.border = `${backgroundConfig.border.width}px solid ${hexToRgba(backgroundConfig.border.color, borderOpacity)}`;
+      style.border = `${scaledBorderWidth}px solid ${hexToRgba(backgroundConfig.border.color, borderOpacity)}`;
     }
 
     return style;
-  }, [backgroundConfig]);
+  }, [backgroundConfig, previewScale]);
 
   // Container style (memoized)
+  // When frame styling is enabled, the parent wrapper handles aspect ratio via compositeAspectRatio
+  // When disabled, the container itself maintains the video aspect ratio
   const containerStyle = useMemo(() => ({
-    aspectRatio,
-    maxWidth: '100%',
-    maxHeight: '100%',
+    aspectRatio: hasFrameStyling ? undefined : aspectRatio,
+    maxWidth: hasFrameStyling ? undefined : '100%',
+    maxHeight: hasFrameStyling ? undefined : '100%',
     filter: hasFrameStyling ? undefined : 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
   }), [aspectRatio, hasFrameStyling]);
 
@@ -643,6 +663,8 @@ export function GPUVideoPreview() {
       <div
         className="flex items-center justify-center rounded-lg"
         style={{
+          // Use composite aspect ratio when frame styling is enabled
+          aspectRatio: hasFrameStyling ? compositeAspectRatio : undefined,
           maxWidth: '100%',
           maxHeight: '100%',
           ...backgroundWrapperStyle,
@@ -652,6 +674,9 @@ export function GPUVideoPreview() {
           ref={containerRef}
           className="relative bg-black overflow-hidden"
           style={{
+            // Inner container fills the space minus padding
+            width: hasFrameStyling ? '100%' : undefined,
+            height: hasFrameStyling ? '100%' : undefined,
             ...containerStyle,
             ...frameStyle,
           }}

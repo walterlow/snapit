@@ -224,7 +224,7 @@ impl EditorInstance {
     }
 
     /// Render a single frame at the given timestamp.
-    pub async fn render_frame(&self, timestamp_ms: u64) -> Result<RenderedFrame, String> {
+    pub async fn render_frame(&mut self, timestamp_ms: u64) -> Result<RenderedFrame, String> {
         let frame_num = self.screen_decoder.timestamp_to_frame(timestamp_ms);
         let frame = self.screen_decoder.seek(frame_num).await?;
 
@@ -242,9 +242,10 @@ impl EditorInstance {
         };
 
         // Composite frame
-        let output_texture =
-            self.compositor
-                .composite(&self.renderer, &frame, &options, timestamp_ms as f32);
+        let output_texture = self
+            .compositor
+            .composite(&self.renderer, &frame, &options, timestamp_ms as f32)
+            .await;
 
         // Read back to CPU
         let data = self

@@ -729,6 +729,58 @@ pub enum BackgroundType {
     Gradient,
 }
 
+/// Shadow configuration for video frame background.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct BackgroundShadowConfig {
+    /// Shadow enabled.
+    pub enabled: bool,
+    /// Shadow size/spread (0-100).
+    pub size: f32,
+    /// Shadow opacity (0-100).
+    pub opacity: f32,
+    /// Shadow blur amount (0-100).
+    pub blur: f32,
+}
+
+impl Default for BackgroundShadowConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            size: 14.4,
+            opacity: 68.1,
+            blur: 3.8,
+        }
+    }
+}
+
+/// Border configuration for video frame.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct BorderConfig {
+    /// Border enabled.
+    pub enabled: bool,
+    /// Border width in pixels (1-20).
+    pub width: f32,
+    /// Border color (hex format).
+    pub color: String,
+    /// Border opacity (0-100).
+    pub opacity: f32,
+}
+
+impl Default for BorderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            width: 2.0,
+            color: "#ffffff".to_string(),
+            opacity: 80.0,
+        }
+    }
+}
+
 /// Background configuration for letterboxing/padding.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -744,6 +796,21 @@ pub struct BackgroundConfig {
     pub gradient_end: String,
     /// Gradient angle in degrees (0-360).
     pub gradient_angle: f32,
+    /// Padding around video frame (0-200 pixels).
+    #[serde(default)]
+    pub padding: f32,
+    /// Corner rounding radius (0-100 pixels).
+    #[serde(default)]
+    pub rounding: f32,
+    /// Corner rounding style (squircle or rounded).
+    #[serde(default)]
+    pub rounding_type: CornerStyle,
+    /// Shadow configuration.
+    #[serde(default)]
+    pub shadow: BackgroundShadowConfig,
+    /// Border configuration.
+    #[serde(default)]
+    pub border: BorderConfig,
 }
 
 impl Default for BackgroundConfig {
@@ -754,6 +821,11 @@ impl Default for BackgroundConfig {
             gradient_start: "#1a1a2e".to_string(),
             gradient_end: "#16213e".to_string(),
             gradient_angle: 135.0,
+            padding: 0.0,
+            rounding: 0.0,
+            rounding_type: CornerStyle::default(),
+            shadow: BackgroundShadowConfig::default(),
+            border: BorderConfig::default(),
         }
     }
 }

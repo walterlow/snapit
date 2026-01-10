@@ -451,13 +451,89 @@ export function GPUVideoPreview() {
       : 16 / 9;
   }, [project?.sources.originalWidth, project?.sources.originalHeight]);
 
+  // Get background config for frame styling preview
+  const backgroundConfig = project?.export?.background;
+
+  // Check if frame styling is enabled (has any visual effect)
+  const hasFrameStyling = useMemo(() => {
+    if (!backgroundConfig) return false;
+    // Show frame styling if padding > 0 OR rounding > 0 OR shadow enabled OR border enabled
+    return (
+      backgroundConfig.padding > 0 ||
+      backgroundConfig.rounding > 0 ||
+      backgroundConfig.shadow?.enabled ||
+      backgroundConfig.border?.enabled
+    );
+  }, [backgroundConfig]);
+
+  // Background style for the outer wrapper
+  const backgroundWrapperStyle = useMemo((): React.CSSProperties => {
+    if (!backgroundConfig || !hasFrameStyling) return {};
+
+    const bgStyle: React.CSSProperties = {
+      padding: backgroundConfig.padding,
+    };
+
+    // Background color/gradient
+    if (backgroundConfig.bgType === 'solid') {
+      bgStyle.backgroundColor = backgroundConfig.solidColor;
+    } else if (backgroundConfig.bgType === 'gradient') {
+      bgStyle.background = `linear-gradient(${backgroundConfig.gradientAngle}deg, ${backgroundConfig.gradientStart}, ${backgroundConfig.gradientEnd})`;
+    }
+
+    return bgStyle;
+  }, [backgroundConfig, hasFrameStyling]);
+
+  // Frame style for the video container (rounding, shadow, border)
+  const frameStyle = useMemo((): React.CSSProperties => {
+    if (!backgroundConfig) return {};
+
+    const style: React.CSSProperties = {};
+
+    // Border radius with squircle/rounded support
+    if (backgroundConfig.rounding > 0) {
+      if (backgroundConfig.roundingType === 'squircle') {
+        // Squircle approximation using superellipse-like border-radius
+        // A true squircle would require SVG or canvas, but this is a good approximation
+        style.borderRadius = backgroundConfig.rounding;
+        // Squircle-like effect via larger corner radius ratio
+        style.borderRadius = `${backgroundConfig.rounding * 1.2}px / ${backgroundConfig.rounding}px`;
+      } else {
+        style.borderRadius = backgroundConfig.rounding;
+      }
+    }
+
+    // Shadow
+    if (backgroundConfig.shadow?.enabled) {
+      const shadowSize = backgroundConfig.shadow.size * 0.5; // Scale to pixels
+      const shadowOpacity = backgroundConfig.shadow.opacity / 100;
+      const shadowBlur = backgroundConfig.shadow.blur * 0.5;
+      style.boxShadow = `0 ${shadowSize}px ${shadowBlur * 2}px rgba(0, 0, 0, ${shadowOpacity * 0.5}), 0 ${shadowSize * 2}px ${shadowBlur * 4}px rgba(0, 0, 0, ${shadowOpacity * 0.3})`;
+    }
+
+    // Border
+    if (backgroundConfig.border?.enabled) {
+      const borderOpacity = backgroundConfig.border.opacity / 100;
+      // Convert hex color to rgba with opacity
+      const hexToRgba = (hex: string, alpha: number) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      };
+      style.border = `${backgroundConfig.border.width}px solid ${hexToRgba(backgroundConfig.border.color, borderOpacity)}`;
+    }
+
+    return style;
+  }, [backgroundConfig]);
+
   // Container style (memoized)
   const containerStyle = useMemo(() => ({
     aspectRatio,
     maxWidth: '100%',
     maxHeight: '100%',
-    filter: 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
-  }), [aspectRatio]);
+    filter: hasFrameStyling ? undefined : 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
+  }), [aspectRatio, hasFrameStyling]);
 
   // Initialize playback engine when project loads
   useEffect(() => {
@@ -563,57 +639,70 @@ export function GPUVideoPreview() {
 
   return (
     <div className="flex items-center justify-center h-full bg-[var(--polar-snow)] rounded-lg overflow-hidden">
+      {/* Outer wrapper for background (shows when frame styling is enabled) */}
       <div
-        ref={containerRef}
-        className="relative bg-black rounded-md overflow-hidden"
-        style={containerStyle}
+        className="flex items-center justify-center rounded-lg"
+        style={{
+          maxWidth: '100%',
+          maxHeight: '100%',
+          ...backgroundWrapperStyle,
+        }}
       >
-        {videoSrc || project?.sources.webcamVideo ? (
-          <SceneModeRenderer
-            videoRef={videoRef}
-            videoSrc={videoSrc ?? undefined}
-            zoomRegions={project?.zoom?.regions}
-            cursorRecording={cursorRecording}
-            cursorConfig={project?.cursor}
-            webcamVideoPath={project?.sources.webcamVideo ?? undefined}
-            webcamConfig={project?.webcam}
-            sceneSegments={project?.scene?.segments}
-            defaultSceneMode={project?.scene?.defaultMode ?? 'default'}
-            containerWidth={containerSize.width}
-            containerHeight={containerSize.height}
-            videoAspectRatio={aspectRatio}
-            maskSegments={project?.mask?.segments}
-            textSegments={project?.text?.segments}
-            onVideoClick={handleVideoClick}
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-[var(--ink-subtle)]">No video loaded</span>
-          </div>
-        )}
-
-        {/* Error overlay */}
-        {videoError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
-            <span className="text-[var(--error)] text-sm mb-2">Video Error</span>
-            <span className="text-[var(--ink-subtle)] text-xs">{videoError}</span>
-            <span className="text-[var(--ink-faint)] text-xs mt-2 max-w-xs text-center break-all">
-              {videoSrc}
-            </span>
-          </div>
-        )}
-
-        {/* Play button overlay */}
-        {!isPlaying && videoSrc && !videoError && (
-          <div
-            className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-            onClick={handleVideoClick}
-          >
-            <div className="w-16 h-16 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center">
-              <Play className="w-8 h-8 text-white ml-1" />
+        <div
+          ref={containerRef}
+          className="relative bg-black overflow-hidden"
+          style={{
+            ...containerStyle,
+            ...frameStyle,
+          }}
+        >
+          {videoSrc || project?.sources.webcamVideo ? (
+            <SceneModeRenderer
+              videoRef={videoRef}
+              videoSrc={videoSrc ?? undefined}
+              zoomRegions={project?.zoom?.regions}
+              cursorRecording={cursorRecording}
+              cursorConfig={project?.cursor}
+              webcamVideoPath={project?.sources.webcamVideo ?? undefined}
+              webcamConfig={project?.webcam}
+              sceneSegments={project?.scene?.segments}
+              defaultSceneMode={project?.scene?.defaultMode ?? 'default'}
+              containerWidth={containerSize.width}
+              containerHeight={containerSize.height}
+              videoAspectRatio={aspectRatio}
+              maskSegments={project?.mask?.segments}
+              textSegments={project?.text?.segments}
+              onVideoClick={handleVideoClick}
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-[var(--ink-subtle)]">No video loaded</span>
             </div>
-          </div>
-        )}
+          )}
+
+          {/* Error overlay */}
+          {videoError && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
+              <span className="text-[var(--error)] text-sm mb-2">Video Error</span>
+              <span className="text-[var(--ink-subtle)] text-xs">{videoError}</span>
+              <span className="text-[var(--ink-faint)] text-xs mt-2 max-w-xs text-center break-all">
+                {videoSrc}
+              </span>
+            </div>
+          )}
+
+          {/* Play button overlay */}
+          {!isPlaying && videoSrc && !videoError && (
+            <div
+              className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+              onClick={handleVideoClick}
+            >
+              <div className="w-16 h-16 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center">
+                <Play className="w-8 h-8 text-white ml-1" />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

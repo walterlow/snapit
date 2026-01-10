@@ -103,6 +103,8 @@ export type { ExportPreset } from './ExportPreset';
 export type { AspectRatio } from './AspectRatio';
 export type { BackgroundType } from './BackgroundType';
 export type { BackgroundConfig } from './BackgroundConfig';
+export type { BackgroundShadowConfig } from './BackgroundShadowConfig';
+export type { BorderConfig } from './BorderConfig';
 export type { CropConfig } from './CropConfig';
 export type { ExportProgress } from './ExportProgress';
 export type { ExportResult } from './ExportResult';

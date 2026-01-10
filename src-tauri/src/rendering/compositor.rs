@@ -1,6 +1,7 @@
 //! Frame compositor using wgpu shaders.
 //!
 //! Composites video frames with zoom, webcam overlay (with circle/squircle mask and shadow).
+//! Also supports background rendering (solid colors, gradients, images).
 //! Shadow and squircle implementation based on Cap's rendering.
 
 // Allow unused fields - kept for potential future use
@@ -9,10 +10,13 @@
 use std::sync::Arc;
 use wgpu::{Device, Queue};
 
+use super::background::{Background, BackgroundLayer};
 use super::renderer::Renderer;
-use super::types::{DecodedFrame, RenderOptions, WebcamShape};
+use super::types::{
+    BackgroundStyle, BackgroundType, CornerStyle, DecodedFrame, RenderOptions, WebcamShape,
+};
 
-/// WGSL shader for video compositing with zoom and webcam overlay.
+/// WGSL shader for video compositing with zoom, padding, rounding, shadow, border, and webcam overlay.
 /// Supports circle, squircle (superellipse), and rounded rectangle shapes with drop shadow.
 const COMPOSITOR_SHADER: &str = r#"
 struct Uniforms {
@@ -24,6 +28,12 @@ struct Uniforms {
     webcam_params: vec4<f32>,   // shape(0=none,1=circle,2=squircle,3=rounded), shadow, mirror, radius
     webcam_shadow: vec4<f32>,   // shadow_size, shadow_opacity, shadow_blur, 0
     webcam_tex_size: vec4<f32>, // texture width, height, aspect_ratio, 0
+    // Video frame styling
+    frame_bounds: vec4<f32>,    // x, y, width, height in pixels (padded frame area)
+    frame_rounding: vec4<f32>,  // rounding_px, rounding_type (0=rounded, 1=squircle), 0, 0
+    frame_shadow: vec4<f32>,    // enabled, size, opacity, blur
+    frame_border: vec4<f32>,    // enabled, width, opacity, 0
+    border_color: vec4<f32>,    // r, g, b, a (linear space)
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -49,7 +59,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
         vec2<f32>(2.0, 1.0),
         vec2<f32>(0.0, -1.0)
     );
-    
+
     var output: VertexOutput;
     output.position = vec4<f32>(positions[vertex_index], 0.0, 1.0);
     output.uv = uvs[vertex_index];
@@ -64,6 +74,24 @@ fn superellipse_norm(p: vec2<f32>, power: f32) -> f32 {
     return pow(x + y, 1.0 / power);
 }
 
+// Signed distance function for rounded rectangle with configurable corner style
+fn sdf_rounded_rect_styled(p: vec2<f32>, half_size: vec2<f32>, radius: f32, rounding_type: f32) -> f32 {
+    let q = abs(p) - half_size + vec2<f32>(radius);
+    let outside = max(q, vec2<f32>(0.0));
+
+    // rounding_type: 0 = standard rounded, 1 = squircle
+    var outside_len: f32;
+    if (rounding_type > 0.5) {
+        // Squircle (superellipse with power 4)
+        outside_len = superellipse_norm(outside, 4.0);
+    } else {
+        // Standard rounded corners
+        outside_len = length(outside);
+    }
+
+    return outside_len + min(max(q.x, q.y), 0.0) - radius;
+}
+
 // Signed distance function for circle
 fn sdf_circle(p: vec2<f32>, radius: f32) -> f32 {
     return length(p) - radius;
@@ -74,132 +102,186 @@ fn sdf_squircle(p: vec2<f32>, radius: f32) -> f32 {
     return superellipse_norm(p, 4.0) * radius - radius;
 }
 
-// Signed distance function for rounded rectangle  
+// Signed distance function for rounded rectangle
 fn sdf_rounded_rect(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
     let d = abs(p) - half_size + vec2<f32>(radius);
     return length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0) - radius;
 }
 
-// Calculate SDF based on shape type
+// Calculate SDF based on shape type (for webcam)
 fn webcam_sdf(p: vec2<f32>, half_size: vec2<f32>, shape: f32, corner_radius: f32) -> f32 {
-    // Normalize to unit circle/square for consistent shape
     let radius = min(half_size.x, half_size.y);
     let normalized_p = p / radius;
-    
+
     if (shape < 1.5) {
-        // Circle
         return sdf_circle(normalized_p, 1.0) * radius;
     } else if (shape < 2.5) {
-        // Squircle (iOS-style)
         return sdf_squircle(normalized_p, 1.0) * radius;
     } else {
-        // Rounded rectangle
         return sdf_rounded_rect(p, half_size, corner_radius);
     }
 }
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let zoom_scale = uniforms.zoom.x;
-    let zoom_center = vec2<f32>(uniforms.zoom.y, uniforms.zoom.z);
-    
-    // Apply zoom transformation to get video UV
-    var video_uv = input.uv;
-    if (zoom_scale > 1.0) {
-        video_uv = (input.uv - zoom_center) / zoom_scale + zoom_center;
+    let pixel_pos = input.uv * uniforms.output_size.xy;
+
+    // Frame bounds and styling
+    let frame_pos = uniforms.frame_bounds.xy;
+    let frame_size = uniforms.frame_bounds.zw;
+    let frame_center = frame_pos + frame_size * 0.5;
+    let frame_half_size = frame_size * 0.5;
+
+    let rounding_px = uniforms.frame_rounding.x;
+    let rounding_type = uniforms.frame_rounding.y;
+
+    let shadow_enabled = uniforms.frame_shadow.x > 0.5;
+    let shadow_size = uniforms.frame_shadow.y;
+    let shadow_opacity = uniforms.frame_shadow.z / 100.0;
+    let shadow_blur = uniforms.frame_shadow.w;
+
+    let border_enabled = uniforms.frame_border.x > 0.5;
+    let border_width = uniforms.frame_border.y;
+    let border_opacity = uniforms.frame_border.z / 100.0;
+
+    // Calculate SDF for video frame
+    let rel_pos = pixel_pos - frame_center;
+    let frame_dist = sdf_rounded_rect_styled(rel_pos, frame_half_size, rounding_px, rounding_type);
+
+    // Start with transparent (background shows through)
+    var color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+
+    // Render shadow behind video frame
+    if (shadow_enabled && frame_dist > 0.0) {
+        let min_frame_size = min(frame_half_size.x, frame_half_size.y);
+        let shadow_spread = (shadow_size / 100.0) * min_frame_size;
+        let blur_amount = (shadow_blur / 100.0) * min_frame_size;
+
+        let shadow_dist = frame_dist - shadow_spread;
+        let shadow_alpha = (1.0 - smoothstep(-blur_amount, blur_amount * 2.0, shadow_dist)) * shadow_opacity;
+
+        if (shadow_alpha > 0.001) {
+            color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
+        }
     }
-    video_uv = clamp(video_uv, vec2<f32>(0.0), vec2<f32>(1.0));
-    
-    // Sample video texture
-    var color = textureSample(video_texture, video_sampler, video_uv);
-    
-    // Webcam overlay
+
+    // Render border around video frame
+    if (border_enabled && border_width > 0.0) {
+        let border_outer_dist = sdf_rounded_rect_styled(
+            rel_pos,
+            frame_half_size + vec2<f32>(border_width),
+            rounding_px + border_width,
+            rounding_type
+        );
+
+        if (border_outer_dist <= 0.0 && frame_dist > 0.0) {
+            // Inside border ring
+            let inner_alpha = smoothstep(-0.5, 0.5, frame_dist);
+            let outer_alpha = 1.0 - smoothstep(-0.5, 0.5, border_outer_dist);
+            let edge_alpha = inner_alpha * outer_alpha;
+
+            let border_alpha = edge_alpha * uniforms.border_color.w * border_opacity;
+            let border_rgb = uniforms.border_color.xyz;
+            color = mix(color, vec4<f32>(border_rgb, 1.0), border_alpha);
+        }
+    }
+
+    // Render video frame content
+    if (frame_dist <= 0.0) {
+        let zoom_scale = uniforms.zoom.x;
+        let zoom_center = vec2<f32>(uniforms.zoom.y, uniforms.zoom.z);
+
+        // Calculate UV within the frame bounds
+        let frame_uv = (pixel_pos - frame_pos) / frame_size;
+
+        // Apply zoom transformation
+        var video_uv = frame_uv;
+        if (zoom_scale > 1.0) {
+            video_uv = (frame_uv - zoom_center) / zoom_scale + zoom_center;
+        }
+        video_uv = clamp(video_uv, vec2<f32>(0.0), vec2<f32>(1.0));
+
+        // Sample video
+        var video_color = textureSample(video_texture, video_sampler, video_uv);
+
+        // Anti-alias the edges
+        let aa_width = 1.0;
+        let edge_alpha = 1.0 - smoothstep(-aa_width, 0.0, frame_dist);
+        video_color.a = video_color.a * edge_alpha;
+
+        // Blend video over shadow/border
+        color = mix(color, video_color, video_color.a);
+    }
+
+    // Webcam overlay (on top of everything)
     let webcam_shape = uniforms.webcam_params.x;
     if (webcam_shape > 0.5) {
         let webcam_pos = uniforms.webcam_rect.xy;
         let webcam_size = uniforms.webcam_rect.zw;
-        let shadow_strength = uniforms.webcam_params.y;
+        let webcam_shadow_strength = uniforms.webcam_params.y;
         let mirror = uniforms.webcam_params.z;
         let corner_radius = uniforms.webcam_params.w;
-        
-        // Shadow parameters
-        let shadow_size = uniforms.webcam_shadow.x;
-        let shadow_opacity = uniforms.webcam_shadow.y;
-        let shadow_blur = uniforms.webcam_shadow.z;
-        
-        // Calculate webcam center and half size in output space
+
+        let webcam_shadow_size = uniforms.webcam_shadow.x;
+        let webcam_shadow_opacity = uniforms.webcam_shadow.y;
+        let webcam_shadow_blur = uniforms.webcam_shadow.z;
+
         let webcam_center = webcam_pos + webcam_size * 0.5;
-        let half_size = webcam_size * 0.5;
-        
-        // Convert current UV to webcam-relative coordinates (centered)
-        let rel_pos = input.uv - webcam_center;
-        
-        // Convert to pixel space for proper aspect ratio handling
-        let pixel_pos = rel_pos * uniforms.output_size.xy;
-        let pixel_half_size = half_size * uniforms.output_size.xy;
-        let min_size = min(pixel_half_size.x, pixel_half_size.y);
-        
-        // Normalize for square shape (webcam is rendered in square pixel area)
-        let normalized_pos = pixel_pos / min_size;
-        let normalized_half = vec2<f32>(1.0, 1.0);
-        
-        // Calculate distance
-        let dist = webcam_sdf(normalized_pos, normalized_half, webcam_shape, corner_radius / min_size);
-        
-        // Shadow (rendered behind webcam)
-        if (shadow_strength > 0.0 && dist > 0.0) {
-            let shadow_spread = shadow_size * 0.5;  // Size of shadow spread
-            let blur_amount = shadow_blur * 0.5;    // Blur radius
-            
-            // Smooth shadow falloff
-            let shadow_dist = dist - shadow_spread;
-            let shadow_alpha = (1.0 - smoothstep(-blur_amount, blur_amount * 2.0, shadow_dist)) 
-                             * shadow_opacity * shadow_strength;
-            
-            if (shadow_alpha > 0.001) {
-                let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
-                color = mix(color, vec4<f32>(0.0, 0.0, 0.0, 1.0), shadow_alpha);
+        let webcam_half_size = webcam_size * 0.5;
+
+        let webcam_rel_pos = input.uv - webcam_center;
+        let webcam_pixel_pos = webcam_rel_pos * uniforms.output_size.xy;
+        let webcam_pixel_half_size = webcam_half_size * uniforms.output_size.xy;
+        let min_webcam_size = min(webcam_pixel_half_size.x, webcam_pixel_half_size.y);
+
+        let normalized_webcam_pos = webcam_pixel_pos / min_webcam_size;
+        let normalized_webcam_half = vec2<f32>(1.0, 1.0);
+
+        let webcam_dist = webcam_sdf(normalized_webcam_pos, normalized_webcam_half, webcam_shape, corner_radius / min_webcam_size);
+
+        // Webcam shadow
+        if (webcam_shadow_strength > 0.0 && webcam_dist > 0.0) {
+            let ws_spread = webcam_shadow_size * 0.5;
+            let ws_blur = webcam_shadow_blur * 0.5;
+            let ws_dist = webcam_dist - ws_spread;
+            let ws_alpha = (1.0 - smoothstep(-ws_blur, ws_blur * 2.0, ws_dist)) * webcam_shadow_opacity * webcam_shadow_strength;
+
+            if (ws_alpha > 0.001) {
+                color = mix(color, vec4<f32>(0.0, 0.0, 0.0, 1.0), ws_alpha);
             }
         }
-        
-        // Anti-aliased edge
-        let aa_width = fwidth(dist) * 2.0;
-        
-        // Webcam content (sample when inside or within AA zone)
-        if (dist <= aa_width) {
-            // Calculate UV within webcam overlay area
+
+        // Webcam content
+        let webcam_aa_width = fwidth(webcam_dist) * 2.0;
+        if (webcam_dist <= webcam_aa_width) {
             var webcam_uv = (input.uv - webcam_pos) / webcam_size;
-            
-            // Mirror if enabled
+
             if (mirror > 0.5) {
                 webcam_uv.x = 1.0 - webcam_uv.x;
             }
-            
-            // Crop webcam to square for circle/squircle display
+
             let aspect = uniforms.webcam_tex_size.z;
             if (aspect > 1.0) {
-                // Wide video: crop sides
                 let crop_amount = (1.0 - 1.0 / aspect) * 0.5;
                 webcam_uv.x = crop_amount + webcam_uv.x * (1.0 / aspect);
             } else if (aspect < 1.0) {
-                // Tall video: crop top/bottom
                 let crop_amount = (1.0 - aspect) * 0.5;
                 webcam_uv.y = crop_amount + webcam_uv.y * aspect;
             }
-            
+
             webcam_uv = clamp(webcam_uv, vec2<f32>(0.0), vec2<f32>(1.0));
-            
+
             let webcam_color = textureSample(webcam_texture, webcam_sampler, webcam_uv);
-            let alpha = 1.0 - smoothstep(-aa_width, aa_width, dist);
-            color = mix(color, webcam_color, alpha * webcam_color.a);
+            let webcam_alpha = 1.0 - smoothstep(-webcam_aa_width, webcam_aa_width, webcam_dist);
+            color = mix(color, webcam_color, webcam_alpha * webcam_color.a);
         }
     }
-    
+
     return color;
 }
 "#;
 
-/// Extended uniforms including webcam parameters.
+/// Extended uniforms including webcam and frame styling parameters.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ExtendedUniforms {
@@ -211,6 +293,12 @@ pub struct ExtendedUniforms {
     pub webcam_params: [f32; 4], // shape, shadow_strength, mirror, corner_radius
     pub webcam_shadow: [f32; 4], // shadow_size, shadow_opacity, shadow_blur, 0
     pub webcam_tex_size: [f32; 4],
+    // Video frame styling
+    pub frame_bounds: [f32; 4],   // x, y, width, height in pixels
+    pub frame_rounding: [f32; 4], // rounding_px, rounding_type, 0, 0
+    pub frame_shadow: [f32; 4],   // enabled, size, opacity, blur
+    pub frame_border: [f32; 4],   // enabled, width, opacity, 0
+    pub border_color: [f32; 4],   // r, g, b, a
 }
 
 /// Compositor for GPU-accelerated frame rendering.
@@ -224,6 +312,8 @@ pub struct Compositor {
     // Placeholder texture for when webcam is not used
     placeholder_texture: wgpu::Texture,
     placeholder_view: wgpu::TextureView,
+    // Background layer for rendering backgrounds
+    background_layer: BackgroundLayer,
 }
 
 impl Compositor {
@@ -385,6 +475,9 @@ impl Compositor {
         let placeholder_view =
             placeholder_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        // Initialize background layer
+        let background_layer = BackgroundLayer::new(&device);
+
         Self {
             device,
             queue,
@@ -394,17 +487,53 @@ impl Compositor {
             sampler,
             placeholder_texture,
             placeholder_view,
+            background_layer,
+        }
+    }
+
+    /// Convert BackgroundStyle to Background for rendering.
+    fn background_from_style(style: &BackgroundStyle) -> Background {
+        match &style.background_type {
+            BackgroundType::None => Background::None,
+            BackgroundType::Solid(color) => Background::Color(*color),
+            BackgroundType::Gradient { start, end, angle } => Background::Gradient {
+                start: *start,
+                end: *end,
+                angle: *angle,
+            },
+            BackgroundType::Wallpaper(_) => {
+                // Wallpaper support could be added later
+                Background::None
+            },
         }
     }
 
     /// Composite a frame with the given options.
-    pub fn composite(
-        &self,
+    /// Now supports background rendering (solid colors, gradients).
+    pub async fn composite(
+        &mut self,
         renderer: &Renderer,
         frame: &DecodedFrame,
         options: &RenderOptions,
         time_ms: f32,
     ) -> wgpu::Texture {
+        // Prepare background if needed
+        let background = Self::background_from_style(&options.background);
+        if !matches!(background, Background::None) {
+            if let Err(e) = self
+                .background_layer
+                .prepare(
+                    &self.device,
+                    &self.queue,
+                    options.output_width,
+                    options.output_height,
+                    background,
+                )
+                .await
+            {
+                log::warn!("Failed to prepare background: {}", e);
+            }
+        }
         // Create video texture
         let video_texture = renderer.create_texture_from_rgba(
             &frame.data,
@@ -489,15 +618,56 @@ impl Compositor {
             renderer.create_output_texture(options.output_width, options.output_height);
         let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        // Calculate frame bounds based on padding
+        let out_w = options.output_width as f32;
+        let out_h = options.output_height as f32;
+        let padding = options.background.padding;
+
+        // Frame is centered with padding on all sides
+        let frame_x = padding;
+        let frame_y = padding;
+        let frame_w = out_w - padding * 2.0;
+        let frame_h = out_h - padding * 2.0;
+
+        // Ensure frame doesn't become negative
+        let frame_w = frame_w.max(1.0);
+        let frame_h = frame_h.max(1.0);
+
+        // Rounding type: 0 = rounded, 1 = squircle
+        let rounding_type = match options.background.rounding_type {
+            CornerStyle::Rounded => 0.0,
+            CornerStyle::Squircle => 1.0,
+        };
+
+        // Frame styling uniforms
+        let frame_bounds = [frame_x, frame_y, frame_w, frame_h];
+        let frame_rounding = [options.background.rounding, rounding_type, 0.0, 0.0];
+        let frame_shadow = [
+            if options.background.shadow.enabled {
+                1.0
+            } else {
+                0.0
+            },
+            options.background.shadow.size,
+            options.background.shadow.opacity,
+            options.background.shadow.blur,
+        ];
+        let frame_border = [
+            if options.background.border.enabled {
+                1.0
+            } else {
+                0.0
+            },
+            options.background.border.width,
+            options.background.border.opacity * 100.0, // Convert 0-1 to 0-100 for shader
+            0.0,
+        ];
+        let border_color = options.background.border.color;
+
         // Update uniforms
         let uniforms = ExtendedUniforms {
             video_size: [frame.width as f32, frame.height as f32, 0.0, 0.0],
-            output_size: [
-                options.output_width as f32,
-                options.output_height as f32,
-                0.0,
-                0.0,
-            ],
+            output_size: [out_w, out_h, 0.0, 0.0],
             zoom: [
                 options.zoom.scale,
                 options.zoom.center_x,
@@ -509,6 +679,11 @@ impl Compositor {
             webcam_params,
             webcam_shadow,
             webcam_tex_size,
+            frame_bounds,
+            frame_rounding,
+            frame_shadow,
+            frame_border,
+            border_color,
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
@@ -548,6 +723,26 @@ impl Compositor {
                 label: Some("Compositor Encoder"),
             });
 
+        // First pass: Render background (if any)
+        if self.background_layer.has_background() {
+            let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Background Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.background_layer.render(&mut bg_pass);
+        }
+
+        // Second pass: Render video and webcam overlay
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Compositor Pass"),
@@ -555,7 +750,12 @@ impl Compositor {
                     view: &output_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        // If we have a background, load it; otherwise clear to black
+                        load: if self.background_layer.has_background() {
+                            wgpu::LoadOp::Load
+                        } else {
+                            wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                        },
                         store: wgpu::StoreOp::Store,
                     },
                 })],

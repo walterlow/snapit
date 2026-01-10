@@ -8,9 +8,11 @@
 //! - `decoder`: Async video decoder with frame prefetching
 //! - `renderer`: wgpu device/queue management and shader compilation
 //! - `compositor`: Frame compositing pipeline
+//! - `background`: Background rendering (solid colors, gradients, images)
 //! - `zoom`: Zoom interpolation with bezier easing
 //! - `editor_instance`: Playback state management
 
+pub mod background;
 pub mod compositor;
 pub mod coord;
 pub mod cursor;
@@ -24,6 +26,7 @@ pub mod svg_cursor;
 pub mod types;
 pub mod zoom;
 
+pub use background::{hex_to_linear_rgba, srgb_to_linear, Background, BackgroundLayer};
 pub use compositor::Compositor;
 pub use coord::{
     CaptureSpace, Coord, FrameSpace, Rect, ScreenSpace, ScreenUVSpace, Size, TransformParams,

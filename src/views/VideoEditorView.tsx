@@ -1745,6 +1745,233 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                   </div>
                 )}
 
+                {/* Frame Styling Section */}
+                <div className="pt-3 border-t border-[var(--glass-border)]">
+                  <span className="text-[11px] text-[var(--ink-subtle)] uppercase tracking-wide block mb-3">Frame Styling</span>
+
+                  {/* Padding */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-[var(--ink-muted)]">Padding</span>
+                      <span className="text-xs text-[var(--ink-dark)] font-mono">{project.export.background.padding}px</span>
+                    </div>
+                    <Slider
+                      value={[project.export.background.padding]}
+                      onValueChange={(values) => updateExportConfig({
+                        background: { ...project.export.background, padding: values[0] }
+                      })}
+                      min={0}
+                      max={200}
+                      step={4}
+                    />
+                  </div>
+
+                  {/* Rounding */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-[var(--ink-muted)]">Corner Radius</span>
+                      <span className="text-xs text-[var(--ink-dark)] font-mono">{project.export.background.rounding}px</span>
+                    </div>
+                    <Slider
+                      value={[project.export.background.rounding]}
+                      onValueChange={(values) => updateExportConfig({
+                        background: { ...project.export.background, rounding: values[0] }
+                      })}
+                      min={0}
+                      max={100}
+                      step={2}
+                    />
+                    <div className="flex gap-1 mt-2">
+                      <button
+                        onClick={() => updateExportConfig({
+                          background: { ...project.export.background, roundingType: 'squircle' }
+                        })}
+                        className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                          project.export.background.roundingType === 'squircle'
+                            ? 'bg-[var(--coral-100)] text-[var(--coral-500)] border border-[var(--coral-300)]'
+                            : 'bg-[var(--polar-mist)] text-[var(--ink-muted)] border border-[var(--glass-border)] hover:bg-[var(--polar-frost)]'
+                        }`}
+                      >
+                        Squircle
+                      </button>
+                      <button
+                        onClick={() => updateExportConfig({
+                          background: { ...project.export.background, roundingType: 'rounded' }
+                        })}
+                        className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                          project.export.background.roundingType === 'rounded'
+                            ? 'bg-[var(--coral-100)] text-[var(--coral-500)] border border-[var(--coral-300)]'
+                            : 'bg-[var(--polar-mist)] text-[var(--ink-muted)] border border-[var(--glass-border)] hover:bg-[var(--polar-frost)]'
+                        }`}
+                      >
+                        Rounded
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Shadow Section */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-[var(--ink-muted)]">Shadow</span>
+                      <button
+                        onClick={() => updateExportConfig({
+                          background: {
+                            ...project.export.background,
+                            shadow: { ...project.export.background.shadow, enabled: !project.export.background.shadow.enabled }
+                          }
+                        })}
+                        className={`relative w-10 h-5 rounded-full transition-colors ${
+                          project.export.background.shadow.enabled ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                            project.export.background.shadow.enabled ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {project.export.background.shadow.enabled && (
+                      <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] text-[var(--ink-subtle)]">Size</span>
+                            <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.export.background.shadow.size)}%</span>
+                          </div>
+                          <Slider
+                            value={[project.export.background.shadow.size]}
+                            onValueChange={(values) => updateExportConfig({
+                              background: {
+                                ...project.export.background,
+                                shadow: { ...project.export.background.shadow, size: values[0] }
+                              }
+                            })}
+                            min={0}
+                            max={100}
+                            step={1}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] text-[var(--ink-subtle)]">Opacity</span>
+                            <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.export.background.shadow.opacity)}%</span>
+                          </div>
+                          <Slider
+                            value={[project.export.background.shadow.opacity]}
+                            onValueChange={(values) => updateExportConfig({
+                              background: {
+                                ...project.export.background,
+                                shadow: { ...project.export.background.shadow, opacity: values[0] }
+                              }
+                            })}
+                            min={0}
+                            max={100}
+                            step={1}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] text-[var(--ink-subtle)]">Blur</span>
+                            <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.export.background.shadow.blur)}%</span>
+                          </div>
+                          <Slider
+                            value={[project.export.background.shadow.blur]}
+                            onValueChange={(values) => updateExportConfig({
+                              background: {
+                                ...project.export.background,
+                                shadow: { ...project.export.background.shadow, blur: values[0] }
+                              }
+                            })}
+                            min={0}
+                            max={100}
+                            step={1}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Border Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-[var(--ink-muted)]">Border</span>
+                      <button
+                        onClick={() => updateExportConfig({
+                          background: {
+                            ...project.export.background,
+                            border: { ...project.export.background.border, enabled: !project.export.background.border.enabled }
+                          }
+                        })}
+                        className={`relative w-10 h-5 rounded-full transition-colors ${
+                          project.export.background.border.enabled ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                            project.export.background.border.enabled ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {project.export.background.border.enabled && (
+                      <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] text-[var(--ink-subtle)]">Width</span>
+                            <span className="text-[11px] text-[var(--ink-faint)]">{project.export.background.border.width}px</span>
+                          </div>
+                          <Slider
+                            value={[project.export.background.border.width]}
+                            onValueChange={(values) => updateExportConfig({
+                              background: {
+                                ...project.export.background,
+                                border: { ...project.export.background.border, width: values[0] }
+                              }
+                            })}
+                            min={1}
+                            max={20}
+                            step={1}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
+                          <input
+                            type="color"
+                            value={project.export.background.border.color}
+                            onChange={(e) => updateExportConfig({
+                              background: {
+                                ...project.export.background,
+                                border: { ...project.export.background.border, color: e.target.value }
+                              }
+                            })}
+                            className="w-8 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] text-[var(--ink-subtle)]">Opacity</span>
+                            <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.export.background.border.opacity)}%</span>
+                          </div>
+                          <Slider
+                            value={[project.export.background.border.opacity]}
+                            onValueChange={(values) => updateExportConfig({
+                              background: {
+                                ...project.export.background,
+                                border: { ...project.export.background.border, opacity: values[0] }
+                              }
+                            })}
+                            min={0}
+                            max={100}
+                            step={1}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Crop Video */}
                 <div className="pt-3 border-t border-[var(--glass-border)]">
                   <div className="flex items-center justify-between mb-2">

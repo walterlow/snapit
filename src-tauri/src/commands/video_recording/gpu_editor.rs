@@ -146,7 +146,7 @@ pub async fn editor_render_frame(
     state: State<'_, EditorState>,
 ) -> Result<RenderedFrame, String> {
     let instance = get_instance(&instance_id, &state)?;
-    let inst = instance.lock().await;
+    let mut inst = instance.lock().await;
     inst.render_frame(timestamp_ms).await
 }
 

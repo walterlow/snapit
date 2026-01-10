@@ -1,6 +1,11 @@
 //! Core types for GPU-accelerated video rendering.
 
+use super::background::hex_to_linear_rgba;
 use super::coord::{Coord, FrameSpace, Size};
+use crate::commands::video_recording::video_project::{
+    BackgroundConfig, BackgroundShadowConfig as ProjectShadowConfig,
+    BackgroundType as ProjectBackgroundType, CornerStyle as ProjectCornerStyle,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -217,29 +222,134 @@ impl ClickHighlight {
     }
 }
 
+/// Corner rounding style for video frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CornerStyle {
+    /// iOS-style squircle (superellipse).
+    #[default]
+    Squircle,
+    /// Standard rounded corners.
+    Rounded,
+}
+
+/// Shadow configuration for rendering.
+#[derive(Debug, Clone, Copy)]
+pub struct ShadowStyle {
+    /// Shadow enabled.
+    pub enabled: bool,
+    /// Shadow size/spread (0-100).
+    pub size: f32,
+    /// Shadow opacity (0-100, converted to 0-1 for shader).
+    pub opacity: f32,
+    /// Shadow blur amount (0-100).
+    pub blur: f32,
+}
+
+impl Default for ShadowStyle {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            size: 14.4,
+            opacity: 68.1,
+            blur: 3.8,
+        }
+    }
+}
+
+/// Border configuration for rendering.
+#[derive(Debug, Clone)]
+pub struct BorderStyle {
+    /// Border enabled.
+    pub enabled: bool,
+    /// Border width in pixels.
+    pub width: f32,
+    /// Border color (RGBA, linear space).
+    pub color: [f32; 4],
+    /// Border opacity (0-1).
+    pub opacity: f32,
+}
+
+impl Default for BorderStyle {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            width: 2.0,
+            color: [1.0, 1.0, 1.0, 1.0], // White
+            opacity: 0.8,
+        }
+    }
+}
+
 /// Background styling for video output.
 #[derive(Debug, Clone)]
 pub struct BackgroundStyle {
     /// Background type.
     pub background_type: BackgroundType,
     /// Padding around video (pixels).
-    pub padding: u32,
-    /// Border radius for video frame.
-    pub border_radius: u32,
-    /// Shadow blur radius.
-    pub shadow_radius: f32,
-    /// Shadow opacity (0.0-1.0).
-    pub shadow_opacity: f32,
+    pub padding: f32,
+    /// Corner rounding radius (pixels).
+    pub rounding: f32,
+    /// Corner rounding style (squircle or rounded).
+    pub rounding_type: CornerStyle,
+    /// Shadow configuration.
+    pub shadow: ShadowStyle,
+    /// Border configuration.
+    pub border: BorderStyle,
 }
 
 impl Default for BackgroundStyle {
     fn default() -> Self {
         Self {
             background_type: BackgroundType::None,
-            padding: 0,
-            border_radius: 0,
-            shadow_radius: 0.0,
-            shadow_opacity: 0.0,
+            padding: 0.0,
+            rounding: 0.0,
+            rounding_type: CornerStyle::default(),
+            shadow: ShadowStyle::default(),
+            border: BorderStyle::default(),
+        }
+    }
+}
+
+impl BackgroundStyle {
+    /// Create a BackgroundStyle from a project BackgroundConfig.
+    pub fn from_config(config: &BackgroundConfig) -> Self {
+        let background_type = match config.bg_type {
+            ProjectBackgroundType::Solid => {
+                BackgroundType::Solid(hex_to_linear_rgba(&config.solid_color))
+            },
+            ProjectBackgroundType::Gradient => BackgroundType::Gradient {
+                start: hex_to_linear_rgba(&config.gradient_start),
+                end: hex_to_linear_rgba(&config.gradient_end),
+                angle: config.gradient_angle,
+            },
+        };
+
+        let rounding_type = match config.rounding_type {
+            ProjectCornerStyle::Squircle => CornerStyle::Squircle,
+            ProjectCornerStyle::Rounded => CornerStyle::Rounded,
+        };
+
+        let shadow = ShadowStyle {
+            enabled: config.shadow.enabled,
+            size: config.shadow.size,
+            opacity: config.shadow.opacity,
+            blur: config.shadow.blur,
+        };
+
+        let border = BorderStyle {
+            enabled: config.border.enabled,
+            width: config.border.width,
+            color: hex_to_linear_rgba(&config.border.color),
+            opacity: config.border.opacity / 100.0, // Convert from 0-100 to 0-1
+        };
+
+        Self {
+            background_type,
+            padding: config.padding,
+            rounding: config.rounding,
+            rounding_type,
+            shadow,
+            border,
         }
     }
 }

@@ -22,7 +22,7 @@ use super::cursor::{composite_cursor, CursorInterpolator};
 use super::renderer::Renderer;
 use super::scene::SceneInterpolator;
 use super::stream_decoder::StreamDecoder;
-use super::types::RenderOptions;
+use super::types::{BackgroundStyle, RenderOptions};
 use super::zoom::ZoomInterpolator;
 use crate::commands::video_recording::cursor::events::load_cursor_recording;
 use crate::commands::video_recording::video_export::{ExportResult, ExportStage};
@@ -59,7 +59,7 @@ pub async fn export_video_gpu(
 
     // Initialize GPU
     let renderer = Renderer::new().await?;
-    let compositor = Compositor::new(&renderer);
+    let mut compositor = Compositor::new(&renderer);
 
     emit_progress(&app, 0.02, ExportStage::Preparing, "Loading video...");
 
@@ -329,22 +329,27 @@ pub async fn export_video_gpu(
             }
         };
 
+        // Convert background config to rendering style
+        let background_style = BackgroundStyle::from_config(&project.export.background);
+
         let render_options = RenderOptions {
             output_width: out_w,
             output_height: out_h,
             zoom: zoom_state,
             webcam: webcam_overlay,
             cursor: None,
-            background: Default::default(),
+            background: background_style,
         };
 
         // Render frame on GPU
-        let output_texture = compositor.composite(
-            &renderer,
-            &frame_to_render,
-            &render_options,
-            relative_time_ms as f32,
-        );
+        let output_texture = compositor
+            .composite(
+                &renderer,
+                &frame_to_render,
+                &render_options,
+                relative_time_ms as f32,
+            )
+            .await;
 
         // Read rendered frame back to CPU
         let mut rgba_data = renderer.read_texture(&output_texture, out_w, out_h).await;

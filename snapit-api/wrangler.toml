@@ -1,0 +1,23 @@
+# SnapIt Feedback API Configuration
+# See https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "snapit-feedback"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# KV Namespace for storing feedback
+# Run: wrangler kv:namespace create FEEDBACK_KV
+# Then update the id below with the returned namespace ID
+[[kv_namespaces]]
+binding = "FEEDBACK_KV"
+id = "e4b1f9d8b5a6426dbaedb8866768a778"
+
+# Environment variables
+# Set secrets using: wrangler secret put RESEND_API_KEY
+# Set secrets using: wrangler secret put NOTIFICATION_EMAIL
+[vars]
+# Non-secret vars can go here
+
+# Production environment (optional)
+# [env.production]
+# vars = { ENVIRONMENT = "production" }

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import type {
+  AudioTrackSettings,
   AutoZoomConfig,
   VideoProject,
   ZoomRegion,
@@ -122,7 +123,10 @@ interface VideoEditorState {
 
   // Cursor config actions
   updateCursorConfig: (updates: Partial<CursorConfig>) => void;
-  
+
+  // Audio config actions
+  updateAudioConfig: (updates: Partial<AudioTrackSettings>) => void;
+
   // Timeline view actions
   setTimelineZoom: (zoom: number) => void;
   setTimelineScrollLeft: (scrollLeft: number) => void;
@@ -690,6 +694,22 @@ export const useVideoEditorStore = create<VideoEditorState>()(
             ...project,
             cursor: {
               ...project.cursor,
+              ...updates,
+            },
+          },
+        });
+      },
+
+      // Audio config actions
+      updateAudioConfig: (updates) => {
+        const { project } = get();
+        if (!project) return;
+
+        set({
+          project: {
+            ...project,
+            audio: {
+              ...project.audio,
               ...updates,
             },
           },

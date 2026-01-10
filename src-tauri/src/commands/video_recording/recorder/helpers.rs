@@ -468,6 +468,8 @@ pub fn create_video_project_file(
     fps: u32,
     has_webcam: bool,
     has_cursor_data: bool,
+    has_system_audio: bool,
+    has_mic_audio: bool,
 ) -> Result<(), String> {
     // Create the VideoProject with relative paths (files are in the same folder)
     let screen_video = "screen.mp4".to_string();
@@ -487,6 +489,15 @@ pub fn create_video_project_file(
 
     if has_cursor_data {
         project.sources.cursor_data = Some("cursor.json".to_string());
+    }
+
+    // Add audio file paths (editor flow keeps separate audio files)
+    if has_system_audio {
+        project.sources.system_audio = Some("system.wav".to_string());
+    }
+
+    if has_mic_audio {
+        project.sources.microphone_audio = Some("mic.wav".to_string());
     }
 
     // Save project.json to the folder

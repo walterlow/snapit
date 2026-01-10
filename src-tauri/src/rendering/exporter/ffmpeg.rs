@@ -8,6 +8,12 @@ use tauri::{AppHandle, Emitter};
 use crate::commands::video_recording::video_export::{ExportProgress, ExportStage};
 use crate::commands::video_recording::video_project::{ExportFormat, VideoProject};
 
+/// Audio input info for building ffmpeg filter.
+struct AudioInput {
+    input_index: usize,
+    volume: f32,
+}
+
 /// Start FFmpeg process for encoding raw RGBA input.
 pub fn start_ffmpeg_encoder(
     project: &VideoProject,
@@ -33,12 +39,37 @@ pub fn start_ffmpeg_encoder(
         "-".to_string(),
     ];
 
-    // Add audio if available
+    // Track audio inputs for filter graph
+    // Input 0 is always video (stdin)
+    let mut audio_inputs: Vec<AudioInput> = Vec::new();
+    let mut next_input_index = 1;
+
+    // Add system audio if available and not muted
     if let Some(ref audio_path) = project.sources.system_audio {
         if Path::new(audio_path).exists() && !project.audio.system_muted {
             args.extend(["-i".to_string(), audio_path.clone()]);
+            audio_inputs.push(AudioInput {
+                input_index: next_input_index,
+                volume: project.audio.system_volume,
+            });
+            next_input_index += 1;
         }
     }
+
+    // Add microphone audio if available and not muted
+    if let Some(ref mic_path) = project.sources.microphone_audio {
+        if Path::new(mic_path).exists() && !project.audio.microphone_muted {
+            args.extend(["-i".to_string(), mic_path.clone()]);
+            audio_inputs.push(AudioInput {
+                input_index: next_input_index,
+                volume: project.audio.microphone_volume,
+            });
+            // next_input_index += 1; // Uncomment when adding more audio sources
+        }
+    }
+
+    // Build audio filter graph if we have audio inputs
+    let audio_filter = build_audio_filter(&audio_inputs);
 
     // Output encoding based on format
     match project.export.format {
@@ -54,7 +85,12 @@ pub fn start_ffmpeg_encoder(
                 "-pix_fmt".to_string(),
                 "yuv420p".to_string(),
             ]);
-            if has_audio(project) {
+            if !audio_inputs.is_empty() {
+                if let Some(ref filter) = audio_filter {
+                    args.extend(["-filter_complex".to_string(), filter.clone()]);
+                    args.extend(["-map".to_string(), "0:v".to_string()]);
+                    args.extend(["-map".to_string(), "[aout]".to_string()]);
+                }
                 args.extend([
                     "-c:a".to_string(),
                     "aac".to_string(),
@@ -78,7 +114,12 @@ pub fn start_ffmpeg_encoder(
                 "-cpu-used".to_string(),
                 "4".to_string(),
             ]);
-            if has_audio(project) {
+            if !audio_inputs.is_empty() {
+                if let Some(ref filter) = audio_filter {
+                    args.extend(["-filter_complex".to_string(), filter.clone()]);
+                    args.extend(["-map".to_string(), "0:v".to_string()]);
+                    args.extend(["-map".to_string(), "[aout]".to_string()]);
+                }
                 args.extend([
                     "-c:a".to_string(),
                     "libopus".to_string(),
@@ -111,10 +152,43 @@ pub fn start_ffmpeg_encoder(
         .map_err(|e| format!("Failed to start FFmpeg: {}", e))
 }
 
-/// Check if project has audio to encode.
-pub fn has_audio(project: &VideoProject) -> bool {
-    (project.sources.system_audio.is_some() && !project.audio.system_muted)
-        || (project.sources.microphone_audio.is_some() && !project.audio.microphone_muted)
+/// Build audio filter graph for mixing multiple audio tracks with volume control.
+/// Returns None if no audio inputs, otherwise returns the filter string.
+fn build_audio_filter(audio_inputs: &[AudioInput]) -> Option<String> {
+    if audio_inputs.is_empty() {
+        return None;
+    }
+
+    if audio_inputs.len() == 1 {
+        // Single audio track - just apply volume
+        let input = &audio_inputs[0];
+        Some(format!(
+            "[{}:a]volume={:.2}[aout]",
+            input.input_index, input.volume
+        ))
+    } else {
+        // Multiple audio tracks - apply volume to each, then mix
+        let mut filter_parts: Vec<String> = Vec::new();
+        let mut mix_inputs: Vec<String> = Vec::new();
+
+        for (i, input) in audio_inputs.iter().enumerate() {
+            let label = format!("a{}", i);
+            filter_parts.push(format!(
+                "[{}:a]volume={:.2}[{}]",
+                input.input_index, input.volume, label
+            ));
+            mix_inputs.push(format!("[{}]", label));
+        }
+
+        // Mix all audio streams together
+        filter_parts.push(format!(
+            "{}amix=inputs={}:duration=longest[aout]",
+            mix_inputs.join(""),
+            audio_inputs.len()
+        ));
+
+        Some(filter_parts.join(";"))
+    }
 }
 
 /// Convert quality percentage to CRF value.

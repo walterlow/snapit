@@ -20,6 +20,7 @@ const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => 
 const selectPreviewTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.previewTimeMs;
 const selectCurrentTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.currentTimeMs;
 const selectCursorRecording = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.cursorRecording;
+const selectAudioConfig = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project?.audio;
 
 /**
  * WebCodecs-accelerated preview canvas for instant scrubbing.
@@ -407,6 +408,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
 export function GPUVideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const systemAudioRef = useRef<HTMLAudioElement>(null);
+  const micAudioRef = useRef<HTMLAudioElement>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
@@ -416,6 +419,7 @@ export function GPUVideoPreview() {
   const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
   const currentTimeMs = useVideoEditorStore(selectCurrentTimeMs);
   const cursorRecording = useVideoEditorStore(selectCursorRecording);
+  const audioConfig = useVideoEditorStore(selectAudioConfig);
   const controls = usePlaybackControls();
 
   // Track container size for webcam overlay positioning
@@ -439,11 +443,28 @@ export function GPUVideoPreview() {
 
   // Convert file path to asset URL (memoized)
   const videoSrc = useMemo(() => {
-    return project?.sources.screenVideo 
+    return project?.sources.screenVideo
       ? convertFileSrc(project.sources.screenVideo)
       : null;
   }, [project?.sources.screenVideo]);
-  
+
+  // Convert audio file paths to asset URLs (memoized)
+  const systemAudioSrc = useMemo(() => {
+    const src = project?.sources.systemAudio
+      ? convertFileSrc(project.sources.systemAudio)
+      : null;
+    videoEditorLogger.debug(`[Audio] System audio path: ${project?.sources.systemAudio ?? 'none'}, src: ${src ?? 'none'}`);
+    return src;
+  }, [project?.sources.systemAudio]);
+
+  const micAudioSrc = useMemo(() => {
+    const src = project?.sources.microphoneAudio
+      ? convertFileSrc(project.sources.microphoneAudio)
+      : null;
+    videoEditorLogger.debug(`[Audio] Mic audio path: ${project?.sources.microphoneAudio ?? 'none'}, src: ${src ?? 'none'}`);
+    return src;
+  }, [project?.sources.microphoneAudio]);
+
   // Get aspect ratio from project (memoized)
   const aspectRatio = useMemo(() => {
     return project?.sources.originalWidth && project?.sources.originalHeight
@@ -608,6 +629,16 @@ export function GPUVideoPreview() {
 
     const onLoadedData = () => {
       setVideoError(null);
+      // Set initial volume from audio config
+      // Mute video if we have separate audio files (editor flow)
+      const hasSeparateAudioFiles = Boolean(systemAudioSrc || micAudioSrc);
+      if (hasSeparateAudioFiles) {
+        video.volume = 0;
+        videoEditorLogger.debug(`[Audio] Video loaded, muted (using separate audio files)`);
+      } else if (audioConfig) {
+        video.volume = audioConfig.systemMuted ? 0 : audioConfig.systemVolume;
+        videoEditorLogger.debug(`[Audio] Video loaded, volume set to ${video.volume} (embedded audio)`);
+      }
     };
 
     video.addEventListener('ended', onEnded);
@@ -619,7 +650,7 @@ export function GPUVideoPreview() {
       video.removeEventListener('error', onError);
       video.removeEventListener('loadeddata', onLoadedData);
     };
-  }, [controls]);
+  }, [controls, audioConfig, systemAudioSrc, micAudioSrc]);
 
   // Sync play/pause state from store to video element and RAF loop
   useEffect(() => {
@@ -643,6 +674,90 @@ export function GPUVideoPreview() {
     }
   }, [isPlaying, controls]);
 
+  // Determine if we have separate audio files (editor flow) or embedded audio (quick capture)
+  const hasSeparateAudio = Boolean(systemAudioSrc || micAudioSrc);
+
+  // Apply volume settings to main video element
+  // Only use video audio when there's no separate audio files (quick capture mode)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && audioConfig) {
+      if (hasSeparateAudio) {
+        // Mute video - audio comes from separate files
+        video.volume = 0;
+        videoEditorLogger.debug(`[Audio] Main video muted (using separate audio files)`);
+      } else {
+        // No separate audio - use embedded video audio
+        const newVolume = audioConfig.systemMuted ? 0 : audioConfig.systemVolume;
+        video.volume = newVolume;
+        videoEditorLogger.debug(`[Audio] Main video volume set to ${newVolume} (embedded audio)`);
+      }
+    }
+  }, [audioConfig, hasSeparateAudio]);
+
+  // Apply volume settings to separate audio elements (editor flow)
+  useEffect(() => {
+    const audio = systemAudioRef.current;
+    if (audio && audioConfig) {
+      const newVolume = audioConfig.systemMuted ? 0 : audioConfig.systemVolume;
+      audio.volume = newVolume;
+      videoEditorLogger.debug(`[Audio] System audio volume set to ${newVolume}`);
+    }
+  }, [audioConfig]);
+
+  useEffect(() => {
+    const audio = micAudioRef.current;
+    if (audio && audioConfig) {
+      const newVolume = audioConfig.microphoneMuted ? 0 : audioConfig.microphoneVolume;
+      audio.volume = newVolume;
+      videoEditorLogger.debug(`[Audio] Mic audio volume set to ${newVolume}`);
+    }
+  }, [audioConfig]);
+
+  // Sync audio playback with video playback
+  useEffect(() => {
+    const systemAudio = systemAudioRef.current;
+    const micAudio = micAudioRef.current;
+    const video = videoRef.current;
+
+    if (isPlaying) {
+      // Sync audio time with video before playing
+      if (video) {
+        const videoTime = video.currentTime;
+        if (systemAudio) {
+          systemAudio.currentTime = videoTime;
+          systemAudio.play().catch(e => {
+            videoEditorLogger.warn('System audio play failed:', e);
+          });
+        }
+        if (micAudio) {
+          micAudio.currentTime = videoTime;
+          micAudio.play().catch(e => {
+            videoEditorLogger.warn('Mic audio play failed:', e);
+          });
+        }
+      }
+    } else {
+      // Pause audio tracks
+      if (systemAudio) systemAudio.pause();
+      if (micAudio) micAudio.pause();
+    }
+  }, [isPlaying]);
+
+  // Seek audio when preview time or current time changes (for timeline scrubbing/clicking)
+  useEffect(() => {
+    if (isPlaying) return;
+
+    const targetTime = (previewTimeMs !== null ? previewTimeMs : currentTimeMs) / 1000;
+
+    if (systemAudioRef.current) {
+      systemAudioRef.current.currentTime = targetTime;
+    }
+    if (micAudioRef.current) {
+      micAudioRef.current.currentTime = targetTime;
+    }
+  }, [previewTimeMs, currentTimeMs, isPlaying]);
+
   // Seek video when preview time or current time changes (for timeline scrubbing/clicking)
   useEffect(() => {
     const video = videoRef.current;
@@ -659,6 +774,36 @@ export function GPUVideoPreview() {
 
   return (
     <div className="flex items-center justify-center h-full bg-[var(--polar-snow)] rounded-lg overflow-hidden">
+      {/* Hidden audio elements for playback */}
+      {systemAudioSrc && (
+        <audio
+          ref={systemAudioRef}
+          src={systemAudioSrc}
+          preload="auto"
+          style={{ display: 'none' }}
+          onLoadedData={(e) => {
+            const audio = e.currentTarget;
+            if (audioConfig) {
+              audio.volume = audioConfig.systemMuted ? 0 : audioConfig.systemVolume;
+            }
+          }}
+        />
+      )}
+      {micAudioSrc && (
+        <audio
+          ref={micAudioRef}
+          src={micAudioSrc}
+          preload="auto"
+          style={{ display: 'none' }}
+          onLoadedData={(e) => {
+            const audio = e.currentTarget;
+            if (audioConfig) {
+              audio.volume = audioConfig.microphoneMuted ? 0 : audioConfig.microphoneVolume;
+            }
+          }}
+        />
+      )}
+
       {/* Outer wrapper for background (shows when frame styling is enabled) */}
       <div
         className="flex items-center justify-center rounded-lg"

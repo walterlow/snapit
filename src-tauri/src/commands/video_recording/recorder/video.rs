@@ -736,12 +736,17 @@ pub fn run_video_capture(
     }
 
     // Mux audio with video using FFmpeg (bypasses windows-capture audio jitter)
-    if let Err(e) = mux_audio_to_video(
-        &screen_video_path,
-        system_audio_path.as_ref(),
-        mic_audio_path.as_ref(),
-    ) {
-        log::warn!("Audio muxing failed: {}", e);
+    // Only mux for quick capture - editor flow keeps separate audio files for volume control
+    if settings.quick_capture {
+        if let Err(e) = mux_audio_to_video(
+            &screen_video_path,
+            system_audio_path.as_ref(),
+            mic_audio_path.as_ref(),
+        ) {
+            log::warn!("Audio muxing failed: {}", e);
+        }
+    } else {
+        log::debug!("[CAPTURE] Editor flow: keeping separate audio files for editing");
     }
 
     // NOTE: Webcam sync is now handled in finish_with_duration() above.
@@ -749,6 +754,13 @@ pub fn run_video_capture(
 
     // Create project.json with video project metadata (editor flow only)
     if !settings.quick_capture {
+        // Check which audio files exist
+        let has_system_audio = system_audio_path
+            .as_ref()
+            .map(|p| p.exists())
+            .unwrap_or(false);
+        let has_mic_audio = mic_audio_path.as_ref().map(|p| p.exists()).unwrap_or(false);
+
         create_video_project_file(
             output_path,
             width,
@@ -760,6 +772,8 @@ pub fn run_video_capture(
                 .as_ref()
                 .map(|_| !cursor_recording.events.is_empty())
                 .unwrap_or(false),
+            has_system_audio,
+            has_mic_audio,
         )?;
     }
 

@@ -458,6 +458,26 @@ pub fn hide_camera_preview(app: tauri::AppHandle) {
     webcam::hide_camera_preview(&app);
 }
 
+/// Close webcam preview and disable webcam.
+///
+/// Called when user explicitly closes the preview from the preview window controls.
+/// This hides the preview, disables the webcam in config, and emits an event
+/// so all frontend windows can update their state.
+#[command]
+pub fn close_webcam_from_preview(app: tauri::AppHandle) {
+    log::info!("[WEBCAM] close_webcam_from_preview() - user closed preview");
+
+    // Disable webcam in config FIRST
+    crate::config::webcam::WEBCAM_CONFIG.write().enabled = false;
+
+    // Emit event BEFORE hiding preview to ensure toolbar receives it
+    // while everything is stable (hiding destroys the window)
+    let _ = app.emit("webcam-disabled-from-preview", ());
+
+    // Hide the preview window (this destroys the window)
+    webcam::hide_camera_preview(&app);
+}
+
 /// Check if camera preview is currently showing.
 #[command]
 pub fn is_camera_preview_showing() -> bool {

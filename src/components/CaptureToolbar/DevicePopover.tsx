@@ -26,6 +26,11 @@ export const DevicePopover: React.FC<DevicePopoverProps> = ({ disabled = false }
   } = useWebcamSettingsStore();
   const buttonRef = useRef<HTMLButtonElement>(null);
 
+  // Debug: log when settings.enabled changes
+  useEffect(() => {
+    webcamLogger.info('DevicePopover: settings.enabled changed to', settings.enabled);
+  }, [settings.enabled]);
+
   // Load devices on mount
   useEffect(() => {
     if (devices.length === 0) {

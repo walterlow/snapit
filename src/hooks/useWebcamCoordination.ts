@@ -67,6 +67,34 @@ export function useWebcamCoordination(): UseWebcamCoordinationReturn {
     };
   }, []);
 
+  // Listen for when user closes the preview from the preview window controls
+  // The Rust backend emits this event after hiding preview and disabling webcam in config
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+
+    const setup = async () => {
+      unlisten = await listen('webcam-disabled-from-preview', () => {
+        webcamLogger.info('Webcam disabled from preview window - updating store');
+        const currentState = useWebcamSettingsStore.getState();
+        webcamLogger.info('Current store state before update:', currentState.settings.enabled);
+
+        // Update store state directly - Rust already updated the config
+        useWebcamSettingsStore.setState({
+          settings: { ...currentState.settings, enabled: false },
+          previewOpen: false,
+        });
+
+        const newState = useWebcamSettingsStore.getState();
+        webcamLogger.info('Store state after update:', newState.settings.enabled);
+      });
+    };
+
+    setup();
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   const closeWebcamPreview = useCallback(async () => {
     await closePreview();
   }, [closePreview]);

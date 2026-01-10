@@ -204,18 +204,23 @@ impl WebcamCaptureService {
 
     /// Run the capture loop (blocking - call from a thread).
     pub fn run(self) -> Result<(), String> {
+        use crate::config::webcam::WEBCAM_CONFIG;
         use snapit_camera_windows::{FormatPreference, PixelFormat};
 
         let device = get_device_by_index(self.device_index)?;
 
+        // Get resolution from config
+        let (target_width, target_height) = WEBCAM_CONFIG.read().resolution.to_dimensions();
+
         // Prefer MJPEG for preview - camera does hardware compression, no CPU conversion needed.
         // For recording/encoding, NV12 would be better but preview is the bottleneck.
-        let preference = FormatPreference::new(1280, 720, 30.0).with_format_priority(vec![
-            PixelFormat::MJPEG, // Best for preview - no CPU conversion
-            PixelFormat::NV12,  // Good for hardware encoding
-            PixelFormat::YUYV422,
-            PixelFormat::RGB32,
-        ]);
+        let preference = FormatPreference::new(target_width, target_height, 30.0)
+            .with_format_priority(vec![
+                PixelFormat::MJPEG, // Best for preview - no CPU conversion
+                PixelFormat::NV12,  // Good for hardware encoding
+                PixelFormat::YUYV422,
+                PixelFormat::RGB32,
+            ]);
 
         let format = device
             .find_format_with_fallback(&preference)

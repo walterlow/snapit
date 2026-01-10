@@ -210,6 +210,7 @@ impl CameraFeed {
         is_starting: Arc<AtomicBool>,
         dimensions: Arc<RwLock<(u32, u32)>>,
     ) -> Result<(), String> {
+        use crate::config::webcam::WEBCAM_CONFIG;
         use nokhwa::utils::{
             CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
             Resolution,
@@ -221,9 +222,21 @@ impl CameraFeed {
             device_index
         );
 
-        // Request YUYV at 640x480 - fast CPU conversion for GPU preview
-        // MJPEG requires expensive JPEG decode, YUYV is simple math
-        let target_format = CameraFormat::new(Resolution::new(640, 480), FrameFormat::YUYV, 30);
+        // Get resolution from config - this affects both preview and recording.
+        // Preview will be downscaled by the GPU shader for display.
+        let (target_width, target_height) = WEBCAM_CONFIG.read().resolution.to_dimensions();
+        log::info!(
+            "[CAMERA_FEED] Requesting resolution: {}x{}",
+            target_width,
+            target_height
+        );
+
+        // YUYV is used for fast CPU conversion - MJPEG requires expensive JPEG decode.
+        let target_format = CameraFormat::new(
+            Resolution::new(target_width, target_height),
+            FrameFormat::YUYV,
+            30,
+        );
         let requested = RequestedFormat::with_formats(
             RequestedFormatType::Closest(target_format),
             &[FrameFormat::YUYV, FrameFormat::RAWRGB, FrameFormat::MJPEG],
@@ -426,6 +439,43 @@ pub fn subscribe_global(name: &str, buffer_size: usize) -> Result<Subscription, 
 pub fn is_global_feed_running() -> bool {
     let guard = global_feed().lock();
     guard.as_ref().map(|f| f.is_running()).unwrap_or(false)
+}
+
+/// Restart the global camera feed with a new device index.
+/// If feed is not running, this does nothing.
+/// Returns the device index that was restarted, or None if feed wasn't running.
+pub fn restart_global_feed(device_index: usize) -> Result<Option<usize>, String> {
+    let mut guard = global_feed().lock();
+
+    // Check if feed is running
+    let was_running = guard.as_ref().map(|f| f.is_running()).unwrap_or(false);
+
+    if !was_running {
+        log::debug!("[CAMERA_FEED] Feed not running, skip restart");
+        return Ok(None);
+    }
+
+    // Stop existing feed
+    if let Some(mut feed) = guard.take() {
+        log::info!("[CAMERA_FEED] Stopping feed for restart...");
+        feed.stop();
+    }
+
+    // Small delay to let camera release
+    drop(guard);
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Start new feed with same device
+    let mut guard = global_feed().lock();
+    let mut feed = CameraFeed::new(device_index);
+    feed.start()?;
+    *guard = Some(feed);
+
+    log::info!(
+        "[CAMERA_FEED] Feed restarted for device {} with new settings",
+        device_index
+    );
+    Ok(Some(device_index))
 }
 
 /// Get global feed dimensions.

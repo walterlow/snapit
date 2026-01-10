@@ -32,8 +32,8 @@ pub use capture::{
 
 // New broadcast-based architecture
 pub use feed::{
-    global_feed_dimensions, is_global_feed_running, start_global_feed, stop_global_feed,
-    subscribe_global, CameraFeed, Subscription,
+    global_feed_dimensions, is_global_feed_running, restart_global_feed, start_global_feed,
+    stop_global_feed, subscribe_global, CameraFeed, Subscription,
 };
 pub use preview::{get_preview_jpeg, is_preview_running, start_preview, stop_preview};
 // GPU-accelerated preview (Cap-style direct rendering)
@@ -163,6 +163,60 @@ impl Default for WebcamShape {
     }
 }
 
+/// Capture resolution preset for the webcam.
+///
+/// These presets are matched against the webcam's native capabilities.
+/// If a resolution is not supported, the closest available will be used.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum WebcamResolution {
+    /// Automatic - let the system choose the best resolution.
+    Auto,
+    /// 4K UHD (3840x2160) - highest quality, more CPU/GPU intensive.
+    #[serde(rename = "4k")]
+    UHD4K,
+    /// Full HD (1920x1080) - high quality, good balance.
+    #[serde(rename = "1080p")]
+    FullHD,
+    /// HD (1280x720) - standard quality, lower resource usage.
+    #[serde(rename = "720p")]
+    HD720,
+    /// SD (640x480) - lowest quality, minimal resource usage.
+    #[serde(rename = "480p")]
+    SD480,
+}
+
+impl Default for WebcamResolution {
+    fn default() -> Self {
+        Self::HD720 // 720p is a good default - supported by most webcams
+    }
+}
+
+impl WebcamResolution {
+    /// Get the target resolution (width, height) for this preset.
+    pub fn to_dimensions(&self) -> (u32, u32) {
+        match self {
+            WebcamResolution::Auto => (1280, 720), // Default to 720p for auto
+            WebcamResolution::UHD4K => (3840, 2160),
+            WebcamResolution::FullHD => (1920, 1080),
+            WebcamResolution::HD720 => (1280, 720),
+            WebcamResolution::SD480 => (640, 480),
+        }
+    }
+
+    /// Get the display name for this resolution.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            WebcamResolution::Auto => "Auto",
+            WebcamResolution::UHD4K => "4K (3840x2160)",
+            WebcamResolution::FullHD => "1080p (1920x1080)",
+            WebcamResolution::HD720 => "720p (1280x720)",
+            WebcamResolution::SD480 => "480p (640x480)",
+        }
+    }
+}
+
 /// Settings for webcam overlay during recording.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -180,6 +234,9 @@ pub struct WebcamSettings {
     pub shape: WebcamShape,
     /// Whether to mirror the webcam horizontally (selfie mode).
     pub mirror: bool,
+    /// Capture resolution preset.
+    #[serde(default)]
+    pub resolution: WebcamResolution,
 }
 
 impl Default for WebcamSettings {
@@ -191,6 +248,7 @@ impl Default for WebcamSettings {
             size: WebcamSize::default(),
             shape: WebcamShape::default(),
             mirror: false,
+            resolution: WebcamResolution::default(),
         }
     }
 }

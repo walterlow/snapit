@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
-import { FolderOpen, ExternalLink, RefreshCw, Sun, Moon, Monitor, FileText } from 'lucide-react';
+import { FolderOpen, ExternalLink, RefreshCw, Sun, Moon, Monitor, FileText, Video } from 'lucide-react';
 import { useUpdater } from '@/hooks/useUpdater';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,18 +16,26 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useWebcamSettingsStore } from '@/stores/webcamSettingsStore';
 import type { ImageFormat, Theme } from '@/types';
+import type { WebcamResolution } from '@/types/generated';
 import { settingsLogger } from '@/utils/logger';
 
 export const GeneralTab: React.FC = () => {
   const { settings, updateGeneralSettings } = useSettingsStore();
   const { general } = settings;
+  const { settings: webcamSettings, setResolution, loadSettings: loadWebcamSettings } = useWebcamSettingsStore();
 
   const [isAutostartEnabled, setIsAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(true);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [appVersion, setAppVersion] = useState<string>('');
   const { version: updateVersion, available, checkForUpdates, downloadAndInstall, downloading } = useUpdater(false);
+
+  // Load webcam settings on mount
+  useEffect(() => {
+    loadWebcamSettings();
+  }, [loadWebcamSettings]);
 
   // Load app version on mount
   useEffect(() => {
@@ -345,6 +353,42 @@ export const GeneralTab: React.FC = () => {
                 </Button>
               )}
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Webcam Section */}
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
+          Webcam
+        </h3>
+        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)] space-y-4">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Video className="w-4 h-4 text-[var(--ink-muted)]" />
+              <label className="text-sm text-[var(--ink-black)]">
+                Recording resolution
+              </label>
+            </div>
+            <Select
+              value={webcamSettings.resolution}
+              onValueChange={(value) => setResolution(value as WebcamResolution)}
+            >
+              <SelectTrigger className="w-full max-w-[200px] bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-black)]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="4k">4K (3840x2160)</SelectItem>
+                <SelectItem value="1080p">1080p (1920x1080)</SelectItem>
+                <SelectItem value="720p">720p (1280x720)</SelectItem>
+                <SelectItem value="480p">480p (640x480)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--ink-muted)] mt-2">
+              Resolution used when recording webcam overlay. Higher resolutions require more processing power.
+              The preview always uses a lower resolution for performance.
+            </p>
           </div>
         </div>
       </section>

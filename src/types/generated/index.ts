@@ -32,6 +32,7 @@ export type { StorageStats } from './StorageStats';
 // Webcam types
 export type { WebcamDevice } from './WebcamDevice';
 export type { WebcamPosition } from './WebcamPosition';
+export type { WebcamResolution } from './WebcamResolution';
 export type { WebcamSettings } from './WebcamSettings';
 export type { WebcamShape } from './WebcamShape';
 export type { WebcamSize } from './WebcamSize';

@@ -100,60 +100,22 @@ const CaptureToolbarWindow: React.FC = () => {
   // Measure content and resize window to fit
   useToolbarPositioning({ containerRef, contentRef, selectionConfirmed, mode });
 
-  // Ensure webcam preview is visible when in video mode with webcam enabled
-  // This handles edge cases where preview was closed but settings still show webcam enabled
+  // Manage webcam preview based on capture type
+  // - Open when in video mode with webcam enabled
+  // - Close when switching away from video mode
   useEffect(() => {
     if (captureType === 'video') {
       openWebcamPreviewIfEnabled();
+    } else {
+      // Close webcam preview when not in video mode
+      closeWebcamPreview();
     }
-  }, [captureType, openWebcamPreviewIfEnabled]);
+  }, [captureType, openWebcamPreviewIfEnabled, closeWebcamPreview]);
 
-  // Restore webcam preview when toolbar window is focused/unminimized/becomes visible
-  useEffect(() => {
-    const currentWindow = getCurrentWebviewWindow();
-    let unlistenFocus: (() => void) | null = null;
-
-    const checkAndRestoreWebcam = () => {
-      toolbarLogger.debug('checkAndRestoreWebcam called', { captureType });
-      if (captureType === 'video') {
-        openWebcamPreviewIfEnabled();
-      }
-    };
-
-    // Handle Tauri window focus change
-    const setupFocusListener = async () => {
-      unlistenFocus = await currentWindow.onFocusChanged(({ payload: focused }) => {
-        toolbarLogger.debug('Tauri onFocusChanged', { focused });
-        if (focused) {
-          checkAndRestoreWebcam();
-        }
-      });
-    };
-
-    // Handle document visibility change (covers minimize/restore)
-    const handleVisibilityChange = () => {
-      toolbarLogger.debug('visibilitychange', { state: document.visibilityState });
-      if (document.visibilityState === 'visible') {
-        checkAndRestoreWebcam();
-      }
-    };
-
-    // Handle window focus (browser-level)
-    const handleWindowFocus = () => {
-      toolbarLogger.debug('window focus event');
-      checkAndRestoreWebcam();
-    };
-
-    setupFocusListener();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleWindowFocus);
-
-    return () => {
-      unlistenFocus?.();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleWindowFocus);
-    };
-  }, [captureType, openWebcamPreviewIfEnabled]);
+  // Note: Webcam preview is managed by mode switching useEffect above.
+  // We intentionally don't auto-restore on focus events because:
+  // 1. If user explicitly closes the preview, it should stay closed
+  // 2. Mode switching already handles opening when entering video mode
 
   // --- Event handlers ---
 
@@ -447,19 +409,13 @@ const CaptureToolbarWindow: React.FC = () => {
     await currentWindow.close();
   }, []);
 
-  const handleModeChange = useCallback(async (newMode: typeof captureType) => {
+  const handleModeChange = useCallback((newMode: typeof captureType) => {
     if (mode === 'selection') {
-      // Close webcam when switching away from video mode
-      if (captureType === 'video' && newMode !== 'video') {
-        await closeWebcamPreview();
-      }
-      // Re-open webcam when switching back to video mode (if it was enabled)
-      if (captureType !== 'video' && newMode === 'video') {
-        await openWebcamPreviewIfEnabled();
-      }
+      // Just update the capture type - the useEffect at line 106-113 handles
+      // opening/closing webcam preview based on captureType changes
       setCaptureType(newMode);
     }
-  }, [mode, captureType, setCaptureType, closeWebcamPreview, openWebcamPreviewIfEnabled]);
+  }, [mode, setCaptureType]);
 
   const handleTitlebarClose = useCallback(async () => {
     // Cancel overlay when toolbar is closed

@@ -203,6 +203,8 @@ pub fn run() {
             config::webcam::set_webcam_size,
             config::webcam::set_webcam_shape,
             config::webcam::set_webcam_mirror,
+            config::webcam::set_webcam_resolution,
+            config::webcam::get_webcam_resolution,
             config::webcam::set_webcam_config,
             commands::video_recording::list_webcam_devices,
             commands::video_recording::list_audio_input_devices,
@@ -241,6 +243,7 @@ pub fn run() {
             // Camera preview manager (Cap-style centralized lifecycle)
             commands::video_recording::show_camera_preview,
             commands::video_recording::hide_camera_preview,
+            commands::video_recording::close_webcam_from_preview,
             commands::video_recording::is_camera_preview_showing,
             commands::video_recording::notify_preview_window_closed,
             // Browser-based webcam recording (MediaRecorder chunks)

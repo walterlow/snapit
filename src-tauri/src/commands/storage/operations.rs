@@ -960,7 +960,32 @@ pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), St
         .join(format!("{}_thumb.png", &project_id));
     let _ = fs::remove_file(thumbnail_path);
 
+    // Clean up any empty directories in captures folder
+    cleanup_empty_directories(&captures_dir);
+
     Ok(())
+}
+
+/// Remove empty directories in the given path (non-recursive into subdirs, just cleans immediate children)
+fn cleanup_empty_directories(dir: &std::path::Path) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Check if directory is empty
+                if let Ok(mut contents) = fs::read_dir(&path) {
+                    if contents.next().is_none() {
+                        // Directory is empty, remove it
+                        if let Err(e) = fs::remove_dir(&path) {
+                            log::debug!("[CLEANUP] Failed to remove empty dir {:?}: {}", path, e);
+                        } else {
+                            log::debug!("[CLEANUP] Removed empty directory: {:?}", path);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[command]
@@ -968,6 +993,12 @@ pub async fn delete_projects(app: AppHandle, project_ids: Vec<String>) -> Result
     for id in project_ids {
         delete_project(app.clone(), id).await?;
     }
+
+    // Final cleanup pass after bulk deletion
+    if let Ok(captures_dir) = get_captures_dir(&app) {
+        cleanup_empty_directories(&captures_dir);
+    }
+
     Ok(())
 }
 

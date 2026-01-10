@@ -179,7 +179,7 @@ pub struct ZoomConfig {
 impl Default for ZoomConfig {
     fn default() -> Self {
         Self {
-            mode: ZoomMode::Auto,
+            mode: ZoomMode::Off,
             auto_zoom_scale: 2.0,
             regions: Vec::new(),
         }

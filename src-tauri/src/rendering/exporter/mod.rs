@@ -27,9 +27,7 @@ use super::types::{BackgroundStyle, RenderOptions};
 use super::zoom::ZoomInterpolator;
 use crate::commands::video_recording::cursor::events::load_cursor_recording;
 use crate::commands::video_recording::video_export::{ExportResult, ExportStage};
-use crate::commands::video_recording::video_project::{
-    apply_auto_zoom_to_project, AutoZoomConfig, CursorType, SceneMode, VideoProject, ZoomMode,
-};
+use crate::commands::video_recording::video_project::{CursorType, SceneMode, VideoProject};
 
 // Re-export submodule functions used externally
 pub use ffmpeg::emit_progress;
@@ -145,28 +143,10 @@ pub async fn export_video_gpu(
     let mut ffmpeg = start_ffmpeg_encoder(&project, &output_path, out_w, out_h, fps)?;
     let mut stdin = ffmpeg.stdin.take().ok_or("Failed to get FFmpeg stdin")?;
 
-    // Generate auto zoom regions if mode is Auto/Both but regions are empty
-    let project = if matches!(project.zoom.mode, ZoomMode::Auto | ZoomMode::Both)
-        && project.zoom.regions.is_empty()
-        && project.sources.cursor_data.is_some()
-    {
-        log::info!("[EXPORT] Auto zoom mode enabled but no regions - generating...");
-        match apply_auto_zoom_to_project(project.clone(), &AutoZoomConfig::default()) {
-            Ok(updated) => {
-                log::info!(
-                    "[EXPORT] Generated {} auto zoom regions",
-                    updated.zoom.regions.len()
-                );
-                updated
-            },
-            Err(e) => {
-                log::warn!("[EXPORT] Failed to generate auto zoom: {}", e);
-                project
-            },
-        }
-    } else {
-        project
-    };
+    // NOTE: Auto zoom generation is disabled. Users must explicitly add zoom regions.
+    // The zoom mode in project.zoom.mode is used to control how existing regions behave,
+    // but we don't auto-generate regions anymore.
+    let project = project;
 
     // Create zoom interpolator
     let zoom_interpolator = ZoomInterpolator::new(&project.zoom);
@@ -401,16 +381,22 @@ pub async fn export_video_gpu(
                     // This matches Cap's approach for consistent, resolution-independent cursors.
                     let mut rendered = false;
 
+                    // Calculate cursor scale relative to output size
+                    // Base cursor is 24px (same as editor DEFAULT_CURSOR_SIZE)
+                    // Scale relative to 720p reference so cursor looks proportional
+                    let base_cursor_height = 24.0;
+                    let reference_height = 720.0;
+                    let size_scale = out_h as f32 / reference_height;
+                    let final_cursor_height =
+                        base_cursor_height * size_scale * project.cursor.scale;
+                    let final_cursor_height = final_cursor_height.clamp(16.0, 256.0);
+
                     // Try SVG cursor first (if shape is detected)
                     if let Some(shape) = cursor.cursor_shape {
-                        // Scale based on output height (like editor does)
-                        let target_height =
-                            (out_h as f32 * project.cursor.scale / 100.0 * 0.08) as u32;
-                        let target_height = target_height.clamp(16, 128);
+                        // Render SVG at final size (svg base is ~24px)
+                        let svg_scale = final_cursor_height / 24.0;
 
-                        if let Some(svg_cursor) =
-                            render_svg_cursor(shape, target_height as f32 / 24.0)
-                        {
+                        if let Some(svg_cursor) = render_svg_cursor(shape, svg_scale) {
                             let svg_decoded = super::cursor::DecodedCursorImage {
                                 width: svg_cursor.width,
                                 height: svg_cursor.height,
@@ -418,13 +404,15 @@ pub async fn export_video_gpu(
                                 hotspot_y: svg_cursor.hotspot_y,
                                 data: svg_cursor.data,
                             };
+                            // Pass 1.0 as base_scale since SVG is already at final size
+                            // cursor.scale (click animation) is applied internally
                             composite_cursor(
                                 &mut rgba_data,
                                 out_w,
                                 out_h,
                                 &cursor,
                                 &svg_decoded,
-                                project.cursor.scale,
+                                1.0,
                             );
                             rendered = true;
                         }
@@ -434,13 +422,15 @@ pub async fn export_video_gpu(
                     if !rendered {
                         if let Some(ref cursor_id) = cursor.cursor_id {
                             if let Some(cursor_image) = cursor_interp.get_cursor_image(cursor_id) {
+                                // For bitmap, apply the full scale factor
+                                let bitmap_scale = final_cursor_height / cursor_image.height as f32;
                                 composite_cursor(
                                     &mut rgba_data,
                                     out_w,
                                     out_h,
                                     &cursor,
                                     cursor_image,
-                                    project.cursor.scale,
+                                    bitmap_scale,
                                 );
                             }
                         }

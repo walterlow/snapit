@@ -495,6 +495,9 @@ impl SpringSimulation {
 // Cursor Interpolator
 // ============================================================================
 
+/// Debounce duration for cursor shape changes (matches editor).
+const CURSOR_SHAPE_DEBOUNCE_MS: u64 = 80;
+
 /// Cursor interpolator with pre-computed smoothed positions.
 pub struct CursorInterpolator {
     /// Pre-computed smoothed events.
@@ -510,6 +513,9 @@ pub struct CursorInterpolator {
     /// Fallback cursor shape (most common shape found in cursor_images).
     /// Used when cursor_id points to an image without a detected shape.
     fallback_cursor_shape: Option<WindowsCursorShape>,
+    /// Pre-computed stable cursor shapes with debouncing applied.
+    /// Each entry is (timestamp_ms, shape) - shape is valid from this timestamp until next entry.
+    stable_cursor_timeline: Vec<(u64, WindowsCursorShape)>,
     /// Region dimensions (for reference).
     width: u32,
     height: u32,
@@ -557,6 +563,18 @@ impl CursorInterpolator {
             log::info!("[CURSOR] Using fallback cursor shape: {:?}", shape);
         }
 
+        // Pre-compute stable cursor timeline with debouncing
+        let stable_cursor_timeline = compute_stable_cursor_timeline(
+            &recording.events,
+            &recording.cursor_images,
+            fallback_cursor_shape,
+        );
+
+        log::info!(
+            "[CURSOR] Computed {} stable cursor shape transitions",
+            stable_cursor_timeline.len()
+        );
+
         Self {
             smoothed_events,
             original_events: recording.events.clone(),
@@ -564,6 +582,7 @@ impl CursorInterpolator {
             decoded_images,
             fallback_cursor_id,
             fallback_cursor_shape,
+            stable_cursor_timeline,
             width: recording.width,
             height: recording.height,
         }
@@ -575,7 +594,7 @@ impl CursorInterpolator {
     /// - `opacity`: Fades out when idle, fades in when movement resumes
     /// - `scale`: Shrinks during click animation
     /// - `cursor_id`: Active cursor image ID (with fallback)
-    /// - `cursor_shape`: Detected cursor shape for SVG rendering
+    /// - `cursor_shape`: Debounced cursor shape for SVG rendering (prevents flickering)
     pub fn get_cursor_at(&self, time_ms: u64) -> InterpolatedCursor {
         let cursor_id = get_active_cursor_id(&self.original_events, time_ms);
         let mut cursor = interpolate_at_time(&self.smoothed_events, time_ms, cursor_id);
@@ -585,15 +604,11 @@ impl CursorInterpolator {
             cursor.cursor_id = self.fallback_cursor_id.clone();
         }
 
-        // Look up cursor_shape from cursor_images for SVG rendering
-        if let Some(ref id) = cursor.cursor_id {
-            if let Some(image) = self.cursor_images.get(id) {
-                cursor.cursor_shape = image.cursor_shape;
-            }
-        }
+        // Use pre-computed stable cursor shape (with debouncing applied)
+        // This prevents rapid flickering between cursor shapes
+        cursor.cursor_shape = get_stable_cursor_shape(&self.stable_cursor_timeline, time_ms);
 
-        // Use fallback cursor_shape if current cursor doesn't have a detected shape.
-        // This ensures SVG cursors are used consistently (matching Cap's approach).
+        // Use fallback cursor_shape if stable timeline didn't have a shape
         if cursor.cursor_shape.is_none() {
             cursor.cursor_shape = self.fallback_cursor_shape;
         }
@@ -830,6 +845,98 @@ fn get_active_cursor_id(events: &[CursorEvent], time_ms: u64) -> Option<String> 
     }
 
     active_cursor_id
+}
+
+/// Compute stable cursor shape timeline with debouncing.
+///
+/// This prevents rapid flickering between cursor shapes (e.g., arrow ↔ resize)
+/// by requiring a shape to persist for CURSOR_SHAPE_DEBOUNCE_MS before committing.
+fn compute_stable_cursor_timeline(
+    events: &[CursorEvent],
+    cursor_images: &HashMap<String, CursorImage>,
+    fallback_shape: Option<WindowsCursorShape>,
+) -> Vec<(u64, WindowsCursorShape)> {
+    let mut timeline: Vec<(u64, WindowsCursorShape)> = Vec::new();
+
+    // Track debouncing state
+    let mut stable_shape: Option<WindowsCursorShape> = fallback_shape;
+    let mut pending_shape: Option<WindowsCursorShape> = None;
+    let mut pending_since: u64 = 0;
+
+    // Get shape for a cursor ID
+    let get_shape = |cursor_id: &Option<String>| -> Option<WindowsCursorShape> {
+        cursor_id
+            .as_ref()
+            .and_then(|id| cursor_images.get(id))
+            .and_then(|img| img.cursor_shape)
+            .or(fallback_shape)
+    };
+
+    for event in events {
+        let current_shape = get_shape(&event.cursor_id);
+
+        // Skip if no shape detected
+        let Some(shape) = current_shape else {
+            continue;
+        };
+
+        // If shape matches stable, reset pending
+        if Some(shape) == stable_shape {
+            pending_shape = None;
+            continue;
+        }
+
+        // If shape matches pending, check if debounce period passed
+        if Some(shape) == pending_shape {
+            if event.timestamp_ms >= pending_since + CURSOR_SHAPE_DEBOUNCE_MS {
+                // Debounce complete - promote to stable
+                stable_shape = Some(shape);
+                timeline.push((pending_since + CURSOR_SHAPE_DEBOUNCE_MS, shape));
+                pending_shape = None;
+            }
+            continue;
+        }
+
+        // New shape detected - start debounce timer
+        pending_shape = Some(shape);
+        pending_since = event.timestamp_ms;
+
+        // If no stable shape yet, use this one immediately
+        if stable_shape.is_none() {
+            stable_shape = Some(shape);
+            timeline.push((event.timestamp_ms, shape));
+            pending_shape = None;
+        }
+    }
+
+    // If timeline is empty but we have a fallback, add it at time 0
+    if timeline.is_empty() {
+        if let Some(shape) = fallback_shape {
+            timeline.push((0, shape));
+        }
+    }
+
+    timeline
+}
+
+/// Look up stable cursor shape at a given timestamp.
+fn get_stable_cursor_shape(
+    timeline: &[(u64, WindowsCursorShape)],
+    time_ms: u64,
+) -> Option<WindowsCursorShape> {
+    if timeline.is_empty() {
+        return None;
+    }
+
+    // Find the last entry at or before time_ms
+    let mut result = timeline[0].1;
+    for (ts, shape) in timeline {
+        if *ts > time_ms {
+            break;
+        }
+        result = *shape;
+    }
+    Some(result)
 }
 
 /// Interpolate smoothed position at a specific timestamp.

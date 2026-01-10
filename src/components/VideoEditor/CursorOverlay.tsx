@@ -161,6 +161,26 @@ export const CursorOverlay = memo(function CursorOverlay({
   // Get interpolated cursor data
   const { getCursorAt, hasCursorData, cursorImages } = useCursorInterpolation(cursorRecording);
 
+  // Calculate fallback cursor shape (most common shape in recording)
+  // This matches the renderer's fallback logic for consistency
+  const fallbackCursorShape = useMemo(() => {
+    const shapeCounts = new Map<WindowsCursorShape, number>();
+    for (const img of Object.values(cursorImages)) {
+      if (img?.cursorShape) {
+        shapeCounts.set(img.cursorShape, (shapeCounts.get(img.cursorShape) ?? 0) + 1);
+      }
+    }
+    let maxShape: WindowsCursorShape | null = null;
+    let maxCount = 0;
+    for (const [shape, count] of shapeCounts) {
+      if (count > maxCount) {
+        maxCount = count;
+        maxShape = shape;
+      }
+    }
+    return maxShape;
+  }, [cursorImages]);
+
   // Preload SVG cursors for all shapes found in recording + default arrow
   useEffect(() => {
     // Always load default arrow as final fallback
@@ -224,7 +244,8 @@ export const CursorOverlay = memo(function CursorOverlay({
 
     const cursorId = cursorData.cursorId;
     const cursorImageData = cursorImages[cursorId];
-    const currentShape = cursorImageData?.cursorShape ?? null;
+    // Use cursor's detected shape, or fallback to most common shape in recording
+    const currentShape = cursorImageData?.cursorShape ?? fallbackCursorShape;
     const now = performance.now();
     const stable = stableCursorRef.current;
 
@@ -265,7 +286,7 @@ export const CursorOverlay = memo(function CursorOverlay({
     }
 
     return { cursorId: stable.cursorId, shape: stable.shape };
-  }, [cursorData?.cursorId, cursorImages]);
+  }, [cursorData?.cursorId, cursorImages, fallbackCursorShape]);
 
   useEffect(() => {
     if (!hideWhenIdle || !cursorData) {

@@ -15,13 +15,20 @@ use tauri::{AppHandle, Manager, WebviewWindowBuilder};
 use super::preview::{self, start_preview, stop_preview};
 use super::{WebcamSettings, WebcamShape, WebcamSize};
 
+/// Control bar height in pixels
+const CONTROL_BAR_HEIGHT: u32 = 40;
+/// Gap between control bar and preview
+const CONTROL_GAP: u32 = 8;
+
 /// Preview window size based on webcam size setting
-fn get_preview_size(size: WebcamSize) -> u32 {
-    match size {
+/// Returns (width, height) - height includes space for control bar above preview
+fn get_preview_size(size: WebcamSize) -> (u32, u32) {
+    let base = match size {
         WebcamSize::Small => 120,
         WebcamSize::Medium => 160,
         WebcamSize::Large => 200,
-    }
+    };
+    (base, base + CONTROL_BAR_HEIGHT + CONTROL_GAP)
 }
 
 /// Active preview state
@@ -83,12 +90,13 @@ impl CameraPreviewManager {
         self.cleanup_stale(&app);
 
         let settings = self.settings.lock().clone();
-        let size = get_preview_size(settings.size);
+        let (width, height) = get_preview_size(settings.size);
 
         log::info!(
-            "[PREVIEW_MANAGER] Creating preview window (device={}, size={})",
+            "[PREVIEW_MANAGER] Creating preview window (device={}, size={}x{})",
             device_index,
-            size
+            width,
+            height
         );
 
         // Start JPEG preview service FIRST (camera feed + JPEG conversion)
@@ -104,7 +112,7 @@ impl CameraPreviewManager {
             tauri::WebviewUrl::App("/webcam-preview.html".into()),
         )
         .title("Webcam Preview")
-        .inner_size(size as f64, size as f64)
+        .inner_size(width as f64, height as f64)
         .resizable(false)
         .decorations(false)
         .always_on_top(true)
@@ -118,28 +126,19 @@ impl CameraPreviewManager {
 
         log::info!("[PREVIEW_MANAGER] Window created, JPEG preview service running");
 
-        // Apply window region for transparency
+        // Exclude window from screen capture so it doesn't appear in recordings
         #[cfg(target_os = "windows")]
         {
-            use crate::commands::window::{apply_circular_region, apply_rounded_region};
-
-            match settings.shape {
-                WebcamShape::Circle => {
-                    if let Err(e) = apply_circular_region(&window, size as i32) {
-                        log::warn!("[PREVIEW_MANAGER] Failed to apply circular region: {}", e);
-                    } else {
-                        log::info!("[PREVIEW_MANAGER] Applied circular window region");
-                    }
-                },
-                WebcamShape::Rectangle => {
-                    if let Err(e) = apply_rounded_region(&window, size as i32, size as i32, 12) {
-                        log::warn!("[PREVIEW_MANAGER] Failed to apply rounded region: {}", e);
-                    } else {
-                        log::info!("[PREVIEW_MANAGER] Applied rounded rectangle window region");
-                    }
-                },
+            use crate::commands::window::exclude_window_from_capture;
+            if let Err(e) = exclude_window_from_capture(&window) {
+                log::warn!("[PREVIEW_MANAGER] Failed to exclude from capture: {}", e);
+            } else {
+                log::info!("[PREVIEW_MANAGER] Window excluded from screen capture");
             }
         }
+
+        // Note: Window region removed - CSS border-radius handles visual rounding
+        // and the control bar needs to be fully visible above the preview
 
         // Store active preview state
         {
@@ -151,9 +150,10 @@ impl CameraPreviewManager {
         }
 
         log::info!(
-            "[PREVIEW_MANAGER] Preview shown (device={}, size={})",
+            "[PREVIEW_MANAGER] Preview shown (device={}, size={}x{})",
             device_index,
-            size
+            width,
+            height
         );
 
         Ok(())
@@ -204,42 +204,16 @@ impl CameraPreviewManager {
     /// Update preview settings without recreating the window.
     pub fn update_preview_settings(
         &self,
-        app: &AppHandle,
+        _app: &AppHandle,
         size: WebcamSize,
         shape: WebcamShape,
         mirror: bool,
     ) {
-        {
-            let mut settings = self.settings.lock();
-            settings.size = size;
-            settings.shape = shape;
-            settings.mirror = mirror;
-        }
-
-        // Update window region for the new shape/size
-        if self.preview.lock().is_some() {
-            #[cfg(target_os = "windows")]
-            if let Some(window) = app.get_webview_window("webcam-preview") {
-                use crate::commands::window::{apply_circular_region, apply_rounded_region};
-
-                let size_px = get_preview_size(size) as i32;
-                match shape {
-                    WebcamShape::Circle => {
-                        if let Err(e) = apply_circular_region(&window, size_px) {
-                            log::warn!("[PREVIEW_MANAGER] Failed to update circular region: {}", e);
-                        }
-                    },
-                    WebcamShape::Rectangle => {
-                        if let Err(e) = apply_rounded_region(&window, size_px, size_px, 12) {
-                            log::warn!("[PREVIEW_MANAGER] Failed to update rounded region: {}", e);
-                        }
-                    },
-                }
-            }
-
-            // Suppress unused warning on non-Windows
-            let _ = (size, shape, mirror);
-        }
+        let mut settings = self.settings.lock();
+        settings.size = size;
+        settings.shape = shape;
+        settings.mirror = mirror;
+        // Note: Window region removed - CSS border-radius handles visual rounding
     }
 }
 

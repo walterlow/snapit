@@ -13,8 +13,13 @@ import { X, Circle, Square, FlipHorizontal2 } from 'lucide-react';
 import type { WebcamSettings, WebcamSize, WebcamShape } from '@/types/generated';
 import { webcamLogger } from '@/utils/logger';
 
-// Preview window size based on webcam size setting
-const PREVIEW_SIZES: Record<WebcamSize, number> = {
+// Control bar height
+const CONTROL_BAR_HEIGHT = 40;
+// Gap between control bar and preview
+const CONTROL_GAP = 8;
+
+// Preview circle size based on webcam size setting
+const CIRCLE_SIZES: Record<WebcamSize, number> = {
   small: 120,
   medium: 160,
   large: 200,
@@ -35,6 +40,47 @@ const WebcamPreviewWindow: React.FC = () => {
 
   const mountedRef = useRef(true);
   const frameRequestRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastSizeRef = useRef({ width: 0, height: 0 });
+
+  // Resize window to fit content
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeWindow = async () => {
+      const rect = container.getBoundingClientRect();
+      const width = Math.ceil(rect.width);
+      const height = Math.ceil(rect.height);
+
+      // Skip if size hasn't changed
+      if (width === lastSizeRef.current.width && height === lastSizeRef.current.height) {
+        return;
+      }
+      if (width === 0 || height === 0) return;
+
+      lastSizeRef.current = { width, height };
+
+      try {
+        const win = getCurrentWindow();
+        await win.setSize(new LogicalSize(width, height));
+        webcamLogger.debug(`Resized window to ${width}x${height}`);
+      } catch (e) {
+        webcamLogger.error('Failed to resize window:', e);
+      }
+    };
+
+    // Initial resize
+    resizeWindow();
+
+    // Watch for size changes
+    const observer = new ResizeObserver(() => {
+      resizeWindow();
+    });
+    observer.observe(container);
+
+    return () => observer.disconnect();
+  }, []);
 
   // Load initial settings
   useEffect(() => {
@@ -88,19 +134,11 @@ const WebcamPreviewWindow: React.FC = () => {
   }, []);
 
   // Listen for settings changes from the toolbar or local controls
+  // ResizeObserver handles window resizing automatically when content changes
   useEffect(() => {
-    const unlisten = listen<WebcamSettings>('webcam-settings-changed', async (event) => {
+    const unlisten = listen<WebcamSettings>('webcam-settings-changed', (event) => {
       webcamLogger.debug('Settings changed:', event.payload);
       setSettings(event.payload);
-
-      // Resize window
-      try {
-        const win = getCurrentWindow();
-        const newSize = PREVIEW_SIZES[event.payload.size];
-        await win.setSize(new LogicalSize(newSize, newSize));
-      } catch (e) {
-        webcamLogger.error('Failed to resize window:', e);
-      }
     });
 
     return () => {
@@ -141,20 +179,6 @@ const WebcamPreviewWindow: React.FC = () => {
     };
   }, []);
 
-  // Enable window dragging (only when not clicking controls)
-  const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
-    // Don't start dragging if clicking on controls
-    if ((e.target as HTMLElement).closest('.webcam-controls')) {
-      return;
-    }
-    try {
-      const win = getCurrentWindow();
-      await win.startDragging();
-    } catch {
-      // Ignore errors
-    }
-  }, []);
-
   // Close/hide the preview and disable webcam
   const handleClose = useCallback(async () => {
     try {
@@ -190,78 +214,176 @@ const WebcamPreviewWindow: React.FC = () => {
     }
   }, [settings]);
 
+  // Handle window dragging
+  const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
+    // Don't drag if clicking on buttons
+    if ((e.target as HTMLElement).closest('button')) {
+      return;
+    }
+    try {
+      const win = getCurrentWindow();
+      await win.startDragging();
+    } catch {
+      // Ignore errors
+    }
+  }, []);
+
   const isCircle = settings.shape === 'circle';
   const borderRadius = isCircle ? '50%' : '12px';
+  const circleSize = CIRCLE_SIZES[settings.size];
 
   return (
     <div
-      className="relative w-full h-full overflow-hidden bg-black cursor-move"
-      style={{ borderRadius }}
+      ref={containerRef}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        width: `${circleSize}px`,
+        cursor: 'move',
+        gap: `${CONTROL_GAP}px`,
+      }}
       onMouseDown={handleMouseDown}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Webcam feed */}
-      {imageSrc ? (
-        <img
-          src={imageSrc}
-          alt="Webcam preview"
-          className="w-full h-full object-cover"
+      {/* Controls bar */}
+      <div
+        style={{
+          height: `${CONTROL_BAR_HEIGHT}px`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <div
           style={{
-            borderRadius,
-            transform: settings.mirror ? 'scaleX(-1)' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '6px 10px',
+            background: 'rgba(0, 0, 0, 0.9)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '8px',
+            opacity: isHovered && !isRecording ? 1 : 0,
+            transform: isHovered && !isRecording ? 'translateY(0)' : 'translateY(-8px)',
+            transition: 'opacity 0.2s, transform 0.2s',
           }}
-          draggable={false}
-        />
-      ) : (
-        <div
-          className="w-full h-full flex items-center justify-center text-white/50 text-xs"
-          style={{ borderRadius }}
         >
-          Loading...
-        </div>
-      )}
-
-      {/* Recording indicator */}
-      {isRecording && (
-        <div className="absolute top-2 right-2 w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-      )}
-
-      {/* Controls overlay (visible on hover) */}
-      {isHovered && !isRecording && (
-        <div
-          className="webcam-controls absolute inset-0 flex items-center justify-center gap-2 bg-black/40"
-          style={{ borderRadius }}
-        >
-          {/* Close button */}
-          <button
-            onClick={handleClose}
-            className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition-colors"
-            title="Close preview"
-          >
-            <X size={14} />
-          </button>
-
-          {/* Shape toggle */}
           <button
             onClick={handleToggleShape}
-            className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition-colors"
+            style={{
+              padding: '6px',
+              borderRadius: '6px',
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255, 255, 255, 0.8)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
             title={isCircle ? 'Switch to rectangle' : 'Switch to circle'}
           >
-            {isCircle ? <Square size={14} /> : <Circle size={14} />}
+            {isCircle ? <Square size={16} /> : <Circle size={16} />}
           </button>
-
-          {/* Mirror toggle */}
           <button
             onClick={handleToggleMirror}
-            className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition-colors"
+            style={{
+              padding: '6px',
+              borderRadius: '6px',
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255, 255, 255, 0.8)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: settings.mirror ? 1 : 0.5,
+            }}
             title={settings.mirror ? 'Disable mirror' : 'Enable mirror'}
-            style={{ opacity: settings.mirror ? 1 : 0.5 }}
           >
-            <FlipHorizontal2 size={14} />
+            <FlipHorizontal2 size={16} />
+          </button>
+          <button
+            onClick={handleClose}
+            style={{
+              padding: '6px',
+              borderRadius: '6px',
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255, 255, 255, 0.8)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            title="Close preview"
+          >
+            <X size={16} />
           </button>
         </div>
-      )}
+      </div>
+
+      {/* Webcam feed - explicit square size */}
+      <div
+        style={{
+          width: `${circleSize}px`,
+          height: `${circleSize}px`,
+          overflow: 'hidden',
+          background: '#000',
+          borderRadius,
+        }}
+      >
+        {imageSrc ? (
+          <img
+            src={imageSrc}
+            alt="Webcam preview"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              borderRadius,
+              transform: settings.mirror ? 'scaleX(-1)' : 'none',
+              pointerEvents: 'none',
+              userSelect: 'none',
+            }}
+            draggable={false}
+          />
+        ) : (
+          <div
+            style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'rgba(255, 255, 255, 0.5)',
+              fontSize: '12px',
+              borderRadius,
+              pointerEvents: 'none',
+            }}
+          >
+            Loading...
+          </div>
+        )}
+
+        {/* Recording indicator */}
+        {isRecording && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: '#ef4444',
+              animation: 'pulse 2s infinite',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 };

@@ -12,6 +12,7 @@
 
 pub mod capture;
 pub mod recording;
+pub mod settings;
 pub mod toolbar;
 
 // Re-export commonly used functions for internal use (used by app/tray.rs)

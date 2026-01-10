@@ -6,7 +6,6 @@ import { CaptureLibrary } from './components/Library/CaptureLibrary';
 import { LibraryErrorBoundary, EditorErrorBoundary } from './components/ErrorBoundary';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardShortcutsModal';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
-import { SettingsModalContainer } from './components/Settings/SettingsModalContainer';
 import { EditorView } from './views/EditorView';
 import type { EditorViewRef } from './views/EditorView';
 import { VideoEditorView } from './views/VideoEditorView';
@@ -218,9 +217,6 @@ function App() {
         onToggleCompositor={handleToggleCompositor}
       />
 
-      {/* Settings Modal */}
-      <SettingsModalContainer />
-      
       {/* Custom Titlebar */}
       <Titlebar
         title="SnapIt Library"

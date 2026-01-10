@@ -23,6 +23,7 @@ export default defineConfig(async () => ({
         "capture-toolbar": resolve(__dirname, "capture-toolbar.html"),
         countdown: resolve(__dirname, "countdown.html"),
         "webcam-preview": resolve(__dirname, "webcam-preview.html"),
+        settings: resolve(__dirname, "settings.html"),
       },
     },
   },

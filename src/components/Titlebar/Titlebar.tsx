@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Window } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Minus, Square, X, Maximize2, Aperture, Sun, Moon, FolderOpen, Camera, Settings } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -28,7 +28,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const appWindow = Window.getCurrent();
+  const appWindow = getCurrentWebviewWindow();
   const { resolvedTheme, toggleTheme } = useTheme();
 
   useEffect(() => {

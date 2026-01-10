@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { LazyStore } from '@tauri-apps/plugin-store';
+import { invoke } from '@tauri-apps/api/core';
 import type {
   AppSettings,
   ShortcutConfig,
@@ -260,14 +261,21 @@ export const useSettingsStore = create<SettingsState>()(
     }));
   },
 
-  openSettingsModal: (tab = 'general') => {
-    set({ settingsModalOpen: true, activeTab: tab });
+  openSettingsModal: async (tab = 'general') => {
+    set({ activeTab: tab });
+    try {
+      await invoke('show_settings_window', { tab });
+    } catch (e) {
+      settingsLogger.error('Failed to open settings window:', e);
+    }
   },
 
-  closeSettingsModal: () => {
-    set({ settingsModalOpen: false });
-    // Save settings when closing
-    get().saveSettings();
+  closeSettingsModal: async () => {
+    try {
+      await invoke('close_settings_window');
+    } catch {
+      // Window may already be closed
+    }
   },
 
   setActiveTab: (tab) => {

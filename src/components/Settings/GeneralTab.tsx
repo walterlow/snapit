@@ -1,22 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
-import { FolderOpen, ExternalLink, RefreshCw, Sun, Moon, Monitor, FileText } from 'lucide-react';
-import { useUpdater } from '@/hooks/useUpdater';
+import { FolderOpen, ExternalLink, Sun, Moon, Monitor, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Slider } from '@/components/ui/slider';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useSettingsStore } from '@/stores/settingsStore';
-import type { ImageFormat, Theme } from '@/types';
+import type { Theme } from '@/types';
 import { settingsLogger } from '@/utils/logger';
 
 export const GeneralTab: React.FC = () => {
@@ -25,14 +15,6 @@ export const GeneralTab: React.FC = () => {
 
   const [isAutostartEnabled, setIsAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(true);
-  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>('');
-  const { version: updateVersion, available, checkForUpdates, downloadAndInstall, downloading } = useUpdater(false);
-
-  // Load app version on mount
-  useEffect(() => {
-    getVersion().then(setAppVersion);
-  }, []);
 
   // Load autostart status on mount
   useEffect(() => {
@@ -100,22 +82,8 @@ export const GeneralTab: React.FC = () => {
     }
   };
 
-  const handleFormatChange = (format: ImageFormat) => {
-    updateGeneralSettings({ imageFormat: format });
-  };
-
-  const handleQualityChange = (value: number[]) => {
-    updateGeneralSettings({ jpgQuality: value[0] });
-  };
-
   const handleThemeChange = (theme: Theme) => {
     updateGeneralSettings({ theme });
-  };
-
-  const handleCheckForUpdates = async () => {
-    setIsCheckingUpdates(true);
-    await checkForUpdates(true);
-    setIsCheckingUpdates(false);
   };
 
   return (
@@ -250,98 +218,6 @@ export const GeneralTab: React.FC = () => {
                   className="shrink-0 text-[var(--ink-muted)] hover:text-[var(--ink-black)] hover:bg-[var(--polar-mist)]"
                 >
                   <ExternalLink className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* Image Format */}
-          <div>
-            <label className="text-sm text-[var(--ink-black)] mb-2 block">
-              Default image format
-            </label>
-            <Select
-              value={general.imageFormat}
-              onValueChange={(value) => handleFormatChange(value as ImageFormat)}
-            >
-              <SelectTrigger className="w-full max-w-[200px] bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-black)]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="png">PNG - Lossless</SelectItem>
-                <SelectItem value="jpg">JPG - Compressed</SelectItem>
-                <SelectItem value="webp">WebP - Modern</SelectItem>
-                <SelectItem value="gif">GIF - Legacy</SelectItem>
-                <SelectItem value="bmp">BMP - Uncompressed</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* JPG Quality (only visible when JPG is selected) */}
-          {general.imageFormat === 'jpg' && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm text-[var(--ink-black)]">
-                  JPG Quality
-                </label>
-                <span className="text-sm text-[var(--ink-muted)]">
-                  {general.jpgQuality}%
-                </span>
-              </div>
-              <Slider
-                value={[general.jpgQuality]}
-                onValueChange={handleQualityChange}
-                min={10}
-                max={100}
-                step={5}
-                className="w-full"
-              />
-              <p className="text-xs text-[var(--ink-muted)] mt-1">
-                Higher quality = larger file size
-              </p>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Updates Section */}
-      <section>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--coral-400)] mb-3">
-          Updates
-        </h3>
-        <div className="p-4 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)] space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-[var(--ink-black)]">
-                Current version: v{appVersion}
-              </p>
-              {available && updateVersion && (
-                <p className="text-xs text-[var(--coral-500)] mt-0.5">
-                  Update available: v{updateVersion}
-                </p>
-              )}
-            </div>
-            <div className="flex gap-2">
-              {available ? (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={downloadAndInstall}
-                  disabled={downloading}
-                  className="bg-[var(--coral-500)] hover:bg-[var(--coral-600)] text-white"
-                >
-                  {downloading ? 'Installing...' : 'Install Update'}
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCheckForUpdates}
-                  disabled={isCheckingUpdates}
-                  className="bg-[var(--card)] border-[var(--polar-frost)] text-[var(--ink-dark)] hover:bg-[var(--polar-ice)]"
-                >
-                  <RefreshCw className={`w-4 h-4 mr-1 ${isCheckingUpdates ? 'animate-spin' : ''}`} />
-                  {isCheckingUpdates ? 'Checking...' : 'Check for Updates'}
                 </Button>
               )}
             </div>

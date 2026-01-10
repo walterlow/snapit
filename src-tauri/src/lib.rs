@@ -133,6 +133,9 @@ pub fn run() {
             commands::window::toolbar::set_capture_toolbar_ignore_cursor,
             commands::window::toolbar::show_startup_toolbar,
             commands::window::toolbar::hide_startup_toolbar,
+            // Window commands - settings
+            commands::window::settings::show_settings_window,
+            commands::window::settings::close_settings_window,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands

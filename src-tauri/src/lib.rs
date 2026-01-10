@@ -324,13 +324,11 @@ pub fn run() {
                     .expect("Failed to load window icon");
                 let _ = window.set_icon(icon);
 
-                // Apply DWM blur-behind for proper transparency on Windows
-                // This fixes capture artifacts when screenshotting the main window
-                // (WS_EX_LAYERED from tauri's transparent: true has issues with hardware capture)
-                #[cfg(target_os = "windows")]
-                if let Err(e) = commands::window::apply_dwm_transparency(&window) {
-                    log::warn!("Failed to apply DWM transparency to library window: {}", e);
-                }
+                // NOTE: DWM blur-behind was removed because it caused capture artifacts
+                // when capturing the window (black/corrupted content). The transparent: true
+                // from Tauri config is sufficient for visual transparency.
+                // The WS_EX_LAYERED style may still cause some capture issues, but removing
+                // the blur-behind trick significantly improves capture quality.
 
                 // Explicitly hide - window-state plugin may have restored visibility
                 // Library is shown via tray "Show Library" menu

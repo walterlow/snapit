@@ -97,19 +97,20 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                         },
                         OverlayAction::CaptureScreenshot => {
                             // Screenshot flow - close all windows, capture, open editor
+                            println!(
+                                "[SCREENSHOT] Starting capture - bounds=({},{}) {}x{}, window_id={:?}",
+                                x, y, width, height, window_id
+                            );
                             close_all_capture_windows(&app_clone);
 
                             // Use window capture if a window was selected, otherwise region capture
                             let capture_result = if let Some(hwnd) = window_id {
-                                log::debug!("[CAPTURE] Using window capture for hwnd={}", hwnd);
+                                println!("[SCREENSHOT] Using window capture for hwnd={} (0x{:X})", hwnd, hwnd);
                                 crate::commands::capture::capture_window_fast(hwnd).await
                             } else {
-                                log::debug!(
-                                    "[CAPTURE] Using region capture: x={}, y={}, w={}, h={}",
-                                    x,
-                                    y,
-                                    width,
-                                    height
+                                println!(
+                                    "[SCREENSHOT] Using region capture: x={}, y={}, w={}, h={}",
+                                    x, y, width, height
                                 );
                                 let selection = crate::commands::capture::ScreenRegionSelection {
                                     x,
@@ -123,6 +124,10 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
 
                             match capture_result {
                                 Ok(result) => {
+                                    println!(
+                                        "[SCREENSHOT] Capture succeeded - {}x{}, file: {}",
+                                        result.width, result.height, result.file_path
+                                    );
                                     // Open editor with the captured image
                                     if let Err(e) = open_editor_fast(
                                         app_clone.clone(),
@@ -137,6 +142,7 @@ pub fn trigger_capture(app: &AppHandle, capture_type: Option<&str>) -> Result<()
                                     }
                                 },
                                 Err(e) => {
+                                    println!("[SCREENSHOT] Capture FAILED: {}", e);
                                     log::error!("Failed to capture screenshot: {}", e);
                                     restore_main_if_visible(&app_clone);
                                 },

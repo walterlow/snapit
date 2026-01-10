@@ -53,17 +53,97 @@ impl CaptureSource {
     }
 
     /// Create a capture source for a window.
+    ///
+    /// Uses display capture + crop instead of WGC window capture to properly
+    /// capture WebView2/transparent windows (WGC's CreateForWindow fails for these).
     pub fn new_window(window_id: u32, include_cursor: bool) -> Result<Self, String> {
+        use windows::Win32::Foundation::{HWND, RECT};
+        use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+
         log::info!(
-            "[CAPTURE] Creating D3D capture for window {} (cursor={})",
+            "[CAPTURE] Creating D3D capture for window {} via display+crop (cursor={})",
             window_id,
             include_cursor
         );
 
-        let mut d3d = D3DVideoCapture::new_window(window_id as isize, 60, include_cursor)?;
-        d3d.start()?;
+        let hwnd = HWND(window_id as isize as *mut std::ffi::c_void);
 
-        Ok(CaptureSource { d3d })
+        // Get window bounds using DWM (excludes shadow, accurate for WebView2 windows)
+        let mut dwm_rect = RECT::default();
+        let result = unsafe {
+            DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_EXTENDED_FRAME_BOUNDS,
+                &mut dwm_rect as *mut _ as *mut _,
+                std::mem::size_of::<RECT>() as u32,
+            )
+        };
+
+        if result.is_err() {
+            return Err(format!("Failed to get window bounds: {:?}", result.err()));
+        }
+
+        let x = dwm_rect.left;
+        let y = dwm_rect.top;
+        let width = (dwm_rect.right - dwm_rect.left) as u32;
+        let height = (dwm_rect.bottom - dwm_rect.top) as u32;
+
+        if width == 0 || height == 0 {
+            return Err("Window has zero dimensions".to_string());
+        }
+
+        log::info!(
+            "[CAPTURE] Window {} bounds: ({},{}) {}x{}",
+            window_id,
+            x,
+            y,
+            width,
+            height
+        );
+
+        // Find which monitor contains the window center
+        let center_x = x + (width as i32 / 2);
+        let center_y = y + (height as i32 / 2);
+
+        let displays = scap_targets::Display::list();
+        let (monitor_index, mon_x, mon_y) = displays
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, d)| {
+                let bounds = d.physical_bounds()?;
+                let pos_x = bounds.position().x() as i32;
+                let pos_y = bounds.position().y() as i32;
+                let size_w = bounds.size().width() as i32;
+                let size_h = bounds.size().height() as i32;
+                if center_x >= pos_x
+                    && center_x < pos_x + size_w
+                    && center_y >= pos_y
+                    && center_y < pos_y + size_h
+                {
+                    Some((idx, pos_x, pos_y))
+                } else {
+                    None
+                }
+            })
+            .next()
+            .ok_or_else(|| "Window not on any monitor".to_string())?;
+
+        log::info!(
+            "[CAPTURE] Window {} is on monitor {} at ({},{})",
+            window_id,
+            monitor_index,
+            mon_x,
+            mon_y
+        );
+
+        // Use display capture with crop (same as region mode)
+        Self::new_region(
+            monitor_index,
+            (x, y, width, height),
+            (mon_x, mon_y),
+            60,
+            include_cursor,
+        )
     }
 
     /// Create a capture source for a region.

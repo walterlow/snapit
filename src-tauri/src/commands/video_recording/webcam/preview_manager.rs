@@ -1,19 +1,18 @@
-//! Camera preview window manager (inspired by Cap).
+//! Camera preview window manager.
 //!
 //! Centralizes all webcam preview lifecycle:
 //! - Window creation/destruction
-//! - GPU preview initialization/cleanup
+//! - Preview service start/stop (JPEG-based for browser rendering)
 //! - Settings persistence
 //!
-//! Key insight from Cap: Window is created HIDDEN in Rust, wgpu is initialized,
-//! then window is shown. This avoids race conditions from frontend window creation.
+//! Uses simple JPEG polling instead of wgpu for better performance and simplicity.
 
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, WebviewWindowBuilder};
 
-use super::gpu_preview::{self, GpuPreviewState};
+use super::preview::{self, start_preview, stop_preview};
 use super::{WebcamSettings, WebcamShape, WebcamSize};
 
 /// Preview window size based on webcam size setting
@@ -69,8 +68,7 @@ impl CameraPreviewManager {
 
     /// Show the camera preview window (async version for Tauri command).
     ///
-    /// Creates window HIDDEN, initializes wgpu, then shows window.
-    /// This is the Cap pattern that avoids race conditions.
+    /// Creates window and starts JPEG preview service for browser-based rendering.
     pub async fn show_async(&self, app: AppHandle, device_index: usize) -> Result<(), String> {
         // Check if already showing
         {
@@ -81,7 +79,7 @@ impl CameraPreviewManager {
             }
         }
 
-        // Clean up any stale state first (Cap does this)
+        // Clean up any stale state first
         self.cleanup_stale(&app);
 
         let settings = self.settings.lock().clone();
@@ -93,7 +91,13 @@ impl CameraPreviewManager {
             size
         );
 
-        // Create window HIDDEN (Cap pattern - visible(false))
+        // Start JPEG preview service FIRST (camera feed + JPEG conversion)
+        start_preview(device_index)?;
+
+        // Small delay to ensure first frame is available
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Create window (visible immediately - browser will poll for JPEG frames)
         let window = WebviewWindowBuilder::new(
             &app,
             "webcam-preview",
@@ -107,34 +111,14 @@ impl CameraPreviewManager {
         .transparent(true)
         .skip_taskbar(true)
         .shadow(false)
-        .visible(false) // KEY: Start hidden like Cap
+        .visible(true)
         .position(100.0, 100.0)
         .build()
         .map_err(|e| format!("Failed to create preview window: {}", e))?;
 
-        log::info!("[PREVIEW_MANAGER] Window created (hidden), starting GPU preview");
+        log::info!("[PREVIEW_MANAGER] Window created, JPEG preview service running");
 
-        // NOTE: Win32 style modifications removed - Tauri's decorations(false) handles this
-        // Manual style changes were potentially interfering with transparency
-
-        // Initialize GPU preview state
-        let state = GpuPreviewState::from_settings(settings.size, settings.shape, settings.mirror);
-        gpu_preview::update_gpu_preview_state(state);
-
-        // Start GPU preview - this creates wgpu surface and starts render thread
-        gpu_preview::start_gpu_preview(window.clone(), device_index)?;
-
-        // Small delay to ensure GPU is ready before showing
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        // NOW show the window (Cap pattern)
-        log::info!("[PREVIEW_MANAGER] GPU ready, showing window");
-        window
-            .show()
-            .map_err(|e| format!("Failed to show window: {}", e))?;
-
-        // Apply window region for transparency (wgpu alpha modes don't work on Windows)
-        // This clips the window at the OS level so we don't need alpha blending
+        // Apply window region for transparency
         #[cfg(target_os = "windows")]
         {
             use crate::commands::window::{apply_circular_region, apply_rounded_region};
@@ -148,7 +132,6 @@ impl CameraPreviewManager {
                     }
                 },
                 WebcamShape::Rectangle => {
-                    // Use rounded rectangle with corner radius
                     if let Err(e) = apply_rounded_region(&window, size as i32, size as i32, 12) {
                         log::warn!("[PREVIEW_MANAGER] Failed to apply rounded region: {}", e);
                     } else {
@@ -176,12 +159,12 @@ impl CameraPreviewManager {
         Ok(())
     }
 
-    /// Clean up stale preview state (Cap does this before creating new window)
+    /// Clean up stale preview state before creating new window
     fn cleanup_stale(&self, app: &AppHandle) {
         let mut guard = self.preview.lock();
         if guard.take().is_some() {
             log::warn!("[PREVIEW_MANAGER] Cleaning up stale preview before creating new one");
-            gpu_preview::stop_gpu_preview();
+            stop_preview();
             if let Some(window) = app.get_webview_window("webcam-preview") {
                 let _ = window.destroy();
             }
@@ -195,8 +178,8 @@ impl CameraPreviewManager {
         if let Some(preview) = guard.take() {
             preview.showing.store(false, Ordering::SeqCst);
 
-            // Stop GPU preview first
-            gpu_preview::stop_gpu_preview();
+            // Stop preview service first
+            stop_preview();
 
             // Then destroy window
             if let Some(window) = app.get_webview_window("webcam-preview") {
@@ -213,12 +196,12 @@ impl CameraPreviewManager {
 
         if let Some(preview) = guard.take() {
             preview.showing.store(false, Ordering::SeqCst);
-            gpu_preview::stop_gpu_preview();
+            stop_preview();
             log::info!("[PREVIEW_MANAGER] Preview closed externally");
         }
     }
 
-    /// Update GPU preview settings without recreating the window.
+    /// Update preview settings without recreating the window.
     pub fn update_preview_settings(
         &self,
         app: &AppHandle,
@@ -233,11 +216,8 @@ impl CameraPreviewManager {
             settings.mirror = mirror;
         }
 
+        // Update window region for the new shape/size
         if self.preview.lock().is_some() {
-            let state = GpuPreviewState::from_settings(size, shape, mirror);
-            gpu_preview::update_gpu_preview_state(state);
-
-            // Update window region for the new shape/size
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("webcam-preview") {
                 use crate::commands::window::{apply_circular_region, apply_rounded_region};
@@ -256,6 +236,9 @@ impl CameraPreviewManager {
                     },
                 }
             }
+
+            // Suppress unused warning on non-Windows
+            let _ = (size, shape, mirror);
         }
     }
 }

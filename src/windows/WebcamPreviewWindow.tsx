@@ -1,11 +1,8 @@
 /**
- * WebcamPreviewWindow - GPU-accelerated webcam preview.
+ * WebcamPreviewWindow - Simple JPEG-based webcam preview.
  *
- * Uses wgpu to render camera frames directly to the window surface.
- * No JPEG encoding, no IPC polling - smooth 30fps GPU-rendered preview.
- *
- * NOTE: GPU initialization is now handled by Rust (Cap pattern).
- * This component just handles the UI overlay (dragging, recording indicator, controls).
+ * Polls for JPEG frames from Rust backend and displays them in an img tag.
+ * Much simpler and often faster than GPU-based rendering.
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
@@ -24,7 +21,7 @@ const PREVIEW_SIZES: Record<WebcamSize, number> = {
 };
 
 const WebcamPreviewWindow: React.FC = () => {
-  const [error] = useState<string | null>(null);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [settings, setSettings] = useState<WebcamSettings>({
@@ -37,6 +34,7 @@ const WebcamPreviewWindow: React.FC = () => {
   });
 
   const mountedRef = useRef(true);
+  const frameRequestRef = useRef<number | null>(null);
 
   // Load initial settings
   useEffect(() => {
@@ -51,22 +49,49 @@ const WebcamPreviewWindow: React.FC = () => {
     loadInitialSettings();
   }, []);
 
+  // Poll for JPEG frames
+  useEffect(() => {
+    mountedRef.current = true;
+    let lastFrameTime = 0;
+    const targetFps = 30;
+    const frameInterval = 1000 / targetFps;
+
+    const pollFrame = async () => {
+      if (!mountedRef.current) return;
+
+      const now = performance.now();
+      if (now - lastFrameTime >= frameInterval) {
+        try {
+          const frame = await invoke<string | null>('get_webcam_preview_frame', { quality: 75 });
+          if (frame && mountedRef.current) {
+            setImageSrc(`data:image/jpeg;base64,${frame}`);
+          }
+          lastFrameTime = now;
+        } catch (e) {
+          // Ignore errors during polling
+        }
+      }
+
+      if (mountedRef.current) {
+        frameRequestRef.current = requestAnimationFrame(pollFrame);
+      }
+    };
+
+    frameRequestRef.current = requestAnimationFrame(pollFrame);
+
+    return () => {
+      mountedRef.current = false;
+      if (frameRequestRef.current) {
+        cancelAnimationFrame(frameRequestRef.current);
+      }
+    };
+  }, []);
+
   // Listen for settings changes from the toolbar or local controls
   useEffect(() => {
     const unlisten = listen<WebcamSettings>('webcam-settings-changed', async (event) => {
       webcamLogger.debug('Settings changed:', event.payload);
       setSettings(event.payload);
-
-      // Update GPU preview settings
-      try {
-        await invoke('update_gpu_webcam_preview_settings', {
-          size: event.payload.size,
-          shape: event.payload.shape,
-          mirror: event.payload.mirror,
-        });
-      } catch (e) {
-        webcamLogger.warn('Failed to update GPU preview settings:', e);
-      }
 
       // Resize window
       try {
@@ -116,14 +141,6 @@ const WebcamPreviewWindow: React.FC = () => {
     };
   }, []);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
   // Enable window dragging (only when not clicking controls)
   const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
     // Don't start dragging if clicking on controls
@@ -141,23 +158,20 @@ const WebcamPreviewWindow: React.FC = () => {
   // Close/hide the preview and disable webcam
   const handleClose = useCallback(async () => {
     try {
-      // This command hides preview, disables webcam in Rust config,
-      // and emits 'webcam-disabled-from-preview' event for frontend
       await invoke('close_webcam_from_preview');
     } catch (e) {
       webcamLogger.error('Failed to close preview:', e);
     }
   }, []);
 
-  // Toggle shape (circle -> rectangle -> circle)
+  // Toggle shape
   const handleToggleShape = useCallback(async () => {
     const newShape: WebcamShape = settings.shape === 'circle' ? 'rectangle' : 'circle';
     try {
       await invoke('set_webcam_shape', { shape: newShape });
       const newSettings = { ...settings, shape: newShape };
       setSettings(newSettings);
-      // Emit to sync with toolbar
-      emit('webcam-settings-changed', newSettings).catch(() => {});
+      emit('webcam-settings-changed', newSettings);
     } catch (e) {
       webcamLogger.error('Failed to toggle shape:', e);
     }
@@ -170,174 +184,84 @@ const WebcamPreviewWindow: React.FC = () => {
       await invoke('set_webcam_mirror', { mirror: newMirror });
       const newSettings = { ...settings, mirror: newMirror };
       setSettings(newSettings);
-      // Emit to sync with toolbar
-      emit('webcam-settings-changed', newSettings).catch(() => {});
+      emit('webcam-settings-changed', newSettings);
     } catch (e) {
       webcamLogger.error('Failed to toggle mirror:', e);
     }
   }, [settings]);
 
-  const shape = settings.shape;
+  const isCircle = settings.shape === 'circle';
+  const borderRadius = isCircle ? '50%' : '12px';
 
-  // The GPU renders directly to the window surface, so we only need:
-  // 1. A transparent container for dragging
-  // 2. An error overlay if something fails
-  // 3. A recording indicator border
-  // 4. Hover-visible control bar
   return (
     <div
+      className="relative w-full h-full overflow-hidden bg-black cursor-move"
+      style={{ borderRadius }}
       onMouseDown={handleMouseDown}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      style={{
-        width: '100%',
-        height: '100%',
-        cursor: 'grab',
-        background: 'transparent',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-        // Recording indicator border
-        boxSizing: 'border-box',
-        border: isRecording ? '3px solid #ef4444' : 'none',
-        borderRadius: shape === 'circle' ? '50%' : '12px',
-      }}
     >
-      {error && (
-        <div
+      {/* Webcam feed */}
+      {imageSrc ? (
+        <img
+          src={imageSrc}
+          alt="Webcam preview"
+          className="w-full h-full object-cover"
           style={{
-            width: '100%',
-            height: '100%',
-            background: 'rgba(0, 0, 0, 0.9)',
-            color: '#ff6b6b',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '12px',
-            padding: '8px',
-            textAlign: 'center',
-            borderRadius: shape === 'circle' ? '50%' : '12px',
+            borderRadius,
+            transform: settings.mirror ? 'scaleX(-1)' : 'none',
           }}
+          draggable={false}
+        />
+      ) : (
+        <div
+          className="w-full h-full flex items-center justify-center text-white/50 text-xs"
+          style={{ borderRadius }}
         >
-          {error}
+          Loading...
         </div>
       )}
 
-      {/* Hover-visible control bar */}
-      <div
-        className="webcam-controls"
-        style={{
-          position: 'absolute',
-          bottom: shape === 'circle' ? '15%' : '8px',
-          left: '50%',
-          transform: `translateX(-50%) translateY(${isHovered ? '0' : '8px'})`,
-          display: 'flex',
-          gap: '2px',
-          padding: '3px',
-          borderRadius: '10px',
-          background: 'rgba(0, 0, 0, 0.7)',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
-          opacity: isHovered ? 1 : 0,
-          transition: 'opacity 0.15s ease, transform 0.15s ease',
-          pointerEvents: isHovered ? 'auto' : 'none',
-          cursor: 'default',
-        }}
-      >
-        {/* Close button */}
-        <button
-          onClick={handleClose}
-          title="Close preview"
-          style={{
-            width: '24px',
-            height: '24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: 'none',
-            borderRadius: '6px',
-            background: 'transparent',
-            color: 'rgba(255, 255, 255, 0.8)',
-            cursor: 'pointer',
-            transition: 'background 0.1s, color 0.1s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-            e.currentTarget.style.color = '#fff';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
-          }}
-        >
-          <X size={14} />
-        </button>
+      {/* Recording indicator */}
+      {isRecording && (
+        <div className="absolute top-2 right-2 w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+      )}
 
-        {/* Shape toggle button */}
-        <button
-          onClick={handleToggleShape}
-          title={`Shape: ${shape} (click to change)`}
-          style={{
-            width: '24px',
-            height: '24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: 'none',
-            borderRadius: '6px',
-            background: shape === 'rectangle' ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
-            color: 'rgba(255, 255, 255, 0.8)',
-            cursor: 'pointer',
-            transition: 'background 0.1s, color 0.1s',
-          }}
-          onMouseEnter={(e) => {
-            if (shape !== 'rectangle') {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-            }
-            e.currentTarget.style.color = '#fff';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = shape === 'rectangle' ? 'rgba(255, 255, 255, 0.2)' : 'transparent';
-            e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
-          }}
+      {/* Controls overlay (visible on hover) */}
+      {isHovered && !isRecording && (
+        <div
+          className="webcam-controls absolute inset-0 flex items-center justify-center gap-2 bg-black/40"
+          style={{ borderRadius }}
         >
-          {shape === 'circle' ? <Circle size={14} /> : <Square size={14} />}
-        </button>
+          {/* Close button */}
+          <button
+            onClick={handleClose}
+            className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition-colors"
+            title="Close preview"
+          >
+            <X size={14} />
+          </button>
 
-        {/* Mirror toggle button */}
-        <button
-          onClick={handleToggleMirror}
-          title={`Mirror: ${settings.mirror ? 'On' : 'Off'}`}
-          style={{
-            width: '24px',
-            height: '24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: 'none',
-            borderRadius: '6px',
-            background: settings.mirror ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
-            color: 'rgba(255, 255, 255, 0.8)',
-            cursor: 'pointer',
-            transition: 'background 0.1s, color 0.1s',
-          }}
-          onMouseEnter={(e) => {
-            if (!settings.mirror) {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-            }
-            e.currentTarget.style.color = '#fff';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = settings.mirror ? 'rgba(255, 255, 255, 0.2)' : 'transparent';
-            e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
-          }}
-        >
-          <FlipHorizontal2 size={14} />
-        </button>
-      </div>
+          {/* Shape toggle */}
+          <button
+            onClick={handleToggleShape}
+            className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition-colors"
+            title={isCircle ? 'Switch to rectangle' : 'Switch to circle'}
+          >
+            {isCircle ? <Square size={14} /> : <Circle size={14} />}
+          </button>
 
-      {/* GPU renders webcam directly to window surface - no <img> needed */}
+          {/* Mirror toggle */}
+          <button
+            onClick={handleToggleMirror}
+            className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition-colors"
+            title={settings.mirror ? 'Disable mirror' : 'Enable mirror'}
+            style={{ opacity: settings.mirror ? 1 : 0.5 }}
+          >
+            <FlipHorizontal2 size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

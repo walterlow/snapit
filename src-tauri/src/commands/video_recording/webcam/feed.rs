@@ -229,15 +229,16 @@ impl CameraFeed {
             target_height
         );
 
-        // YUYV is used for fast CPU conversion - MJPEG requires expensive JPEG decode.
+        // MJPEG is preferred for preview - camera does hardware JPEG compression,
+        // we just pass through the bytes. YUYV/RGB require slow CPU→JPEG conversion.
         let target_format = CameraFormat::new(
             Resolution::new(target_width, target_height),
-            FrameFormat::YUYV,
+            FrameFormat::MJPEG,
             30,
         );
         let requested = RequestedFormat::with_formats(
             RequestedFormatType::Closest(target_format),
-            &[FrameFormat::YUYV, FrameFormat::RAWRGB, FrameFormat::MJPEG],
+            &[FrameFormat::MJPEG, FrameFormat::YUYV, FrameFormat::RAWRGB],
         );
 
         let index = CameraIndex::Index(device_index as u32);

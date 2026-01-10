@@ -16,7 +16,6 @@ use std::time::Instant;
 
 use super::capture::WEBCAM_BUFFER;
 use super::feed::{subscribe_global, Subscription};
-use super::native_frame::NativeCameraFrame;
 
 /// Webcam encoder pipe - FFmpeg process ready to receive frames.
 ///
@@ -352,43 +351,16 @@ impl FeedWebcamEncoder {
         let width = first_frame.width;
         let height = first_frame.height;
         let pixel_format = first_frame.pixel_format;
-        let expected_bgra_size = (width * height * 4) as usize;
+        let is_mjpeg = first_frame.is_mjpeg();
 
         log::info!(
-            "[FEED_ENCODER] First frame: {}x{} format={:?} raw_bytes={} expected_bgra={}",
+            "[FEED_ENCODER] First frame: {}x{} format={:?} raw_bytes={} is_mjpeg={}",
             width,
             height,
             pixel_format,
             first_frame.bytes().len(),
-            expected_bgra_size
+            is_mjpeg
         );
-
-        // Convert first frame to BGRA for FFmpeg
-        let first_bgra = first_frame
-            .to_bgra()
-            .ok_or_else(|| format!("Failed to convert first frame (format={:?})", pixel_format))?;
-
-        // Verify BGRA size and content
-        if first_bgra.len() != expected_bgra_size {
-            return Err(format!(
-                "BGRA size mismatch: got {} expected {}",
-                first_bgra.len(),
-                expected_bgra_size
-            ));
-        }
-
-        // Check if data is non-zero (not all black)
-        let non_zero_count = first_bgra.iter().filter(|&&b| b > 0).count();
-        let non_zero_pct = (non_zero_count as f32 / first_bgra.len() as f32) * 100.0;
-        log::info!(
-            "[FEED_ENCODER] First frame BGRA: {} bytes, {:.1}% non-zero pixels",
-            first_bgra.len(),
-            non_zero_pct
-        );
-
-        if non_zero_pct < 1.0 {
-            log::warn!("[FEED_ENCODER] WARNING: First frame appears to be mostly black!");
-        }
 
         // Cap output resolution to 1280 width (like Cap does) for consistent output
         const MAX_OUTPUT_WIDTH: u32 = 1280;
@@ -409,30 +381,41 @@ impl FeedWebcamEncoder {
             MAX_OUTPUT_WIDTH
         );
 
-        // Build FFmpeg args - use scale filter if downscaling needed
+        // Build scale filter if downscaling needed
         let scale_filter = if width > MAX_OUTPUT_WIDTH {
             format!("scale={}:{}:flags=bilinear", output_width, output_height)
         } else {
             String::new()
         };
 
-        // Spawn FFmpeg with rawvideo input (much faster than image2pipe + JPEG)
+        // Choose input format based on frame type
+        // MJPEG: use image2pipe (FFmpeg decodes JPEG directly - much faster)
+        // Other formats: use rawvideo with BGRA conversion
         let mut cmd = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path);
-        cmd.args([
-            "-y",
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "bgra",
-            "-s",
-            &format!("{}x{}", width, height),
-            "-r",
-            "30",
-            "-i",
-            "pipe:0",
-        ]);
+        cmd.arg("-y");
 
-        // Add scale filter if needed (with bilinear for quality)
+        if is_mjpeg {
+            // MJPEG: pipe JPEG directly to FFmpeg (no CPU decode needed)
+            log::info!("[FEED_ENCODER] Using image2pipe for MJPEG input (fast path)");
+            cmd.args(["-f", "image2pipe", "-framerate", "30", "-i", "pipe:0"]);
+        } else {
+            // Other formats: convert to BGRA and use rawvideo
+            log::info!("[FEED_ENCODER] Using rawvideo for {:?} input", pixel_format);
+            cmd.args([
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "bgra",
+                "-s",
+                &format!("{}x{}", width, height),
+                "-r",
+                "30",
+                "-i",
+                "pipe:0",
+            ]);
+        }
+
+        // Add scale filter if needed
         if !scale_filter.is_empty() {
             cmd.args(["-vf", &scale_filter]);
         }
@@ -462,7 +445,17 @@ impl FeedWebcamEncoder {
         let mut frame_count = 0u64;
 
         // Write first frame
-        if stdin.write_all(&first_bgra).is_ok() {
+        let first_data = if is_mjpeg {
+            // MJPEG: write raw JPEG bytes directly
+            first_frame.bytes().to_vec()
+        } else {
+            // Other: convert to BGRA
+            first_frame.to_bgra().ok_or_else(|| {
+                format!("Failed to convert first frame (format={:?})", pixel_format)
+            })?
+        };
+
+        if stdin.write_all(&first_data).is_ok() {
             frame_count += 1;
             frames_written.store(frame_count, Ordering::Relaxed);
         }
@@ -472,23 +465,28 @@ impl FeedWebcamEncoder {
         while !stop_signal.load(Ordering::Relaxed) {
             match subscription.recv_timeout(std::time::Duration::from_millis(50)) {
                 Some(frame) => {
-                    // Convert to BGRA (fast - just pixel reordering, no compression)
-                    let bgra = match frame.to_bgra() {
-                        Some(data) => data,
-                        None => {
-                            conversion_failures += 1;
-                            if conversion_failures <= 3 {
-                                log::warn!(
-                                    "[FEED_ENCODER] BGRA conversion failed for frame {} (format={:?}, {} bytes)",
-                                    frame.frame_id, frame.pixel_format, frame.bytes().len()
-                                );
-                            }
-                            continue;
-                        },
+                    let frame_data = if is_mjpeg {
+                        // MJPEG: write raw JPEG bytes directly (zero-copy path)
+                        frame.bytes().to_vec()
+                    } else {
+                        // Other: convert to BGRA
+                        match frame.to_bgra() {
+                            Some(data) => data,
+                            None => {
+                                conversion_failures += 1;
+                                if conversion_failures <= 3 {
+                                    log::warn!(
+                                        "[FEED_ENCODER] BGRA conversion failed for frame {} (format={:?}, {} bytes)",
+                                        frame.frame_id, frame.pixel_format, frame.bytes().len()
+                                    );
+                                }
+                                continue;
+                            },
+                        }
                     };
 
-                    // Write raw BGRA to FFmpeg
-                    if let Err(e) = stdin.write_all(&bgra) {
+                    // Write frame data to FFmpeg
+                    if let Err(e) = stdin.write_all(&frame_data) {
                         log::error!("[FEED_ENCODER] Write error: {}", e);
                         break;
                     }

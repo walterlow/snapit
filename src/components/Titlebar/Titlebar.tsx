@@ -103,16 +103,6 @@ export const Titlebar: React.FC<TitlebarProps> = ({
             <Camera className="w-3.5 h-3.5" />
           </button>
         )}
-        {onOpenSettings && (
-          <button
-            onClick={onOpenSettings}
-            className="titlebar-button"
-            aria-label="Settings"
-            title="Settings"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        )}
         {onOpenLibrary && (
           <button
             onClick={onOpenLibrary}
@@ -121,6 +111,16 @@ export const Titlebar: React.FC<TitlebarProps> = ({
             title="Open Library"
           >
             <FolderOpen className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {onOpenSettings && (
+          <button
+            onClick={onOpenSettings}
+            className="titlebar-button"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <Settings className="w-3.5 h-3.5" />
           </button>
         )}
         <button

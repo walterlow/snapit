@@ -116,24 +116,25 @@ pub fn set_webcam_mirror(mirror: bool) -> SnapItResult<()> {
 }
 
 /// Set webcam capture resolution.
-/// If the webcam feed is running, it will be restarted with the new resolution.
+/// If the camera feed is running, it will be restarted to apply the new resolution.
 #[tauri::command]
 pub fn set_webcam_resolution(resolution: WebcamResolution) -> SnapItResult<()> {
     log::debug!("[CONFIG] set_webcam_resolution({:?})", resolution);
-
-    // Get the current device index before updating config
     let device_index = WEBCAM_CONFIG.read().device_index;
-
-    // Update config
     WEBCAM_CONFIG.write().resolution = resolution;
 
     // Restart feed if running to apply new resolution
     use crate::commands::video_recording::webcam::restart_global_feed;
-    if let Err(e) = restart_global_feed(device_index) {
-        log::warn!(
-            "[CONFIG] Failed to restart webcam feed after resolution change: {}",
+    match restart_global_feed(device_index) {
+        Ok(Some(_)) => log::info!(
+            "[CONFIG] Feed restarted for new resolution {:?}",
+            resolution
+        ),
+        Ok(None) => log::debug!("[CONFIG] Feed not running, resolution will apply on next start"),
+        Err(e) => log::warn!(
+            "[CONFIG] Failed to restart feed for resolution change: {}",
             e
-        );
+        ),
     }
 
     Ok(())

@@ -364,6 +364,8 @@ struct Renderer {
     uniform_bind_group: wgpu::BindGroup,
     texture_cache: Option<CachedTexture>,
     aspect_ratio: f32,
+    /// Reusable RGBA buffer to avoid allocation per frame
+    rgba_buffer: Vec<u8>,
 }
 
 struct CachedTexture {
@@ -664,6 +666,10 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
         ..Default::default()
     });
 
+    // Pre-allocate RGBA buffer for max preview size (avoids allocation per frame)
+    let max_pixels = (PREVIEW_MAX_TEXTURE_SIZE * PREVIEW_MAX_TEXTURE_SIZE) as usize;
+    let rgba_buffer = Vec::with_capacity(max_pixels * 4);
+
     let mut renderer = Renderer {
         surface,
         surface_config,
@@ -678,6 +684,7 @@ async fn init_wgpu(window: WebviewWindow, state: &GpuPreviewState) -> Result<Ren
         uniform_bind_group,
         texture_cache: None,
         aspect_ratio: 1.0,
+        rgba_buffer,
     };
 
     // Initialize uniforms
@@ -780,11 +787,12 @@ impl Renderer {
     }
 
     fn render_frame(&mut self, frame: &NativeCameraFrame) -> Result<(), String> {
-        log::trace!("[GPU_PREVIEW] render_frame: converting to RGBA");
-        // Convert frame to RGBA for GPU upload
-        let rgba_data = frame_to_rgba(frame)?;
-        let width = frame.width;
-        let height = frame.height;
+        log::trace!("[GPU_PREVIEW] render_frame: converting to RGBA (scaled)");
+        // Convert frame to RGBA with downscaling for preview performance
+        // Reuse the rgba_buffer to avoid allocation per frame
+        self.rgba_buffer.clear();
+        let (width, height) =
+            frame_to_rgba_scaled_into(frame, PREVIEW_MAX_TEXTURE_SIZE, &mut self.rgba_buffer)?;
 
         // Get or create texture
         let needs_new_texture = self
@@ -800,7 +808,7 @@ impl Renderer {
 
         let cached = self.texture_cache.as_ref().unwrap();
 
-        // Upload frame data to texture
+        // Upload frame data to texture (using reusable buffer)
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &cached.texture,
@@ -808,7 +816,7 @@ impl Renderer {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &rgba_data,
+            &self.rgba_buffer,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(width * 4),
@@ -930,35 +938,225 @@ impl Renderer {
     }
 }
 
-/// Convert NativeCameraFrame to RGBA bytes for GPU upload
-fn frame_to_rgba(frame: &NativeCameraFrame) -> Result<Vec<u8>, String> {
+/// Maximum texture size for preview (CPU downscales before GPU upload)
+/// 400px provides good quality while still reducing CPU work significantly.
+/// GPU's bilinear sampling smooths the final display to window size.
+const PREVIEW_MAX_TEXTURE_SIZE: u32 = 400;
+
+/// Convert NativeCameraFrame to RGBA bytes, writing into a pre-allocated buffer.
+/// Returns the output dimensions. Buffer is cleared and filled with RGBA data.
+fn frame_to_rgba_scaled_into(
+    frame: &NativeCameraFrame,
+    max_size: u32,
+    rgba: &mut Vec<u8>,
+) -> Result<(u32, u32), String> {
     use snapit_camera_windows::PixelFormat;
 
     let bytes = frame.bytes();
-    let width = frame.width as usize;
-    let height = frame.height as usize;
-    let pixel_count = width * height;
+    let src_width = frame.width as usize;
+    let src_height = frame.height as usize;
+
+    // Calculate scale factor to fit within max_size
+    let scale = if src_width > max_size as usize || src_height > max_size as usize {
+        let scale_w = max_size as f32 / src_width as f32;
+        let scale_h = max_size as f32 / src_height as f32;
+        scale_w.min(scale_h)
+    } else {
+        1.0
+    };
+
+    let dst_width = ((src_width as f32 * scale) as u32).max(1);
+    let dst_height = ((src_height as f32 * scale) as u32).max(1);
+    let dst_pixel_count = (dst_width * dst_height) as usize;
+
+    // Ensure buffer has enough capacity
+    rgba.reserve(dst_pixel_count * 4);
+
+    // Helper to map destination coordinate to source coordinate (proper linear mapping)
+    let map_x =
+        |dst_x: usize| -> usize { ((dst_x as f32 / dst_width as f32) * src_width as f32) as usize };
+    let map_y = |dst_y: usize| -> usize {
+        ((dst_y as f32 / dst_height as f32) * src_height as f32) as usize
+    };
 
     match frame.pixel_format {
         PixelFormat::MJPEG => {
-            // Decode JPEG to RGB, convert to RGBA
+            // Decode JPEG and resize
             let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg)
                 .map_err(|e| format!("Failed to decode MJPEG: {}", e))?;
+            let img = if scale < 1.0 {
+                img.resize(dst_width, dst_height, image::imageops::FilterType::Triangle)
+            } else {
+                img
+            };
             let rgb = img.to_rgb8();
-
-            let mut rgba = Vec::with_capacity(pixel_count * 4);
             for pixel in rgb.pixels() {
-                rgba.push(pixel[0]); // R
-                rgba.push(pixel[1]); // G
-                rgba.push(pixel[2]); // B
-                rgba.push(255); // A
+                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
             }
-            Ok(rgba)
         },
         PixelFormat::NV12 => {
-            // NV12: Y plane + interleaved UV
-            let y_size = pixel_count;
-            let uv_size = pixel_count / 2;
+            let y_size = src_width * src_height;
+            let uv_size = y_size / 2;
+            if bytes.len() < y_size + uv_size {
+                return Err("NV12 buffer too small".into());
+            }
+            let y_plane = &bytes[..y_size];
+            let uv_plane = &bytes[y_size..y_size + uv_size];
+
+            for dst_y in 0..dst_height as usize {
+                let src_y = map_y(dst_y).min(src_height - 1);
+                for dst_x in 0..dst_width as usize {
+                    let src_x = map_x(dst_x).min(src_width - 1);
+                    let y = y_plane[src_y * src_width + src_x] as f32;
+                    let uv_idx = (src_y / 2) * src_width + (src_x / 2 * 2);
+                    let u = uv_plane.get(uv_idx).copied().unwrap_or(128) as f32 - 128.0;
+                    let v = uv_plane.get(uv_idx + 1).copied().unwrap_or(128) as f32 - 128.0;
+
+                    let r = (y + 1.402 * v).clamp(0.0, 255.0) as u8;
+                    let g = (y - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
+                    let b = (y + 1.772 * u).clamp(0.0, 255.0) as u8;
+                    rgba.extend_from_slice(&[r, g, b, 255]);
+                }
+            }
+        },
+        PixelFormat::YUYV422 => {
+            let expected = src_width * src_height * 2;
+            if bytes.len() < expected {
+                return Err("YUYV buffer too small".into());
+            }
+
+            for dst_y in 0..dst_height as usize {
+                let src_y = map_y(dst_y).min(src_height - 1);
+                for dst_x in 0..dst_width as usize {
+                    let src_x = map_x(dst_x).min(src_width - 1);
+                    let pair_x = src_x / 2 * 2;
+                    let chunk_offset = (src_y * src_width + pair_x) * 2;
+
+                    if chunk_offset + 4 > bytes.len() {
+                        rgba.extend_from_slice(&[128, 128, 128, 255]);
+                        continue;
+                    }
+                    let chunk = &bytes[chunk_offset..chunk_offset + 4];
+
+                    let y = if src_x % 2 == 0 { chunk[0] } else { chunk[2] } as f32;
+                    let u = chunk[1] as f32 - 128.0;
+                    let v = chunk[3] as f32 - 128.0;
+
+                    let r = (y + 1.402 * v).clamp(0.0, 255.0) as u8;
+                    let g = (y - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
+                    let b = (y + 1.772 * u).clamp(0.0, 255.0) as u8;
+                    rgba.extend_from_slice(&[r, g, b, 255]);
+                }
+            }
+        },
+        PixelFormat::RGB24 => {
+            let expected = src_width * src_height * 3;
+            if bytes.len() < expected {
+                return Err("RGB24 buffer too small".into());
+            }
+            for dst_y in 0..dst_height as usize {
+                let src_y = map_y(dst_y).min(src_height - 1);
+                for dst_x in 0..dst_width as usize {
+                    let src_x = map_x(dst_x).min(src_width - 1);
+                    let offset = (src_y * src_width + src_x) * 3;
+                    rgba.extend_from_slice(&[
+                        bytes[offset],
+                        bytes[offset + 1],
+                        bytes[offset + 2],
+                        255,
+                    ]);
+                }
+            }
+        },
+        PixelFormat::RGB32 | PixelFormat::ARGB => {
+            let expected = src_width * src_height * 4;
+            if bytes.len() < expected {
+                return Err("RGB32 buffer too small".into());
+            }
+            for dst_y in 0..dst_height as usize {
+                let src_y = map_y(dst_y).min(src_height - 1);
+                for dst_x in 0..dst_width as usize {
+                    let src_x = map_x(dst_x).min(src_width - 1);
+                    let offset = (src_y * src_width + src_x) * 4;
+                    rgba.extend_from_slice(&[
+                        bytes[offset + 2],
+                        bytes[offset + 1],
+                        bytes[offset],
+                        bytes[offset + 3],
+                    ]);
+                }
+            }
+        },
+        _ => {
+            return Err(format!(
+                "Unsupported pixel format: {:?}",
+                frame.pixel_format
+            ))
+        },
+    }
+
+    Ok((dst_width, dst_height))
+}
+
+/// Convert NativeCameraFrame to RGBA bytes for GPU upload, with optional downscaling.
+/// Downscaling happens during conversion (point sampling) which is much faster
+/// than converting at full resolution.
+#[allow(dead_code)]
+fn frame_to_rgba_scaled(
+    frame: &NativeCameraFrame,
+    max_size: u32,
+) -> Result<(Vec<u8>, u32, u32), String> {
+    use snapit_camera_windows::PixelFormat;
+
+    let bytes = frame.bytes();
+    let src_width = frame.width as usize;
+    let src_height = frame.height as usize;
+
+    // Calculate scale factor to fit within max_size
+    let scale = if src_width > max_size as usize || src_height > max_size as usize {
+        let scale_w = max_size as f32 / src_width as f32;
+        let scale_h = max_size as f32 / src_height as f32;
+        scale_w.min(scale_h)
+    } else {
+        1.0
+    };
+
+    let dst_width = ((src_width as f32 * scale) as u32).max(1);
+    let dst_height = ((src_height as f32 * scale) as u32).max(1);
+    let dst_pixel_count = (dst_width * dst_height) as usize;
+
+    // Step size for point sampling (how many source pixels to skip)
+    let step = if scale < 1.0 {
+        (1.0 / scale).ceil() as usize
+    } else {
+        1
+    };
+    let step = step.max(1); // Ensure step is at least 1
+
+    match frame.pixel_format {
+        PixelFormat::MJPEG => {
+            // Decode JPEG to RGB, then resize
+            let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg)
+                .map_err(|e| format!("Failed to decode MJPEG: {}", e))?;
+
+            // Resize if needed
+            let img = if scale < 1.0 {
+                img.resize(dst_width, dst_height, image::imageops::FilterType::Nearest)
+            } else {
+                img
+            };
+
+            let rgb = img.to_rgb8();
+            let mut rgba = Vec::with_capacity(dst_pixel_count * 4);
+            for pixel in rgb.pixels() {
+                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+            }
+            Ok((rgba, dst_width, dst_height))
+        },
+        PixelFormat::NV12 => {
+            // NV12: Y plane + interleaved UV - sample every Nth pixel
+            let y_size = src_width * src_height;
+            let uv_size = y_size / 2;
             if bytes.len() < y_size + uv_size {
                 return Err("NV12 buffer too small".into());
             }
@@ -966,11 +1164,20 @@ fn frame_to_rgba(frame: &NativeCameraFrame) -> Result<Vec<u8>, String> {
             let y_plane = &bytes[..y_size];
             let uv_plane = &bytes[y_size..y_size + uv_size];
 
-            let mut rgba = Vec::with_capacity(pixel_count * 4);
-            for y_idx in 0..height {
-                for x_idx in 0..width {
-                    let y = y_plane[y_idx * width + x_idx] as f32;
-                    let uv_idx = (y_idx / 2) * width + (x_idx / 2 * 2);
+            let mut rgba = Vec::with_capacity(dst_pixel_count * 4);
+            for dst_y in 0..dst_height as usize {
+                let src_y = dst_y * step;
+                if src_y >= src_height {
+                    break;
+                }
+                for dst_x in 0..dst_width as usize {
+                    let src_x = dst_x * step;
+                    if src_x >= src_width {
+                        break;
+                    }
+
+                    let y = y_plane[src_y * src_width + src_x] as f32;
+                    let uv_idx = (src_y / 2) * src_width + (src_x / 2 * 2);
                     let u = uv_plane[uv_idx] as f32 - 128.0;
                     let v = uv_plane[uv_idx + 1] as f32 - 128.0;
 
@@ -981,57 +1188,103 @@ fn frame_to_rgba(frame: &NativeCameraFrame) -> Result<Vec<u8>, String> {
                     rgba.extend_from_slice(&[r, g, b, 255]);
                 }
             }
-            Ok(rgba)
+            Ok((rgba, dst_width, dst_height))
         },
         PixelFormat::YUYV422 => {
-            let expected = pixel_count * 2;
+            // YUYV: sample every Nth pair of pixels
+            let expected = src_width * src_height * 2;
             if bytes.len() < expected {
                 return Err("YUYV buffer too small".into());
             }
 
-            let mut rgba = Vec::with_capacity(pixel_count * 4);
-            for chunk in bytes[..expected].chunks_exact(4) {
-                let y0 = chunk[0] as f32;
-                let u = chunk[1] as f32 - 128.0;
-                let y1 = chunk[2] as f32;
-                let v = chunk[3] as f32 - 128.0;
+            let mut rgba = Vec::with_capacity(dst_pixel_count * 4);
+            for dst_y in 0..dst_height as usize {
+                let src_y = dst_y * step;
+                if src_y >= src_height {
+                    break;
+                }
+                for dst_x in 0..dst_width as usize {
+                    let src_x = dst_x * step;
+                    if src_x >= src_width {
+                        break;
+                    }
 
-                let r0 = (y0 + 1.402 * v).clamp(0.0, 255.0) as u8;
-                let g0 = (y0 - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
-                let b0 = (y0 + 1.772 * u).clamp(0.0, 255.0) as u8;
+                    // YUYV has 2 pixels per 4 bytes, so we need to find the right chunk
+                    let pair_x = src_x / 2 * 2; // Align to pair boundary
+                    let chunk_offset = (src_y * src_width + pair_x) * 2;
+                    let chunk = &bytes[chunk_offset..chunk_offset + 4];
 
-                let r1 = (y1 + 1.402 * v).clamp(0.0, 255.0) as u8;
-                let g1 = (y1 - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
-                let b1 = (y1 + 1.772 * u).clamp(0.0, 255.0) as u8;
+                    let y = if src_x % 2 == 0 { chunk[0] } else { chunk[2] } as f32;
+                    let u = chunk[1] as f32 - 128.0;
+                    let v = chunk[3] as f32 - 128.0;
 
-                rgba.extend_from_slice(&[r0, g0, b0, 255, r1, g1, b1, 255]);
+                    let r = (y + 1.402 * v).clamp(0.0, 255.0) as u8;
+                    let g = (y - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
+                    let b = (y + 1.772 * u).clamp(0.0, 255.0) as u8;
+
+                    rgba.extend_from_slice(&[r, g, b, 255]);
+                }
             }
-            Ok(rgba)
+            Ok((rgba, dst_width, dst_height))
         },
         PixelFormat::RGB24 => {
-            let expected = pixel_count * 3;
+            let expected = src_width * src_height * 3;
             if bytes.len() < expected {
                 return Err("RGB24 buffer too small".into());
             }
 
-            let mut rgba = Vec::with_capacity(pixel_count * 4);
-            for pixel in bytes[..expected].chunks_exact(3) {
-                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+            let mut rgba = Vec::with_capacity(dst_pixel_count * 4);
+            for dst_y in 0..dst_height as usize {
+                let src_y = dst_y * step;
+                if src_y >= src_height {
+                    break;
+                }
+                for dst_x in 0..dst_width as usize {
+                    let src_x = dst_x * step;
+                    if src_x >= src_width {
+                        break;
+                    }
+
+                    let offset = (src_y * src_width + src_x) * 3;
+                    rgba.extend_from_slice(&[
+                        bytes[offset],
+                        bytes[offset + 1],
+                        bytes[offset + 2],
+                        255,
+                    ]);
+                }
             }
-            Ok(rgba)
+            Ok((rgba, dst_width, dst_height))
         },
         PixelFormat::RGB32 | PixelFormat::ARGB => {
-            // Assume BGRA, convert to RGBA
-            let expected = pixel_count * 4;
+            // Assume BGRA, convert to RGBA with sampling
+            let expected = src_width * src_height * 4;
             if bytes.len() < expected {
                 return Err("RGB32 buffer too small".into());
             }
 
-            let mut rgba = Vec::with_capacity(pixel_count * 4);
-            for pixel in bytes[..expected].chunks_exact(4) {
-                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+            let mut rgba = Vec::with_capacity(dst_pixel_count * 4);
+            for dst_y in 0..dst_height as usize {
+                let src_y = dst_y * step;
+                if src_y >= src_height {
+                    break;
+                }
+                for dst_x in 0..dst_width as usize {
+                    let src_x = dst_x * step;
+                    if src_x >= src_width {
+                        break;
+                    }
+
+                    let offset = (src_y * src_width + src_x) * 4;
+                    rgba.extend_from_slice(&[
+                        bytes[offset + 2],
+                        bytes[offset + 1],
+                        bytes[offset],
+                        bytes[offset + 3],
+                    ]);
+                }
             }
-            Ok(rgba)
+            Ok((rgba, dst_width, dst_height))
         },
         _ => Err(format!(
             "Unsupported pixel format: {:?}",

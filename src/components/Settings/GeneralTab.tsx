@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -18,13 +18,13 @@ import {
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useWebcamSettingsStore } from '@/stores/webcamSettingsStore';
 import type { ImageFormat, Theme } from '@/types';
-import type { WebcamResolution } from '@/types/generated';
+import type { WebcamResolution, SupportedResolutions } from '@/types/generated';
 import { settingsLogger } from '@/utils/logger';
 
 export const GeneralTab: React.FC = () => {
   const { settings, updateGeneralSettings } = useSettingsStore();
   const { general } = settings;
-  const { settings: webcamSettings, setResolution, loadSettings: loadWebcamSettings } = useWebcamSettingsStore();
+  const { settings: webcamSettings, devices, setResolution, loadSettings: loadWebcamSettings, loadDevices } = useWebcamSettingsStore();
 
   const [isAutostartEnabled, setIsAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(true);
@@ -32,10 +32,58 @@ export const GeneralTab: React.FC = () => {
   const [appVersion, setAppVersion] = useState<string>('');
   const { version: updateVersion, available, checkForUpdates, downloadAndInstall, downloading } = useUpdater(false);
 
-  // Load webcam settings on mount
+  // Load webcam settings and devices on mount
   useEffect(() => {
     loadWebcamSettings();
-  }, [loadWebcamSettings]);
+    loadDevices();
+  }, [loadWebcamSettings, loadDevices]);
+
+  // Get supported resolutions for current device
+  const currentDevice = useMemo(() => {
+    return devices.find((d) => d.index === webcamSettings.deviceIndex);
+  }, [devices, webcamSettings.deviceIndex]);
+
+  const supportedResolutions = useMemo((): SupportedResolutions => {
+    if (!currentDevice?.supportedResolutions) {
+      // Default: assume 720p and 480p are always supported
+      return {
+        supports4k: false,
+        supports1080p: false,
+        supports720p: true,
+        supports480p: true,
+        maxWidth: 1280,
+        maxHeight: 720,
+      };
+    }
+    return currentDevice.supportedResolutions;
+  }, [currentDevice]);
+
+  // Auto-downgrade resolution if current selection is not supported by device
+  useEffect(() => {
+    const resolution = webcamSettings.resolution;
+    if (resolution === 'auto') return; // Auto is always valid
+
+    const isSupported = (res: WebcamResolution): boolean => {
+      switch (res) {
+        case '4k': return supportedResolutions.supports4k;
+        case '1080p': return supportedResolutions.supports1080p;
+        case '720p': return supportedResolutions.supports720p;
+        case '480p': return supportedResolutions.supports480p;
+        default: return true;
+      }
+    };
+
+    if (!isSupported(resolution)) {
+      // Find the highest supported resolution and switch to it
+      const fallback: WebcamResolution = supportedResolutions.supports1080p ? '1080p'
+        : supportedResolutions.supports720p ? '720p'
+        : supportedResolutions.supports480p ? '480p'
+        : 'auto';
+
+      settingsLogger.info(`Resolution ${resolution} not supported, falling back to ${fallback}`);
+      setResolution(fallback);
+    }
+  }, [webcamSettings.resolution, supportedResolutions, setResolution]);
 
   // Load app version on mount
   useEffect(() => {
@@ -379,15 +427,25 @@ export const GeneralTab: React.FC = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="auto">Auto</SelectItem>
-                <SelectItem value="4k">4K (3840x2160)</SelectItem>
-                <SelectItem value="1080p">1080p (1920x1080)</SelectItem>
-                <SelectItem value="720p">720p (1280x720)</SelectItem>
-                <SelectItem value="480p">480p (640x480)</SelectItem>
+                {supportedResolutions.supports4k && (
+                  <SelectItem value="4k">4K (3840x2160)</SelectItem>
+                )}
+                {supportedResolutions.supports1080p && (
+                  <SelectItem value="1080p">1080p (1920x1080)</SelectItem>
+                )}
+                {supportedResolutions.supports720p && (
+                  <SelectItem value="720p">720p (1280x720)</SelectItem>
+                )}
+                {supportedResolutions.supports480p && (
+                  <SelectItem value="480p">480p (640x480)</SelectItem>
+                )}
               </SelectContent>
             </Select>
             <p className="text-xs text-[var(--ink-muted)] mt-2">
               Resolution used when recording webcam overlay. Higher resolutions require more processing power.
-              The preview always uses a lower resolution for performance.
+              {currentDevice && supportedResolutions.maxWidth > 0 && (
+                <> Your webcam supports up to {supportedResolutions.maxWidth}x{supportedResolutions.maxHeight}.</>
+              )}
             </p>
           </div>
         </div>

@@ -7,31 +7,31 @@ import type { WebcamSize } from "./WebcamSize";
 /**
  * Settings for webcam overlay during recording.
  */
-export type WebcamSettings = {
+export type WebcamSettings = { 
 /**
  * Enable webcam overlay.
  */
-enabled: boolean,
+enabled: boolean, 
 /**
  * Selected webcam device index.
  */
-deviceIndex: number,
+deviceIndex: number, 
 /**
  * Position of the webcam overlay.
  */
-position: WebcamPosition,
+position: WebcamPosition, 
 /**
  * Size of the webcam overlay.
  */
-size: WebcamSize,
+size: WebcamSize, 
 /**
  * Shape of the webcam overlay (circle or rectangle).
  */
-shape: WebcamShape,
+shape: WebcamShape, 
 /**
  * Whether to mirror the webcam horizontally (selfie mode).
  */
-mirror: boolean,
+mirror: boolean, 
 /**
  * Capture resolution preset.
  */

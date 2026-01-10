@@ -45,7 +45,7 @@ pub use gpu_preview::{
 pub use native_frame::NativeCameraFrame;
 // composite_webcam no longer used - webcam composited via GPU in editor
 pub use channel_encoder::{ChannelWebcamEncoder, EncoderResult};
-pub use device::{get_webcam_devices, WebcamDevice};
+pub use device::{get_webcam_devices, SupportedResolutions, WebcamDevice};
 pub use encoder::{FeedWebcamEncoder, WebcamEncoderPipe};
 pub use segmented::{
     concatenate_segments, SegmentInfo, SegmentedRecordingResult, SegmentedWebcamConfig,

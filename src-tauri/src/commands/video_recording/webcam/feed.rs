@@ -222,13 +222,14 @@ impl CameraFeed {
             device_index
         );
 
-        // Get resolution from config - this affects both preview and recording.
-        // Preview will be downscaled by the GPU shader for display.
-        let (target_width, target_height) = WEBCAM_CONFIG.read().resolution.to_dimensions();
+        // Use configured resolution from settings
+        let configured_resolution = WEBCAM_CONFIG.read().resolution;
+        let (target_width, target_height) = configured_resolution.to_dimensions();
         log::info!(
-            "[CAMERA_FEED] Requesting resolution: {}x{}",
+            "[CAMERA_FEED] Requesting resolution: {}x{} ({:?})",
             target_width,
-            target_height
+            target_height,
+            configured_resolution
         );
 
         // YUYV is used for fast CPU conversion - MJPEG requires expensive JPEG decode.

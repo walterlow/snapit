@@ -30,6 +30,7 @@ export type { SaveCaptureRequest } from './SaveCaptureRequest';
 export type { StorageStats } from './StorageStats';
 
 // Webcam types
+export type { SupportedResolutions } from './SupportedResolutions';
 export type { WebcamDevice } from './WebcamDevice';
 export type { WebcamPosition } from './WebcamPosition';
 export type { WebcamResolution } from './WebcamResolution';

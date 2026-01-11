@@ -12,6 +12,8 @@ interface MaskTrackProps {
 
 // Default segment duration when adding new masks (3 seconds)
 const DEFAULT_MASK_DURATION_MS = 3000;
+// Minimum duration to allow adding a mask segment (500ms)
+const MIN_MASK_DURATION_MS = 500;
 
 // Generate unique mask ID
 const generateMaskId = () => `mask_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -202,7 +204,7 @@ const MaskSegmentItem = memo(function MaskSegmentItem({
       />
 
       {/* Delete button (shown when selected) */}
-      {isSelected && segmentWidth > 40 && (
+      {isSelected && (
         <button
           className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
           onClick={handleDelete}
@@ -264,6 +266,11 @@ export const MaskTrack = memo(function MaskTrack({
     // Calculate preview segment bounds - left edge at playhead
     const startMs = previewTimeMs;
     const endMs = Math.min(durationMs, startMs + DEFAULT_MASK_DURATION_MS);
+
+    // Don't allow if there's not enough space for minimum duration
+    if (endMs - startMs < MIN_MASK_DURATION_MS) {
+      return null;
+    }
 
     // Check for collisions with existing segments
     for (const seg of segments) {

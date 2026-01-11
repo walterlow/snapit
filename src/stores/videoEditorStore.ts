@@ -315,15 +315,23 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         const { project } = get();
         if (!project) return;
 
+        // Clamp to video duration
+        const durationMs = project.timeline.durationMs;
+        const clampedRegion = {
+          ...region,
+          startMs: Math.max(0, Math.min(region.startMs, durationMs)),
+          endMs: Math.max(0, Math.min(region.endMs, durationMs)),
+        };
+
         set({
           project: {
             ...project,
             zoom: {
               ...project.zoom,
-              regions: [...project.zoom.regions, region],
+              regions: [...project.zoom.regions, clampedRegion],
             },
           },
-          selectedZoomRegionId: region.id,
+          selectedZoomRegionId: clampedRegion.id,
         });
       },
 
@@ -375,17 +383,25 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         const { project } = get();
         if (!project) return;
 
-        const segments = [...project.text.segments, segment];
+        // Clamp to video duration (convert ms to seconds)
+        const durationSec = project.timeline.durationMs / 1000;
+        const clampedSegment = {
+          ...segment,
+          start: Math.max(0, Math.min(segment.start, durationSec)),
+          end: Math.max(0, Math.min(segment.end, durationSec)),
+        };
+
+        const segments = [...project.text.segments, clampedSegment];
         // Sort by start time (Cap uses seconds)
         segments.sort((a, b) => a.start - b.start);
 
         // Find the index of the newly added segment after sorting
         const newIndex = segments.findIndex(
-          (s) => Math.abs(s.start - segment.start) < 0.001
+          (s) => Math.abs(s.start - clampedSegment.start) < 0.001
         );
 
         // Generate ID for selection (matches frontend component ID generation: text_<start>_<index>)
-        const segmentId = `text_${segment.start.toFixed(3)}_${newIndex}`;
+        const segmentId = `text_${clampedSegment.start.toFixed(3)}_${newIndex}`;
 
         set({
           project: {
@@ -464,7 +480,15 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         const { project } = get();
         if (!project) return;
 
-        const segments = [...project.mask.segments, segment];
+        // Clamp to video duration
+        const durationMs = project.timeline.durationMs;
+        const clampedSegment = {
+          ...segment,
+          startMs: Math.max(0, Math.min(segment.startMs, durationMs)),
+          endMs: Math.max(0, Math.min(segment.endMs, durationMs)),
+        };
+
+        const segments = [...project.mask.segments, clampedSegment];
         segments.sort((a, b) => a.startMs - b.startMs);
 
         set({
@@ -475,7 +499,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
               segments,
             },
           },
-          selectedMaskSegmentId: segment.id,
+          selectedMaskSegmentId: clampedSegment.id,
         });
       },
 
@@ -525,7 +549,15 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         const { project } = get();
         if (!project) return;
 
-        const segments = [...project.scene.segments, segment];
+        // Clamp to video duration
+        const durationMs = project.timeline.durationMs;
+        const clampedSegment = {
+          ...segment,
+          startMs: Math.max(0, Math.min(segment.startMs, durationMs)),
+          endMs: Math.max(0, Math.min(segment.endMs, durationMs)),
+        };
+
+        const segments = [...project.scene.segments, clampedSegment];
         segments.sort((a, b) => a.startMs - b.startMs);
 
         set({
@@ -536,7 +568,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
               segments,
             },
           },
-          selectedSceneSegmentId: segment.id,
+          selectedSceneSegmentId: clampedSegment.id,
         });
       },
 
@@ -586,7 +618,15 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         const { project } = get();
         if (!project) return;
 
-        const segments = [...project.webcam.visibilitySegments, segment];
+        // Clamp to video duration
+        const durationMs = project.timeline.durationMs;
+        const clampedSegment = {
+          ...segment,
+          startMs: Math.max(0, Math.min(segment.startMs, durationMs)),
+          endMs: Math.max(0, Math.min(segment.endMs, durationMs)),
+        };
+
+        const segments = [...project.webcam.visibilitySegments, clampedSegment];
         // Sort by start time
         segments.sort((a, b) => a.startMs - b.startMs);
 

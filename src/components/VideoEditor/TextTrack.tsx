@@ -12,6 +12,8 @@ interface TextTrackProps {
 
 // Default segment duration when adding new text (3 seconds)
 const DEFAULT_TEXT_DURATION_SEC = 3;
+// Minimum duration to allow adding a text segment (0.5 seconds)
+const MIN_TEXT_DURATION_SEC = 0.5;
 
 // Selectors for atomic subscriptions
 const selectSelectedTextSegmentId = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.selectedTextSegmentId;
@@ -192,7 +194,7 @@ const TextSegmentItem = memo(function TextSegmentItem({
       />
 
       {/* Delete button (shown when selected) */}
-      {isSelected && segmentWidth > 40 && (
+      {isSelected && (
         <button
           className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
           onClick={handleDelete}
@@ -260,6 +262,11 @@ export const TextTrack = memo(function TextTrack({
     // Calculate preview segment bounds - left edge at playhead
     const startSec = previewTimeSec;
     const endSec = Math.min(durationSec, startSec + DEFAULT_TEXT_DURATION_SEC);
+
+    // Don't allow if there's not enough space for minimum duration
+    if (endSec - startSec < MIN_TEXT_DURATION_SEC) {
+      return null;
+    }
 
     // Check for collisions with existing segments
     for (const seg of segments) {

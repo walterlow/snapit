@@ -12,6 +12,8 @@ interface ZoomTrackProps {
 
 // Default segment duration when adding new regions (3 seconds)
 const DEFAULT_REGION_DURATION_MS = 3000;
+// Minimum duration to allow adding a region (500ms)
+const MIN_REGION_DURATION_MS = 500;
 
 // Selectors for atomic subscriptions
 const selectSelectedZoomRegionId = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.selectedZoomRegionId;
@@ -184,7 +186,7 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
       />
 
       {/* Delete button (shown when selected) */}
-      {isSelected && regionWidth > 40 && (
+      {isSelected && (
         <button
           className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
           onClick={handleDelete}
@@ -246,6 +248,11 @@ export const ZoomTrack = memo(function ZoomTrack({
     // Calculate preview region bounds - left edge at playhead
     const startMs = previewTimeMs;
     const endMs = Math.min(durationMs, startMs + DEFAULT_REGION_DURATION_MS);
+
+    // Don't allow if there's not enough space for minimum duration
+    if (endMs - startMs < MIN_REGION_DURATION_MS) {
+      return null;
+    }
 
     // Check for collisions with existing regions
     for (const reg of regions) {

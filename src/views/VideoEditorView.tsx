@@ -626,7 +626,6 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     splitMode,
     setSplitMode,
     splitZoomRegionAtPlayhead,
-    deleteSelectedZoomRegion,
     selectZoomRegion,
     timelineZoom,
     setTimelineZoom,
@@ -694,9 +693,35 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     if (splitMode) {
       setSplitMode(false);
     } else {
+      // Deselect all segment types
       selectZoomRegion(null);
+      selectSceneSegment(null);
+      selectMaskSegment(null);
+      selectTextSegment(null);
     }
-  }, [splitMode, setSplitMode, selectZoomRegion]);
+  }, [splitMode, setSplitMode, selectZoomRegion, selectSceneSegment, selectMaskSegment, selectTextSegment]);
+
+  // Delete whichever segment type is currently selected
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedZoomRegionId) {
+      deleteZoomRegion(selectedZoomRegionId);
+    } else if (selectedSceneSegmentId) {
+      deleteSceneSegment(selectedSceneSegmentId);
+    } else if (selectedMaskSegmentId) {
+      deleteMaskSegment(selectedMaskSegmentId);
+    } else if (selectedTextSegmentId) {
+      deleteTextSegment(selectedTextSegmentId);
+    }
+  }, [
+    selectedZoomRegionId,
+    selectedSceneSegmentId,
+    selectedMaskSegmentId,
+    selectedTextSegmentId,
+    deleteZoomRegion,
+    deleteSceneSegment,
+    deleteMaskSegment,
+    deleteTextSegment,
+  ]);
 
   const handleTimelineZoomIn = useCallback(() => {
     setTimelineZoom(timelineZoom * 1.5);
@@ -727,7 +752,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     onSkipForward: handleSkipForward,
     onSplitAtPlayhead: splitZoomRegionAtPlayhead,
     onToggleSplitMode: handleToggleSplitMode,
-    onDeleteSelected: deleteSelectedZoomRegion,
+    onDeleteSelected: handleDeleteSelected,
     onTimelineZoomIn: handleTimelineZoomIn,
     onTimelineZoomOut: handleTimelineZoomOut,
     onDeselect: handleDeselect,

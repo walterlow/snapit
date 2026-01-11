@@ -159,7 +159,7 @@ const WebcamSegmentItem = memo(function WebcamSegmentItem({
       />
 
       {/* Delete button (shown when selected) */}
-      {isSelected && segmentWidth > 40 && (
+      {isSelected && (
         <button
           className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
           onClick={handleDelete}

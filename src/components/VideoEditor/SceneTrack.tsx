@@ -16,6 +16,8 @@ const generateSegmentId = () => `scene-${Date.now()}-${++segmentIdCounter}`;
 
 // Default segment duration when adding new segments (3 seconds)
 const DEFAULT_SEGMENT_DURATION_MS = 3000;
+// Minimum duration to allow adding a segment (500ms)
+const MIN_SEGMENT_DURATION_MS = 500;
 
 // CSS variable keys for different scene modes (theme-aware)
 const SCENE_MODE_VARS: Record<SceneMode, { bg: string; border: string; text: string }> = {
@@ -183,7 +185,7 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
       />
 
       {/* Delete button (shown when selected) */}
-      {isSelected && segmentWidth > 40 && (
+      {isSelected && (
         <button
           className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
           onClick={handleDelete}
@@ -284,6 +286,11 @@ export const SceneTrack = memo(function SceneTrack({
     // Calculate preview segment bounds - left edge at playhead
     const startMs = previewTimeMs;
     const endMs = Math.min(durationMs, startMs + DEFAULT_SEGMENT_DURATION_MS);
+
+    // Don't allow if there's not enough space for minimum duration
+    if (endMs - startMs < MIN_SEGMENT_DURATION_MS) {
+      return null;
+    }
 
     // Check for collisions with existing segments and adjust
     for (const seg of segments) {

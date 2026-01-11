@@ -3,9 +3,11 @@
  *
  * This component receives frames from the Rust backend via WebSocket,
  * ensuring the preview exactly matches the exported video (text rendered by glyphon).
+ *
+ * Uses Cap's approach: calculate exact pixel dimensions instead of object-contain.
  */
 
-import { memo, useEffect, useRef, useCallback, useState } from 'react';
+import { memo, useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { usePreviewStream } from '../../hooks/usePreviewStream';
 import type { VideoProject } from '../../types';
@@ -15,6 +17,10 @@ interface GPUPreviewCanvasProps {
   project: VideoProject | null;
   /** Current playback time in milliseconds */
   currentTimeMs: number;
+  /** Container width in pixels */
+  containerWidth: number;
+  /** Container height in pixels */
+  containerHeight: number;
   /** Whether to enable GPU preview (falls back to HTML video if false) */
   enabled?: boolean;
   /** Callback when preview is ready */
@@ -25,10 +31,13 @@ interface GPUPreviewCanvasProps {
 
 /**
  * Canvas-based preview that displays GPU-rendered frames.
+ * Sizes canvas to exact pixel dimensions to fill container without letterboxing.
  */
 export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
   project,
   currentTimeMs,
+  containerWidth,
+  containerHeight,
   enabled = true,
   onReady,
   onError,
@@ -56,6 +65,36 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
       onError?.(error);
     },
   });
+
+  // Calculate display size for the canvas (Cap's approach: exact pixel dimensions)
+  // CSS handles padding/background, GPU canvas only shows video content.
+  // Display size is based on video dimensions to fill the container area.
+  const displaySize = useMemo(() => {
+    const frameWidth = project?.sources.originalWidth ?? 1920;
+    const frameHeight = project?.sources.originalHeight ?? 1080;
+
+    if (containerWidth === 0 || containerHeight === 0) {
+      return { width: frameWidth, height: frameHeight };
+    }
+
+    const containerAspect = containerWidth / containerHeight;
+    const frameAspect = frameWidth / frameHeight;
+
+    let width: number;
+    let height: number;
+
+    if (frameAspect < containerAspect) {
+      // Frame is taller than container - constrain by height
+      height = containerHeight;
+      width = height * frameAspect;
+    } else {
+      // Frame is wider than container - constrain by width
+      width = containerWidth;
+      height = width / frameAspect;
+    }
+
+    return { width, height };
+  }, [project?.sources.originalWidth, project?.sources.originalHeight, containerWidth, containerHeight]);
 
   // Stable callbacks that don't change on every render
   const onReadyRef = useRef(onReady);
@@ -180,14 +219,18 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
     return null;
   }
 
+  // Center the canvas and set explicit pixel dimensions (Cap's approach)
+  // This ensures the canvas fills the container without gaps
   return (
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0 w-full h-full object-contain"
-      style={{
-        imageRendering: 'auto',
-      }}
-    />
+    <div className="absolute inset-0 flex items-center justify-center">
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: `${displaySize.width}px`,
+          height: `${displaySize.height}px`,
+        }}
+      />
+    </div>
   );
 });
 

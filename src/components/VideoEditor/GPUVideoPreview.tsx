@@ -316,6 +316,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   return (
     <>
       {/* Screen video - with smooth opacity/blur transitions */}
+      {/* Hidden when GPU preview is active (GPU renders full frame), but kept mounted for audio sync */}
       {videoSrc && showScreen && (
         <div style={screenStyle}>
           <VideoWithZoom
@@ -324,13 +325,13 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
             zoomRegions={zoomRegions}
             cursorRecording={cursorRecording}
             onVideoClick={onVideoClick}
-            hidden={false}
+            hidden={useGPUPreview}
           />
         </div>
       )}
 
-      {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
-      {showScreen && originalVideoPath && (
+      {/* WebCodecs preview canvas - shown during scrubbing for instant preview (disabled when GPU preview active) */}
+      {showScreen && originalVideoPath && !useGPUPreview && (
         <div style={screenStyle}>
           <WebCodecsCanvas
             videoPath={originalVideoPath}
@@ -409,6 +410,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
         <GPUPreviewCanvas
           project={project}
           currentTimeMs={currentTimeMs}
+          containerWidth={containerWidth}
+          containerHeight={containerHeight}
           enabled={true}
           onError={(error) => console.error('[GPUPreview]', error)}
         />
@@ -422,7 +425,6 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           previewWidth={containerWidth}
           previewHeight={containerHeight}
           videoAspectRatio={videoAspectRatio}
-          showTextContent={!useGPUPreview}
         />
       )}
     </>
@@ -523,7 +525,12 @@ export function GPUVideoPreview() {
   const backgroundConfig = project?.export?.background;
   const originalWidth = project?.sources.originalWidth ?? 1920;
 
+  // GPU preview renders video + text overlays
+  // CSS handles background/padding as fallback since GPU background rendering may not be fully working
+  const useGPUPreview = true;
+
   // Check if frame styling is enabled (has any visual effect)
+  // CSS handles backgrounds as fallback until GPU background rendering is complete
   const hasFrameStyling = useMemo(() => {
     if (!backgroundConfig) return false;
     // Show frame styling if padding > 0 OR rounding > 0 OR shadow enabled OR border enabled
@@ -864,8 +871,8 @@ export function GPUVideoPreview() {
           maxWidth: '100%',
           maxHeight: '100%',
           padding: hasFrameStyling ? (backgroundConfig?.padding ?? 0) * previewScale : undefined,
-          backgroundColor: backgroundConfig?.bgType === 'solid' ? backgroundConfig.solidColor : undefined,
-          background: backgroundConfig?.bgType === 'gradient'
+          backgroundColor: hasFrameStyling && backgroundConfig?.bgType === 'solid' ? backgroundConfig.solidColor : undefined,
+          background: hasFrameStyling && backgroundConfig?.bgType === 'gradient'
             ? `linear-gradient(${backgroundConfig.gradientAngle}deg, ${backgroundConfig.gradientStart}, ${backgroundConfig.gradientEnd})`
             : undefined,
         }}
@@ -903,12 +910,19 @@ export function GPUVideoPreview() {
         )}
         <div
           ref={containerRef}
-          className="relative bg-black overflow-hidden z-10"
+          className="relative overflow-hidden z-10"
           style={{
-            // Inner container fills the space minus padding
-            width: hasFrameStyling ? '100%' : undefined,
-            height: hasFrameStyling ? '100%' : undefined,
-            ...containerStyle,
+            // When frame styling enabled: fill remaining space after padding (outer wrapper handles aspect ratio)
+            // When disabled: use video aspect ratio directly
+            ...(hasFrameStyling ? {
+              width: '100%',
+              height: '100%',
+            } : {
+              aspectRatio: aspectRatio,
+              maxWidth: '100%',
+              maxHeight: '100%',
+              filter: 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
+            }),
             ...frameStyle,
           }}
         >
@@ -931,7 +945,7 @@ export function GPUVideoPreview() {
               maskSegments={project?.mask?.segments}
               textSegments={project?.text?.segments}
               project={project}
-              useGPUPreview={true}  // GPU preview renders text with glyphon
+              useGPUPreview={useGPUPreview}
               onVideoClick={handleVideoClick}
             />
           ) : (

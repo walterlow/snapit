@@ -206,79 +206,35 @@ impl PreviewRenderer {
     }
 
     /// Build render options from project configuration.
+    /// For preview, we render at video dimensions (no padding) - CSS handles frame styling.
     fn build_render_options(&self, project: &VideoProject) -> RenderOptions {
-        let export_config = &project.export;
+        // Preview renders at video dimensions (CSS handles padding/background)
+        // Export pipeline will include padding, backgrounds, rounding, etc.
+        let output_width = project.sources.original_width;
+        let output_height = project.sources.original_height;
 
-        // Calculate output dimensions with padding
-        let padding = export_config.background.padding as u32;
-        let output_width = project.sources.original_width + padding * 2;
-        let output_height = project.sources.original_height + padding * 2;
-
-        // Build background style - convert from video_project::BackgroundType to rendering::BackgroundType
-        use crate::commands::video_recording::video_project::BackgroundType as ProjectBgType;
-        let background_type = match export_config.background.bg_type {
-            ProjectBgType::Solid => {
-                BackgroundType::Solid(parse_color_to_array(&export_config.background.solid_color))
-            },
-            ProjectBgType::Gradient => BackgroundType::Gradient {
-                start: parse_color_to_array(&export_config.background.gradient_start),
-                end: parse_color_to_array(&export_config.background.gradient_end),
-                angle: export_config.background.gradient_angle,
-            },
-            ProjectBgType::Wallpaper => BackgroundType::Wallpaper(
-                export_config
-                    .background
-                    .wallpaper
-                    .clone()
-                    .unwrap_or_default(),
-            ),
-            ProjectBgType::Image => BackgroundType::Image(
-                export_config
-                    .background
-                    .image_path
-                    .clone()
-                    .unwrap_or_default(),
-            ),
-        };
-
-        // Convert from video_project::CornerStyle to rendering::CornerStyle
-        let rounding_type = match export_config.background.rounding_type {
-            crate::commands::video_recording::video_project::CornerStyle::Squircle => {
-                CornerStyle::Squircle
-            },
-            crate::commands::video_recording::video_project::CornerStyle::Rounded => {
-                CornerStyle::Rounded
-            },
-        };
-
-        let shadow_cfg = &export_config.background.shadow;
-        let shadow = ShadowStyle {
-            enabled: shadow_cfg.enabled,
-            strength: shadow_cfg.strength as f32,
-            size: shadow_cfg.size as f32,
-            opacity: shadow_cfg.opacity as f32,
-            blur: shadow_cfg.blur as f32,
-        };
-
-        let border_cfg = &export_config.background.border;
-        let mut border_color = parse_color_to_array(&border_cfg.color);
-        border_color[3] = border_cfg.opacity as f32 / 100.0;
-        let border = BorderStyle {
-            enabled: border_cfg.enabled,
-            width: border_cfg.width as f32,
-            color: border_color,
-            opacity: border_cfg.opacity as f32 / 100.0,
-        };
-
+        // For preview: minimal styling - just render video content with text overlays
+        // CSS in frontend handles padding, background, rounding, shadow, border
         let background = BackgroundStyle {
-            background_type,
-            blur: export_config.background.blur,
-            padding: export_config.background.padding,
-            inset: export_config.background.inset,
-            rounding: export_config.background.rounding,
-            rounding_type,
-            shadow,
-            border,
+            background_type: BackgroundType::None,
+            blur: 0.0,
+            padding: 0.0,
+            inset: 0,
+            rounding: 0.0,
+            rounding_type: CornerStyle::Rounded,
+            shadow: ShadowStyle {
+                enabled: false,
+                strength: 0.0,
+                size: 0.0,
+                opacity: 0.0,
+                blur: 0.0,
+            },
+            border: BorderStyle {
+                enabled: false,
+                width: 0.0,
+                color: [0.0, 0.0, 0.0, 0.0],
+                opacity: 0.0,
+            },
         };
 
         RenderOptions {
@@ -290,19 +246,4 @@ impl PreviewRenderer {
             background,
         }
     }
-}
-
-/// Parse hex color string to RGBA array.
-fn parse_color_to_array(hex: &str) -> [f32; 4] {
-    let color = hex.trim_start_matches('#');
-    if color.len() == 6 {
-        if let (Ok(r), Ok(g), Ok(b)) = (
-            u8::from_str_radix(&color[0..2], 16),
-            u8::from_str_radix(&color[2..4], 16),
-            u8::from_str_radix(&color[4..6], 16),
-        ) {
-            return [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
-        }
-    }
-    [0.0, 0.0, 0.0, 1.0]
 }

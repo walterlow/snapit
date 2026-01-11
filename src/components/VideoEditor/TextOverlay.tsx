@@ -8,8 +8,6 @@ interface TextOverlayProps {
   previewWidth: number;
   previewHeight: number;
   videoAspectRatio: number;
-  /** If true, render CSS text in bounding boxes. If false, show only bounding boxes (GPU preview renders text). */
-  showTextContent?: boolean;
 }
 
 interface TextItemProps {
@@ -20,7 +18,6 @@ interface TextItemProps {
   videoSize: { width: number; height: number };
   onSelect: (id: string) => void;
   onUpdate: (id: string, updates: Partial<TextSegment>) => void;
-  showTextContent: boolean;
 }
 
 interface ResizeHandleProps {
@@ -81,10 +78,8 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * Individual text item with drag and resize support.
- *
- * Renders text using CSS for preview (may differ slightly from GPU export).
- * The export uses glyphon for GPU-accelerated text rendering.
+ * Individual text item bounding box with drag and resize support.
+ * Text rendering is handled by GPU preview (glyphon).
  * Uses center-based positioning matching Cap's model.
  */
 const TextItem = memo(function TextItem({
@@ -95,7 +90,6 @@ const TextItem = memo(function TextItem({
   videoSize,
   onSelect,
   onUpdate,
-  showTextContent,
 }: TextItemProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -110,12 +104,11 @@ const TextItem = memo(function TextItem({
   } | null>(null);
 
   // Calculate pixel position from center-based normalized coordinates
-  // Match glyphon's calculation exactly (min 1.0, not 20)
+  // Match glyphon's calculation exactly
   const width = Math.max(segment.size.x * videoSize.width, 1);
   const height = Math.max(segment.size.y * videoSize.height, 1);
   const halfW = width / 2;
   const halfH = height / 2;
-  // Match glyphon: left = (center.x * output_size.x - half_w).max(0.0)
   const left = Math.max(0, videoOffset.x + segment.center.x * videoSize.width - halfW);
   const top = Math.max(0, videoOffset.y + segment.center.y * videoSize.height - halfH);
 
@@ -307,13 +300,6 @@ const TextItem = memo(function TextItem({
     onSelect(segmentId);
   }, [segmentId, onSelect]);
 
-  // Scale font size to match backend (glyphon) rendering
-  // Uses Cap's formula: font_size * size_scale * height_scale
-  const BASE_TEXT_HEIGHT = 0.2;
-  const sizeScale = Math.max(0.25, Math.min(4.0, segment.size.y / BASE_TEXT_HEIGHT));
-  const heightScale = videoSize.height / 1080;
-  const scaledFontSize = segment.fontSize * sizeScale * heightScale;
-
   return (
     <div
       className="absolute pointer-events-auto"
@@ -329,31 +315,7 @@ const TextItem = memo(function TextItem({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Text content (CSS preview - only shown when GPU preview is disabled) */}
-      {/* Match glyphon: text starts from top, each line is center-aligned */}
-      {showTextContent && (
-        <div
-          className="absolute inset-0 overflow-hidden pointer-events-none select-none"
-          style={{
-            fontFamily: segment.fontFamily || 'sans-serif',
-            fontSize: `${scaledFontSize}px`,
-            fontWeight: segment.fontWeight,
-            fontStyle: segment.italic ? 'italic' : 'normal',
-            color: segment.color,
-            textAlign: 'center',
-            lineHeight: 1.2,
-            wordWrap: 'break-word',
-            whiteSpace: 'pre-wrap',
-            display: 'flex',
-            alignItems: 'center', // Vertically center for better preview UX
-            justifyContent: 'center', // This centers the text block
-          }}
-        >
-          {segment.content}
-        </div>
-      )}
-
-      {/* Bounding box border */}
+      {/* Bounding box border - visible on hover/select */}
       <div
         className={`absolute inset-0 rounded-md border-2 transition-colors ${
           isSelected
@@ -383,11 +345,10 @@ const TextItem = memo(function TextItem({
 });
 
 /**
- * TextOverlay - Text segments with interactive editing support.
+ * TextOverlay - Interactive bounding boxes for text segments.
  *
- * Renders text using CSS for preview with interactive bounding boxes
- * for selection, dragging, and resizing. The export uses glyphon for
- * GPU-accelerated text rendering (may have slight positioning differences).
+ * Provides selection, dragging, and resizing of text segments.
+ * Actual text rendering is handled by GPU preview (glyphon).
  *
  * Uses Cap's model: time in seconds, center-based positioning.
  */
@@ -397,7 +358,6 @@ export const TextOverlay = memo(function TextOverlay({
   previewWidth,
   previewHeight,
   videoAspectRatio,
-  showTextContent = true,
 }: TextOverlayProps) {
   const selectedTextSegmentId = useVideoEditorStore((s) => s.selectedTextSegmentId);
   const selectTextSegment = useVideoEditorStore((s) => s.selectTextSegment);
@@ -453,7 +413,6 @@ export const TextOverlay = memo(function TextOverlay({
           videoSize={videoSize}
           onSelect={selectTextSegment}
           onUpdate={updateTextSegment}
-          showTextContent={showTextContent}
         />
       ))}
     </div>

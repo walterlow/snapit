@@ -456,9 +456,10 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
       )}
 
       {/* GPU Preview Canvas - renders text with glyphon for pixel-perfect preview */}
+      {/* Only shown when text segments exist (Rust only sends frames when there's text) */}
       {/* During playback: renders text-only on transparent background (overlay on HTML video) */}
       {/* During scrubbing: renders full frame (video + text) */}
-      {useGPUPreview && showScreen && project && (
+      {useGPUPreview && showScreen && project && textSegments && textSegments.length > 0 && (
         <GPUPreviewCanvas
           project={project}
           currentTimeMs={currentTimeMs}

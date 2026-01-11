@@ -54,8 +54,7 @@ impl Default for GpuPreviewState {
 impl GpuPreviewState {
     pub fn from_settings(size: WebcamSize, shape: WebcamShape, mirror: bool) -> Self {
         let size_px = match size {
-            WebcamSize::Small => 120.0,
-            WebcamSize::Medium => 160.0,
+            WebcamSize::Small => 160.0,
             WebcamSize::Large => 200.0,
         };
         Self {
@@ -374,8 +373,9 @@ struct Renderer {
 struct CachedYuvTextures {
     /// Y plane texture (R8 for NV12) or packed YUYV/RGBA texture
     y_texture: wgpu::Texture,
-    /// UV plane texture (RG8 for NV12) - None for YUYV/RGBA
-    uv_texture: Option<wgpu::Texture>,
+    /// UV plane texture (RG8 for NV12) or dummy 1x1 texture for YUYV/RGBA
+    /// Must be stored to keep texture alive while bind_group references its view
+    uv_texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
@@ -931,39 +931,37 @@ impl Renderer {
                     },
                 );
 
-                // Downsample UV plane
-                if let Some(ref uv_tex) = cached.uv_texture {
-                    self.rgba_buffer.clear();
-                    subsample_plane(
-                        &bytes[y_size..],
-                        src_width as usize, // UV row stride = src_width (interleaved)
-                        (src_height / 2) as usize,
-                        dst_width as usize,
-                        (dst_height / 2) as usize,
-                        2, // 2 bytes per UV pair
-                        &mut self.rgba_buffer,
-                    );
+                // Downsample UV plane (NV12 always has a real UV texture)
+                self.rgba_buffer.clear();
+                subsample_plane(
+                    &bytes[y_size..],
+                    src_width as usize, // UV row stride = src_width (interleaved)
+                    (src_height / 2) as usize,
+                    dst_width as usize,
+                    (dst_height / 2) as usize,
+                    2, // 2 bytes per UV pair
+                    &mut self.rgba_buffer,
+                );
 
-                    self.queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: uv_tex,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        &self.rgba_buffer,
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(dst_width),
-                            rows_per_image: Some(dst_height / 2),
-                        },
-                        wgpu::Extent3d {
-                            width: dst_width / 2,
-                            height: dst_height / 2,
-                            depth_or_array_layers: 1,
-                        },
-                    );
-                }
+                self.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &cached.uv_texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &self.rgba_buffer,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(dst_width),
+                        rows_per_image: Some(dst_height / 2),
+                    },
+                    wgpu::Extent3d {
+                        width: dst_width / 2,
+                        height: dst_height / 2,
+                        depth_or_array_layers: 1,
+                    },
+                );
             },
             YuvFormat::Yuyv422 => {
                 // YUYV422: downsample by skipping pixel pairs
@@ -1116,7 +1114,7 @@ impl Renderer {
                     view_formats: &[],
                 });
 
-                (y_tex, Some(uv_tex))
+                (y_tex, uv_tex)
             },
             YuvFormat::Yuyv422 => {
                 // YUYV422: packed as RGBA8 (Y0, U, Y1, V per texel = 2 pixels)
@@ -1134,7 +1132,9 @@ impl Renderer {
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 });
-                (y_tex, None)
+                // Create dummy UV texture (not used by shader but must exist for bind group)
+                let dummy_uv = self.create_dummy_uv_texture();
+                (y_tex, dummy_uv)
             },
             YuvFormat::Rgba => {
                 // RGBA: direct RGBA8 texture
@@ -1152,33 +1152,14 @@ impl Renderer {
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 });
-                (y_tex, None)
+                // Create dummy UV texture (not used by shader but must exist for bind group)
+                let dummy_uv = self.create_dummy_uv_texture();
+                (y_tex, dummy_uv)
             },
         };
 
         let y_view = y_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        // Create dummy UV texture view if we don't have one
-        let uv_view = if let Some(ref uv_tex) = uv_texture {
-            uv_tex.create_view(&wgpu::TextureViewDescriptor::default())
-        } else {
-            // Create a 1x1 dummy UV texture for non-NV12 formats
-            let dummy_uv = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("dummy-uv-texture"),
-                size: wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rg8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            dummy_uv.create_view(&wgpu::TextureViewDescriptor::default())
-        };
+        let uv_view = uv_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("yuv-texture-bind-group"),
@@ -1207,6 +1188,25 @@ impl Renderer {
             height,
             format,
         }
+    }
+
+    /// Create a 1x1 dummy UV texture for non-NV12 formats.
+    /// This texture is not used by the shader but must exist for the bind group.
+    fn create_dummy_uv_texture(&self) -> wgpu::Texture {
+        self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("dummy-uv-texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
     }
 
     fn cleanup(&mut self) {

@@ -615,8 +615,7 @@ pub async fn move_webcam_to_anchor(
     if let Some(window) = app.get_webview_window("webcam-preview") {
         // Get webcam size from settings
         let webcam_size = match WEBCAM_CONFIG.read().size {
-            WebcamSize::Small => 120,
-            WebcamSize::Medium => 160,
+            WebcamSize::Small => 160,
             WebcamSize::Large => 200,
         };
 
@@ -659,8 +658,7 @@ pub async fn clamp_webcam_to_selection(
     if let Some(window) = app.get_webview_window("webcam-preview") {
         // Get webcam size from settings
         let webcam_size = match WEBCAM_CONFIG.read().size {
-            WebcamSize::Small => 120,
-            WebcamSize::Medium => 160,
+            WebcamSize::Small => 160,
             WebcamSize::Large => 200,
         };
 

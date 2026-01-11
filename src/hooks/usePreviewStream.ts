@@ -162,6 +162,15 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
       ws.onopen = () => {
         console.log('[PreviewStream] Connected to', url);
         setIsConnected(true);
+
+        // Clear canvas to transparent on connect (prevents showing uninitialized garbage)
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d', { alpha: true });
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+          }
+        }
       };
 
       ws.onclose = () => {

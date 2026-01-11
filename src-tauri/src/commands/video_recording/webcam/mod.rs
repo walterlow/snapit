@@ -121,17 +121,15 @@ impl Default for WebcamPosition {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub enum WebcamSize {
-    /// ~10% of recording width.
-    Small,
     /// ~15% of recording width.
-    Medium,
+    Small,
     /// ~20% of recording width.
     Large,
 }
 
 impl Default for WebcamSize {
     fn default() -> Self {
-        Self::Medium
+        Self::Small
     }
 }
 
@@ -139,8 +137,7 @@ impl WebcamSize {
     /// Get the diameter/width as a fraction of the recording width.
     pub fn as_fraction(&self) -> f32 {
         match self {
-            WebcamSize::Small => 0.10,
-            WebcamSize::Medium => 0.15,
+            WebcamSize::Small => 0.15,
             WebcamSize::Large => 0.20,
         }
     }

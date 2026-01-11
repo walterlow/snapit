@@ -24,8 +24,7 @@ const CONTROL_GAP: u32 = 8;
 /// Returns (width, height) - height includes space for control bar above preview
 fn get_preview_size(size: WebcamSize) -> (u32, u32) {
     let base = match size {
-        WebcamSize::Small => 120,
-        WebcamSize::Medium => 160,
+        WebcamSize::Small => 160,
         WebcamSize::Large => 200,
     };
     (base, base + CONTROL_BAR_HEIGHT + CONTROL_GAP)

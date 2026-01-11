@@ -30,7 +30,7 @@ const DEFAULT_WEBCAM_SETTINGS: WebcamSettings = {
   enabled: false,
   deviceIndex: 0,
   position: { type: 'bottomRight' },
-  size: 'medium',
+  size: 'small',
   shape: 'circle',
   mirror: true,
 };

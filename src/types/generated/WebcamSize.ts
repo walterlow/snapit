@@ -3,4 +3,4 @@
 /**
  * Size of the webcam overlay.
  */
-export type WebcamSize = "small" | "medium" | "large";
+export type WebcamSize = "small" | "large";

@@ -17,11 +17,12 @@ import { webcamLogger } from '@/utils/logger';
 const CONTROL_BAR_HEIGHT = 40;
 // Gap between control bar and preview
 const CONTROL_GAP = 8;
+// Top padding to prevent clipping
+const TOP_PADDING = 4;
 
 // Preview circle size based on webcam size setting
 const CIRCLE_SIZES: Record<WebcamSize, number> = {
-  small: 120,
-  medium: 160,
+  small: 160,
   large: 200,
 };
 
@@ -33,7 +34,7 @@ const WebcamPreviewWindow: React.FC = () => {
     enabled: true,
     deviceIndex: 0,
     position: { type: 'bottomRight' },
-    size: 'medium',
+    size: 'small',
     shape: 'circle',
     mirror: true,
   });
@@ -214,12 +215,9 @@ const WebcamPreviewWindow: React.FC = () => {
     }
   }, [settings]);
 
-  // Cycle size: small -> medium -> large -> small
-  const handleCycleSize = useCallback(async () => {
-    const sizes: WebcamSize[] = ['small', 'medium', 'large'];
-    const currentIndex = sizes.indexOf(settings.size);
-    const nextIndex = (currentIndex + 1) % sizes.length;
-    const newSize = sizes[nextIndex];
+  // Toggle size: small <-> large
+  const handleToggleSize = useCallback(async () => {
+    const newSize: WebcamSize = settings.size === 'small' ? 'large' : 'small';
     try {
       await invoke('set_webcam_size', { size: newSize });
       const newSettings = { ...settings, size: newSize };
@@ -230,7 +228,7 @@ const WebcamPreviewWindow: React.FC = () => {
         emit('webcam-anchor-changed', { anchor: settings.position.type });
       }
     } catch (e) {
-      webcamLogger.error('Failed to cycle size:', e);
+      webcamLogger.error('Failed to toggle size:', e);
     }
   }, [settings]);
 
@@ -259,6 +257,7 @@ const WebcamPreviewWindow: React.FC = () => {
         display: 'flex',
         flexDirection: 'column',
         width: `${circleSize}px`,
+        paddingTop: `${TOP_PADDING}px`,
         cursor: 'move',
         gap: `${CONTROL_GAP}px`,
       }}
@@ -325,7 +324,7 @@ const WebcamPreviewWindow: React.FC = () => {
             <FlipHorizontal2 size={16} />
           </button>
           <button
-            onClick={handleCycleSize}
+            onClick={handleToggleSize}
             style={{
               padding: '6px',
               borderRadius: '6px',
@@ -337,7 +336,7 @@ const WebcamPreviewWindow: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
             }}
-            title={`Size: ${settings.size} (click to change)`}
+            title={settings.size === 'small' ? 'Enlarge' : 'Shrink'}
           >
             {settings.size === 'large' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>

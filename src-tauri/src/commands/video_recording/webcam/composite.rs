@@ -305,7 +305,7 @@ mod tests {
             enabled: true,
             device_index: 0,
             position: super::super::WebcamPosition::BottomRight,
-            size: super::super::WebcamSize::Medium, // 15%
+            size: super::super::WebcamSize::Small, // 15%
             shape: WebcamShape::Circle,
             mirror: false,
             resolution: super::super::WebcamResolution::default(),

@@ -470,9 +470,8 @@ export const SettingsCol3: React.FC<SettingsColProps> = ({ mode }) => {
             <GlassSelect
               value={webcamSettings.size}
               options={[
-                { value: 'small', label: 'S' },
-                { value: 'medium', label: 'M' },
-                { value: 'large', label: 'L' },
+                { value: 'small', label: 'Small' },
+                { value: 'large', label: 'Large' },
               ]}
               onChange={(v) => setSize(v as WebcamSize)}
             />

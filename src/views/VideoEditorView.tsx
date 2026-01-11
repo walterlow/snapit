@@ -10,7 +10,7 @@
 
 import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
-import { X, Circle, Square, Monitor, Crop, Italic } from 'lucide-react';
+import { X, Circle, Square, Monitor, Crop, Italic, ArrowLeft } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -886,9 +886,26 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
     <div className="flex-1 flex flex-col min-h-0 bg-[var(--polar-snow)]">
       {/* Main content area - Preview and Properties */}
       <div className="flex-1 flex min-h-0">
-        {/* Video Preview */}
-        <div className="flex-1 flex flex-col min-w-0 p-4">
-          <GPUVideoPreview />
+        {/* Left side: Top bar + Video Preview */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Top Bar */}
+          <div className="h-10 flex items-center px-3 border-b border-[var(--glass-border)] bg-[var(--polar-mist)]">
+            <button
+              onClick={handleBack}
+              className="glass-btn h-7 w-7 flex items-center justify-center"
+              title="Back to Library"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <span className="ml-3 text-sm font-medium text-[var(--ink-dark)]">
+              {project?.name || 'Video Editor'}
+            </span>
+          </div>
+
+          {/* Video Preview */}
+          <div className="flex-1 min-h-0 p-4">
+            <GPUVideoPreview />
+          </div>
         </div>
 
         {/* Right sidebar with tabbed properties panel */}
@@ -1765,7 +1782,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-1 rounded-full bg-[var(--ink-faint)] group-hover:bg-[var(--coral-400)] transition-colors" />
         </div>
         <div className="flex-1 pt-1">
-          <VideoTimeline onBack={handleBack} onExport={handleExport} />
+          <VideoTimeline onExport={handleExport} />
         </div>
       </div>
 

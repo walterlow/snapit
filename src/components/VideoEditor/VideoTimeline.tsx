@@ -1,7 +1,6 @@
 import { memo, useCallback, useRef, useState, useEffect } from 'react';
 import {
   Film,
-  ArrowLeft,
   Download,
   ZoomIn,
   ZoomOut,
@@ -74,7 +73,6 @@ const PreviewScrubber = memo(function PreviewScrubber({
 });
 
 interface VideoTimelineProps {
-  onBack: () => void;
   onExport: () => void;
 }
 
@@ -347,7 +345,7 @@ const VideoTrack = memo(function VideoTrack({
  * VideoTimeline - Main timeline component with ruler, tracks, and playhead.
  * Optimized to prevent re-renders during playback.
  */
-export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
+export function VideoTimeline({ onExport }: VideoTimelineProps) {
   const project = useVideoEditorStore(selectProject);
   const timelineZoom = useVideoEditorStore(selectTimelineZoom);
   const isDraggingPlayhead = useVideoEditorStore(selectIsDraggingPlayhead);
@@ -505,19 +503,6 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
         <div className="flex items-center h-11 px-3 bg-[var(--glass-surface-dark)] border-b border-[var(--glass-border)]">
           {/* Left Section */}
           <div className="flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button onClick={onBack} className="glass-btn h-8 w-8">
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p className="text-xs">Back to Library</p>
-              </TooltipContent>
-            </Tooltip>
-
-            <div className="w-px h-5 bg-[var(--glass-border)]" />
-
             {/* Timeline Zoom Controls */}
             <div className="flex items-center gap-1">
               <Tooltip>

@@ -433,9 +433,12 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
       </div>
 
       {/* Fullscreen webcam - outside the frame wrapper (not affected by zoom) */}
+      {/* Apply frame styling (rounded corners, border) for visual consistency */}
       {webcamVideoPath && (
         <div style={{
           ...fullscreenWebcamStyle,
+          ...frameStyle,
+          overflow: 'hidden', // Clip to rounded corners
           visibility: cameraOnlyOpacity > 0.01 ? 'visible' : 'hidden',
           pointerEvents: cameraOnlyOpacity > 0.01 ? 'auto' : 'none',
         }}>

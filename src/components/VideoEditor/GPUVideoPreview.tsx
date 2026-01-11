@@ -27,27 +27,12 @@ const selectAudioConfig = (s: ReturnType<typeof useVideoEditorStore.getState>) =
  * WebCodecs-accelerated preview canvas for instant scrubbing.
  * Shows pre-decoded frames during timeline scrubbing for zero-latency preview.
  * Uses RAF polling instead of state-driven updates to avoid re-render overhead.
+ * Zoom is applied at the frame wrapper level, not individually.
  */
-const WebCodecsCanvas = memo(function WebCodecsCanvas({
+const WebCodecsCanvasNoZoom = memo(function WebCodecsCanvasNoZoom({
   videoPath,
-  zoomRegions,
-  cursorRecording,
-  backgroundPadding = 0,
-  rounding = 0,
-  videoWidth = 1920,
-  videoHeight = 1080,
 }: {
   videoPath: string | null;
-  zoomRegions: ZoomRegion[] | undefined;
-  cursorRecording: CursorRecording | null | undefined;
-  /** Background padding - when > 0, allows extended zoom range */
-  backgroundPadding?: number;
-  /** Corner rounding - preserves rounded corners when zooming */
-  rounding?: number;
-  /** Video width for calculating rounding ratio */
-  videoWidth?: number;
-  /** Video height for calculating rounding ratio */
-  videoHeight?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastDrawnTimeRef = useRef<number | null>(null);
@@ -57,10 +42,6 @@ const WebCodecsCanvas = memo(function WebCodecsCanvas({
   const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
   const isPlaying = useVideoEditorStore(selectIsPlaying);
   const { getFrame, prefetchAround, isReady } = useWebCodecsPreview(videoPath);
-
-  // Get zoom style for the current preview time
-  // Smart clamping: extended range with padding, preserves rounded corners
-  const zoomStyle = useZoomPreview(zoomRegions, previewTimeMs ?? 0, cursorRecording, { backgroundPadding, rounding, videoWidth, videoHeight });
 
   // Prefetch frames when preview position changes
   useEffect(() => {
@@ -77,18 +58,17 @@ const WebCodecsCanvas = memo(function WebCodecsCanvas({
 
     let active = true;
     let attempts = 0;
-    const maxAttempts = 10; // Stop polling after ~500ms
-    
+    const maxAttempts = 10;
+
     const tryDraw = () => {
       if (!active) return;
-      
+
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       const frame = getFrame(previewTimeMs);
-      
+
       if (frame) {
-        // Only redraw if time changed
         if (lastDrawnTimeRef.current !== previewTimeMs) {
           const ctx = canvas.getContext('2d');
           if (ctx) {
@@ -102,7 +82,6 @@ const WebCodecsCanvas = memo(function WebCodecsCanvas({
         }
         setHasFrame(true);
       } else {
-        // Frame not ready yet - poll a few more times
         attempts++;
         if (attempts < maxAttempts) {
           rafIdRef.current = requestAnimationFrame(tryDraw);
@@ -112,7 +91,6 @@ const WebCodecsCanvas = memo(function WebCodecsCanvas({
       }
     };
 
-    // Try immediately
     tryDraw();
 
     return () => {
@@ -123,7 +101,6 @@ const WebCodecsCanvas = memo(function WebCodecsCanvas({
     };
   }, [isReady, isPlaying, previewTimeMs, getFrame]);
 
-  // Only show canvas during scrubbing when we have a cached frame
   const showCanvas = !isPlaying && previewTimeMs !== null && isReady && hasFrame;
 
   if (!showCanvas) return null;
@@ -133,50 +110,30 @@ const WebCodecsCanvas = memo(function WebCodecsCanvas({
       ref={canvasRef}
       className="absolute inset-0 w-full h-full object-contain pointer-events-none"
       style={{
-        ...zoomStyle,
-        zIndex: 5, // Above video but below controls
+        zIndex: 5,
       }}
     />
   );
 });
 
 /**
- * Memoized video element with zoom transform.
- * Re-renders at 60fps via usePreviewOrPlaybackTime, syncs with scrubbing.
- * Supports auto-zoom mode that follows cursor position.
- * Keeps video seeked even when hidden (for mask overlay sampling).
+ * Memoized video element without zoom transform.
+ * Zoom is applied at the frame wrapper level instead.
+ * Keeps video seeked for scrubbing and mask overlay sampling.
  */
-const VideoWithZoom = memo(function VideoWithZoom({
+const VideoNoZoom = memo(function VideoNoZoom({
   videoRef,
   videoSrc,
-  zoomRegions,
-  cursorRecording,
   onVideoClick,
   hidden,
-  backgroundPadding = 0,
-  rounding = 0,
-  videoWidth = 1920,
-  videoHeight = 1080,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string;
-  zoomRegions: ZoomRegion[] | undefined;
-  cursorRecording: CursorRecording | null | undefined;
   onVideoClick: () => void;
   hidden?: boolean;
-  /** Background padding - when > 0, allows extended zoom range */
-  backgroundPadding?: number;
-  /** Corner rounding - preserves rounded corners when zooming */
-  rounding?: number;
-  /** Video width for calculating rounding ratio */
-  videoWidth?: number;
-  /** Video height for calculating rounding ratio */
-  videoHeight?: number;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
   const isPlaying = useVideoEditorStore(selectIsPlaying);
-  // Smart clamping: extended range with padding, preserves rounded corners
-  const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs, cursorRecording, { backgroundPadding, rounding, videoWidth, videoHeight });
 
   // Keep video seeked even when hidden (needed for mask overlay sampling)
   useEffect(() => {
@@ -200,7 +157,6 @@ const VideoWithZoom = memo(function VideoWithZoom({
       style={{
         minWidth: 320,
         minHeight: 180,
-        ...zoomStyle,
         opacity: hidden ? 0 : 1,
         pointerEvents: hidden ? 'none' : 'auto',
       }}
@@ -298,6 +254,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   onVideoClick,
   backgroundPadding = 0,
   rounding = 0,
+  frameStyle,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string | null | undefined;
@@ -331,6 +288,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   backgroundPadding?: number;
   /** Corner rounding - preserves rounded corners when zooming */
   rounding?: number;
+  /** Frame styling (rounding, shadow, border) to apply to zoom wrapper */
+  frameStyle?: React.CSSProperties;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
   const scene = useInterpolatedScene(sceneSegments, defaultSceneMode, currentTimeMs);
@@ -368,43 +327,107 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
     filter: scene.cameraOnlyBlur > 0.01 ? `blur(${scene.cameraOnlyBlur * 10}px)` : undefined,
   };
 
+  // Combined frame + zoom style for the wrapper
+  // The frame (rounded corners, shadow, border) zooms together with content
+  const frameZoomStyle: React.CSSProperties = {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    ...frameStyle,
+    ...zoomStyle,
+  };
+
   return (
     <>
-      {/* Screen video - with smooth opacity/blur transitions */}
-      {/* Hidden when GPU preview is active (GPU renders full frame), but kept mounted for audio sync */}
-      {videoSrc && showScreen && (
-        <div style={screenStyle}>
-          <VideoWithZoom
-            videoRef={videoRef}
-            videoSrc={videoSrc}
-            zoomRegions={zoomRegions}
+      {/* Frame wrapper - applies both frame styling (rounded corners) and zoom transform */}
+      {/* This ensures the rounded frame moves/scales with the zoom */}
+      <div style={frameZoomStyle}>
+        {/* Screen video - with smooth opacity/blur transitions */}
+        {videoSrc && showScreen && (
+          <div style={screenStyle}>
+            <VideoNoZoom
+              videoRef={videoRef}
+              videoSrc={videoSrc}
+              onVideoClick={onVideoClick}
+              hidden={false}
+            />
+          </div>
+        )}
+
+        {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
+        {showScreen && originalVideoPath && !isPlaying && (
+          <div style={screenStyle}>
+            <WebCodecsCanvasNoZoom
+              videoPath={originalVideoPath}
+            />
+          </div>
+        )}
+
+        {/* Click highlight overlay - rendered below cursor (hidden in Camera Only mode) */}
+        {showCursor && containerWidth > 0 && containerHeight > 0 && (
+          <ClickHighlightOverlay
             cursorRecording={cursorRecording}
-            onVideoClick={onVideoClick}
-            hidden={false}
-            backgroundPadding={backgroundPadding}
-            rounding={rounding}
+            clickHighlightConfig={cursorConfig?.clickHighlight}
+            containerWidth={containerWidth}
+            containerHeight={containerHeight}
+            videoAspectRatio={videoAspectRatio}
+            zoomRegions={zoomRegions}
+          />
+        )}
+
+        {/* Cursor overlay - rendered on top of video content (hidden in Camera Only mode) */}
+        {showCursor && containerWidth > 0 && containerHeight > 0 && (
+          <CursorOverlay
+            cursorRecording={cursorRecording}
+            cursorConfig={cursorConfig}
+            containerWidth={containerWidth}
+            containerHeight={containerHeight}
+            videoAspectRatio={videoAspectRatio}
+            zoomRegions={zoomRegions}
+          />
+        )}
+
+        {/* GPU Preview Canvas - renders text with glyphon for pixel-perfect preview */}
+        {/* Only shown when text segments exist (Rust only sends frames when there's text) */}
+        {useGPUPreview && showScreen && project && textSegments && textSegments.length > 0 && (
+          <GPUPreviewCanvas
+            project={project}
+            currentTimeMs={currentTimeMs}
+            containerWidth={containerWidth}
+            containerHeight={containerHeight}
+            enabled={true}
+            isPlaying={isPlaying}
+            onError={(error) => console.error('[GPUPreview]', error)}
+          />
+        )}
+
+        {/* Mask overlay - blur/pixelate regions on top of video/GPU canvas */}
+        {showScreen && maskSegments && maskSegments.length > 0 && containerWidth > 0 && containerHeight > 0 && (
+          <MaskOverlay
+            segments={maskSegments}
+            currentTimeMs={currentTimeMs}
+            previewWidth={containerWidth}
+            previewHeight={containerHeight}
+            videoElement={videoRef.current}
             videoWidth={videoWidth}
             videoHeight={videoHeight}
           />
-        </div>
-      )}
+        )}
 
-      {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
-      {showScreen && originalVideoPath && !isPlaying && (
-        <div style={screenStyle}>
-          <WebCodecsCanvas
-            videoPath={originalVideoPath}
-            zoomRegions={zoomRegions}
-            cursorRecording={cursorRecording}
-            backgroundPadding={backgroundPadding}
-            rounding={rounding}
-            videoWidth={videoWidth}
-            videoHeight={videoHeight}
+        {/* Text overlay - bounding boxes for interaction (GPU preview renders actual text) */}
+        {showScreen && textSegments && textSegments.length > 0 && containerWidth > 0 && containerHeight > 0 && (
+          <TextOverlay
+            segments={textSegments}
+            currentTimeMs={currentTimeMs}
+            previewWidth={containerWidth}
+            previewHeight={containerHeight}
+            videoAspectRatio={videoAspectRatio}
           />
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Fullscreen webcam - always rendered (hidden when not needed) for instant scrubbing response */}
+      {/* Fullscreen webcam - outside the frame wrapper (not affected by zoom) */}
       {webcamVideoPath && (
         <div style={{
           ...fullscreenWebcamStyle,
@@ -419,7 +442,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
         </div>
       )}
 
-      {/* Webcam overlay - shown with regularCameraOpacity during transitions (both layers visible) */}
+      {/* Webcam overlay - outside the frame wrapper (positioned relative to container) */}
       {regularCameraOpacity > 0.01 && webcamVideoPath && webcamConfig && containerWidth > 0 && (
         <div style={webcamOverlayStyle}>
           <WebcamOverlay
@@ -429,72 +452,6 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
             containerHeight={containerHeight}
           />
         </div>
-      )}
-
-      {/* Click highlight overlay - rendered below cursor (hidden in Camera Only mode) */}
-      {showCursor && containerWidth > 0 && containerHeight > 0 && (
-        <ClickHighlightOverlay
-          cursorRecording={cursorRecording}
-          clickHighlightConfig={cursorConfig?.clickHighlight}
-          containerWidth={containerWidth}
-          containerHeight={containerHeight}
-          videoAspectRatio={videoAspectRatio}
-          zoomRegions={zoomRegions}
-        />
-      )}
-
-      {/* Cursor overlay - rendered on top of video content (hidden in Camera Only mode) */}
-      {showCursor && containerWidth > 0 && containerHeight > 0 && (
-        <CursorOverlay
-          cursorRecording={cursorRecording}
-          cursorConfig={cursorConfig}
-          containerWidth={containerWidth}
-          containerHeight={containerHeight}
-          videoAspectRatio={videoAspectRatio}
-          zoomRegions={zoomRegions}
-        />
-      )}
-
-      {/* GPU Preview Canvas - renders text with glyphon for pixel-perfect preview */}
-      {/* Only shown when text segments exist (Rust only sends frames when there's text) */}
-      {/* During playback: renders text-only on transparent background (overlay on HTML video) */}
-      {/* During scrubbing: renders full frame (video + text) */}
-      {useGPUPreview && showScreen && project && textSegments && textSegments.length > 0 && (
-        <GPUPreviewCanvas
-          project={project}
-          currentTimeMs={currentTimeMs}
-          containerWidth={containerWidth}
-          containerHeight={containerHeight}
-          enabled={true}
-          isPlaying={isPlaying}
-          zoomStyle={zoomStyle}
-          onError={(error) => console.error('[GPUPreview]', error)}
-        />
-      )}
-
-      {/* Mask overlay - blur/pixelate regions on top of video/GPU canvas */}
-      {showScreen && maskSegments && maskSegments.length > 0 && containerWidth > 0 && containerHeight > 0 && (
-        <MaskOverlay
-          segments={maskSegments}
-          currentTimeMs={currentTimeMs}
-          previewWidth={containerWidth}
-          previewHeight={containerHeight}
-          videoElement={videoRef.current}
-          videoWidth={videoWidth}
-          videoHeight={videoHeight}
-          zoomStyle={zoomStyle}
-        />
-      )}
-
-      {/* Text overlay - bounding boxes for interaction (GPU preview renders actual text) */}
-      {showScreen && textSegments && textSegments.length > 0 && containerWidth > 0 && containerHeight > 0 && (
-        <TextOverlay
-          segments={textSegments}
-          currentTimeMs={currentTimeMs}
-          previewWidth={containerWidth}
-          previewHeight={containerHeight}
-          videoAspectRatio={videoAspectRatio}
-        />
       )}
     </>
   );
@@ -929,7 +886,7 @@ export function GPUVideoPreview() {
 
       {/* Outer wrapper for background (shows when frame styling is enabled) */}
       <div
-        className="flex items-center justify-center relative"
+        className="flex items-center justify-center relative overflow-hidden"
         style={{
           // Use composite aspect ratio when frame styling enabled, video aspect ratio when disabled
           aspectRatio: hasFrameStyling ? compositeAspectRatio : aspectRatio,
@@ -975,10 +932,12 @@ export function GPUVideoPreview() {
         )}
         <div
           ref={containerRef}
-          className="relative overflow-hidden z-10"
+          className="relative z-10"
           style={{
             // When frame styling enabled: fill remaining space after padding (outer wrapper handles aspect ratio)
             // When disabled: use video aspect ratio directly
+            // Note: overflow is NOT hidden here - the frame wrapper inside handles clipping
+            // This allows the zoomed frame (with rounded corners) to be visible
             ...(hasFrameStyling ? {
               width: '100%',
               height: '100%',
@@ -988,7 +947,6 @@ export function GPUVideoPreview() {
               maxHeight: '100%',
               filter: 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
             }),
-            ...frameStyle,
           }}
         >
           {videoSrc || project?.sources.webcamVideo ? (
@@ -1015,6 +973,7 @@ export function GPUVideoPreview() {
               onVideoClick={handleVideoClick}
               backgroundPadding={backgroundConfig?.padding ?? 0}
               rounding={backgroundConfig?.rounding ?? 0}
+              frameStyle={frameStyle}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">

@@ -408,6 +408,85 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
         </div>
       </div>
 
+      {/* Border */}
+      <div className="pt-3 border-t border-[var(--glass-border)]">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-[var(--ink-muted)]">Border</span>
+          <button
+            onClick={() =>
+              onUpdate({
+                border: { ...background.border, enabled: !background.border.enabled },
+              })
+            }
+            className={`relative w-10 h-5 rounded-full transition-colors ${
+              background.border.enabled ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                background.border.enabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        {background.border.enabled && (
+          <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-[var(--ink-subtle)]">Width</span>
+                <span className="text-[11px] text-[var(--ink-faint)]">
+                  {background.border.width}px
+                </span>
+              </div>
+              <Slider
+                value={[background.border.width]}
+                onValueChange={(values) =>
+                  onUpdate({
+                    border: { ...background.border, width: values[0] },
+                  })
+                }
+                min={1}
+                max={20}
+                step={1}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
+              <input
+                type="color"
+                value={background.border.color}
+                onChange={(e) =>
+                  onUpdate({
+                    border: { ...background.border, color: e.target.value },
+                  })
+                }
+                className="w-6 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-[var(--ink-subtle)]">Opacity</span>
+                <span className="text-[11px] text-[var(--ink-faint)]">
+                  {Math.round(background.border.opacity)}%
+                </span>
+              </div>
+              <Slider
+                value={[background.border.opacity]}
+                onValueChange={(values) =>
+                  onUpdate({
+                    border: { ...background.border, opacity: values[0] },
+                  })
+                }
+                min={0}
+                max={100}
+                step={1}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Shadow */}
       <div className="pt-3 border-t border-[var(--glass-border)]">
         <div className="flex items-center justify-between mb-2">
@@ -501,85 +580,6 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
                 onValueChange={(values) =>
                   onUpdate({
                     shadow: { ...background.shadow, blur: values[0] },
-                  })
-                }
-                min={0}
-                max={100}
-                step={1}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Border */}
-      <div className="pt-3 border-t border-[var(--glass-border)]">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-[var(--ink-muted)]">Border</span>
-          <button
-            onClick={() =>
-              onUpdate({
-                border: { ...background.border, enabled: !background.border.enabled },
-              })
-            }
-            className={`relative w-10 h-5 rounded-full transition-colors ${
-              background.border.enabled ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                background.border.enabled ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
-        </div>
-
-        {background.border.enabled && (
-          <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Width</span>
-                <span className="text-[11px] text-[var(--ink-faint)]">
-                  {background.border.width}px
-                </span>
-              </div>
-              <Slider
-                value={[background.border.width]}
-                onValueChange={(values) =>
-                  onUpdate({
-                    border: { ...background.border, width: values[0] },
-                  })
-                }
-                min={1}
-                max={20}
-                step={1}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
-              <input
-                type="color"
-                value={background.border.color}
-                onChange={(e) =>
-                  onUpdate({
-                    border: { ...background.border, color: e.target.value },
-                  })
-                }
-                className="w-6 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Opacity</span>
-                <span className="text-[11px] text-[var(--ink-faint)]">
-                  {Math.round(background.border.opacity)}%
-                </span>
-              </div>
-              <Slider
-                value={[background.border.opacity]}
-                onValueChange={(values) =>
-                  onUpdate({
-                    border: { ...background.border, opacity: values[0] },
                   })
                 }
                 min={0}

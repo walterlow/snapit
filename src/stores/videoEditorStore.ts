@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, type StoreApi } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import type {
@@ -23,7 +23,7 @@ import type {
 import { STORAGE } from '../constants';
 import { videoEditorLogger } from '../utils/logger';
 
-interface VideoEditorState {
+export interface VideoEditorState {
   // Project state
   project: VideoProject | null;
   cursorRecording: CursorRecording | null;
@@ -176,6 +176,9 @@ interface VideoEditorState {
 }
 
 const DEFAULT_TIMELINE_ZOOM = 0.05; // 50px per second
+
+// Type alias for the store
+export type VideoEditorStore = StoreApi<VideoEditorState>;
 
 export const useVideoEditorStore = create<VideoEditorState>()(
   devtools(
@@ -1187,6 +1190,21 @@ export function formatTimeSimple(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  
+
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Factory function to create an isolated video editor store.
+ * Use this for floating video editor windows that need independent state.
+ *
+ * Note: For now, this returns the singleton store. Full isolation requires
+ * updating all components to use context-based store access.
+ *
+ * @returns A video editor store instance
+ */
+export function createVideoEditorStore(): VideoEditorStore {
+  // TODO: Implement true isolated stores when components are updated to use context
+  // For now, return the singleton to maintain compatibility
+  return useVideoEditorStore;
 }

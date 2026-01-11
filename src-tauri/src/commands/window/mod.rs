@@ -14,6 +14,7 @@ pub mod capture;
 pub mod recording;
 pub mod settings;
 pub mod toolbar;
+pub mod video_editor;
 
 // Re-export commonly used functions for internal use (used by app/tray.rs)
 pub use capture::{open_editor_fast, trigger_capture};

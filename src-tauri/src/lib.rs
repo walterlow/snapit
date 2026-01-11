@@ -137,6 +137,10 @@ pub fn run() {
             // Window commands - settings
             commands::window::settings::show_settings_window,
             commands::window::settings::close_settings_window,
+            // Window commands - video editor
+            commands::window::video_editor::show_video_editor_window,
+            commands::window::video_editor::close_video_editor_window,
+            commands::window::video_editor::get_video_editor_project_path,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands

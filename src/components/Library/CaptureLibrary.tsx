@@ -7,7 +7,6 @@ import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCaptureStore, useFilteredCaptures, useAllTags } from '../../stores/captureStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { useCaptureSettingsStore } from '../../stores/captureSettingsStore';
 import { CaptureService } from '../../services/captureService';
 import type { CaptureListItem } from '../../types';
@@ -324,15 +323,9 @@ export const CaptureLibrary: React.FC = () => {
 
   const handleEditVideo = useCallback(async (capture: CaptureListItem) => {
     try {
-      // Load video project from file using Tauri command
-      const project = await invoke('load_video_project', { videoPath: capture.image_path });
-      
-      // Set project in video editor store
-      useVideoEditorStore.getState().setProject(project as import('../../types').VideoProject);
-      
-      // Switch to video editor view
-      const { setView } = useCaptureStore.getState();
-      setView('videoEditor');
+      // Open video in a dedicated floating window
+      // If the video is already open, the existing window will be focused
+      await invoke('show_video_editor_window', { projectPath: capture.image_path });
     } catch (error) {
       reportError(error, { operation: 'video editor open' });
       toast.error('Failed to open video editor');

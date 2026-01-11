@@ -604,10 +604,20 @@ export interface VideoEditorViewRef {
   exportVideo: () => void;
 }
 
+export interface VideoEditorViewProps {
+  /** Custom back handler. If not provided, navigates to library view. */
+  onBack?: () => void;
+  /** Hide the top bar entirely (useful when embedded in a window with its own titlebar) */
+  hideTopBar?: boolean;
+}
+
 /**
  * VideoEditorView - Main video editor component with preview, timeline, and controls.
  */
-export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEditorView(_props, ref) {
+export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewProps>(function VideoEditorView(
+  { onBack, hideTopBar },
+  ref
+) {
   const { setView } = useCaptureStore();
   const {
     project,
@@ -817,8 +827,12 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
   // Navigate back to library
   const handleBack = useCallback(() => {
     clearEditor();
-    setView('library');
-  }, [clearEditor, setView]);
+    if (onBack) {
+      onBack();
+    } else {
+      setView('library');
+    }
+  }, [clearEditor, setView, onBack]);
 
   // Export video with zoom effects applied
   const handleExport = useCallback(async () => {
@@ -888,19 +902,21 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
       <div className="flex-1 flex min-h-0">
         {/* Left side: Top bar + Video Preview */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Top Bar */}
-          <div className="h-10 flex items-center px-3 border-b border-[var(--glass-border)] bg-[var(--polar-mist)]">
-            <button
-              onClick={handleBack}
-              className="glass-btn h-7 w-7 flex items-center justify-center"
-              title="Back to Library"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <span className="ml-3 text-sm font-medium text-[var(--ink-dark)]">
-              {project?.name || 'Video Editor'}
-            </span>
-          </div>
+          {/* Top Bar - hidden when embedded in window with its own titlebar */}
+          {!hideTopBar && (
+            <div className="h-10 flex items-center px-3 border-b border-[var(--glass-border)] bg-[var(--polar-mist)]">
+              <button
+                onClick={handleBack}
+                className="glass-btn h-7 w-7 flex items-center justify-center"
+                title="Back to Library"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <span className="ml-3 text-sm font-medium text-[var(--ink-dark)]">
+                {project?.name || 'Video Editor'}
+              </span>
+            </div>
+          )}
 
           {/* Video Preview */}
           <div className="flex-1 min-h-0 p-4">

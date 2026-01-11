@@ -4,6 +4,7 @@
 
 use tauri::{Manager, Window, WindowEvent};
 
+use crate::commands::window::video_editor;
 use crate::config;
 
 /// Handle window events for the application.
@@ -35,6 +36,11 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             if label == "library" && config::app::is_close_to_tray() {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+
+            // Clean up video editor window tracking
+            if video_editor::is_video_editor_window(label) {
+                video_editor::on_video_editor_closed(label);
             }
             // Otherwise let the window close normally
         },

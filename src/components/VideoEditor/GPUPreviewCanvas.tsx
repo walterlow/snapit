@@ -58,6 +58,7 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
   const {
     canvasRef,
     isConnected,
+    hasFrame,
     initPreview,
     renderFrame,
     renderTextOnly,
@@ -233,6 +234,25 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
 
   if (!enabled) {
     return null;
+  }
+
+  // Don't render canvas at all until we have a valid frame
+  // This prevents any possibility of showing uninitialized/skewed content
+  if (!hasFrame) {
+    // Still need to render the canvas element for the ref to work,
+    // but keep it completely hidden and off-screen
+    return (
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'absolute',
+          left: -9999,
+          top: -9999,
+          visibility: 'hidden',
+          pointerEvents: 'none',
+        }}
+      />
+    );
   }
 
   // Center the canvas and set explicit pixel dimensions (Cap's approach)

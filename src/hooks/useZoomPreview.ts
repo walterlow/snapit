@@ -367,9 +367,11 @@ export function zoomStateToTransform(
   state: ZoomState,
   options: ZoomTransformOptions = {}
 ): ZoomTransformStyle {
+  // Always use an actual transform (even identity) to ensure consistent GPU compositing
+  // Using 'none' vs actual transforms can cause rendering artifacts
   if (state.scale <= 1.001) {
     return {
-      transform: 'none',
+      transform: 'scale(1)',
       transformOrigin: 'center center',
     };
   }
@@ -441,8 +443,16 @@ export function useZoomPreview(
   const { backgroundPadding = 0, rounding = 0, videoWidth = 1920, videoHeight = 1080 } = options;
 
   return useMemo(() => {
+    // Always return an identity transform instead of 'none'
+    // This ensures consistent GPU compositing and prevents rendering artifacts
+    // that can occur when switching between 'none' and actual transforms
+    const identityTransform: ZoomTransformStyle = {
+      transform: 'scale(1)',
+      transformOrigin: 'center center',
+    };
+
     if (!regions || regions.length === 0) {
-      return { transform: 'none', transformOrigin: 'center center' };
+      return identityTransform;
     }
 
     const state = getZoomStateAt(

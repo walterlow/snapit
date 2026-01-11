@@ -31,6 +31,8 @@ interface UsePreviewStreamResult {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** Whether the stream is connected */
   isConnected: boolean;
+  /** Whether at least one valid frame has been received */
+  hasFrame: boolean;
   /** Current frame number */
   frameNumber: number;
   /** Initialize the preview stream */
@@ -85,6 +87,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
   const initializingRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
+  const [hasFrame, setHasFrame] = useState(false);
   const [frameNumber, setFrameNumber] = useState(0);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
 
@@ -138,6 +141,9 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
     // Create ImageData and draw to canvas
     const imageData = new ImageData(rgbaData, width, height);
     ctx.putImageData(imageData, 0, 0);
+
+    // Mark that we've received a valid frame
+    setHasFrame(true);
   }, []);
 
   // Initialize the preview system
@@ -232,6 +238,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
     }
 
     setIsConnected(false);
+    setHasFrame(false);
     setWsUrl(null);
     initializingRef.current = false;
   }, []);
@@ -249,6 +256,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
   return {
     canvasRef,
     isConnected,
+    hasFrame,
     frameNumber,
     initPreview,
     renderFrame,

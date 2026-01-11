@@ -144,16 +144,6 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
     }
   }, [mode, onPause, onResume]);
 
-  // Get capture button label
-  const getCaptureLabel = () => {
-    switch (captureType) {
-      case 'video': return 'REC';
-      case 'gif': return 'REC';
-      case 'screenshot': return 'SNAP';
-      default: return 'GO';
-    }
-  };
-
   // Disable mode changes during recording
   const handleModeChange = useCallback((newMode: CaptureType) => {
     if (!isRecording && !isStarting && !isProcessing) {
@@ -314,37 +304,33 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
           />
         )}
 
-        {/* Video mode only: Show device selectors (GIF doesn't support audio/webcam) */}
-        {isVideoMode && (
-          <>
-            <div className="glass-divider-vertical" />
+        {/* Device selectors - always visible, disabled when not in video mode */}
+        <div className="glass-divider-vertical" />
 
-            <div className="glass-devices-section">
-              <div className="glass-device-column">
-                <DevicePopover disabled={isRecording || isStarting || isProcessing} />
-                <div className="glass-audio-meter--column-spacer" />
-              </div>
+        <div className={`glass-devices-section ${!isVideoMode ? 'glass-devices-section--disabled' : ''}`}>
+          <div className="glass-device-column">
+            <DevicePopover disabled={!isVideoMode || isRecording || isStarting || isProcessing} />
+            <div className="glass-audio-meter--column-spacer" />
+          </div>
 
-              <div className="glass-device-column">
-                <MicrophonePopover disabled={isRecording || isStarting || isProcessing} />
-                <AudioLevelMeter
-                  enabled
-                  level={isMicEnabled ? micLevel : 0}
-                  className="glass-audio-meter--column"
-                />
-              </div>
+          <div className="glass-device-column">
+            <MicrophonePopover disabled={!isVideoMode || isRecording || isStarting || isProcessing} />
+            <AudioLevelMeter
+              enabled
+              level={isMicEnabled && isVideoMode ? micLevel : 0}
+              className="glass-audio-meter--column"
+            />
+          </div>
 
-              <div className="glass-device-column">
-                <SystemAudioToggle disabled={isRecording || isStarting || isProcessing} />
-                <AudioLevelMeter
-                  enabled
-                  level={isSystemAudioEnabled ? systemLevel : 0}
-                  className="glass-audio-meter--column"
-                />
-              </div>
-            </div>
-          </>
-        )}
+          <div className="glass-device-column">
+            <SystemAudioToggle disabled={!isVideoMode || isRecording || isStarting || isProcessing} />
+            <AudioLevelMeter
+              enabled
+              level={isSystemAudioEnabled && isVideoMode ? systemLevel : 0}
+              className="glass-audio-meter--column"
+            />
+          </div>
+        </div>
 
         <div className="glass-divider-vertical" />
 
@@ -358,14 +344,14 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
         <button
           onClick={onCapture}
-          className="glass-capture-btn-pill"
+          className="glass-capture-btn-hardware"
           title={captureType === 'screenshot' ? 'Take screenshot' : (isVideoMode && settings.video.quickCapture ? 'Start quick recording' : 'Start recording')}
           disabled={!selectionConfirmed}
         >
           {isVideoMode && settings.video.quickCapture && (
-            <Zap size={12} strokeWidth={2.5} className="glass-capture-btn-icon" />
+            <Zap size={10} strokeWidth={2.5} className="glass-capture-btn-zap" />
           )}
-          <span className="glass-capture-btn-label">{getCaptureLabel()}</span>
+          <Circle size={14} fill="currentColor" strokeWidth={0} />
         </button>
       </div>
     </div>

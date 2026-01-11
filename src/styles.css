@@ -3566,6 +3566,15 @@ body.overlay-window #root {
   gap: 4px;
 }
 
+.glass-devices-section--disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.glass-devices-section--disabled * {
+  pointer-events: none;
+}
+
 .glass-device-btn {
   display: flex;
   align-items: center;
@@ -3657,68 +3666,87 @@ body.overlay-window #root {
   cursor: grabbing;
 }
 
-/* Pill-shaped capture button */
-.glass-capture-btn-pill {
+/* Hardware-style capture button */
+.glass-capture-btn-hardware {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 18px;
+  width: 38px;
+  height: 38px;
   border: none;
-  border-radius: 20px;
+  border-radius: 50%;
   cursor: pointer;
-  background: linear-gradient(
-    135deg,
-    #ef4444 0%,
-    #dc2626 100%
+  color: white;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(255, 120, 120, 0.4) 0%, transparent 50%),
+    linear-gradient(180deg, #dc2626 0%, #991b1b 100%);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.15) inset,
+    0 -1px 0 0 rgba(0, 0, 0, 0.3) inset,
+    0 4px 8px rgba(0, 0, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
+  transition: all 0.1s ease;
+}
+
+.glass-capture-btn-hardware::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    transparent 40%
   );
+  pointer-events: none;
+}
+
+.glass-capture-btn-hardware:hover {
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(255, 140, 140, 0.5) 0%, transparent 50%),
+    linear-gradient(180deg, #ef4444 0%, #b91c1c 100%);
   box-shadow:
-    0 4px 12px rgba(239, 68, 68, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
-  transition: all 0.15s ease;
+    0 1px 0 0 rgba(255, 255, 255, 0.2) inset,
+    0 -1px 0 0 rgba(0, 0, 0, 0.3) inset,
+    0 6px 12px rgba(220, 38, 38, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
-.glass-capture-btn-pill:hover {
-  transform: scale(1.03);
+.glass-capture-btn-hardware:active {
+  transform: translateY(1px);
   box-shadow:
-    0 6px 18px rgba(239, 68, 68, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    0 1px 0 0 rgba(255, 255, 255, 0.1) inset,
+    0 -1px 0 0 rgba(0, 0, 0, 0.2) inset,
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
-.glass-capture-btn-pill:active {
-  transform: scale(0.98);
-}
-
-.glass-capture-btn-pill:disabled {
-  opacity: 0.4;
+.glass-capture-btn-hardware:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
   transform: none;
+  background:
+    linear-gradient(180deg, #6b7280 0%, #4b5563 100%);
   box-shadow:
-    0 2px 6px rgba(239, 68, 68, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
+    0 -1px 0 0 rgba(0, 0, 0, 0.2) inset,
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(0, 0, 0, 0.15);
 }
 
-.glass-capture-btn-pill:disabled:hover {
+.glass-capture-btn-hardware:disabled:hover {
   transform: none;
-  box-shadow:
-    0 2px 6px rgba(239, 68, 68, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-.glass-capture-btn-pill .glass-capture-btn-label {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: white;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-/* Quick capture icon in REC button */
-.glass-capture-btn-icon {
-  color: white;
-  margin-right: 4px;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
+/* Quick capture zap icon */
+.glass-capture-btn-zap {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  color: rgba(255, 255, 255, 0.9);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
 }
 
 /* Recording UI sections */

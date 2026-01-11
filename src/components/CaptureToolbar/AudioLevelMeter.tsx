@@ -77,25 +77,21 @@ export const AudioLevelMeter: React.FC<AudioLevelMeterProps> = ({
   });
 
   // Use external level if provided, otherwise use browser level
-  const displayLevel = isExternalMode ? externalLevel : browserLevel;
+  // Show 0 when disabled
+  const displayLevel = !enabled ? 0 : (isExternalMode ? externalLevel : browserLevel);
 
   // Calculate fill percentage
   const fillPercent = Math.round(displayLevel * 100);
 
-  // Don't render if disabled
-  if (!enabled) {
-    return null;
-  }
-
-  // In self-managed mode, also don't render if no device selected
-  if (!isExternalMode && (deviceIndex === null || deviceIndex === undefined)) {
+  // In self-managed mode, don't render if no device selected (and enabled)
+  if (!isExternalMode && enabled && (deviceIndex === null || deviceIndex === undefined)) {
     return null;
   }
 
   return (
     <div
       className={`glass-audio-meter ${className}`}
-      title={isExternalMode || isActive ? `Audio level: ${fillPercent}%` : 'Connecting...'}
+      title={!enabled ? 'Disabled' : (isExternalMode || isActive ? `Audio level: ${fillPercent}%` : 'Connecting...')}
     >
       <div className="glass-audio-meter-fill" style={{ width: `${fillPercent}%` }} />
     </div>

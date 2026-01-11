@@ -624,16 +624,6 @@ export function GPUVideoPreview() {
     return style;
   }, [backgroundConfig, previewScale]);
 
-  // Container style (memoized)
-  // When frame styling is enabled, the parent wrapper handles aspect ratio via compositeAspectRatio
-  // When disabled, the container itself maintains the video aspect ratio
-  const containerStyle = useMemo(() => ({
-    aspectRatio: hasFrameStyling ? undefined : aspectRatio,
-    maxWidth: hasFrameStyling ? undefined : '100%',
-    maxHeight: hasFrameStyling ? undefined : '100%',
-    filter: hasFrameStyling ? undefined : 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
-  }), [aspectRatio, hasFrameStyling]);
-
   // Initialize playback engine when project loads
   useEffect(() => {
     if (project?.timeline.durationMs) {
@@ -866,8 +856,8 @@ export function GPUVideoPreview() {
       <div
         className="flex items-center justify-center relative"
         style={{
-          // Use composite aspect ratio when frame styling is enabled
-          aspectRatio: hasFrameStyling ? compositeAspectRatio : undefined,
+          // Use composite aspect ratio when frame styling enabled, video aspect ratio when disabled
+          aspectRatio: hasFrameStyling ? compositeAspectRatio : aspectRatio,
           maxWidth: '100%',
           maxHeight: '100%',
           padding: hasFrameStyling ? (backgroundConfig?.padding ?? 0) * previewScale : undefined,

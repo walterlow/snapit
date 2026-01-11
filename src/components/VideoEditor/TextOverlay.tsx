@@ -372,10 +372,13 @@ export const TextOverlay = memo(function TextOverlay({
   const currentTimeSec = currentTimeMs / 1000;
 
   // Filter segments that are active at current time and enabled
-  const activeSegments = useMemo(() =>
-    segments.filter(
-      (seg) => seg.enabled && currentTimeSec >= seg.start && currentTimeSec <= seg.end
-    ),
+  // Keep track of original index for ID generation
+  const activeSegmentsWithIndex = useMemo(() =>
+    segments
+      .map((seg, originalIndex) => ({ segment: seg, originalIndex }))
+      .filter(
+        ({ segment: seg }) => seg.enabled && currentTimeSec >= seg.start && currentTimeSec <= seg.end
+      ),
     [segments, currentTimeSec]
   );
 
@@ -387,13 +390,13 @@ export const TextOverlay = memo(function TextOverlay({
     }
   }, [selectTextSegment]);
 
-  // Generate stable IDs for segments based on start time only (not content)
-  // This ensures the ID doesn't change when editing text content
+  // Generate stable IDs for segments based on start time and ORIGINAL index
+  // This must match TextTrack's ID generation exactly
   const segmentIds = useMemo(() =>
-    activeSegments.map((seg, index) =>
-      `text_${seg.start.toFixed(3)}_${index}`
+    activeSegmentsWithIndex.map(({ segment: seg, originalIndex }) =>
+      `text_${seg.start.toFixed(3)}_${originalIndex}`
     ),
-    [activeSegments]
+    [activeSegmentsWithIndex]
   );
 
   const hasSelection = selectedTextSegmentId !== null;
@@ -403,7 +406,7 @@ export const TextOverlay = memo(function TextOverlay({
       className={`absolute inset-0 ${hasSelection ? '' : 'pointer-events-none'}`}
       onClick={handleContainerClick}
     >
-      {activeSegments.map((segment, index) => (
+      {activeSegmentsWithIndex.map(({ segment }, index) => (
         <TextItem
           key={segmentIds[index]}
           segment={segment}

@@ -379,8 +379,13 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         // Sort by start time (Cap uses seconds)
         segments.sort((a, b) => a.start - b.start);
 
-        // Generate ID for selection (matches frontend component ID generation)
-        const segmentId = `text_${segment.start}_${segment.content?.slice(0, 10) || 'empty'}`;
+        // Find the index of the newly added segment after sorting
+        const newIndex = segments.findIndex(
+          (s) => Math.abs(s.start - segment.start) < 0.001
+        );
+
+        // Generate ID for selection (matches frontend component ID generation: text_<start>_<index>)
+        const segmentId = `text_${segment.start.toFixed(3)}_${newIndex}`;
 
         set({
           project: {
@@ -399,20 +404,20 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         if (!project) return;
 
         // Find segment by generated ID (format: text_<start>_<index>)
-        // We only need the start time as unique identifier
-        const idParts = id.match(/^text_([0-9.]+)_/);
+        // Use index for reliable matching during drag (start time changes)
+        const idParts = id.match(/^text_[0-9.]+_(\d+)$/);
         if (!idParts) return;
 
-        const targetStart = parseFloat(idParts[1]);
+        const targetIndex = parseInt(idParts[1], 10);
+        if (targetIndex < 0 || targetIndex >= project.text.segments.length) return;
 
         set({
           project: {
             ...project,
             text: {
               ...project.text,
-              segments: project.text.segments.map((s) => {
-                // Match by start time (unique identifier)
-                if (Math.abs(s.start - targetStart) < 0.001) {
+              segments: project.text.segments.map((s, idx) => {
+                if (idx === targetIndex) {
                   return { ...s, ...updates };
                 }
                 return s;
@@ -427,21 +432,19 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         if (!project) return;
 
         // Find segment by generated ID (format: text_<start>_<index>)
-        // We only need the start time as unique identifier
-        const idParts = id.match(/^text_([0-9.]+)_/);
+        // Use index for reliable matching
+        const idParts = id.match(/^text_[0-9.]+_(\d+)$/);
         if (!idParts) return;
 
-        const targetStart = parseFloat(idParts[1]);
+        const targetIndex = parseInt(idParts[1], 10);
+        if (targetIndex < 0 || targetIndex >= project.text.segments.length) return;
 
         set({
           project: {
             ...project,
             text: {
               ...project.text,
-              segments: project.text.segments.filter((s) => {
-                // Keep segments that don't match by start time
-                return Math.abs(s.start - targetStart) >= 0.001;
-              }),
+              segments: project.text.segments.filter((_, idx) => idx !== targetIndex),
             },
           },
           selectedTextSegmentId: selectedTextSegmentId === id ? null : selectedTextSegmentId,

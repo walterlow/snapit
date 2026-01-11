@@ -304,16 +304,14 @@ export const TextTrack = memo(function TextTrack({
       fadeDuration: 0.15,
     };
 
+    // addTextSegment handles selection internally after sorting
     addTextSegment(newSegment);
+  }, [previewSegmentDetails, addTextSegment]);
 
-    // Generate ID for selection (matches the pattern used in TextSegmentItem)
-    const newSegmentId = `text_${newSegment.start}_${newSegment.content?.slice(0, 10) || 'empty'}`;
-    selectTextSegment(newSegmentId);
-  }, [previewSegmentDetails, addTextSegment, selectTextSegment]);
-
-  // Generate stable IDs for segments
+  // Generate IDs for segments - must match TextOverlay's ID generation
+  // Uses start time + index for selection matching, but key uses just index for stability during drag
   const getSegmentId = useCallback((segment: TextSegment, index: number) => {
-    return `text_${segment.start}_${segment.content?.slice(0, 10) || index}`;
+    return `text_${segment.start.toFixed(3)}_${index}`;
   }, []);
 
   return (
@@ -340,7 +338,7 @@ export const TextTrack = memo(function TextTrack({
           const segmentId = getSegmentId(segment, index);
           return (
             <TextSegmentItem
-              key={segmentId}
+              key={`text_segment_${index}`}  // Use stable key (index doesn't change during drag)
               segment={segment}
               segmentId={segmentId}
               isSelected={segmentId === selectedTextSegmentId}

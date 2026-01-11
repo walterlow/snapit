@@ -1,0 +1,3533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnapIt - Hardware UI Mockup v4</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      /* Chassis colors */
+      --chassis: #2a2a2d;
+      --chassis-dark: #232326;
+      --chassis-darker: #1a1a1d;
+      --chassis-darkest: #131315;
+      --chassis-light: #353538;
+      --chassis-lighter: #3f3f43;
+
+      /* Panel colors */
+      --panel: #252528;
+      --panel-dark: #1f1f22;
+      --panel-border: #1c1c1e;
+      --panel-inset: #161618;
+
+      /* Screen */
+      --screen-bg: #0e0e10;
+
+      /* Accent */
+      --coral: #F97066;
+      --coral-dark: #d85a50;
+      --coral-darker: #a04038;
+      --coral-glow: rgba(249, 112, 102, 0.4);
+      --coral-dim: rgba(249, 112, 102, 0.6);
+
+      /* Text */
+      --text-bright: #e8e8ea;
+      --text-primary: #b0b0b4;
+      --text-label: #5a5a60;
+      --text-dim: #404046;
+      --text-faint: #2a2a2e;
+
+      /* Status */
+      --led-on: #4ade80;
+      --led-off: #1a1a1d;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--chassis-darkest);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* === REFINED TEXTURE === */
+    .textured {
+      position: relative;
+    }
+
+    .textured::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      opacity: 0.04;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    .textured::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.01) 0%, transparent 50%),
+        radial-gradient(ellipse at 70% 80%, rgba(0,0,0,0.1) 0%, transparent 50%);
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    /* === APP FRAME === */
+    .app-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 6px;
+      gap: 4px;
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--chassis-darkest) 100%);
+    }
+
+    /* === PANEL BASE === */
+    .panel {
+      background: var(--panel);
+      border-radius: 8px;
+      position: relative;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.4),
+        0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+
+    .panel-border {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      border: 1px solid var(--panel-border);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* === SCREW === */
+    .screw {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      background:
+        radial-gradient(circle at 30% 30%, var(--chassis-light) 0%, var(--chassis-dark) 50%, var(--panel-border) 100%);
+      border-radius: 50%;
+      box-shadow:
+        inset 0 1px 3px rgba(0, 0, 0, 0.8),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+      z-index: 10;
+    }
+
+    .screw::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 6px;
+      height: 1.5px;
+      background: linear-gradient(90deg, var(--panel-border) 0%, var(--chassis-darker) 50%, var(--panel-border) 100%);
+      transform: translate(-50%, -50%) rotate(35deg);
+    }
+
+    .screw.tl { top: 6px; left: 6px; }
+    .screw.tr { top: 6px; right: 6px; }
+    .screw.bl { bottom: 6px; left: 6px; }
+    .screw.br { bottom: 6px; right: 6px; }
+
+    /* === GRILLE COMPONENTS === */
+
+    /* Circular grille (speaker style) - higher contrast */
+    .grille-circular {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      background: var(--chassis-darkest);
+      border-radius: 50%;
+      box-shadow:
+        inset 0 4px 12px rgba(0, 0, 0, 0.8),
+        inset 0 -2px 4px rgba(255, 255, 255, 0.02),
+        0 2px 4px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+
+    .grille-circular::before {
+      content: '';
+      position: absolute;
+      inset: 6px;
+      background-image: radial-gradient(circle, rgba(55, 55, 60, 0.9) 2px, transparent 2px);
+      background-size: 8px 8px;
+      border-radius: 50%;
+    }
+
+    .grille-circular::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.04) 0%, transparent 50%);
+      border-radius: 50%;
+    }
+
+    /* Circular grille - small */
+    .grille-circular.sm {
+      width: 48px;
+      height: 48px;
+    }
+
+    .grille-circular.sm::before {
+      inset: 4px;
+      background-size: 6px 6px;
+    }
+
+    /* Circular grille - large */
+    .grille-circular.lg {
+      width: 120px;
+      height: 120px;
+    }
+
+    .grille-circular.lg::before {
+      inset: 8px;
+      background-size: 10px 10px;
+    }
+
+    /* Diagonal grille - higher contrast */
+    .grille-diagonal {
+      position: relative;
+      background: var(--chassis-darkest);
+      border-radius: 6px;
+      box-shadow:
+        inset 0 3px 8px rgba(0, 0, 0, 0.7),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+
+    .grille-diagonal::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 2px,
+        rgba(60, 60, 65, 0.8) 2px,
+        rgba(60, 60, 65, 0.8) 4px
+      );
+      border-radius: 4px;
+    }
+
+    .grille-diagonal::after {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      background: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 2px,
+        rgba(60, 60, 65, 0.8) 2px,
+        rgba(60, 60, 65, 0.8) 4px
+      );
+      border-radius: 4px;
+    }
+
+    /* Horizontal slat grille - higher contrast */
+    .grille-slats {
+      position: relative;
+      background: var(--chassis-darkest);
+      border-radius: 6px;
+      box-shadow:
+        inset 0 3px 8px rgba(0, 0, 0, 0.7),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+
+    .grille-slats::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 3px,
+        rgba(55, 55, 60, 0.9) 3px,
+        rgba(55, 55, 60, 0.9) 5px
+      );
+      border-radius: 4px;
+    }
+
+    /* Dot matrix grille - higher contrast */
+    .grille-dots {
+      position: relative;
+      background: var(--chassis-darkest);
+      border-radius: 6px;
+      box-shadow:
+        inset 0 3px 8px rgba(0, 0, 0, 0.7),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+
+    .grille-dots::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      background-image: radial-gradient(circle, rgba(70, 70, 75, 0.9) 1.5px, transparent 1.5px);
+      background-size: 6px 6px;
+      border-radius: 4px;
+    }
+
+    /* Hex grille - higher contrast */
+    .grille-hex {
+      position: relative;
+      background: var(--chassis-darkest);
+      border-radius: 6px;
+      box-shadow:
+        inset 0 3px 8px rgba(0, 0, 0, 0.7),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+
+    .grille-hex::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      background-image:
+        radial-gradient(circle, rgba(65, 65, 70, 0.9) 2px, transparent 2px);
+      background-size: 12px 10px;
+      background-position: 0 0, 6px 5px;
+      border-radius: 4px;
+    }
+
+    .grille-hex::after {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      background-image:
+        radial-gradient(circle, rgba(65, 65, 70, 0.9) 2px, transparent 2px);
+      background-size: 12px 10px;
+      background-position: 6px 5px;
+      border-radius: 4px;
+    }
+
+    /* === WINDOWS TITLE BAR === */
+    .title-bar {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 0;
+      -webkit-app-region: drag;
+      background: linear-gradient(180deg, var(--chassis-dark) 0%, var(--chassis-darker) 100%);
+      border-radius: 6px 6px 0 0;
+      position: relative;
+    }
+
+    .title-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-left: 4px;
+    }
+
+    .title-icon {
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .title-icon svg {
+      width: 14px;
+      height: 14px;
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral-glow));
+    }
+
+    .title-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+    }
+
+    /* Titlebar grille - decorative strip */
+    .title-grille {
+      flex: 1;
+      height: 20px;
+      margin: 0 20px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow:
+        inset 0 2px 6px rgba(0, 0, 0, 0.6),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Diagonal cross-hatch pattern */
+    .title-grille::before {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      background:
+        repeating-linear-gradient(
+          45deg,
+          transparent,
+          transparent 1.5px,
+          rgba(19, 19, 21, 0.8) 1.5px,
+          rgba(19, 19, 21, 0.8) 3px
+        ),
+        repeating-linear-gradient(
+          -45deg,
+          transparent,
+          transparent 1.5px,
+          rgba(19, 19, 21, 0.8) 1.5px,
+          rgba(19, 19, 21, 0.8) 3px
+        );
+      border-radius: 3px;
+    }
+
+    /* Subtle coral accent line at center */
+    .title-grille::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 10%;
+      right: 10%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, var(--coral-darker) 30%, var(--coral-darker) 70%, transparent 100%);
+      opacity: 0.3;
+      transform: translateY(-50%);
+    }
+
+    /* Windows controls container */
+    .window-controls {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      -webkit-app-region: no-drag;
+      margin-left: auto;
+    }
+
+    .win-btn {
+      width: 46px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .win-btn svg {
+      width: 12px;
+      height: 12px;
+      color: var(--text-label);
+      transition: color 0.15s;
+    }
+
+    .win-btn:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .win-btn:hover svg {
+      color: var(--text-primary);
+    }
+
+    .win-btn:active {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    /* Close button special styling */
+    .win-btn.close:hover {
+      background: #c42b1c;
+    }
+
+    .win-btn.close:hover svg {
+      color: white;
+    }
+
+    .win-btn.close:active {
+      background: #b02a1a;
+    }
+
+    /* ============================================
+       CAPTURE BAR SECTION
+       ============================================ */
+    .capture-bar {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+    }
+
+    .panel-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* === BUTTON STYLES === */
+    .hw-btn {
+      width: 64px;
+      height: 56px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .hw-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .hw-btn:active {
+      transform: translateY(2px);
+      box-shadow:
+        0 1px 0 var(--panel-border),
+        0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Active state - coral filled */
+    .hw-btn.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 3px 0 var(--coral-darker),
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        0 0 20px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    /* Selected state - coral outline */
+    .hw-btn.selected {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        inset 0 0 0 1px var(--coral),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    /* === INSET/PRESSED STATE === */
+    .hw-btn.pressed {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--chassis-dark) 100%);
+      box-shadow:
+        inset 0 3px 6px rgba(0, 0, 0, 0.6),
+        inset 0 1px 2px rgba(0, 0, 0, 0.4),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+      transform: translateY(1px);
+    }
+
+    .hw-btn.pressed svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral-glow));
+    }
+
+    .hw-btn.pressed span {
+      color: var(--coral);
+    }
+
+    /* Pressed + active (coral inset) */
+    .hw-btn.pressed.lit {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      box-shadow:
+        inset 0 3px 8px rgba(0, 0, 0, 0.7),
+        inset 0 0 12px rgba(249, 112, 102, 0.15),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .hw-btn.pressed.lit svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 6px var(--coral));
+    }
+
+    .hw-btn svg {
+      width: 18px;
+      height: 18px;
+      color: var(--text-label);
+      transition: all 0.15s;
+    }
+
+    .hw-btn:hover svg { color: var(--text-primary); }
+    .hw-btn.active svg { color: white; }
+    .hw-btn.selected svg { color: var(--text-primary); }
+
+    .hw-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+      transition: all 0.15s;
+    }
+
+    .hw-btn:hover span { color: var(--text-label); }
+    .hw-btn.active span { color: rgba(255,255,255,0.9); }
+    .hw-btn.selected span { color: var(--text-label); }
+
+    /* Small square button */
+    .hw-btn-sq {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow:
+        0 2px 0 var(--panel-border),
+        0 3px 6px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      transition: all 0.1s;
+    }
+
+    .hw-btn-sq:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .hw-btn-sq:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border);
+    }
+
+    .hw-btn-sq.pressed {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--chassis-dark) 100%);
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.6),
+        inset 0 1px 2px rgba(0, 0, 0, 0.4),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .hw-btn-sq.pressed.lit {
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.6),
+        inset 0 0 8px rgba(249, 112, 102, 0.2),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .hw-btn-sq.pressed.lit svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral));
+    }
+
+    .hw-btn-sq svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-label);
+    }
+
+    .hw-btn-sq:hover svg { color: var(--text-primary); }
+
+    /* Mode Panel */
+    .mode-panel {
+      padding: 20px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* Source Panel */
+    .source-panel {
+      padding: 20px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* === HARDWARE SWITCHES === */
+    .switch-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .hw-switch {
+      position: relative;
+      width: 28px;
+      height: 48px;
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      border-radius: 14px;
+      cursor: pointer;
+      box-shadow:
+        inset 0 2px 6px rgba(0, 0, 0, 0.8),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.03),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+
+    .hw-switch::before {
+      content: '';
+      position: absolute;
+      top: 4px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 20px;
+      height: 20px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 10px;
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 0 -1px 2px rgba(0, 0, 0, 0.3);
+      transition: all 0.15s ease;
+    }
+
+    .hw-switch.on::before {
+      top: 24px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.6),
+        0 0 12px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .hw-toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.7),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .hw-toggle::before {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 50%;
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      transition: all 0.15s ease;
+    }
+
+    .hw-toggle.on::before {
+      left: 23px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        0 0 10px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .hw-rocker {
+      position: relative;
+      width: 32px;
+      height: 52px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow:
+        inset 0 0 0 1px var(--panel-border),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+
+    .hw-rocker::before {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      right: 2px;
+      height: 24px;
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      border-radius: 3px 3px 2px 2px;
+      box-shadow:
+        0 2px 3px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      transition: all 0.1s ease;
+    }
+
+    .hw-rocker.on::before {
+      top: 26px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 -2px 3px rgba(0, 0, 0, 0.3),
+        0 0 12px var(--coral-glow),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.1);
+    }
+
+    .switch-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* Devices Panel */
+    .devices-panel {
+      padding: 20px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .devices-row {
+      display: flex;
+      gap: 14px;
+      align-items: flex-end;
+    }
+
+    .device-control {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .device-knob {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, var(--chassis-light) 0%, var(--chassis-darker) 100%);
+      box-shadow:
+        0 3px 8px rgba(0, 0, 0, 0.6),
+        inset 0 1px 2px rgba(255, 255, 255, 0.06),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.4);
+      position: relative;
+      cursor: pointer;
+    }
+
+    .device-knob::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 28px;
+      height: 28px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+    }
+
+    .device-knob::after {
+      content: '';
+      position: absolute;
+      top: 5px;
+      left: 50%;
+      width: 2px;
+      height: 8px;
+      background: var(--text-dim);
+      border-radius: 1px;
+      transform: translateX(-50%) rotate(var(--rotation, 0deg));
+      transform-origin: center 15px;
+    }
+
+    .device-knob.active::after {
+      background: var(--coral);
+      box-shadow: 0 0 6px var(--coral);
+    }
+
+    .device-knob.off {
+      opacity: 0.4;
+    }
+
+    /* Animated knob - indicator sweeps between 10 o'clock and 2 o'clock */
+    .device-knob.animated::after {
+      animation: knob-level-sweep 2s ease-in-out infinite;
+      background: var(--coral);
+      box-shadow: 0 0 6px var(--coral);
+    }
+
+    .device-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* LED indicator */
+    .led {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--led-off);
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.6);
+    }
+
+    .led.on {
+      background: var(--led-on);
+      box-shadow: 0 0 8px var(--led-on), inset 0 1px 2px rgba(255,255,255,0.3);
+    }
+
+    .led.coral {
+      background: var(--coral);
+      box-shadow: 0 0 8px var(--coral), inset 0 1px 2px rgba(255,255,255,0.3);
+    }
+
+    /* === AUDIO INPUT CONTROL (rotating switch + LED meter) === */
+    .audio-input-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .audio-switch-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Rotating toggle switch */
+    .rotate-switch {
+      position: relative;
+      width: 32px;
+      height: 20px;
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.8),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+      overflow: visible;
+    }
+
+    .rotate-switch-lever {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      right: 3px;
+      height: 14px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 3px;
+      transform-origin: center center;
+      transform: perspective(100px) rotateX(25deg);
+      transition: all 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    }
+
+    .rotate-switch.on .rotate-switch-lever {
+      transform: perspective(100px) rotateX(-25deg);
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 -2px 4px rgba(0, 0, 0, 0.3),
+        0 0 12px var(--coral-glow),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.15);
+    }
+
+    /* Switch indicator LED */
+    .switch-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--chassis-darkest);
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.8);
+      transition: all 0.2s ease;
+    }
+
+    .rotate-switch.on + .switch-indicator,
+    .audio-switch-group.on .switch-indicator {
+      background: var(--coral);
+      box-shadow:
+        0 0 10px var(--coral),
+        0 0 20px var(--coral-glow),
+        inset 0 1px 2px rgba(255, 255, 255, 0.3);
+      animation: led-glow-pulse 2s ease-in-out infinite;
+    }
+
+    /* Mini LED meter (vertical) - red at top, green at bottom */
+    .mini-meter {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 4px 3px;
+      background: var(--chassis-darkest);
+      border-radius: 3px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+    }
+
+    .mini-meter-seg {
+      width: 6px;
+      height: 4px;
+      border-radius: 1px;
+      background: var(--chassis-dark);
+      transition: all 0.1s ease;
+    }
+
+    /* Green segments (bottom) */
+    .mini-meter-seg.green.lit {
+      background: #4ade80;
+      box-shadow: 0 0 6px #4ade80;
+    }
+
+    /* Yellow segments (middle) */
+    .mini-meter-seg.yellow.lit {
+      background: #facc15;
+      box-shadow: 0 0 6px #facc15;
+    }
+
+    /* Red segments (top) */
+    .mini-meter-seg.red.lit {
+      background: #ef4444;
+      box-shadow: 0 0 6px #ef4444;
+    }
+
+    /* Meter animation */
+    @keyframes meter-bounce {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .mini-meter.active .mini-meter-seg.lit {
+      animation: meter-bounce 0.3s ease-in-out infinite;
+      animation-delay: calc(var(--seg-index, 0) * 0.05s);
+    }
+
+    /* Record Panel */
+    .record-panel {
+      padding: 20px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .record-btn {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      box-shadow:
+        0 4px 0 var(--coral-darker),
+        0 6px 16px rgba(0, 0, 0, 0.6),
+        0 0 32px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      transition: all 0.1s;
+    }
+
+    .record-btn:hover {
+      background: linear-gradient(180deg, #ff8a7a 0%, var(--coral) 100%);
+      box-shadow:
+        0 4px 0 var(--coral-darker),
+        0 6px 16px rgba(0, 0, 0, 0.6),
+        0 0 48px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    }
+
+    .record-btn:active {
+      transform: translateY(3px);
+      box-shadow:
+        0 1px 0 var(--coral-darker),
+        0 2px 6px rgba(0, 0, 0, 0.5),
+        0 0 20px var(--coral-glow);
+    }
+
+    .record-btn svg {
+      width: 20px;
+      height: 20px;
+      color: white;
+    }
+
+    .record-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: 0.1em;
+    }
+
+    /* Grille panel */
+    .grille-panel {
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ============================================
+       LIBRARY SECTION
+       ============================================ */
+    .library-section {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .library-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .toolbar-btn {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow:
+        0 2px 0 var(--panel-border),
+        0 2px 4px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      transition: all 0.1s;
+    }
+
+    .toolbar-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .toolbar-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border);
+    }
+
+    .toolbar-btn.pressed {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--chassis-dark) 100%);
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.5),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .toolbar-btn.pressed.lit {
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.5),
+        inset 0 0 6px rgba(249, 112, 102, 0.15),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .toolbar-btn.pressed.lit svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 3px var(--coral));
+    }
+
+    .toolbar-btn svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-label);
+    }
+
+    .toolbar-btn:hover svg { color: var(--text-primary); }
+
+    .search-input-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--panel-inset);
+      border-radius: 5px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+      flex: 1;
+      max-width: 240px;
+    }
+
+    .search-input-wrap svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .search-input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      color: var(--text-primary);
+    }
+
+    .search-input::placeholder {
+      color: var(--text-dim);
+    }
+
+    .toolbar-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--panel-border);
+      margin: 0 4px;
+    }
+
+    .toolbar-spacer {
+      flex: 1;
+    }
+
+    /* Library Content */
+    .library-content {
+      flex: 1;
+      padding: 16px 20px;
+      overflow-y: auto;
+    }
+
+    .date-group {
+      margin-bottom: 24px;
+    }
+
+    .date-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .date-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .date-line {
+      flex: 1;
+      height: 1px;
+      background: var(--panel-border);
+    }
+
+    .date-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-faint);
+    }
+
+    .capture-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    /* Grooved/inset card style - recessed into chassis */
+    .capture-card {
+      background: var(--chassis-darkest);
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+      /* Deep inset groove effect - carved into the chassis */
+      box-shadow:
+        inset 0 3px 6px rgba(0, 0, 0, 0.9),
+        inset 0 1px 2px rgba(0, 0, 0, 0.95),
+        inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+        0 1px 0 rgba(80, 80, 85, 0.12);
+    }
+
+    /* Groove border lines */
+    .capture-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      border: 1px solid transparent;
+      border-top-color: rgba(0, 0, 0, 0.7);
+      border-left-color: rgba(0, 0, 0, 0.6);
+      border-bottom-color: rgba(75, 75, 80, 0.25);
+      border-right-color: rgba(75, 75, 80, 0.25);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .capture-card:hover {
+      background: var(--panel-inset);
+      box-shadow:
+        inset 0 4px 8px rgba(0, 0, 0, 0.95),
+        inset 0 1px 3px rgba(0, 0, 0, 1),
+        inset 0 0 0 1px rgba(0, 0, 0, 0.7),
+        inset 0 0 16px rgba(249, 112, 102, 0.08),
+        0 1px 0 rgba(80, 80, 85, 0.12);
+    }
+
+    .capture-card.selected {
+      box-shadow:
+        inset 0 4px 8px rgba(0, 0, 0, 0.9),
+        inset 0 1px 3px rgba(0, 0, 0, 1),
+        inset 0 0 0 1px var(--coral),
+        inset 0 0 20px rgba(249, 112, 102, 0.15),
+        0 1px 0 rgba(80, 80, 85, 0.12);
+    }
+
+    .capture-card.selected::before {
+      border-color: var(--coral-dark);
+    }
+
+    .capture-thumb {
+      aspect-ratio: 16/10;
+      background: linear-gradient(135deg, var(--chassis-dark) 0%, var(--chassis-darkest) 100%);
+      position: relative;
+    }
+
+    .capture-type-badge {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      padding: 3px 6px;
+      background: rgba(0, 0, 0, 0.75);
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .capture-type-badge.video { color: var(--coral); }
+    .capture-type-badge.gif { color: #a78bfa; }
+    .capture-type-badge.photo { color: #60a5fa; }
+
+    .capture-duration {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      padding: 2px 6px;
+      background: rgba(0, 0, 0, 0.85);
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-bright);
+    }
+
+    .capture-favorite {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      color: var(--coral);
+    }
+
+    .capture-favorite svg {
+      width: 14px;
+      height: 14px;
+      fill: var(--coral);
+    }
+
+    .capture-info {
+      padding: 10px;
+    }
+
+    .capture-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .capture-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-dim);
+    }
+
+    /* ============================================
+       REFERENCE SECTION
+       ============================================ */
+    .reference-section {
+      padding: 40px 20px;
+      background: var(--chassis-darkest);
+      border-top: 4px solid var(--panel-border);
+    }
+
+    .reference-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-dim);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 32px;
+      text-align: center;
+    }
+
+    .reference-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .reference-card {
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+
+    .reference-card-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .reference-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: flex-end;
+    }
+
+    .reference-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .reference-item-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    /* ============================================
+       NEW COMPONENTS - VIDEO/IMAGE EDITOR
+       ============================================ */
+
+    /* Transport Controls */
+    .transport-btn {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: all 0.1s;
+    }
+
+    .transport-btn svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-label);
+    }
+
+    .transport-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .transport-btn:hover svg {
+      color: var(--text-primary);
+    }
+
+    .transport-btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 var(--panel-border);
+    }
+
+    .transport-btn.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 3px 0 var(--coral-darker),
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        0 0 16px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .transport-btn.active svg {
+      color: white;
+    }
+
+    .transport-btn.rec {
+      background: linear-gradient(180deg, #dc2626 0%, #991b1b 100%);
+      box-shadow:
+        0 3px 0 #7f1d1d,
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        0 0 16px rgba(220, 38, 38, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .transport-btn.rec svg {
+      color: white;
+    }
+
+    /* LCD Display */
+    .lcd-display {
+      background: #0a1a12;
+      border-radius: 4px;
+      padding: 8px 16px;
+      box-shadow:
+        inset 0 2px 6px rgba(0, 0, 0, 0.8),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+      border: 1px solid #0d2818;
+    }
+
+    .lcd-display.small {
+      padding: 6px 12px;
+    }
+
+    .lcd-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px;
+      font-weight: 700;
+      color: #4ade80;
+      text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+      letter-spacing: 0.1em;
+    }
+
+    .lcd-display.small .lcd-text {
+      font-size: 12px;
+    }
+
+    /* VU Meter */
+    .vu-meter.vertical {
+      display: flex;
+      gap: 4px;
+      height: 80px;
+    }
+
+    .vu-track {
+      width: 16px;
+      height: 100%;
+      background: var(--chassis-darker);
+      border-radius: 3px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .vu-fill {
+      position: absolute;
+      bottom: 0;
+      left: 2px;
+      right: 2px;
+      height: var(--level, 50%);
+      background: linear-gradient(0deg, #22c55e 0%, #84cc16 60%, #facc15 80%, #ef4444 100%);
+      border-radius: 2px;
+      transition: height 0.1s;
+    }
+
+    .vu-peak {
+      position: absolute;
+      bottom: var(--peak, 70%);
+      left: 2px;
+      right: 2px;
+      height: 2px;
+      background: #ef4444;
+      box-shadow: 0 0 4px #ef4444;
+    }
+
+    .vu-scale {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7px;
+      color: var(--text-dim);
+    }
+
+    /* LED Level Meter */
+    .level-dots {
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 3px;
+    }
+
+    .level-dot {
+      width: 20px;
+      height: 6px;
+      background: var(--chassis-darker);
+      border-radius: 2px;
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+    }
+
+    .level-dot.on {
+      background: #22c55e;
+      box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+    }
+
+    .level-dot.on.yellow {
+      background: #facc15;
+      box-shadow: 0 0 6px rgba(250, 204, 21, 0.6);
+    }
+
+    .level-dot.red {
+      background: var(--chassis-darker);
+    }
+
+    .level-dot.on.red {
+      background: #ef4444;
+      box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    }
+
+    /* Progress Bar */
+    .progress-bar-hw {
+      width: 120px;
+      height: 8px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+      position: relative;
+    }
+
+    .progress-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, var(--coral-dark) 0%, var(--coral) 100%);
+      border-radius: 4px;
+      box-shadow: 0 0 8px var(--coral-glow);
+    }
+
+    .progress-thumb {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 14px;
+      height: 14px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 50%;
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    }
+
+    /* Vertical Fader */
+    .fader.vertical {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      height: 100px;
+    }
+
+    .fader-track {
+      width: 8px;
+      height: 80px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
+      position: relative;
+    }
+
+    .fader-thumb {
+      position: absolute;
+      bottom: var(--pos, 50%);
+      left: 50%;
+      transform: translate(-50%, 50%);
+      width: 24px;
+      height: 12px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 3px;
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+    }
+
+    .fader-thumb::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 4px;
+      right: 4px;
+      height: 1px;
+      background: var(--text-dim);
+      transform: translateY(-50%);
+    }
+
+    .fader-thumb.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        0 0 10px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .fader-thumb.active::before {
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    .fader-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+    }
+
+    /* Horizontal Slider */
+    .slider-hw {
+      width: 120px;
+      height: 24px;
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .slider-track {
+      width: 100%;
+      height: 6px;
+      background: var(--chassis-darker);
+      border-radius: 3px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+    }
+
+    .slider-fill {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 6px;
+      background: linear-gradient(90deg, var(--coral-dark) 0%, var(--coral) 100%);
+      border-radius: 3px;
+    }
+
+    .slider-thumb {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px;
+      height: 16px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 50%;
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+    }
+
+    /* Jog Wheel */
+    .jog-wheel {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, var(--chassis-dark) 0%, var(--chassis-darkest) 100%);
+      box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.6),
+        inset 0 2px 4px rgba(255, 255, 255, 0.03);
+      position: relative;
+      cursor: pointer;
+    }
+
+    .jog-inner {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      box-shadow:
+        inset 0 2px 6px rgba(0, 0, 0, 0.5),
+        0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .jog-indicator {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      width: 3px;
+      height: 8px;
+      background: var(--coral);
+      border-radius: 1.5px;
+      transform: translateX(-50%);
+      box-shadow: 0 0 6px var(--coral);
+    }
+
+    .jog-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid var(--panel-border);
+    }
+
+    /* Scrub Dial */
+    .scrub-dial {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      box-shadow:
+        0 3px 8px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      position: relative;
+      cursor: pointer;
+    }
+
+    .scrub-notches {
+      position: absolute;
+      inset: 4px;
+      border-radius: 50%;
+      background-image: repeating-conic-gradient(
+        from 0deg,
+        var(--panel-border) 0deg 3deg,
+        transparent 3deg 15deg
+      );
+    }
+
+    .scrub-center {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--chassis-darker);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .scrub-center svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-label);
+      margin-left: 2px;
+    }
+
+    /* Tool Pad Grid */
+    .tool-pad-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+
+    .tool-pad {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 6px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .tool-pad svg {
+      width: 18px;
+      height: 18px;
+      color: var(--text-label);
+    }
+
+    .tool-pad:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .tool-pad:hover svg {
+      color: var(--text-primary);
+    }
+
+    .tool-pad:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 var(--panel-border);
+    }
+
+    .tool-pad.active {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      box-shadow:
+        inset 0 3px 6px rgba(0, 0, 0, 0.6),
+        inset 0 0 10px rgba(249, 112, 102, 0.1),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .tool-pad.active svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral));
+    }
+
+    /* Color Swatch Bank */
+    .swatch-bank {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .swatch-btn {
+      width: 28px;
+      height: 28px;
+      background: var(--swatch-color);
+      border: 2px solid var(--panel-border);
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      transition: all 0.1s;
+    }
+
+    .swatch-btn:hover {
+      transform: scale(1.1);
+      box-shadow:
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .swatch-btn.active {
+      border-color: var(--coral);
+      box-shadow:
+        0 0 0 2px var(--coral),
+        0 2px 4px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    /* Preset Pads (MPC Style) */
+    .preset-pad-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .preset-pad {
+      width: 64px;
+      height: 48px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow:
+        0 4px 0 var(--panel-border),
+        0 5px 10px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .preset-pad::before {
+      content: '';
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--pad-color, var(--text-dim));
+      opacity: 0.4;
+    }
+
+    .preset-pad span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.1em;
+    }
+
+    .preset-pad:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .preset-pad:active {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 var(--panel-border);
+    }
+
+    .preset-pad.active {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      box-shadow:
+        inset 0 3px 8px rgba(0, 0, 0, 0.6),
+        0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .preset-pad.active::before {
+      opacity: 1;
+      box-shadow: 0 0 8px var(--pad-color);
+    }
+
+    .preset-pad.active span {
+      color: var(--text-primary);
+    }
+
+    /* Aspect Ratio Buttons */
+    .aspect-btn {
+      padding: 8px 12px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.05em;
+      box-shadow:
+        0 2px 0 var(--panel-border),
+        0 3px 6px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      transition: all 0.1s;
+    }
+
+    .aspect-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+    }
+
+    .aspect-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border);
+    }
+
+    .aspect-btn.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      color: white;
+      box-shadow:
+        0 2px 0 var(--coral-darker),
+        0 3px 6px rgba(0, 0, 0, 0.4),
+        0 0 12px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    /* Segmented Control */
+    .segment-control {
+      display: flex;
+      background: var(--chassis-darker);
+      border-radius: 5px;
+      padding: 3px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .segment-btn {
+      padding: 6px 12px;
+      background: transparent;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+      transition: all 0.15s;
+    }
+
+    .segment-btn:hover {
+      color: var(--text-label);
+    }
+
+    .segment-btn.active {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    /* Numeric Stepper */
+    .num-stepper {
+      display: flex;
+      align-items: center;
+      background: var(--chassis-darker);
+      border-radius: 5px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+    }
+
+    .stepper-btn {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-label);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.1s;
+    }
+
+    .stepper-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+    }
+
+    .stepper-btn:active {
+      background: var(--chassis-darker);
+    }
+
+    .stepper-display {
+      min-width: 48px;
+      padding: 0 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-align: center;
+      background: var(--panel-inset);
+    }
+
+    /* ============================================
+       MICRO-INTERACTIONS & ANIMATIONS
+       ============================================ */
+
+    /* Keyframe Animations */
+    @keyframes led-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    @keyframes led-glow-pulse {
+      0%, 100% { box-shadow: 0 0 8px currentColor, inset 0 1px 2px rgba(255,255,255,0.3); }
+      50% { box-shadow: 0 0 14px currentColor, 0 0 20px currentColor, inset 0 1px 2px rgba(255,255,255,0.3); }
+    }
+
+    @keyframes knob-wiggle {
+      0%, 100% { transform: translateX(-50%) rotate(var(--rotation, 0deg)); }
+      25% { transform: translateX(-50%) rotate(calc(var(--rotation, 0deg) - 5deg)); }
+      75% { transform: translateX(-50%) rotate(calc(var(--rotation, 0deg) + 5deg)); }
+    }
+
+    /* Knob indicator animation - sweeps between 10 o'clock (-60deg) and 2 o'clock (60deg) */
+    @keyframes knob-level-sweep {
+      0%, 100% { transform: translateX(-50%) rotate(-45deg); }
+      50% { transform: translateX(-50%) rotate(45deg); }
+    }
+
+    @keyframes jog-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes vu-bounce {
+      0%, 100% { height: var(--level, 50%); }
+      50% { height: calc(var(--level, 50%) + 5%); }
+    }
+
+    @keyframes button-press {
+      0% { transform: translateY(0); }
+      50% { transform: translateY(2px); }
+      100% { transform: translateY(0); }
+    }
+
+    @keyframes switch-click {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(0.95); }
+    }
+
+    @keyframes lcd-flicker {
+      0%, 100% { opacity: 1; }
+      97% { opacity: 1; }
+      98% { opacity: 0.8; }
+      99% { opacity: 1; }
+    }
+
+    /* LED Animations */
+    .led.on {
+      animation: led-glow-pulse 2s ease-in-out infinite;
+      color: var(--led-on);
+    }
+
+    .led.coral {
+      animation: led-glow-pulse 1.5s ease-in-out infinite;
+      color: var(--coral);
+    }
+
+    .led.recording {
+      animation: led-pulse 0.8s ease-in-out infinite;
+    }
+
+    /* Interactive Knobs */
+    .device-knob {
+      cursor: grab;
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+    }
+
+    .device-knob:hover {
+      box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.7),
+        inset 0 1px 2px rgba(255, 255, 255, 0.08),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.4),
+        0 0 0 2px rgba(249, 112, 102, 0.2);
+    }
+
+    .device-knob:hover::after {
+      animation: knob-wiggle 0.4s ease-in-out;
+    }
+
+    .device-knob:active {
+      cursor: grabbing;
+      box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.6),
+        inset 0 1px 2px rgba(255, 255, 255, 0.06),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.4),
+        0 0 0 3px rgba(249, 112, 102, 0.3);
+    }
+
+    .device-knob.active:hover::after {
+      background: var(--coral);
+      box-shadow: 0 0 10px var(--coral), 0 0 20px var(--coral-glow);
+    }
+
+    /* Interactive Switches */
+    .hw-switch {
+      cursor: pointer;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .hw-switch:hover {
+      box-shadow:
+        inset 0 2px 6px rgba(0, 0, 0, 0.8),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.04),
+        0 0 0 2px rgba(249, 112, 102, 0.15);
+    }
+
+    .hw-switch:active {
+      animation: switch-click 0.15s ease;
+    }
+
+    .hw-switch::before {
+      transition: top 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55), background 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    /* Toggle Switch Interactions */
+    .hw-toggle {
+      cursor: pointer;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .hw-toggle:hover {
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.7),
+        0 0 0 2px rgba(249, 112, 102, 0.15);
+    }
+
+    .hw-toggle::before {
+      transition: left 0.25s cubic-bezier(0.68, -0.55, 0.265, 1.55), background 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    /* Rocker Switch Interactions */
+    .hw-rocker {
+      cursor: pointer;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .hw-rocker:hover {
+      box-shadow:
+        inset 0 0 0 1px var(--chassis-light),
+        0 0 0 2px rgba(249, 112, 102, 0.15);
+    }
+
+    .hw-rocker::before {
+      transition: top 0.15s cubic-bezier(0.68, -0.55, 0.265, 1.55), background 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    /* Rotating Switch Interactions */
+    .rotate-switch {
+      cursor: pointer;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .rotate-switch:hover {
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.8),
+        0 0 0 2px rgba(249, 112, 102, 0.2);
+    }
+
+    .rotate-switch:active .rotate-switch-lever {
+      transition-duration: 0.1s;
+    }
+
+    .rotate-switch-lever {
+      transition: all 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+
+    .rotate-switch:hover .rotate-switch-lever {
+      box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    }
+
+    .rotate-switch.on:hover .rotate-switch-lever {
+      box-shadow:
+        0 -2px 6px rgba(0, 0, 0, 0.4),
+        0 0 16px var(--coral-glow),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    /* Mini meter hover glow */
+    .mini-meter:hover {
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.8),
+        0 0 0 1px rgba(249, 112, 102, 0.15);
+    }
+
+    /* Jog Wheel Interactions */
+    .jog-wheel {
+      cursor: grab;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .jog-wheel:hover {
+      box-shadow:
+        0 6px 16px rgba(0, 0, 0, 0.7),
+        inset 0 2px 4px rgba(255, 255, 255, 0.04),
+        0 0 0 2px rgba(249, 112, 102, 0.2);
+    }
+
+    .jog-wheel:hover .jog-inner {
+      animation: jog-spin 4s linear infinite;
+    }
+
+    .jog-wheel:active {
+      cursor: grabbing;
+    }
+
+    .jog-wheel:active .jog-inner {
+      animation: jog-spin 1s linear infinite;
+    }
+
+    .jog-indicator {
+      transition: box-shadow 0.2s ease;
+    }
+
+    .jog-wheel:hover .jog-indicator {
+      box-shadow: 0 0 10px var(--coral), 0 0 20px var(--coral-glow);
+    }
+
+    /* Scrub Dial Interactions */
+    .scrub-dial {
+      cursor: grab;
+      transition: box-shadow 0.2s ease, transform 0.1s ease;
+    }
+
+    .scrub-dial:hover {
+      box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 0 0 2px rgba(249, 112, 102, 0.2);
+    }
+
+    .scrub-dial:hover .scrub-notches {
+      animation: jog-spin 8s linear infinite;
+    }
+
+    .scrub-dial:active {
+      cursor: grabbing;
+      transform: scale(0.98);
+    }
+
+    .scrub-dial:active .scrub-notches {
+      animation: jog-spin 2s linear infinite;
+    }
+
+    .scrub-dial:hover .scrub-center svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral-glow));
+    }
+
+    /* Fader Interactions */
+    .fader-thumb {
+      transition: transform 0.1s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .fader-thumb:hover {
+      box-shadow:
+        0 3px 6px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+        0 0 0 2px rgba(249, 112, 102, 0.2);
+      transform: translate(-50%, 50%) scale(1.05);
+    }
+
+    .fader-thumb:active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        0 0 12px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    /* Slider Thumb Interactions */
+    .slider-thumb, .prop-slider-thumb, .progress-thumb {
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+    }
+
+    .slider-thumb:hover, .prop-slider-thumb:hover, .progress-thumb:hover {
+      transform: translate(-50%, -50%) scale(1.15);
+      box-shadow:
+        0 3px 6px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15),
+        0 0 0 2px rgba(249, 112, 102, 0.3);
+    }
+
+    .slider-thumb:active, .prop-slider-thumb:active, .progress-thumb:active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+    }
+
+    /* VU Meter Animation */
+    .vu-fill {
+      transition: height 0.15s ease-out;
+    }
+
+    .vu-meter.animated .vu-fill {
+      animation: vu-bounce 0.5s ease-in-out infinite;
+    }
+
+    .vu-peak {
+      transition: bottom 0.1s ease-out;
+    }
+
+    /* LCD Display Animation */
+    .lcd-text {
+      animation: lcd-flicker 10s linear infinite;
+    }
+
+    /* Transport Button Enhanced States */
+    .transport-btn {
+      transition: all 0.15s ease;
+    }
+
+    .transport-btn:hover {
+      transform: scale(1.05);
+    }
+
+    .transport-btn:active {
+      transform: scale(0.95) translateY(1px);
+    }
+
+    .transport-btn.rec:hover {
+      box-shadow:
+        0 3px 0 #7f1d1d,
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        0 0 24px rgba(220, 38, 38, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    /* Tool Pad Interactions */
+    .tool-pad {
+      transition: all 0.1s ease;
+    }
+
+    .tool-pad:hover {
+      transform: translateY(-1px);
+    }
+
+    /* Swatch Button Interactions */
+    .swatch-btn {
+      transition: all 0.15s ease;
+    }
+
+    .swatch-btn:active {
+      transform: scale(0.9);
+    }
+
+    /* Preset Pad Interactions */
+    .preset-pad {
+      transition: all 0.1s ease;
+    }
+
+    .preset-pad:hover::before {
+      opacity: 0.8;
+      box-shadow: 0 0 6px var(--pad-color);
+    }
+
+    /* Aspect Button Interactions */
+    .aspect-btn {
+      transition: all 0.15s ease;
+    }
+
+    .aspect-btn:hover:not(.active) {
+      transform: translateY(-1px);
+    }
+
+    /* Segment Button Interactions */
+    .segment-btn {
+      transition: all 0.2s ease;
+    }
+
+    /* Stepper Button Interactions */
+    .stepper-btn {
+      transition: all 0.1s ease;
+    }
+
+    .stepper-btn:active {
+      background: var(--coral);
+      color: white;
+    }
+
+    /* Record Button Enhanced Animation */
+    .record-btn {
+      transition: all 0.15s ease;
+    }
+
+    .record-btn:hover {
+      transform: scale(1.02);
+    }
+
+    .record-btn:active {
+      transform: translateY(3px) scale(0.98);
+    }
+
+    .record-btn svg {
+      transition: transform 0.2s ease;
+    }
+
+    .record-btn:hover svg {
+      transform: scale(1.1);
+    }
+
+    /* Level Dots Animation */
+    .level-dot {
+      transition: all 0.15s ease;
+    }
+
+    .level-dot.on {
+      animation: led-pulse 0.8s ease-in-out infinite;
+      animation-delay: calc(var(--dot-index, 0) * 0.05s);
+    }
+
+    /* Title Grille Higher Contrast */
+    .title-grille::before {
+      background:
+        repeating-linear-gradient(45deg, transparent, transparent 1.5px, rgba(50, 50, 55, 0.9) 1.5px, rgba(50, 50, 55, 0.9) 3px),
+        repeating-linear-gradient(-45deg, transparent, transparent 1.5px, rgba(50, 50, 55, 0.9) 1.5px, rgba(50, 50, 55, 0.9) 3px);
+    }
+
+    /* Focus States for Accessibility */
+    button:focus-visible,
+    .hw-switch:focus-visible,
+    .hw-toggle:focus-visible,
+    .hw-rocker:focus-visible,
+    .device-knob:focus-visible,
+    .jog-wheel:focus-visible {
+      outline: 2px solid var(--coral);
+      outline-offset: 2px;
+    }
+
+    /* Hover glow effect for interactive elements */
+    .hw-btn:hover,
+    .hw-btn-sq:hover,
+    .toolbar-btn:hover,
+    .tool-btn:hover {
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 0 0 1px rgba(249, 112, 102, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-frame">
+    <!-- Windows Title Bar -->
+    <div class="title-bar">
+      <div class="title-bar-left">
+        <div class="title-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="8"/>
+          </svg>
+        </div>
+        <span class="title-text">SNAPIT</span>
+      </div>
+
+      <!-- Decorative grille strip -->
+      <div class="title-grille"></div>
+
+      <!-- Windows controls -->
+      <div class="window-controls">
+        <button class="win-btn minimize" title="Minimize">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 6h8"/>
+          </svg>
+        </button>
+        <button class="win-btn maximize" title="Maximize">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="8" height="8" rx="1"/>
+          </svg>
+        </button>
+        <button class="win-btn close" title="Close">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 2l8 8M10 2l-8 8"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============================================
+         CAPTURE BAR
+         ============================================ -->
+    <div class="capture-bar">
+      <!-- Mode Panel -->
+      <div class="panel mode-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <span class="panel-label">Mode</span>
+        <div class="button-row">
+          <button class="hw-btn active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span>VIDEO</span>
+          </button>
+          <button class="hw-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="2" width="20" height="20" rx="5"/>
+              <circle cx="9" cy="9" r="2"/>
+              <circle cx="15" cy="15" r="2"/>
+            </svg>
+            <span>GIF</span>
+          </button>
+          <button class="hw-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span>PHOTO</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Source Panel -->
+      <div class="panel source-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <span class="panel-label">Source</span>
+        <div class="button-row">
+          <button class="hw-btn pressed lit">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+            </svg>
+            <span>AREA</span>
+          </button>
+          <button class="hw-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <path d="M9 3v18"/>
+            </svg>
+            <span>WINDOW</span>
+          </button>
+          <button class="hw-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M12 17v4M8 21h8"/>
+            </svg>
+            <span>DISPLAY</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Devices Panel -->
+      <div class="panel devices-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw tr"></div>
+        <div class="screw bl"></div>
+        <div class="screw br"></div>
+        <span class="panel-label">Devices</span>
+        <div class="devices-row">
+          <!-- Camera (knob - off) -->
+          <div class="device-control">
+            <div class="led"></div>
+            <div class="device-knob off" style="--rotation: -60deg"></div>
+            <span class="device-label">Camera</span>
+          </div>
+
+          <!-- Mic (knob + LED meter) - ON, animating -->
+          <div class="audio-input-control">
+            <div class="device-control">
+              <div class="led coral"></div>
+              <div class="device-knob active animated"></div>
+              <span class="device-label">Mic</span>
+            </div>
+            <div class="mini-meter active">
+              <div class="mini-meter-seg red"></div>
+              <div class="mini-meter-seg yellow lit" style="--seg-index: 5"></div>
+              <div class="mini-meter-seg yellow lit" style="--seg-index: 4"></div>
+              <div class="mini-meter-seg green lit" style="--seg-index: 3"></div>
+              <div class="mini-meter-seg green lit" style="--seg-index: 2"></div>
+              <div class="mini-meter-seg green lit" style="--seg-index: 1"></div>
+              <div class="mini-meter-seg green lit" style="--seg-index: 0"></div>
+            </div>
+          </div>
+
+          <!-- System (knob + LED meter) - ON, animating -->
+          <div class="audio-input-control">
+            <div class="device-control">
+              <div class="led on"></div>
+              <div class="device-knob active animated"></div>
+              <span class="device-label">System</span>
+            </div>
+            <div class="mini-meter active">
+              <div class="mini-meter-seg red lit" style="--seg-index: 6"></div>
+              <div class="mini-meter-seg yellow lit" style="--seg-index: 5"></div>
+              <div class="mini-meter-seg yellow lit" style="--seg-index: 4"></div>
+              <div class="mini-meter-seg green lit" style="--seg-index: 3"></div>
+              <div class="mini-meter-seg green lit" style="--seg-index: 2"></div>
+              <div class="mini-meter-seg green lit" style="--seg-index: 1"></div>
+              <div class="mini-meter-seg green lit" style="--seg-index: 0"></div>
+            </div>
+          </div>
+
+          <!-- Settings button -->
+          <div style="margin-left: 8px;">
+            <button class="hw-btn-sq">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grille Panel (decorative) -->
+      <div class="panel grille-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <div class="grille-circular"></div>
+      </div>
+
+      <!-- Record Panel -->
+      <div class="panel record-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw tr"></div>
+        <div class="screw bl"></div>
+        <div class="screw br"></div>
+        <button class="record-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="8"/>
+          </svg>
+          <span>REC</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============================================
+         LIBRARY SECTION
+         ============================================ -->
+    <div class="panel library-section textured">
+      <div class="panel-border"></div>
+      <div class="screw tl"></div>
+      <div class="screw tr"></div>
+      <div class="screw bl"></div>
+      <div class="screw br"></div>
+
+      <div class="library-toolbar">
+        <div class="search-input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input type="text" class="search-input" placeholder="Search captures...">
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <button class="toolbar-btn" title="Favorites">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </button>
+
+        <button class="toolbar-btn pressed lit" title="Tags">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+            <line x1="7" y1="7" x2="7.01" y2="7"/>
+          </svg>
+        </button>
+
+        <div class="toolbar-spacer"></div>
+
+        <button class="toolbar-btn pressed lit" title="Grid view">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+          </svg>
+        </button>
+
+        <button class="toolbar-btn" title="List view">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+        </button>
+
+        <div class="toolbar-divider"></div>
+
+        <button class="toolbar-btn" title="Open folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="library-content">
+        <!-- Today -->
+        <div class="date-group">
+          <div class="date-header">
+            <span class="date-label">Today</span>
+            <div class="date-line"></div>
+            <span class="date-count">4 captures</span>
+          </div>
+          <div class="capture-grid">
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">2:34</span>
+                <div class="capture-favorite">
+                  <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                </div>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Screen Recording</div>
+                <div class="capture-meta">12:45 PM · 1920×1080</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge gif">GIF</span>
+                <span class="capture-duration">0:08</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Button Animation</div>
+                <div class="capture-meta">11:30 AM · 800×600</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge photo">PNG</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Bug Screenshot</div>
+                <div class="capture-meta">10:15 AM · 2560×1440</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">3:21</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Feature Preview</div>
+                <div class="capture-meta">9:00 AM · 1920×1080</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Yesterday -->
+        <div class="date-group">
+          <div class="date-header">
+            <span class="date-label">Yesterday</span>
+            <div class="date-line"></div>
+            <span class="date-count">2 captures</span>
+          </div>
+          <div class="capture-grid">
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">5:12</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Design Review</div>
+                <div class="capture-meta">4:30 PM · 1920×1080</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">8:45</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Tutorial Recording</div>
+                <div class="capture-meta">2:00 PM · 1920×1080</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       REFERENCE / STYLE GUIDE
+       ============================================ -->
+  <div class="reference-section">
+    <h2 class="reference-title">Component Reference</h2>
+
+    <div class="reference-grid">
+      <!-- Windows Titlebar -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Windows Titlebar</h3>
+        <div class="reference-items" style="gap: 20px;">
+          <div class="reference-item">
+            <button class="win-btn minimize" style="background: var(--chassis-dark); border-radius: 4px;">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M2 6h8"/>
+              </svg>
+            </button>
+            <span class="reference-item-label">Minimize</span>
+          </div>
+          <div class="reference-item">
+            <button class="win-btn maximize" style="background: var(--chassis-dark); border-radius: 4px;">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="2" y="2" width="8" height="8" rx="1"/>
+              </svg>
+            </button>
+            <span class="reference-item-label">Maximize</span>
+          </div>
+          <div class="reference-item">
+            <button class="win-btn close" style="background: var(--chassis-dark); border-radius: 4px;">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M2 2l8 8M10 2l-8 8"/>
+              </svg>
+            </button>
+            <span class="reference-item-label">Close</span>
+          </div>
+          <div class="reference-item">
+            <div class="title-grille" style="width: 120px; height: 20px; margin: 0;"></div>
+            <span class="reference-item-label">Title Grille</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Button States -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Button States</h3>
+        <div class="reference-items">
+          <div class="reference-item">
+            <button class="hw-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+              </svg>
+              <span>DEFAULT</span>
+            </button>
+            <span class="reference-item-label">Default</span>
+          </div>
+          <div class="reference-item">
+            <button class="hw-btn active">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+              </svg>
+              <span>ACTIVE</span>
+            </button>
+            <span class="reference-item-label">Active</span>
+          </div>
+          <div class="reference-item">
+            <button class="hw-btn pressed">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+              </svg>
+              <span>PRESSED</span>
+            </button>
+            <span class="reference-item-label">Pressed</span>
+          </div>
+          <div class="reference-item">
+            <button class="hw-btn pressed lit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+              </svg>
+              <span>TOGGLED</span>
+            </button>
+            <span class="reference-item-label">Pressed + Lit</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Circular Grilles -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Circular Grilles</h3>
+        <div class="reference-items" style="gap: 24px;">
+          <div class="reference-item">
+            <div class="grille-circular sm"></div>
+            <span class="reference-item-label">Small (48px)</span>
+          </div>
+          <div class="reference-item">
+            <div class="grille-circular"></div>
+            <span class="reference-item-label">Medium (80px)</span>
+          </div>
+          <div class="reference-item">
+            <div class="grille-circular lg"></div>
+            <span class="reference-item-label">Large (120px)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grille Patterns -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Grille Patterns</h3>
+        <div class="reference-items" style="gap: 16px;">
+          <div class="reference-item">
+            <div class="grille-dots" style="width: 80px; height: 50px;"></div>
+            <span class="reference-item-label">Dots</span>
+          </div>
+          <div class="reference-item">
+            <div class="grille-diagonal" style="width: 80px; height: 50px;"></div>
+            <span class="reference-item-label">Diagonal</span>
+          </div>
+          <div class="reference-item">
+            <div class="grille-slats" style="width: 80px; height: 50px;"></div>
+            <span class="reference-item-label">Slats</span>
+          </div>
+          <div class="reference-item">
+            <div class="grille-hex" style="width: 80px; height: 50px;"></div>
+            <span class="reference-item-label">Hex</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hardware Switches -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Hardware Switches</h3>
+        <div class="reference-items" style="gap: 24px;">
+          <div class="reference-item">
+            <div class="hw-switch"></div>
+            <span class="reference-item-label">Slide Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="hw-switch on"></div>
+            <span class="reference-item-label">Slide On</span>
+          </div>
+          <div class="reference-item">
+            <div class="hw-toggle"></div>
+            <span class="reference-item-label">Toggle Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="hw-toggle on"></div>
+            <span class="reference-item-label">Toggle On</span>
+          </div>
+          <div class="reference-item">
+            <div class="hw-rocker"></div>
+            <span class="reference-item-label">Rocker Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="hw-rocker on"></div>
+            <span class="reference-item-label">Rocker On</span>
+          </div>
+          <div class="reference-item">
+            <div class="audio-switch-group">
+              <div class="switch-indicator"></div>
+              <div class="rotate-switch">
+                <div class="rotate-switch-lever"></div>
+              </div>
+            </div>
+            <span class="reference-item-label">Rotate Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="audio-switch-group on">
+              <div class="switch-indicator"></div>
+              <div class="rotate-switch on">
+                <div class="rotate-switch-lever"></div>
+              </div>
+            </div>
+            <span class="reference-item-label">Rotate On</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio Input Controls (Knob + Meter) -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Audio Input Controls</h3>
+        <div class="reference-items" style="gap: 24px;">
+          <div class="reference-item">
+            <div class="audio-input-control">
+              <div class="device-control">
+                <div class="led"></div>
+                <div class="device-knob off" style="--rotation: -60deg"></div>
+                <span class="device-label">Off</span>
+              </div>
+              <div class="mini-meter">
+                <div class="mini-meter-seg red"></div>
+                <div class="mini-meter-seg yellow"></div>
+                <div class="mini-meter-seg yellow"></div>
+                <div class="mini-meter-seg green"></div>
+                <div class="mini-meter-seg green"></div>
+                <div class="mini-meter-seg green"></div>
+                <div class="mini-meter-seg green"></div>
+              </div>
+            </div>
+            <span class="reference-item-label">Audio Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="audio-input-control">
+              <div class="device-control">
+                <div class="led coral"></div>
+                <div class="device-knob active" style="--rotation: -30deg"></div>
+                <span class="device-label">Low</span>
+              </div>
+              <div class="mini-meter active">
+                <div class="mini-meter-seg red"></div>
+                <div class="mini-meter-seg yellow"></div>
+                <div class="mini-meter-seg yellow"></div>
+                <div class="mini-meter-seg green"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 2"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 1"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 0"></div>
+              </div>
+            </div>
+            <span class="reference-item-label">Audio Low</span>
+          </div>
+          <div class="reference-item">
+            <div class="audio-input-control">
+              <div class="device-control">
+                <div class="led coral"></div>
+                <div class="device-knob active" style="--rotation: 15deg"></div>
+                <span class="device-label">Med</span>
+              </div>
+              <div class="mini-meter active">
+                <div class="mini-meter-seg red"></div>
+                <div class="mini-meter-seg yellow lit" style="--seg-index: 5"></div>
+                <div class="mini-meter-seg yellow lit" style="--seg-index: 4"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 3"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 2"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 1"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 0"></div>
+              </div>
+            </div>
+            <span class="reference-item-label">Audio Medium</span>
+          </div>
+          <div class="reference-item">
+            <div class="audio-input-control">
+              <div class="device-control">
+                <div class="led coral"></div>
+                <div class="device-knob active" style="--rotation: 60deg"></div>
+                <span class="device-label">Peak</span>
+              </div>
+              <div class="mini-meter active">
+                <div class="mini-meter-seg red lit" style="--seg-index: 6"></div>
+                <div class="mini-meter-seg yellow lit" style="--seg-index: 5"></div>
+                <div class="mini-meter-seg yellow lit" style="--seg-index: 4"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 3"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 2"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 1"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 0"></div>
+              </div>
+            </div>
+            <span class="reference-item-label">Audio Peak</span>
+          </div>
+          <div class="reference-item">
+            <div class="audio-input-control">
+              <div class="device-control">
+                <div class="led coral"></div>
+                <div class="device-knob active animated"></div>
+                <span class="device-label">Live</span>
+              </div>
+              <div class="mini-meter active">
+                <div class="mini-meter-seg red"></div>
+                <div class="mini-meter-seg yellow lit" style="--seg-index: 5"></div>
+                <div class="mini-meter-seg yellow lit" style="--seg-index: 4"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 3"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 2"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 1"></div>
+                <div class="mini-meter-seg green lit" style="--seg-index: 0"></div>
+              </div>
+            </div>
+            <span class="reference-item-label">Animated</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Knobs & LEDs -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Knobs & LEDs</h3>
+        <div class="reference-items" style="gap: 20px;">
+          <div class="reference-item">
+            <div class="device-knob off" style="--rotation: -45deg"></div>
+            <span class="reference-item-label">Knob Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="device-knob" style="--rotation: 0deg"></div>
+            <span class="reference-item-label">Knob Default</span>
+          </div>
+          <div class="reference-item">
+            <div class="device-knob active" style="--rotation: 45deg"></div>
+            <span class="reference-item-label">Knob Active</span>
+          </div>
+          <div class="reference-item">
+            <div class="led"></div>
+            <span class="reference-item-label">LED Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="led on"></div>
+            <span class="reference-item-label">LED Green</span>
+          </div>
+          <div class="reference-item">
+            <div class="led coral"></div>
+            <span class="reference-item-label">LED Coral</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transport Controls (Video Editor) -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Transport Controls</h3>
+        <div class="reference-items" style="gap: 8px;">
+          <div class="reference-item">
+            <button class="transport-btn">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6V6zm3.5 6l8.5 6V6l-8.5 6z"/></svg>
+            </button>
+            <span class="reference-item-label">Skip Back</span>
+          </div>
+          <div class="reference-item">
+            <button class="transport-btn">
+              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+            </button>
+            <span class="reference-item-label">Pause</span>
+          </div>
+          <div class="reference-item">
+            <button class="transport-btn active">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z"/></svg>
+            </button>
+            <span class="reference-item-label">Play</span>
+          </div>
+          <div class="reference-item">
+            <button class="transport-btn">
+              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+            </button>
+            <span class="reference-item-label">Stop</span>
+          </div>
+          <div class="reference-item">
+            <button class="transport-btn">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 6h-2v12h2V6zM6 18l8.5-6L6 6v12z"/></svg>
+            </button>
+            <span class="reference-item-label">Skip Fwd</span>
+          </div>
+          <div class="reference-item">
+            <button class="transport-btn rec">
+              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="7"/></svg>
+            </button>
+            <span class="reference-item-label">Record</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- LCD Timecode Display -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">LCD / Timecode Display</h3>
+        <div class="reference-items" style="gap: 20px;">
+          <div class="reference-item">
+            <div class="lcd-display">
+              <span class="lcd-text">00:02:34</span>
+            </div>
+            <span class="reference-item-label">Timecode</span>
+          </div>
+          <div class="reference-item">
+            <div class="lcd-display small">
+              <span class="lcd-text">1920×1080</span>
+            </div>
+            <span class="reference-item-label">Resolution</span>
+          </div>
+          <div class="reference-item">
+            <div class="lcd-display small">
+              <span class="lcd-text">60 FPS</span>
+            </div>
+            <span class="reference-item-label">Frame Rate</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- VU Meter / Level Display -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">VU Meter / Levels</h3>
+        <div class="reference-items" style="gap: 24px;">
+          <div class="reference-item">
+            <div class="vu-meter vertical">
+              <div class="vu-track">
+                <div class="vu-fill" style="--level: 65%;"></div>
+                <div class="vu-peak" style="--peak: 78%;"></div>
+              </div>
+              <div class="vu-scale">
+                <span>0</span>
+                <span>-6</span>
+                <span>-12</span>
+                <span>-24</span>
+              </div>
+            </div>
+            <span class="reference-item-label">VU Meter</span>
+          </div>
+          <div class="reference-item">
+            <div class="level-dots">
+              <div class="level-dot on"></div>
+              <div class="level-dot on"></div>
+              <div class="level-dot on"></div>
+              <div class="level-dot on"></div>
+              <div class="level-dot on yellow"></div>
+              <div class="level-dot on yellow"></div>
+              <div class="level-dot"></div>
+              <div class="level-dot red"></div>
+            </div>
+            <span class="reference-item-label">LED Meter</span>
+          </div>
+          <div class="reference-item">
+            <div class="progress-bar-hw">
+              <div class="progress-fill" style="width: 45%;"></div>
+              <div class="progress-thumb" style="left: 45%;"></div>
+            </div>
+            <span class="reference-item-label">Progress Bar</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Faders / Sliders -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Faders & Sliders</h3>
+        <div class="reference-items" style="gap: 24px;">
+          <div class="reference-item">
+            <div class="fader vertical">
+              <div class="fader-track"></div>
+              <div class="fader-thumb" style="--pos: 70%;"></div>
+              <div class="fader-label">VOL</div>
+            </div>
+            <span class="reference-item-label">Vertical Fader</span>
+          </div>
+          <div class="reference-item">
+            <div class="fader vertical">
+              <div class="fader-track"></div>
+              <div class="fader-thumb active" style="--pos: 45%;"></div>
+              <div class="fader-label">MIC</div>
+            </div>
+            <span class="reference-item-label">Active Fader</span>
+          </div>
+          <div class="reference-item">
+            <div class="slider-hw">
+              <div class="slider-track"></div>
+              <div class="slider-fill" style="width: 60%;"></div>
+              <div class="slider-thumb" style="left: 60%;"></div>
+            </div>
+            <span class="reference-item-label">Horizontal Slider</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Jog Wheel -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Jog Wheel / Scrubber</h3>
+        <div class="reference-items" style="gap: 24px;">
+          <div class="reference-item">
+            <div class="jog-wheel">
+              <div class="jog-inner">
+                <div class="jog-indicator"></div>
+              </div>
+              <div class="jog-ring"></div>
+            </div>
+            <span class="reference-item-label">Jog Wheel</span>
+          </div>
+          <div class="reference-item">
+            <div class="scrub-dial">
+              <div class="scrub-notches"></div>
+              <div class="scrub-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </div>
+            </div>
+            <span class="reference-item-label">Scrub Dial</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tool Pad Grid -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Tool Pads (Image Editor)</h3>
+        <div class="reference-items">
+          <div class="tool-pad-grid">
+            <button class="tool-pad active" title="Select">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+            </button>
+            <button class="tool-pad" title="Crop">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/></svg>
+            </button>
+            <button class="tool-pad" title="Arrow">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+            </button>
+            <button class="tool-pad" title="Rectangle">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+            </button>
+            <button class="tool-pad" title="Ellipse">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+            </button>
+            <button class="tool-pad" title="Text">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+            </button>
+            <button class="tool-pad" title="Highlight">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </button>
+            <button class="tool-pad" title="Blur">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Color Swatch Bank -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Color Swatch Bank</h3>
+        <div class="reference-items">
+          <div class="swatch-bank">
+            <button class="swatch-btn" style="--swatch-color: #EF4444;"></button>
+            <button class="swatch-btn" style="--swatch-color: #F97316;"></button>
+            <button class="swatch-btn active" style="--swatch-color: #F97066;"></button>
+            <button class="swatch-btn" style="--swatch-color: #22C55E;"></button>
+            <button class="swatch-btn" style="--swatch-color: #3B82F6;"></button>
+            <button class="swatch-btn" style="--swatch-color: #8B5CF6;"></button>
+            <button class="swatch-btn" style="--swatch-color: #EC4899;"></button>
+            <button class="swatch-btn" style="--swatch-color: #FFFFFF;"></button>
+            <button class="swatch-btn" style="--swatch-color: #1A1A1A;"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preset Pads (MPC Style) -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Preset Pads (Quick Styles)</h3>
+        <div class="reference-items">
+          <div class="preset-pad-grid">
+            <button class="preset-pad" style="--pad-color: #EF4444;">
+              <span>BUG</span>
+            </button>
+            <button class="preset-pad active" style="--pad-color: #3B82F6;">
+              <span>INFO</span>
+            </button>
+            <button class="preset-pad" style="--pad-color: #F97316;">
+              <span>WARN</span>
+            </button>
+            <button class="preset-pad" style="--pad-color: #6B7280;">
+              <span>MUTE</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aspect Ratio Selector -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Aspect Ratio Selector</h3>
+        <div class="reference-items" style="gap: 8px;">
+          <button class="aspect-btn">FREE</button>
+          <button class="aspect-btn active">16:9</button>
+          <button class="aspect-btn">9:16</button>
+          <button class="aspect-btn">1:1</button>
+          <button class="aspect-btn">4:3</button>
+        </div>
+      </div>
+
+      <!-- Segmented Control -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Segmented Controls</h3>
+        <div class="reference-items" style="gap: 20px; flex-direction: column; align-items: flex-start;">
+          <div class="reference-item" style="flex-direction: row; gap: 12px;">
+            <div class="segment-control">
+              <button class="segment-btn active">GRID</button>
+              <button class="segment-btn">LIST</button>
+            </div>
+            <span class="reference-item-label">View Mode</span>
+          </div>
+          <div class="reference-item" style="flex-direction: row; gap: 12px;">
+            <div class="segment-control">
+              <button class="segment-btn">PNG</button>
+              <button class="segment-btn active">JPG</button>
+              <button class="segment-btn">WEBP</button>
+            </div>
+            <span class="reference-item-label">Export Format</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Numeric Stepper -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Numeric Controls</h3>
+        <div class="reference-items" style="gap: 20px;">
+          <div class="reference-item">
+            <div class="num-stepper">
+              <button class="stepper-btn minus">−</button>
+              <div class="stepper-display">24</div>
+              <button class="stepper-btn plus">+</button>
+            </div>
+            <span class="reference-item-label">Font Size</span>
+          </div>
+          <div class="reference-item">
+            <div class="num-stepper">
+              <button class="stepper-btn minus">−</button>
+              <div class="stepper-display">100%</div>
+              <button class="stepper-btn plus">+</button>
+            </div>
+            <span class="reference-item-label">Zoom Level</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

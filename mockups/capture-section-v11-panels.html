@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capture Section - Industrial Panels</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --chassis: #2d2d30;
+      --chassis-dark: #222225;
+      --chassis-darker: #1a1a1c;
+      --chassis-light: #3a3a3e;
+      --panel: #2a2a2d;
+      --panel-border: #1e1e20;
+      --surface-dark: #1a1a1c;
+      --screen-bg: #0a0c10;
+      --coral: #F97066;
+      --coral-dark: #d85a50;
+      --white: #e8e8e8;
+      --text-label: #5a5a5e;
+      --text-dim: #404044;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--chassis-darker);
+      color: var(--white);
+      min-height: 100vh;
+    }
+
+    /* === SVG NOISE FILTER === */
+    .noise-filter {
+      position: fixed;
+      width: 0;
+      height: 0;
+    }
+
+    /* === TEXTURE OVERLAY === */
+    .textured {
+      position: relative;
+    }
+
+    .textured::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      opacity: 0.03;
+      pointer-events: none;
+      mix-blend-mode: overlay;
+    }
+
+    /* === APP FRAME === */
+    .app-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      background: var(--chassis);
+      padding: 8px;
+      gap: 6px;
+    }
+
+    /* === PANEL BASE === */
+    .panel {
+      background: var(--panel);
+      border-radius: 8px;
+      position: relative;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+        0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Panel border groove */
+    .panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 8px;
+      border: 1px solid var(--panel-border);
+      pointer-events: none;
+    }
+
+    /* === SCREW COMPONENT === */
+    .screw {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      background: radial-gradient(circle at 35% 35%, var(--chassis-light) 0%, var(--chassis-dark) 60%, var(--panel-border) 100%);
+      border-radius: 50%;
+      box-shadow:
+        inset 0 1px 2px rgba(0, 0, 0, 0.6),
+        0 1px 1px rgba(255, 255, 255, 0.03);
+    }
+
+    .screw::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 6px;
+      height: 1px;
+      background: var(--panel-border);
+      transform: translate(-50%, -50%) rotate(45deg);
+      box-shadow: 0 0 0 0.5px rgba(255,255,255,0.05);
+    }
+
+    .screw.tl { top: 8px; left: 8px; }
+    .screw.tr { top: 8px; right: 8px; }
+    .screw.bl { bottom: 8px; left: 8px; }
+    .screw.br { bottom: 8px; right: 8px; }
+
+    /* === SCREEN PANEL === */
+    .screen-panel {
+      flex-shrink: 0;
+      padding: 16px;
+    }
+
+    .screen-bezel {
+      background: var(--screen-bg);
+      border-radius: 12px;
+      padding: 20px;
+      min-height: 120px;
+      box-shadow:
+        inset 0 4px 16px rgba(0, 0, 0, 0.8),
+        inset 0 1px 0 rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .screen-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--coral);
+      letter-spacing: 0.15em;
+      text-shadow: 0 0 20px rgba(249, 112, 102, 0.5);
+    }
+
+    .screen-info {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-label);
+      letter-spacing: 0.1em;
+    }
+
+    /* === CONTROL PANEL === */
+    .control-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr 200px;
+      gap: 6px;
+      padding: 0;
+    }
+
+    .control-section {
+      padding: 20px;
+    }
+
+    .section-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.15em;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+    }
+
+    /* Mode pads */
+    .mode-pads {
+      display: flex;
+      gap: 10px;
+    }
+
+    .mode-pad {
+      flex: 1;
+      aspect-ratio: 1;
+      max-width: 80px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow:
+        0 4px 0 var(--panel-border),
+        0 6px 12px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.1s;
+    }
+
+    .mode-pad:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .mode-pad:active {
+      transform: translateY(3px);
+      box-shadow:
+        0 1px 0 var(--panel-border),
+        0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .mode-pad.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 4px 0 #a03a30,
+        0 6px 12px rgba(0, 0, 0, 0.4),
+        0 0 24px rgba(249, 112, 102, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .mode-pad svg {
+      width: 24px;
+      height: 24px;
+      color: var(--text-label);
+    }
+
+    .mode-pad:hover svg {
+      color: var(--white);
+    }
+
+    .mode-pad.active svg {
+      color: white;
+    }
+
+    .mode-pad span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.05em;
+    }
+
+    .mode-pad:hover span {
+      color: var(--white);
+    }
+
+    .mode-pad.active span {
+      color: white;
+    }
+
+    /* Source buttons */
+    .source-btns {
+      display: flex;
+      gap: 8px;
+    }
+
+    .source-btn {
+      flex: 1;
+      padding: 14px 12px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 8px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.1s;
+    }
+
+    .source-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .source-btn:active {
+      transform: translateY(2px);
+      box-shadow:
+        0 1px 0 var(--panel-border),
+        0 2px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    .source-btn.active {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 8px rgba(0, 0, 0, 0.3),
+        inset 0 0 0 1px var(--coral),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .source-btn svg {
+      width: 18px;
+      height: 18px;
+      color: var(--text-label);
+    }
+
+    .source-btn:hover svg,
+    .source-btn.active svg {
+      color: var(--white);
+    }
+
+    .source-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    .source-btn:hover span,
+    .source-btn.active span {
+      color: var(--text-label);
+    }
+
+    /* Dial panel */
+    .dial-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .dial-large {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, var(--chassis) 0%, var(--chassis-darker) 100%);
+      box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.5),
+        inset 0 2px 4px rgba(255, 255, 255, 0.05),
+        inset 0 -4px 8px rgba(0, 0, 0, 0.3);
+      position: relative;
+      cursor: pointer;
+    }
+
+    .dial-large::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 70px;
+      height: 70px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis-dark) 100%);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .dial-large::after {
+      content: '';
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      width: 3px;
+      height: 14px;
+      background: var(--coral);
+      border-radius: 2px;
+      transform: translateX(-50%);
+      box-shadow: 0 0 8px var(--coral);
+    }
+
+    .dial-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.1em;
+    }
+
+    /* === DEVICE PANEL === */
+    .device-panel {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr) auto;
+      gap: 6px;
+    }
+
+    .device-section {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .knob {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #444 0%, #222 100%);
+      box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.5),
+        inset 0 2px 4px rgba(255, 255, 255, 0.08),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.3);
+      position: relative;
+      cursor: pointer;
+    }
+
+    .knob::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 36px;
+      height: 36px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis-dark) 100%);
+    }
+
+    .knob::after {
+      content: '';
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      width: 2px;
+      height: 10px;
+      background: var(--white);
+      border-radius: 1px;
+      transform: translateX(-50%) rotate(45deg);
+      transform-origin: center 18px;
+    }
+
+    .knob.coral::after {
+      background: var(--coral);
+      box-shadow: 0 0 6px var(--coral);
+    }
+
+    .device-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+    }
+
+    /* Speaker grille */
+    .grille-section {
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .grille {
+      width: 100%;
+      height: 100%;
+      min-height: 60px;
+      background: var(--chassis-dark);
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
+    }
+
+    .grille::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      background-image: radial-gradient(circle, var(--panel-border) 1.5px, transparent 1.5px);
+      background-size: 8px 8px;
+    }
+
+    /* === RECORD STRIP === */
+    .record-strip {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .rec-btn {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow:
+        0 6px 0 #a03a30,
+        0 8px 20px rgba(0, 0, 0, 0.5),
+        0 0 32px rgba(249, 112, 102, 0.3),
+        inset 0 2px 0 rgba(255, 255, 255, 0.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: all 0.1s;
+    }
+
+    .rec-btn:hover {
+      background: linear-gradient(180deg, #ff8a7a 0%, var(--coral) 100%);
+      box-shadow:
+        0 6px 0 #a03a30,
+        0 8px 20px rgba(0, 0, 0, 0.5),
+        0 0 48px rgba(249, 112, 102, 0.4),
+        inset 0 2px 0 rgba(255, 255, 255, 0.25);
+    }
+
+    .rec-btn:active {
+      transform: translateY(4px);
+      box-shadow:
+        0 2px 0 #a03a30,
+        0 3px 8px rgba(0, 0, 0, 0.4),
+        0 0 24px rgba(249, 112, 102, 0.3);
+    }
+
+    .rec-btn svg {
+      width: 20px;
+      height: 20px;
+      color: white;
+    }
+
+    .rec-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: 0.1em;
+    }
+
+    .action-btn {
+      padding: 12px 20px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 8px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .action-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--white);
+    }
+
+    .action-btn:active {
+      transform: translateY(2px);
+      box-shadow:
+        0 1px 0 var(--panel-border),
+        0 2px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    /* === LIBRARY PANEL === */
+    .library-panel {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .library-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .library-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.15em;
+    }
+
+    .library-grid {
+      flex: 1;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    .capture-card {
+      background: var(--chassis-dark);
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.15s;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.02),
+        0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .capture-card:hover {
+      transform: translateY(-2px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        0 8px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .capture-thumb {
+      aspect-ratio: 16/10;
+      background: linear-gradient(135deg, var(--chassis) 0%, var(--chassis-darker) 100%);
+      position: relative;
+    }
+
+    .capture-duration {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      padding: 3px 6px;
+      background: rgba(0, 0, 0, 0.7);
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--white);
+    }
+
+    .capture-info {
+      padding: 10px;
+    }
+
+    .capture-title {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--white);
+      margin-bottom: 2px;
+    }
+
+    .capture-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-dim);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-frame">
+    <!-- Screen Panel -->
+    <div class="panel screen-panel textured">
+      <div class="screw tl"></div>
+      <div class="screw tr"></div>
+      <div class="screen-bezel">
+        <span class="screen-title">READY TO CAPTURE</span>
+        <span class="screen-info">VIDEO · 1920×1080 · 60FPS · MP4</span>
+      </div>
+    </div>
+
+    <!-- Control Panel Row -->
+    <div class="control-panel">
+      <!-- Mode Section -->
+      <div class="panel control-section textured">
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <div class="section-label">MODE</div>
+        <div class="mode-pads">
+          <button class="mode-pad active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span>VIDEO</span>
+          </button>
+          <button class="mode-pad">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="2" width="20" height="20" rx="5"/>
+              <circle cx="9" cy="9" r="2"/>
+              <circle cx="15" cy="15" r="2"/>
+            </svg>
+            <span>GIF</span>
+          </button>
+          <button class="mode-pad">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span>PHOTO</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Source Section -->
+      <div class="panel control-section textured">
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <div class="section-label">SOURCE</div>
+        <div class="source-btns">
+          <button class="source-btn active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+            </svg>
+            <span>AREA</span>
+          </button>
+          <button class="source-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <path d="M9 3v18"/>
+            </svg>
+            <span>WINDOW</span>
+          </button>
+          <button class="source-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M12 17v4"/>
+            </svg>
+            <span>DISPLAY</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Dial Section -->
+      <div class="panel dial-panel textured">
+        <div class="screw tl"></div>
+        <div class="screw tr"></div>
+        <div class="screw bl"></div>
+        <div class="screw br"></div>
+        <div class="dial-large"></div>
+        <span class="dial-label">VOLUME</span>
+      </div>
+    </div>
+
+    <!-- Device Panel Row -->
+    <div class="device-panel">
+      <div class="panel device-section textured">
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <div class="knob"></div>
+        <span class="device-label">CAMERA</span>
+      </div>
+      <div class="panel device-section textured">
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <div class="knob coral"></div>
+        <span class="device-label">MIC</span>
+      </div>
+      <div class="panel device-section textured">
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <div class="knob"></div>
+        <span class="device-label">SYSTEM</span>
+      </div>
+      <div class="panel grille-section textured">
+        <div class="screw tl"></div>
+        <div class="screw tr"></div>
+        <div class="screw bl"></div>
+        <div class="screw br"></div>
+        <div class="grille"></div>
+      </div>
+    </div>
+
+    <!-- Record Strip -->
+    <div class="panel record-strip textured">
+      <div class="screw tl"></div>
+      <div class="screw tr"></div>
+      <div class="screw bl"></div>
+      <div class="screw br"></div>
+      <button class="action-btn">CANCEL</button>
+      <button class="action-btn">SETTINGS</button>
+      <button class="rec-btn">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="12" cy="12" r="8"/>
+        </svg>
+        <span>REC</span>
+      </button>
+      <button class="action-btn">LIBRARY</button>
+      <button class="action-btn">EXPORT</button>
+    </div>
+
+    <!-- Library Panel -->
+    <div class="panel library-panel textured">
+      <div class="screw tl"></div>
+      <div class="screw tr"></div>
+      <div class="screw bl"></div>
+      <div class="screw br"></div>
+      <div class="library-header">
+        <span class="library-title">RECENT CAPTURES</span>
+      </div>
+      <div class="library-grid">
+        <div class="capture-card">
+          <div class="capture-thumb">
+            <span class="capture-duration">2:34</span>
+          </div>
+          <div class="capture-info">
+            <div class="capture-title">Screen Recording</div>
+            <div class="capture-meta">12:45 PM</div>
+          </div>
+        </div>
+        <div class="capture-card">
+          <div class="capture-thumb">
+            <span class="capture-duration">1:12</span>
+          </div>
+          <div class="capture-info">
+            <div class="capture-title">App Demo</div>
+            <div class="capture-meta">11:30 AM</div>
+          </div>
+        </div>
+        <div class="capture-card">
+          <div class="capture-thumb">
+            <span class="capture-duration">0:45</span>
+          </div>
+          <div class="capture-info">
+            <div class="capture-title">Bug Report</div>
+            <div class="capture-meta">10:15 AM</div>
+          </div>
+        </div>
+        <div class="capture-card">
+          <div class="capture-thumb">
+            <span class="capture-duration">3:21</span>
+          </div>
+          <div class="capture-info">
+            <div class="capture-title">Feature Preview</div>
+            <div class="capture-meta">9:00 AM</div>
+          </div>
+        </div>
+        <div class="capture-card">
+          <div class="capture-thumb">
+            <span class="capture-duration">5:12</span>
+          </div>
+          <div class="capture-info">
+            <div class="capture-title">Design Review</div>
+            <div class="capture-meta">Yesterday</div>
+          </div>
+        </div>
+        <div class="capture-card">
+          <div class="capture-thumb">
+            <span class="capture-duration">8:45</span>
+          </div>
+          <div class="capture-info">
+            <div class="capture-title">Tutorial</div>
+            <div class="capture-meta">Yesterday</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

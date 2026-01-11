@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnapIt Video Editor - Hardware UI Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      /* Chassis colors */
+      --chassis: #2a2a2d;
+      --chassis-dark: #232326;
+      --chassis-darker: #1a1a1d;
+      --chassis-darkest: #131315;
+      --chassis-light: #353538;
+      --chassis-lighter: #3f3f43;
+
+      /* Panel colors */
+      --panel: #252528;
+      --panel-dark: #1f1f22;
+      --panel-border: #1c1c1e;
+      --panel-inset: #161618;
+
+      /* Screen */
+      --screen-bg: #0a0a0c;
+
+      /* Accent */
+      --coral: #F97066;
+      --coral-dark: #d85a50;
+      --coral-darker: #a04038;
+      --coral-glow: rgba(249, 112, 102, 0.4);
+
+      /* Track colors */
+      --track-video: #F97066;
+      --track-text: #a78bfa;
+      --track-zoom: #60a5fa;
+      --track-audio: #4ade80;
+
+      /* Text */
+      --text-bright: #e8e8ea;
+      --text-primary: #b0b0b4;
+      --text-label: #5a5a60;
+      --text-dim: #404046;
+      --text-faint: #2a2a2e;
+
+      /* Status */
+      --led-on: #4ade80;
+      --led-off: #1a1a1d;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--chassis-darkest);
+      color: var(--text-primary);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* === TEXTURE === */
+    .textured {
+      position: relative;
+    }
+
+    .textured::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      opacity: 0.04;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    /* === APP FRAME === */
+    .app-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 6px;
+      gap: 4px;
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--chassis-darkest) 100%);
+    }
+
+    /* === PANEL BASE === */
+    .panel {
+      background: var(--panel);
+      border-radius: 8px;
+      position: relative;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.4),
+        0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+
+    .panel-border {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      border: 1px solid var(--panel-border);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* === SCREW === */
+    .screw {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      background: radial-gradient(circle at 30% 30%, var(--chassis-light) 0%, var(--chassis-dark) 50%, var(--panel-border) 100%);
+      border-radius: 50%;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.02);
+      z-index: 10;
+    }
+
+    .screw::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 6px;
+      height: 1.5px;
+      background: linear-gradient(90deg, var(--panel-border) 0%, var(--chassis-darker) 50%, var(--panel-border) 100%);
+      transform: translate(-50%, -50%) rotate(35deg);
+    }
+
+    .screw.tl { top: 6px; left: 6px; }
+    .screw.tr { top: 6px; right: 6px; }
+    .screw.bl { bottom: 6px; left: 6px; }
+    .screw.br { bottom: 6px; right: 6px; }
+
+    /* === TITLE BAR === */
+    .title-bar {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      background: linear-gradient(180deg, var(--chassis-dark) 0%, var(--chassis-darker) 100%);
+      border-radius: 6px 6px 0 0;
+    }
+
+    .title-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-left: 4px;
+    }
+
+    .back-btn {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 0 var(--panel-border), 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    .back-btn svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-label);
+    }
+
+    .back-btn:hover svg {
+      color: var(--text-primary);
+    }
+
+    .title-icon svg {
+      width: 14px;
+      height: 14px;
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral-glow));
+    }
+
+    .title-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+    }
+
+    .title-grille {
+      flex: 1;
+      height: 20px;
+      margin: 0 20px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .title-grille::before {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      background:
+        repeating-linear-gradient(45deg, transparent, transparent 1.5px, rgba(60, 60, 65, 0.7) 1.5px, rgba(60, 60, 65, 0.7) 3px),
+        repeating-linear-gradient(-45deg, transparent, transparent 1.5px, rgba(60, 60, 65, 0.7) 1.5px, rgba(60, 60, 65, 0.7) 3px);
+    }
+
+    .window-controls {
+      display: flex;
+      gap: 0;
+      margin-left: auto;
+    }
+
+    .win-btn {
+      width: 46px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+    }
+
+    .win-btn svg {
+      width: 12px;
+      height: 12px;
+      color: var(--text-label);
+    }
+
+    .win-btn:hover { background: rgba(255, 255, 255, 0.06); }
+    .win-btn:hover svg { color: var(--text-primary); }
+    .win-btn.close:hover { background: #c42b1c; }
+    .win-btn.close:hover svg { color: white; }
+
+    /* === MAIN CONTENT === */
+    .main-content {
+      flex: 1;
+      display: flex;
+      gap: 4px;
+      min-height: 0;
+    }
+
+    /* === LEFT SIDEBAR - TOOLS === */
+    .tools-sidebar {
+      width: 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .tools-panel {
+      padding: 20px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .panel-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      text-align: center;
+    }
+
+    .tool-btn {
+      width: 48px;
+      height: 44px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      box-shadow: 0 3px 0 var(--panel-border), 0 4px 6px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .tool-btn svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-label);
+    }
+
+    .tool-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    .tool-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .tool-btn:hover svg { color: var(--text-primary); }
+    .tool-btn:hover span { color: var(--text-label); }
+
+    .tool-btn.active {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.6), inset 0 0 10px rgba(249, 112, 102, 0.1), 0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .tool-btn.active svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral));
+    }
+
+    .tool-btn.active span { color: var(--coral); }
+
+    /* === CENTER - PREVIEW & TIMELINE === */
+    .center-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    /* === VIDEO PREVIEW === */
+    .preview-panel {
+      flex: 1;
+      min-height: 300px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .preview-screen {
+      flex: 1;
+      margin: 12px;
+      background: var(--screen-bg);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .preview-frame {
+      width: 80%;
+      aspect-ratio: 16/9;
+      background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%);
+      border-radius: 2px;
+      position: relative;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .preview-corner {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--coral);
+    }
+
+    .preview-corner.tl { top: -4px; left: -4px; border-right: none; border-bottom: none; }
+    .preview-corner.tr { top: -4px; right: -4px; border-left: none; border-bottom: none; }
+    .preview-corner.bl { bottom: -4px; left: -4px; border-right: none; border-top: none; }
+    .preview-corner.br { bottom: -4px; right: -4px; border-left: none; border-top: none; }
+
+    .preview-play-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 64px;
+      height: 64px;
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .preview-play-overlay:hover {
+      background: rgba(249, 112, 102, 0.3);
+      transform: translate(-50%, -50%) scale(1.1);
+    }
+
+    .preview-play-overlay svg {
+      width: 28px;
+      height: 28px;
+      color: white;
+      margin-left: 4px;
+    }
+
+    /* Preview controls bar */
+    .preview-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--panel-border);
+    }
+
+    .preview-transport {
+      display: flex;
+      gap: 4px;
+    }
+
+    .transport-btn {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 0 var(--panel-border), 0 3px 6px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .transport-btn svg {
+      width: 12px;
+      height: 12px;
+      color: var(--text-label);
+    }
+
+    .transport-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .transport-btn:hover svg { color: var(--text-primary); }
+
+    .transport-btn.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow: 0 2px 0 var(--coral-darker), 0 3px 6px rgba(0, 0, 0, 0.4), 0 0 12px var(--coral-glow);
+    }
+
+    .transport-btn.active svg { color: white; }
+
+    .lcd-display {
+      background: #0a1a12;
+      border-radius: 4px;
+      padding: 6px 12px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+      border: 1px solid #0d2818;
+    }
+
+    .lcd-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: #4ade80;
+      text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+      letter-spacing: 0.08em;
+    }
+
+    .lcd-divider {
+      color: #2d5a3d;
+    }
+
+    .preview-spacer { flex: 1; }
+
+    .volume-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .volume-btn {
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .volume-btn svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-label);
+    }
+
+    .volume-btn:hover svg { color: var(--text-primary); }
+
+    .volume-slider {
+      width: 80px;
+      height: 6px;
+      background: var(--chassis-darker);
+      border-radius: 3px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    .volume-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 70%;
+      background: linear-gradient(90deg, var(--coral-dark) 0%, var(--coral) 100%);
+      border-radius: 3px;
+    }
+
+    .volume-thumb {
+      position: absolute;
+      left: 70%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 12px;
+      height: 12px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    /* === TIMELINE SECTION === */
+    .timeline-panel {
+      height: 220px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .timeline-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .timeline-transport {
+      display: flex;
+      gap: 4px;
+    }
+
+    .zoom-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .zoom-btn {
+      width: 20px;
+      height: 20px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .zoom-btn svg {
+      width: 12px;
+      height: 12px;
+      color: var(--text-label);
+    }
+
+    .zoom-btn:hover svg { color: var(--text-primary); }
+
+    .zoom-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-label);
+      min-width: 44px;
+      text-align: center;
+    }
+
+    .timeline-spacer { flex: 1; }
+
+    .export-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      box-shadow: 0 3px 0 var(--coral-darker), 0 4px 8px rgba(0, 0, 0, 0.4), 0 0 16px var(--coral-glow);
+      transition: all 0.1s;
+    }
+
+    .export-btn svg {
+      width: 14px;
+      height: 14px;
+      color: white;
+    }
+
+    .export-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: 0.1em;
+    }
+
+    .export-btn:hover {
+      background: linear-gradient(180deg, #ff8a7a 0%, var(--coral) 100%);
+    }
+
+    .export-btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 var(--coral-darker), 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Timeline body */
+    .timeline-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .track-labels {
+      width: 80px;
+      background: var(--panel-dark);
+      border-right: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .track-label {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .track-label svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .track-label.video svg { color: var(--track-video); }
+    .track-label.text svg { color: var(--track-text); }
+    .track-label.zoom svg { color: var(--track-zoom); }
+    .track-label.audio svg { color: var(--track-audio); }
+
+    .track-label span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    .timeline-tracks {
+      flex: 1;
+      position: relative;
+      overflow-x: auto;
+      background: var(--panel-inset);
+    }
+
+    /* Ruler */
+    .timeline-ruler {
+      height: 24px;
+      background: var(--panel-dark);
+      border-bottom: 1px solid var(--panel-border);
+      position: relative;
+    }
+
+    .ruler-marks {
+      position: absolute;
+      inset: 0;
+      display: flex;
+    }
+
+    .ruler-mark {
+      flex: 1;
+      border-left: 1px solid var(--panel-border);
+      position: relative;
+    }
+
+    .ruler-mark span {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      color: var(--text-dim);
+    }
+
+    /* Tracks area */
+    .tracks-area {
+      position: relative;
+    }
+
+    .track-row {
+      height: 40px;
+      border-bottom: 1px solid var(--panel-border);
+      position: relative;
+    }
+
+    /* Clips */
+    .clip {
+      position: absolute;
+      top: 4px;
+      height: 32px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      cursor: pointer;
+      transition: all 0.1s;
+    }
+
+    .clip:hover {
+      filter: brightness(1.1);
+    }
+
+    .clip.video {
+      background: linear-gradient(180deg, rgba(249, 112, 102, 0.3) 0%, rgba(249, 112, 102, 0.15) 100%);
+      border: 1px solid var(--track-video);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    }
+
+    .clip.text {
+      background: linear-gradient(180deg, rgba(167, 139, 250, 0.3) 0%, rgba(167, 139, 250, 0.15) 100%);
+      border: 1px solid var(--track-text);
+    }
+
+    .clip.zoom {
+      background: linear-gradient(180deg, rgba(96, 165, 250, 0.3) 0%, rgba(96, 165, 250, 0.15) 100%);
+      border: 1px solid var(--track-zoom);
+      border-style: dashed;
+    }
+
+    .clip.audio {
+      background: linear-gradient(180deg, rgba(74, 222, 128, 0.2) 0%, rgba(74, 222, 128, 0.1) 100%);
+      border: 1px solid var(--track-audio);
+    }
+
+    .clip-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .clip-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 6px;
+      cursor: ew-resize;
+    }
+
+    .clip-handle.left { left: 0; }
+    .clip-handle.right { right: 0; }
+
+    /* Waveform */
+    .waveform {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 20px;
+      display: flex;
+      align-items: center;
+      gap: 1px;
+    }
+
+    .waveform-bar {
+      flex: 1;
+      background: var(--track-audio);
+      opacity: 0.6;
+      border-radius: 1px;
+    }
+
+    /* Playhead */
+    .playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 200px;
+      width: 2px;
+      background: var(--coral);
+      box-shadow: 0 0 8px var(--coral);
+      z-index: 20;
+    }
+
+    .playhead::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 10px;
+      height: 10px;
+      background: var(--coral);
+      clip-path: polygon(0 0, 100% 0, 50% 100%);
+    }
+
+    /* === RIGHT SIDEBAR === */
+    .right-sidebar {
+      width: 240px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .properties-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .properties-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .properties-content {
+      flex: 1;
+      padding: 16px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .prop-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .prop-section-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .prop-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .prop-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-label);
+      min-width: 48px;
+    }
+
+    /* Numeric stepper */
+    .num-stepper {
+      display: flex;
+      align-items: center;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+    }
+
+    .stepper-btn {
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-label);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .stepper-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+    }
+
+    .stepper-display {
+      min-width: 40px;
+      padding: 0 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-align: center;
+      background: var(--panel-inset);
+    }
+
+    /* Segment control */
+    .segment-control {
+      display: flex;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      padding: 2px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .segment-btn {
+      padding: 5px 10px;
+      background: transparent;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+      transition: all 0.15s;
+    }
+
+    .segment-btn:hover { color: var(--text-label); }
+
+    .segment-btn.active {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Slider */
+    .prop-slider {
+      flex: 1;
+      height: 6px;
+      background: var(--chassis-darker);
+      border-radius: 3px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    .prop-slider-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, var(--coral-dark) 0%, var(--coral) 100%);
+      border-radius: 3px;
+    }
+
+    .prop-slider-thumb {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 12px;
+      height: 12px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+    }
+
+    /* Aspect buttons */
+    .aspect-row {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .aspect-btn {
+      padding: 6px 10px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-label);
+      box-shadow: 0 2px 0 var(--panel-border), 0 2px 4px rgba(0, 0, 0, 0.3);
+      transition: all 0.1s;
+    }
+
+    .aspect-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+    }
+
+    .aspect-btn.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      color: white;
+      box-shadow: 0 2px 0 var(--coral-darker), 0 0 10px var(--coral-glow);
+    }
+
+    /* Audio Meters Panel */
+    .meters-panel {
+      height: 130px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .meters-row {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex: 1;
+    }
+
+    .meter-channel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .vu-meter {
+      display: flex;
+      gap: 3px;
+      height: 60px;
+    }
+
+    .vu-track {
+      width: 12px;
+      height: 100%;
+      background: var(--chassis-darker);
+      border-radius: 2px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .vu-fill {
+      position: absolute;
+      bottom: 0;
+      left: 2px;
+      right: 2px;
+      background: linear-gradient(0deg, #22c55e 0%, #84cc16 60%, #facc15 80%, #ef4444 100%);
+      border-radius: 1px;
+    }
+
+    .vu-peak {
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      height: 2px;
+      background: #ef4444;
+      box-shadow: 0 0 4px #ef4444;
+    }
+
+    .meter-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    /* Grille decoration */
+    .grille-strip {
+      height: 32px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .grille-strip::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      background-image: radial-gradient(circle, rgba(55, 55, 60, 0.9) 1.5px, transparent 1.5px);
+      background-size: 6px 6px;
+    }
+
+    /* === ANIMATIONS === */
+    @keyframes led-glow-pulse {
+      0%, 100% { box-shadow: 0 0 8px currentColor, inset 0 1px 2px rgba(255,255,255,0.3); }
+      50% { box-shadow: 0 0 14px currentColor, 0 0 20px currentColor, inset 0 1px 2px rgba(255,255,255,0.3); }
+    }
+
+    @keyframes lcd-flicker {
+      0%, 100% { opacity: 1; }
+      97% { opacity: 1; }
+      98% { opacity: 0.8; }
+      99% { opacity: 1; }
+    }
+
+    @keyframes vu-bounce {
+      0%, 100% { transform: scaleY(1); }
+      50% { transform: scaleY(1.02); }
+    }
+
+    @keyframes playhead-glow {
+      0%, 100% { box-shadow: 0 0 8px var(--coral); }
+      50% { box-shadow: 0 0 14px var(--coral), 0 0 20px var(--coral-glow); }
+    }
+
+    /* Transport button animations */
+    .transport-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .transport-btn:hover {
+      transform: scale(1.08);
+    }
+
+    .transport-btn:active {
+      transform: scale(0.95) translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border), 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .transport-btn.active {
+      animation: led-glow-pulse 2s ease-in-out infinite;
+    }
+
+    /* Tool button animations */
+    .tool-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tool-btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 var(--panel-border), inset 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .tool-btn.active svg {
+      animation: led-glow-pulse 2.5s ease-in-out infinite;
+    }
+
+    /* Export button animation */
+    .export-btn {
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .export-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 0 var(--coral-darker), 0 6px 12px rgba(0, 0, 0, 0.4), 0 0 20px var(--coral-glow);
+    }
+
+    .export-btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 var(--coral-darker), 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    /* LCD display animation */
+    .lcd-display {
+      animation: lcd-flicker 10s ease-in-out infinite;
+    }
+
+    .lcd-text {
+      transition: text-shadow 0.2s ease;
+    }
+
+    .lcd-display:hover .lcd-text {
+      text-shadow: 0 0 15px rgba(74, 222, 128, 0.8), 0 0 30px rgba(74, 222, 128, 0.4);
+    }
+
+    /* Slider thumb interactions */
+    .volume-thumb,
+    .prop-slider-thumb {
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+    }
+
+    .volume-thumb:hover,
+    .prop-slider-thumb:hover {
+      transform: translate(-50%, -50%) scale(1.2);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 12px var(--coral-glow);
+    }
+
+    .volume-thumb:active,
+    .prop-slider-thumb:active {
+      transform: translate(-50%, -50%) scale(1.1);
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+    }
+
+    /* VU meter animation */
+    .vu-fill {
+      transition: height 0.1s ease-out;
+      transform-origin: bottom;
+      animation: vu-bounce 0.5s ease-in-out infinite;
+    }
+
+    .vu-peak {
+      transition: bottom 0.05s ease-out;
+      animation: led-glow-pulse 1s ease-in-out infinite;
+    }
+
+    /* Playhead animation */
+    .playhead {
+      animation: playhead-glow 1.5s ease-in-out infinite;
+      transition: left 0.05s linear;
+    }
+
+    /* Clip hover effects */
+    .clip {
+      transition: all 0.15s ease;
+    }
+
+    .clip:hover {
+      filter: brightness(1.15);
+      transform: scaleY(1.05);
+    }
+
+    .clip:active {
+      transform: scaleY(0.98);
+    }
+
+    /* Segment button animations */
+    .segment-btn {
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .segment-btn:hover:not(.active) {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .segment-btn.active {
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* Aspect button animations */
+    .aspect-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .aspect-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border), 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .aspect-btn.active {
+      animation: led-glow-pulse 2.5s ease-in-out infinite;
+    }
+
+    /* Stepper button animations */
+    .stepper-btn {
+      transition: all 0.1s ease;
+    }
+
+    .stepper-btn:active {
+      background: linear-gradient(180deg, var(--chassis-dark) 0%, var(--chassis-darker) 100%);
+    }
+
+    /* Zoom button animations */
+    .zoom-btn {
+      transition: all 0.1s ease;
+    }
+
+    .zoom-btn:hover {
+      transform: scale(1.1);
+    }
+
+    .zoom-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* Back button animation */
+    .back-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .back-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .back-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border), 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Preview play overlay pulse */
+    .preview-play-overlay {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .preview-play-overlay:hover {
+      animation: led-glow-pulse 1.5s ease-in-out infinite;
+    }
+
+    /* Window button animations */
+    .win-btn {
+      transition: background 0.1s ease;
+    }
+
+    /* Focus states for accessibility */
+    .tool-btn:focus-visible,
+    .transport-btn:focus-visible,
+    .export-btn:focus-visible,
+    .segment-btn:focus-visible,
+    .aspect-btn:focus-visible {
+      outline: 2px solid var(--coral);
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-frame">
+    <!-- Title Bar -->
+    <div class="title-bar">
+      <div class="title-bar-left">
+        <button class="back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <div class="title-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+        <span class="title-text">VIDEO EDITOR</span>
+      </div>
+      <div class="title-grille"></div>
+      <div class="window-controls">
+        <button class="win-btn">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h8"/></svg>
+        </button>
+        <button class="win-btn">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="8" height="8" rx="1"/></svg>
+        </button>
+        <button class="win-btn close">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2l8 8M10 2l-8 8"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- Left Sidebar - Tools -->
+      <div class="tools-sidebar">
+        <div class="panel tools-panel textured">
+          <div class="panel-border"></div>
+          <div class="screw tl"></div>
+          <div class="screw br"></div>
+          <span class="panel-label">Tools</span>
+          <button class="tool-btn active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+            <span>SELECT</span>
+          </button>
+          <button class="tool-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/></svg>
+            <span>CROP</span>
+          </button>
+          <button class="tool-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+            <span>TEXT</span>
+          </button>
+          <button class="tool-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
+            <span>ZOOM</span>
+          </button>
+          <button class="tool-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            <span>MASK</span>
+          </button>
+        </div>
+
+        <div class="panel tools-panel textured" style="flex: 1;">
+          <div class="panel-border"></div>
+          <span class="panel-label">Quick</span>
+          <button class="tool-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+            <span>SCENE</span>
+          </button>
+          <button class="tool-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+            <span>BLUR</span>
+          </button>
+          <div class="grille-strip" style="width: 48px; margin-top: auto;"></div>
+        </div>
+      </div>
+
+      <!-- Center Area -->
+      <div class="center-area">
+        <!-- Video Preview -->
+        <div class="panel preview-panel textured">
+          <div class="panel-border"></div>
+          <div class="screw tl"></div>
+          <div class="screw tr"></div>
+          <div class="screw bl"></div>
+          <div class="screw br"></div>
+
+          <div class="preview-screen">
+            <div class="preview-frame">
+              <div class="preview-corner tl"></div>
+              <div class="preview-corner tr"></div>
+              <div class="preview-corner bl"></div>
+              <div class="preview-corner br"></div>
+              <div class="preview-play-overlay">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="preview-controls">
+            <div class="preview-transport">
+              <button class="transport-btn">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6V6zm3.5 6l8.5 6V6l-8.5 6z"/></svg>
+              </button>
+              <button class="transport-btn active">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z"/></svg>
+              </button>
+              <button class="transport-btn">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 6h-2v12h2V6zM6 18l8.5-6L6 6v12z"/></svg>
+              </button>
+            </div>
+
+            <div class="lcd-display">
+              <span class="lcd-text">00:02:34<span class="lcd-divider">:</span>12</span>
+            </div>
+            <span class="lcd-text" style="color: var(--text-dim); font-size: 10px; margin-left: 4px;">/ 00:05:42:00</span>
+
+            <div class="preview-spacer"></div>
+
+            <div class="volume-control">
+              <button class="volume-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                </svg>
+              </button>
+              <div class="volume-slider">
+                <div class="volume-fill"></div>
+                <div class="volume-thumb"></div>
+              </div>
+            </div>
+
+            <button class="transport-btn" style="margin-left: 8px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="panel timeline-panel textured">
+          <div class="panel-border"></div>
+          <div class="screw tl"></div>
+          <div class="screw tr"></div>
+          <div class="screw bl"></div>
+          <div class="screw br"></div>
+
+          <div class="timeline-header">
+            <div class="timeline-transport">
+              <button class="transport-btn">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6V6zm3.5 6l8.5 6V6l-8.5 6z"/></svg>
+              </button>
+              <button class="transport-btn">
+                <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+              </button>
+              <button class="transport-btn">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 6h-2v12h2V6zM6 18l8.5-6L6 6v12z"/></svg>
+              </button>
+            </div>
+
+            <div class="zoom-control">
+              <button class="zoom-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M8 11h6"/></svg>
+              </button>
+              <span class="zoom-value">100px/s</span>
+              <button class="zoom-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M11 8v6M8 11h6"/></svg>
+              </button>
+            </div>
+
+            <div class="timeline-spacer"></div>
+
+            <button class="export-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span>EXPORT</span>
+            </button>
+          </div>
+
+          <div class="timeline-body">
+            <div class="track-labels">
+              <div class="track-label" style="height: 24px; border-bottom: 1px solid var(--panel-border);"></div>
+              <div class="track-label video">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+                <span>Video</span>
+              </div>
+              <div class="track-label text">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                <span>Text</span>
+              </div>
+              <div class="track-label zoom">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <span>Zoom</span>
+              </div>
+              <div class="track-label audio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                <span>Audio</span>
+              </div>
+            </div>
+
+            <div class="timeline-tracks">
+              <div class="timeline-ruler">
+                <div class="ruler-marks">
+                  <div class="ruler-mark"><span>0:00</span></div>
+                  <div class="ruler-mark"><span>0:30</span></div>
+                  <div class="ruler-mark"><span>1:00</span></div>
+                  <div class="ruler-mark"><span>1:30</span></div>
+                  <div class="ruler-mark"><span>2:00</span></div>
+                  <div class="ruler-mark"><span>2:30</span></div>
+                  <div class="ruler-mark"><span>3:00</span></div>
+                  <div class="ruler-mark"><span>3:30</span></div>
+                  <div class="ruler-mark"><span>4:00</span></div>
+                  <div class="ruler-mark"><span>4:30</span></div>
+                  <div class="ruler-mark"><span>5:00</span></div>
+                  <div class="ruler-mark"><span>5:30</span></div>
+                </div>
+              </div>
+
+              <div class="tracks-area">
+                <!-- Video Track -->
+                <div class="track-row">
+                  <div class="clip video" style="left: 10px; width: 580px;">
+                    <span class="clip-label">Screen Recording</span>
+                    <div class="clip-handle left"></div>
+                    <div class="clip-handle right"></div>
+                  </div>
+                </div>
+
+                <!-- Text Track -->
+                <div class="track-row">
+                  <div class="clip text" style="left: 60px; width: 120px;">
+                    <span class="clip-label">Title</span>
+                  </div>
+                  <div class="clip text" style="left: 300px; width: 80px;">
+                    <span class="clip-label">Caption</span>
+                  </div>
+                </div>
+
+                <!-- Zoom Track -->
+                <div class="track-row">
+                  <div class="clip zoom" style="left: 150px; width: 60px;">
+                    <span class="clip-label">2.0×</span>
+                  </div>
+                  <div class="clip zoom" style="left: 400px; width: 80px;">
+                    <span class="clip-label">1.5×</span>
+                  </div>
+                </div>
+
+                <!-- Audio Track -->
+                <div class="track-row">
+                  <div class="clip audio" style="left: 10px; width: 580px;">
+                    <div class="waveform">
+                      <div class="waveform-bar" style="height: 30%;"></div>
+                      <div class="waveform-bar" style="height: 50%;"></div>
+                      <div class="waveform-bar" style="height: 80%;"></div>
+                      <div class="waveform-bar" style="height: 60%;"></div>
+                      <div class="waveform-bar" style="height: 90%;"></div>
+                      <div class="waveform-bar" style="height: 70%;"></div>
+                      <div class="waveform-bar" style="height: 40%;"></div>
+                      <div class="waveform-bar" style="height: 85%;"></div>
+                      <div class="waveform-bar" style="height: 55%;"></div>
+                      <div class="waveform-bar" style="height: 75%;"></div>
+                      <div class="waveform-bar" style="height: 45%;"></div>
+                      <div class="waveform-bar" style="height: 65%;"></div>
+                      <div class="waveform-bar" style="height: 95%;"></div>
+                      <div class="waveform-bar" style="height: 50%;"></div>
+                      <div class="waveform-bar" style="height: 70%;"></div>
+                      <div class="waveform-bar" style="height: 35%;"></div>
+                      <div class="waveform-bar" style="height: 60%;"></div>
+                      <div class="waveform-bar" style="height: 80%;"></div>
+                      <div class="waveform-bar" style="height: 45%;"></div>
+                      <div class="waveform-bar" style="height: 55%;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Playhead -->
+                <div class="playhead"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Sidebar -->
+      <div class="right-sidebar">
+        <div class="panel properties-panel textured">
+          <div class="panel-border"></div>
+          <div class="screw tl"></div>
+          <div class="screw tr"></div>
+          <div class="screw bl"></div>
+          <div class="screw br"></div>
+
+          <div class="properties-header">
+            <span class="panel-label">Properties</span>
+          </div>
+
+          <div class="properties-content">
+            <!-- Crop Section -->
+            <div class="prop-section">
+              <span class="prop-section-title">Crop</span>
+              <div class="aspect-row">
+                <button class="aspect-btn">FREE</button>
+                <button class="aspect-btn active">16:9</button>
+                <button class="aspect-btn">9:16</button>
+                <button class="aspect-btn">1:1</button>
+                <button class="aspect-btn">4:3</button>
+              </div>
+              <div class="prop-row">
+                <span class="prop-label">X</span>
+                <div class="num-stepper">
+                  <button class="stepper-btn">−</button>
+                  <div class="stepper-display">0</div>
+                  <button class="stepper-btn">+</button>
+                </div>
+                <span class="prop-label" style="margin-left: 8px;">Y</span>
+                <div class="num-stepper">
+                  <button class="stepper-btn">−</button>
+                  <div class="stepper-display">0</div>
+                  <button class="stepper-btn">+</button>
+                </div>
+              </div>
+              <div class="prop-row">
+                <span class="prop-label">W</span>
+                <div class="num-stepper">
+                  <button class="stepper-btn">−</button>
+                  <div class="stepper-display">1920</div>
+                  <button class="stepper-btn">+</button>
+                </div>
+                <span class="prop-label" style="margin-left: 8px;">H</span>
+                <div class="num-stepper">
+                  <button class="stepper-btn">−</button>
+                  <div class="stepper-display">1080</div>
+                  <button class="stepper-btn">+</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Export Section -->
+            <div class="prop-section">
+              <span class="prop-section-title">Export Settings</span>
+              <div class="prop-row">
+                <span class="prop-label">Format</span>
+                <div class="segment-control" style="flex: 1;">
+                  <button class="segment-btn active">MP4</button>
+                  <button class="segment-btn">WEBM</button>
+                  <button class="segment-btn">GIF</button>
+                </div>
+              </div>
+              <div class="prop-row">
+                <span class="prop-label">Quality</span>
+                <div class="prop-slider" style="flex: 1;">
+                  <div class="prop-slider-fill" style="width: 80%;"></div>
+                  <div class="prop-slider-thumb" style="left: 80%;"></div>
+                </div>
+                <span style="font-family: 'JetBrains Mono'; font-size: 9px; color: var(--text-label); min-width: 28px; text-align: right;">80%</span>
+              </div>
+              <div class="prop-row">
+                <span class="prop-label">FPS</span>
+                <div class="segment-control" style="flex: 1;">
+                  <button class="segment-btn">30</button>
+                  <button class="segment-btn active">60</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Speed Section -->
+            <div class="prop-section">
+              <span class="prop-section-title">Playback</span>
+              <div class="prop-row">
+                <span class="prop-label">Speed</span>
+                <div class="prop-slider" style="flex: 1;">
+                  <div class="prop-slider-fill" style="width: 50%;"></div>
+                  <div class="prop-slider-thumb" style="left: 50%;"></div>
+                </div>
+                <span style="font-family: 'JetBrains Mono'; font-size: 9px; color: var(--text-label); min-width: 28px; text-align: right;">1.0×</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Audio Meters -->
+        <div class="panel meters-panel textured">
+          <div class="panel-border"></div>
+          <span class="panel-label" style="text-align: center;">Audio Levels</span>
+          <div class="meters-row">
+            <div class="meter-channel">
+              <div class="vu-meter">
+                <div class="vu-track">
+                  <div class="vu-fill" style="height: 65%;"></div>
+                  <div class="vu-peak" style="bottom: 78%;"></div>
+                </div>
+                <div class="vu-track">
+                  <div class="vu-fill" style="height: 58%;"></div>
+                  <div class="vu-peak" style="bottom: 72%;"></div>
+                </div>
+              </div>
+              <span class="meter-label">L   R</span>
+            </div>
+            <div class="meter-channel">
+              <div class="vu-meter">
+                <div class="vu-track">
+                  <div class="vu-fill" style="height: 45%;"></div>
+                  <div class="vu-peak" style="bottom: 55%;"></div>
+                </div>
+              </div>
+              <span class="meter-label">MIC</span>
+            </div>
+            <div class="meter-channel">
+              <div class="vu-meter">
+                <div class="vu-track">
+                  <div class="vu-fill" style="height: 70%;"></div>
+                  <div class="vu-peak" style="bottom: 85%;"></div>
+                </div>
+              </div>
+              <span class="meter-label">SYS</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

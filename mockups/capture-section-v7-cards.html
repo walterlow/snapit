@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capture Section - Mode Cards Concept</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-base: #09090b;
+      --bg-elevated: #18181b;
+      --bg-surface: #27272a;
+      --bg-hover: #3f3f46;
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-tertiary: #71717a;
+      --coral: #F97066;
+      --coral-glow: rgba(249, 112, 102, 0.25);
+      --coral-subtle: rgba(249, 112, 102, 0.1);
+      --purple: #a78bfa;
+      --purple-glow: rgba(167, 139, 250, 0.25);
+      --purple-subtle: rgba(167, 139, 250, 0.1);
+      --blue: #60a5fa;
+      --blue-glow: rgba(96, 165, 250, 0.25);
+      --blue-subtle: rgba(96, 165, 250, 0.1);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    .app-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .title-bar {
+      height: 32px;
+      background: var(--bg-base);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 8px;
+    }
+
+    .traffic-light { width: 12px; height: 12px; border-radius: 50%; }
+    .traffic-light.red { background: #FF5F57; }
+    .traffic-light.yellow { background: #FEBC2E; }
+    .traffic-light.green { background: #28C840; }
+
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* === CAPTURE SECTION - MODE CARDS CONCEPT === */
+    .capture-section {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 24px 32px 28px;
+      background: var(--bg-base);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .mode-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .mode-card {
+      position: relative;
+      padding: 16px 20px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+    }
+
+    .mode-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .mode-card:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+      transform: translateY(-2px);
+    }
+
+    .mode-card.selected {
+      border-color: transparent;
+    }
+
+    .mode-card.selected::before {
+      opacity: 1;
+    }
+
+    /* Video card */
+    .mode-card.video.selected {
+      background: linear-gradient(135deg, rgba(249, 112, 102, 0.15) 0%, rgba(249, 112, 102, 0.05) 100%);
+      border-color: var(--coral);
+      box-shadow: 0 0 0 1px var(--coral), 0 8px 32px var(--coral-glow);
+    }
+
+    .mode-card.video::before {
+      background: radial-gradient(circle at 20% 20%, var(--coral-subtle) 0%, transparent 50%);
+    }
+
+    /* GIF card */
+    .mode-card.gif.selected {
+      background: linear-gradient(135deg, rgba(167, 139, 250, 0.15) 0%, rgba(167, 139, 250, 0.05) 100%);
+      border-color: var(--purple);
+      box-shadow: 0 0 0 1px var(--purple), 0 8px 32px var(--purple-glow);
+    }
+
+    .mode-card.gif::before {
+      background: radial-gradient(circle at 20% 20%, var(--purple-subtle) 0%, transparent 50%);
+    }
+
+    /* Photo card */
+    .mode-card.photo.selected {
+      background: linear-gradient(135deg, rgba(96, 165, 250, 0.15) 0%, rgba(96, 165, 250, 0.05) 100%);
+      border-color: var(--blue);
+      box-shadow: 0 0 0 1px var(--blue), 0 8px 32px var(--blue-glow);
+    }
+
+    .mode-card.photo::before {
+      background: radial-gradient(circle at 20% 20%, var(--blue-subtle) 0%, transparent 50%);
+    }
+
+    .mode-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .mode-card-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-surface);
+      transition: all 0.2s;
+    }
+
+    .mode-card.video .mode-card-icon {
+      background: var(--coral-subtle);
+      color: var(--coral);
+    }
+
+    .mode-card.gif .mode-card-icon {
+      background: var(--purple-subtle);
+      color: var(--purple);
+    }
+
+    .mode-card.photo .mode-card-icon {
+      background: var(--blue-subtle);
+      color: var(--blue);
+    }
+
+    .mode-card-icon svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .mode-card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .mode-card-desc {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      line-height: 1.4;
+    }
+
+    .mode-card-shortcut {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      background: rgba(0,0,0,0.3);
+      padding: 3px 7px;
+      border-radius: 4px;
+    }
+
+    /* Options row - contextual based on mode */
+    .options-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .options-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-right: 4px;
+    }
+
+    .option-chips {
+      display: flex;
+      gap: 6px;
+    }
+
+    .option-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .option-chip svg {
+      width: 14px;
+      height: 14px;
+      opacity: 0.7;
+    }
+
+    .option-chip:hover {
+      background: var(--bg-surface);
+      border-color: rgba(255, 255, 255, 0.1);
+      color: var(--text-primary);
+    }
+
+    .option-chip.active {
+      background: var(--bg-surface);
+      border-color: var(--coral);
+      color: var(--text-primary);
+    }
+
+    .option-chip.active svg {
+      opacity: 1;
+    }
+
+    .options-divider {
+      width: 1px;
+      height: 24px;
+      background: var(--border-subtle);
+    }
+
+    .device-toggles {
+      display: flex;
+      gap: 6px;
+    }
+
+    .device-toggle {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .device-toggle svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .device-toggle:hover {
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+    }
+
+    .device-toggle.on {
+      background: var(--bg-surface);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: var(--text-primary);
+    }
+
+    .device-toggle.on::after {
+      content: '';
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      width: 5px;
+      height: 5px;
+      background: #22c55e;
+      border-radius: 50%;
+    }
+
+    .start-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--coral);
+      border: none;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-left: auto;
+    }
+
+    .start-btn:hover {
+      background: #e85a50;
+      box-shadow: 0 6px 24px var(--coral-glow);
+    }
+
+    .start-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Library content */
+    .library-content {
+      flex: 1;
+      padding: 24px 32px 32px;
+      overflow-y: auto;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .capture-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+
+    .capture-card {
+      aspect-ratio: 16/10;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .capture-card:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+      transform: translateY(-2px);
+    }
+
+    .capture-card-thumb {
+      width: 100%;
+      height: 70%;
+      background: linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-elevated) 100%);
+    }
+
+    .capture-card-info {
+      padding: 12px;
+    }
+
+    .capture-card-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .capture-card-meta {
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-frame">
+    <div class="title-bar">
+      <div class="traffic-light red"></div>
+      <div class="traffic-light yellow"></div>
+      <div class="traffic-light green"></div>
+    </div>
+
+    <div class="main-content">
+      <!-- CAPTURE SECTION - MODE CARDS CONCEPT -->
+      <div class="capture-section">
+        <div class="mode-cards">
+          <div class="mode-card video selected">
+            <span class="mode-card-shortcut">⌘1</span>
+            <div class="mode-card-header">
+              <div class="mode-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="4" width="20" height="16" rx="2"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </div>
+              <span class="mode-card-title">Video</span>
+            </div>
+            <p class="mode-card-desc">Record screen with audio, camera overlay, and system sound</p>
+          </div>
+
+          <div class="mode-card gif">
+            <span class="mode-card-shortcut">⌘2</span>
+            <div class="mode-card-header">
+              <div class="mode-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="2" width="20" height="20" rx="5"/>
+                  <path d="M16 8l-8 8"/>
+                  <circle cx="9" cy="9" r="2"/>
+                  <circle cx="15" cy="15" r="2"/>
+                </svg>
+              </div>
+              <span class="mode-card-title">GIF</span>
+            </div>
+            <p class="mode-card-desc">Create lightweight animated GIFs for quick sharing</p>
+          </div>
+
+          <div class="mode-card photo">
+            <span class="mode-card-shortcut">⌘3</span>
+            <div class="mode-card-header">
+              <div class="mode-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </div>
+              <span class="mode-card-title">Photo</span>
+            </div>
+            <p class="mode-card-desc">Take instant screenshots with annotation tools</p>
+          </div>
+        </div>
+
+        <div class="options-row">
+          <span class="options-label">Source</span>
+          <div class="option-chips">
+            <button class="option-chip active">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+              </svg>
+              Area
+            </button>
+            <button class="option-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M9 3v18"/>
+              </svg>
+              Window
+            </button>
+            <button class="option-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2"/>
+                <path d="M12 17v4"/>
+              </svg>
+              Display
+            </button>
+          </div>
+
+          <div class="options-divider"></div>
+
+          <div class="device-toggles">
+            <button class="device-toggle" title="Camera">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 7l-7 5 7 5V7z"/>
+                <rect x="1" y="5" width="15" height="14" rx="2"/>
+              </svg>
+            </button>
+            <button class="device-toggle on" title="Microphone">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+              </svg>
+            </button>
+            <button class="device-toggle on" title="System Audio">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+            </button>
+          </div>
+
+          <button class="start-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <circle cx="12" cy="12" r="4" fill="currentColor"/>
+            </svg>
+            Start Recording
+          </button>
+        </div>
+      </div>
+
+      <!-- Library content -->
+      <div class="library-content">
+        <div class="section-header">
+          <span class="section-title">Recent</span>
+        </div>
+        <div class="capture-grid">
+          <div class="capture-card">
+            <div class="capture-card-thumb"></div>
+            <div class="capture-card-info">
+              <div class="capture-card-title">Screen Recording</div>
+              <div class="capture-card-meta">2:34 • 12:45 PM</div>
+            </div>
+          </div>
+          <div class="capture-card">
+            <div class="capture-card-thumb"></div>
+            <div class="capture-card-info">
+              <div class="capture-card-title">App Demo</div>
+              <div class="capture-card-meta">1:12 • 11:30 AM</div>
+            </div>
+          </div>
+          <div class="capture-card">
+            <div class="capture-card-thumb"></div>
+            <div class="capture-card-info">
+              <div class="capture-card-title">Bug Report</div>
+              <div class="capture-card-meta">0:45 • 10:15 AM</div>
+            </div>
+          </div>
+          <div class="capture-card">
+            <div class="capture-card-thumb"></div>
+            <div class="capture-card-info">
+              <div class="capture-card-title">Feature Preview</div>
+              <div class="capture-card-meta">3:21 • 9:00 AM</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

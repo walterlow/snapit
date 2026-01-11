@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capture Section - Hardware/Sampler Style</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --chassis: #2a2a2d;
+      --chassis-dark: #1e1e20;
+      --chassis-light: #3a3a3e;
+      --surface: #232326;
+      --surface-dark: #1a1a1c;
+      --coral: #F97066;
+      --coral-dark: #d85a50;
+      --white: #e8e8e8;
+      --white-dim: #b0b0b0;
+      --text-label: #6a6a6e;
+      --text-dim: #4a4a4e;
+      --led-green: #4ade80;
+      --led-red: #ef4444;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #0a0a0c;
+      color: var(--white);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+    }
+
+    /* === HARDWARE CHASSIS === */
+    .hardware-unit {
+      background: var(--chassis);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+      position: relative;
+    }
+
+    /* Screw details */
+    .hardware-unit::before,
+    .hardware-unit::after {
+      content: '';
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: radial-gradient(circle at 30% 30%, var(--chassis-light), var(--chassis-dark));
+      border-radius: 50%;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+    }
+    .hardware-unit::before { top: 10px; left: 10px; }
+    .hardware-unit::after { top: 10px; right: 10px; }
+
+    /* Header bar */
+    .hardware-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--surface-dark);
+      border-radius: 6px;
+      margin-bottom: 16px;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+    }
+
+    .header-leds {
+      display: flex;
+      gap: 6px;
+    }
+
+    .led {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .led.on {
+      background: var(--coral);
+      box-shadow: 0 0 8px var(--coral);
+    }
+
+    .header-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      color: var(--text-label);
+    }
+
+    /* === SPEAKER GRILLE === */
+    .speaker-grille {
+      background: var(--surface-dark);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.5);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .speaker-grille::before {
+      content: '';
+      position: absolute;
+      inset: 8px;
+      background-image: radial-gradient(circle, var(--chassis-dark) 1px, transparent 1px);
+      background-size: 6px 6px;
+      opacity: 0.8;
+    }
+
+    .grille-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 60px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--coral);
+      letter-spacing: 0.1em;
+    }
+
+    /* === CONTROL PANEL === */
+    .control-panel {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+    }
+
+    /* Left section - Pads */
+    .pad-section {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .pad-btn {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(180deg, var(--surface) 0%, var(--surface-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      box-shadow:
+        0 4px 0 var(--chassis-dark),
+        0 6px 8px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: all 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .pad-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--surface) 100%);
+    }
+
+    .pad-btn:active {
+      transform: translateY(2px);
+      box-shadow:
+        0 2px 0 var(--chassis-dark),
+        0 3px 4px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .pad-btn svg {
+      width: 20px;
+      height: 20px;
+      color: var(--text-label);
+      transition: color 0.15s;
+    }
+
+    .pad-btn:hover svg {
+      color: var(--white-dim);
+    }
+
+    .pad-btn.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+    }
+
+    .pad-btn.active svg {
+      color: white;
+    }
+
+    .pad-label {
+      position: absolute;
+      bottom: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    .pad-btn.active .pad-label {
+      color: rgba(255,255,255,0.7);
+    }
+
+    /* Right section - Knobs and buttons */
+    .knob-section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .knob-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-end;
+    }
+
+    .knob-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .knob-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* Rotary knob */
+    .knob {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #444 0%, #222 100%);
+      box-shadow:
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        inset 0 2px 4px rgba(255, 255, 255, 0.1),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.3);
+      position: relative;
+      cursor: pointer;
+    }
+
+    .knob::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 32px;
+      height: 32px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis-dark) 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+
+    .knob::after {
+      content: '';
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      width: 2px;
+      height: 8px;
+      background: var(--white);
+      border-radius: 1px;
+      transform: translateX(-50%);
+    }
+
+    .knob.white {
+      background: linear-gradient(135deg, #f0f0f0 0%, #ccc 100%);
+    }
+
+    .knob.white::before {
+      background: linear-gradient(180deg, #e8e8e8 0%, #d0d0d0 100%);
+    }
+
+    .knob.white::after {
+      background: var(--chassis-dark);
+    }
+
+    .knob.coral {
+      background: linear-gradient(135deg, var(--coral) 0%, var(--coral-dark) 100%);
+    }
+
+    .knob.coral::before {
+      background: linear-gradient(180deg, #ff8a7a 0%, var(--coral-dark) 100%);
+    }
+
+    .knob.coral::after {
+      background: white;
+    }
+
+    /* Function buttons row */
+    .function-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .func-btn {
+      padding: 10px 14px;
+      background: linear-gradient(180deg, var(--surface) 0%, var(--surface-dark) 100%);
+      border: none;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-label);
+      cursor: pointer;
+      box-shadow:
+        0 3px 0 var(--chassis-dark),
+        0 4px 6px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: all 0.1s;
+    }
+
+    .func-btn:hover {
+      color: var(--white-dim);
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--surface) 100%);
+    }
+
+    .func-btn:active {
+      transform: translateY(2px);
+      box-shadow:
+        0 1px 0 var(--chassis-dark),
+        0 2px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    .func-btn.primary {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      color: white;
+      box-shadow:
+        0 3px 0 #a03a30,
+        0 4px 6px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .func-btn.primary:hover {
+      background: linear-gradient(180deg, #ff8a7a 0%, var(--coral) 100%);
+      color: white;
+    }
+
+    .func-btn.primary:active {
+      box-shadow:
+        0 1px 0 #a03a30,
+        0 2px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    /* === RECORD BUTTON === */
+    .record-section {
+      display: flex;
+      justify-content: center;
+      margin-top: 16px;
+    }
+
+    .record-btn-large {
+      width: 72px;
+      height: 72px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow:
+        0 6px 0 #a03a30,
+        0 8px 16px rgba(0, 0, 0, 0.5),
+        inset 0 2px 0 rgba(255, 255, 255, 0.2);
+      transition: all 0.1s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .record-btn-large:hover {
+      background: linear-gradient(180deg, #ff8a7a 0%, var(--coral) 100%);
+    }
+
+    .record-btn-large:active {
+      transform: translateY(4px);
+      box-shadow:
+        0 2px 0 #a03a30,
+        0 3px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    .record-btn-large svg {
+      width: 24px;
+      height: 24px;
+      color: white;
+    }
+
+    .record-btn-large span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: 0.1em;
+    }
+
+    /* Bottom screws */
+    .bottom-screws {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 20px;
+    }
+
+    .screw {
+      width: 8px;
+      height: 8px;
+      background: radial-gradient(circle at 30% 30%, var(--chassis-light), var(--chassis-dark));
+      border-radius: 50%;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+  <div class="hardware-unit">
+    <!-- Header -->
+    <div class="hardware-header">
+      <div class="header-leds">
+        <div class="led on"></div>
+        <div class="led"></div>
+        <div class="led"></div>
+      </div>
+      <span class="header-title">SNAPIT CAPTURE</span>
+      <div class="header-leds">
+        <div class="led"></div>
+      </div>
+    </div>
+
+    <!-- Speaker grille / display area -->
+    <div class="speaker-grille">
+      <div class="grille-content">
+        VIDEO · 1920×1080 · 60FPS
+      </div>
+    </div>
+
+    <!-- Control panel -->
+    <div class="control-panel">
+      <!-- Pad section (Mode + Source) -->
+      <div class="pad-section">
+        <button class="pad-btn active">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span class="pad-label">VIDEO</span>
+        </button>
+        <button class="pad-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="2" width="20" height="20" rx="5"/>
+            <circle cx="9" cy="9" r="2"/>
+            <circle cx="15" cy="15" r="2"/>
+          </svg>
+          <span class="pad-label">GIF</span>
+        </button>
+        <button class="pad-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span class="pad-label">PHOTO</span>
+        </button>
+        <button class="pad-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+          </svg>
+          <span class="pad-label">AREA</span>
+        </button>
+        <button class="pad-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M9 3v18"/>
+          </svg>
+          <span class="pad-label">WINDOW</span>
+        </button>
+        <button class="pad-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M12 17v4"/>
+          </svg>
+          <span class="pad-label">DISPLAY</span>
+        </button>
+      </div>
+
+      <!-- Knob section -->
+      <div class="knob-section">
+        <div class="knob-row">
+          <div class="knob-group">
+            <span class="knob-label">CAMERA</span>
+            <div class="knob white"></div>
+          </div>
+          <div class="knob-group">
+            <span class="knob-label">MIC</span>
+            <div class="knob coral"></div>
+          </div>
+          <div class="knob-group">
+            <span class="knob-label">SYSTEM</span>
+            <div class="knob"></div>
+          </div>
+        </div>
+
+        <div class="function-row">
+          <button class="func-btn">FX</button>
+          <button class="func-btn">OUTPUT</button>
+          <button class="func-btn">SETTINGS</button>
+        </div>
+
+        <div class="function-row">
+          <button class="func-btn">CANCEL</button>
+          <button class="func-btn primary">RECORD</button>
+          <button class="func-btn">LIBRARY</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Large record button -->
+    <div class="record-section">
+      <button class="record-btn-large">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="12" cy="12" r="8"/>
+        </svg>
+        <span>REC</span>
+      </button>
+    </div>
+
+    <!-- Bottom screws -->
+    <div class="bottom-screws">
+      <div class="screw"></div>
+      <div class="screw"></div>
+    </div>
+  </div>
+</body>
+</html>

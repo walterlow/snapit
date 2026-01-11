@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnapIt - Hardware UI Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      /* Chassis colors */
+      --chassis: #2d2d30;
+      --chassis-dark: #222225;
+      --chassis-darker: #18181a;
+      --chassis-light: #3d3d42;
+      --chassis-lighter: #4a4a50;
+
+      /* Panel colors */
+      --panel: #2a2a2d;
+      --panel-dark: #232326;
+      --panel-border: #1e1e20;
+      --panel-inset: #1a1a1c;
+
+      /* Screen */
+      --screen-bg: #080a0e;
+      --screen-glow: rgba(249, 112, 102, 0.03);
+
+      /* Accent */
+      --coral: #F97066;
+      --coral-dark: #d85a50;
+      --coral-glow: rgba(249, 112, 102, 0.4);
+      --coral-dim: rgba(249, 112, 102, 0.6);
+
+      /* Text */
+      --text-bright: #f0f0f2;
+      --text-primary: #c8c8cc;
+      --text-label: #6a6a70;
+      --text-dim: #4a4a50;
+      --text-faint: #3a3a3e;
+
+      /* Status */
+      --led-on: #4ade80;
+      --led-off: #2a2a2d;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--chassis-darker);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* === STRONGER TEXTURE === */
+    .textured {
+      position: relative;
+    }
+
+    .textured::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      opacity: 0.07;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    /* Secondary fine grain texture */
+    .textured::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 1px,
+          rgba(0,0,0,0.03) 1px,
+          rgba(0,0,0,0.03) 2px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 1px,
+          rgba(255,255,255,0.01) 1px,
+          rgba(255,255,255,0.01) 2px
+        );
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    /* === APP FRAME === */
+    .app-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 6px;
+      gap: 4px;
+      background: linear-gradient(180deg, var(--chassis-dark) 0%, var(--chassis-darker) 100%);
+    }
+
+    /* === PANEL BASE === */
+    .panel {
+      background: var(--panel);
+      border-radius: 8px;
+      position: relative;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+        0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .panel-border {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      border: 1px solid var(--panel-border);
+      pointer-events: none;
+    }
+
+    /* === SCREW === */
+    .screw {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      background:
+        radial-gradient(circle at 30% 30%, var(--chassis-light) 0%, var(--chassis-dark) 50%, var(--panel-border) 100%);
+      border-radius: 50%;
+      box-shadow:
+        inset 0 1px 3px rgba(0, 0, 0, 0.7),
+        0 1px 0 rgba(255, 255, 255, 0.03);
+      z-index: 10;
+    }
+
+    .screw::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 6px;
+      height: 1.5px;
+      background: linear-gradient(90deg, var(--panel-border) 0%, var(--chassis-dark) 50%, var(--panel-border) 100%);
+      transform: translate(-50%, -50%) rotate(35deg);
+    }
+
+    .screw.tl { top: 6px; left: 6px; }
+    .screw.tr { top: 6px; right: 6px; }
+    .screw.bl { bottom: 6px; left: 6px; }
+    .screw.br { bottom: 6px; right: 6px; }
+
+    /* === TITLE BAR === */
+    .title-bar {
+      height: 32px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 8px;
+      -webkit-app-region: drag;
+    }
+
+    .traffic-lights {
+      display: flex;
+      gap: 8px;
+    }
+
+    .traffic-light {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      box-shadow: inset 0 -1px 2px rgba(0,0,0,0.3);
+    }
+
+    .traffic-light.red { background: linear-gradient(180deg, #ff6058 0%, #e33e32 100%); }
+    .traffic-light.yellow { background: linear-gradient(180deg, #ffc02f 0%, #e5a000 100%); }
+    .traffic-light.green { background: linear-gradient(180deg, #29ce42 0%, #1aab29 100%); }
+
+    .title-text {
+      margin-left: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.15em;
+    }
+
+    /* ============================================
+       CAPTURE BAR SECTION
+       ============================================ */
+    .capture-bar {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+    }
+
+    /* Mode Panel */
+    .mode-panel {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .panel-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .mode-buttons {
+      display: flex;
+      gap: 6px;
+    }
+
+    .mode-btn {
+      width: 64px;
+      height: 52px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      box-shadow:
+        0 3px 0 var(--panel-border),
+        0 4px 8px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: all 0.1s;
+    }
+
+    .mode-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .mode-btn:active {
+      transform: translateY(2px);
+      box-shadow:
+        0 1px 0 var(--panel-border),
+        0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .mode-btn.active {
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow:
+        0 3px 0 #a03a30,
+        0 4px 8px rgba(0, 0, 0, 0.4),
+        0 0 20px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .mode-btn.active:active {
+      box-shadow:
+        0 1px 0 #a03a30,
+        0 2px 4px rgba(0, 0, 0, 0.3),
+        0 0 12px var(--coral-glow);
+    }
+
+    .mode-btn svg {
+      width: 18px;
+      height: 18px;
+      color: var(--text-label);
+    }
+
+    .mode-btn:hover svg { color: var(--text-primary); }
+    .mode-btn.active svg { color: white; }
+
+    .mode-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    .mode-btn:hover span { color: var(--text-label); }
+    .mode-btn.active span { color: rgba(255,255,255,0.9); }
+
+    /* Source Panel */
+    .source-panel {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .source-buttons {
+      display: flex;
+      gap: 6px;
+    }
+
+    .source-btn {
+      flex: 1;
+      padding: 10px 12px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      box-shadow:
+        0 2px 0 var(--panel-border),
+        0 3px 6px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .source-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .source-btn:active {
+      transform: translateY(1px);
+      box-shadow:
+        0 1px 0 var(--panel-border),
+        0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    .source-btn.active {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      box-shadow:
+        0 2px 0 var(--panel-border),
+        0 3px 6px rgba(0, 0, 0, 0.3),
+        inset 0 0 0 1px var(--coral),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .source-btn svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-label);
+    }
+
+    .source-btn:hover svg,
+    .source-btn.active svg { color: var(--text-primary); }
+
+    .source-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 500;
+      color: var(--text-dim);
+    }
+
+    .source-btn:hover span,
+    .source-btn.active span { color: var(--text-label); }
+
+    /* Devices Panel */
+    .devices-panel {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .devices-row {
+      display: flex;
+      gap: 12px;
+    }
+
+    .device-control {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .device-knob {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, var(--chassis-light) 0%, var(--chassis-dark) 100%);
+      box-shadow:
+        0 3px 8px rgba(0, 0, 0, 0.5),
+        inset 0 1px 2px rgba(255, 255, 255, 0.08),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.3);
+      position: relative;
+      cursor: pointer;
+    }
+
+    .device-knob::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 28px;
+      height: 28px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+    }
+
+    .device-knob::after {
+      content: '';
+      position: absolute;
+      top: 5px;
+      left: 50%;
+      width: 2px;
+      height: 8px;
+      background: var(--text-dim);
+      border-radius: 1px;
+      transform: translateX(-50%) rotate(var(--rotation, 0deg));
+      transform-origin: center 15px;
+    }
+
+    .device-knob.active::after {
+      background: var(--coral);
+      box-shadow: 0 0 6px var(--coral);
+    }
+
+    .device-knob.off {
+      opacity: 0.5;
+    }
+
+    .device-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* LED indicator */
+    .led {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--led-off);
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .led.on {
+      background: var(--led-on);
+      box-shadow: 0 0 8px var(--led-on), inset 0 1px 2px rgba(255,255,255,0.3);
+    }
+
+    .led.coral {
+      background: var(--coral);
+      box-shadow: 0 0 8px var(--coral), inset 0 1px 2px rgba(255,255,255,0.3);
+    }
+
+    /* Record Panel */
+    .record-panel {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .record-btn {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      box-shadow:
+        0 4px 0 #a03a30,
+        0 6px 16px rgba(0, 0, 0, 0.5),
+        0 0 32px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      transition: all 0.1s;
+    }
+
+    .record-btn:hover {
+      background: linear-gradient(180deg, #ff8a7a 0%, var(--coral) 100%);
+      box-shadow:
+        0 4px 0 #a03a30,
+        0 6px 16px rgba(0, 0, 0, 0.5),
+        0 0 48px var(--coral-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    }
+
+    .record-btn:active {
+      transform: translateY(3px);
+      box-shadow:
+        0 1px 0 #a03a30,
+        0 2px 6px rgba(0, 0, 0, 0.4),
+        0 0 20px var(--coral-glow);
+    }
+
+    .record-btn svg {
+      width: 20px;
+      height: 20px;
+      color: white;
+    }
+
+    .record-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: 0.1em;
+    }
+
+    /* Settings button */
+    .settings-btn {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow:
+        0 2px 0 var(--panel-border),
+        0 3px 6px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .settings-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .settings-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border);
+    }
+
+    .settings-btn svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-label);
+    }
+
+    .settings-btn:hover svg { color: var(--text-primary); }
+
+    /* ============================================
+       LIBRARY SECTION
+       ============================================ */
+    .library-section {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Library Toolbar */
+    .library-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .toolbar-btn {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow:
+        0 2px 0 var(--panel-border),
+        0 2px 4px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .toolbar-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .toolbar-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border);
+    }
+
+    .toolbar-btn.active {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      box-shadow:
+        0 2px 0 var(--panel-border),
+        0 2px 4px rgba(0, 0, 0, 0.3),
+        inset 0 0 0 1px var(--coral);
+    }
+
+    .toolbar-btn svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-label);
+    }
+
+    .toolbar-btn:hover svg,
+    .toolbar-btn.active svg { color: var(--text-primary); }
+
+    .toolbar-btn.active svg { color: var(--coral); }
+
+    /* Search input */
+    .search-input-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--panel-inset);
+      border-radius: 5px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+      flex: 1;
+      max-width: 240px;
+    }
+
+    .search-input-wrap svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .search-input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      color: var(--text-primary);
+    }
+
+    .search-input::placeholder {
+      color: var(--text-dim);
+    }
+
+    .toolbar-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--panel-border);
+      margin: 0 4px;
+    }
+
+    .toolbar-spacer {
+      flex: 1;
+    }
+
+    /* Library Content */
+    .library-content {
+      flex: 1;
+      padding: 16px 20px;
+      overflow-y: auto;
+    }
+
+    /* Date Group */
+    .date-group {
+      margin-bottom: 24px;
+    }
+
+    .date-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .date-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .date-line {
+      flex: 1;
+      height: 1px;
+      background: var(--panel-border);
+    }
+
+    .date-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-faint);
+    }
+
+    /* Capture Grid */
+    .capture-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    /* Capture Card */
+    .capture-card {
+      background: var(--panel-dark);
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.15s;
+      box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .capture-card:hover {
+      transform: translateY(-2px);
+      box-shadow:
+        0 8px 20px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .capture-card.selected {
+      box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.3),
+        inset 0 0 0 2px var(--coral);
+    }
+
+    .capture-thumb {
+      aspect-ratio: 16/10;
+      background: linear-gradient(135deg, var(--chassis) 0%, var(--chassis-darker) 100%);
+      position: relative;
+    }
+
+    .capture-type-badge {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      padding: 3px 6px;
+      background: rgba(0, 0, 0, 0.7);
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .capture-type-badge.video { color: var(--coral); }
+    .capture-type-badge.gif { color: #a78bfa; }
+    .capture-type-badge.photo { color: #60a5fa; }
+
+    .capture-duration {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      padding: 2px 6px;
+      background: rgba(0, 0, 0, 0.8);
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-bright);
+    }
+
+    .capture-favorite {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      color: var(--coral);
+    }
+
+    .capture-favorite svg {
+      width: 14px;
+      height: 14px;
+      fill: var(--coral);
+    }
+
+    .capture-info {
+      padding: 10px;
+    }
+
+    .capture-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .capture-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-dim);
+    }
+
+    /* ============================================
+       REFERENCE SECTION
+       ============================================ */
+    .reference-section {
+      padding: 40px 20px;
+      background: var(--chassis-darker);
+      border-top: 4px solid var(--panel-border);
+    }
+
+    .reference-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-dim);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 32px;
+      text-align: center;
+    }
+
+    .reference-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .reference-card {
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .reference-card-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .reference-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .reference-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .reference-item-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-frame">
+    <!-- Title Bar -->
+    <div class="title-bar">
+      <div class="traffic-lights">
+        <div class="traffic-light red"></div>
+        <div class="traffic-light yellow"></div>
+        <div class="traffic-light green"></div>
+      </div>
+      <span class="title-text">SNAPIT</span>
+    </div>
+
+    <!-- ============================================
+         CAPTURE BAR
+         ============================================ -->
+    <div class="capture-bar">
+      <!-- Mode Panel -->
+      <div class="panel mode-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <span class="panel-label">Mode</span>
+        <div class="mode-buttons">
+          <button class="mode-btn active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span>VIDEO</span>
+          </button>
+          <button class="mode-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="2" width="20" height="20" rx="5"/>
+              <circle cx="9" cy="9" r="2"/>
+              <circle cx="15" cy="15" r="2"/>
+            </svg>
+            <span>GIF</span>
+          </button>
+          <button class="mode-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span>PHOTO</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Source Panel -->
+      <div class="panel source-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw br"></div>
+        <span class="panel-label">Source</span>
+        <div class="source-buttons">
+          <button class="source-btn active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+            </svg>
+            <span>AREA</span>
+          </button>
+          <button class="source-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <path d="M9 3v18"/>
+            </svg>
+            <span>WINDOW</span>
+          </button>
+          <button class="source-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M12 17v4M8 21h8"/>
+            </svg>
+            <span>DISPLAY</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Devices Panel -->
+      <div class="panel devices-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw tr"></div>
+        <div class="screw bl"></div>
+        <div class="screw br"></div>
+        <span class="panel-label">Devices</span>
+        <div class="devices-row">
+          <div class="device-control">
+            <div class="led"></div>
+            <div class="device-knob off" style="--rotation: -60deg"></div>
+            <span class="device-label">Camera</span>
+          </div>
+          <div class="device-control">
+            <div class="led coral"></div>
+            <div class="device-knob active" style="--rotation: 30deg"></div>
+            <span class="device-label">Mic</span>
+          </div>
+          <div class="device-control">
+            <div class="led on"></div>
+            <div class="device-knob active" style="--rotation: 45deg"></div>
+            <span class="device-label">System</span>
+          </div>
+          <div style="margin-left: 8px;">
+            <button class="settings-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Record Panel -->
+      <div class="panel record-panel textured">
+        <div class="panel-border"></div>
+        <div class="screw tl"></div>
+        <div class="screw tr"></div>
+        <div class="screw bl"></div>
+        <div class="screw br"></div>
+        <button class="record-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="8"/>
+          </svg>
+          <span>REC</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============================================
+         LIBRARY SECTION
+         ============================================ -->
+    <div class="panel library-section textured">
+      <div class="panel-border"></div>
+      <div class="screw tl"></div>
+      <div class="screw tr"></div>
+      <div class="screw bl"></div>
+      <div class="screw br"></div>
+
+      <!-- Library Toolbar -->
+      <div class="library-toolbar">
+        <div class="search-input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input type="text" class="search-input" placeholder="Search captures...">
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <button class="toolbar-btn" title="Favorites">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </button>
+
+        <button class="toolbar-btn" title="Tags">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+            <line x1="7" y1="7" x2="7.01" y2="7"/>
+          </svg>
+        </button>
+
+        <div class="toolbar-spacer"></div>
+
+        <button class="toolbar-btn active" title="Grid view">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+          </svg>
+        </button>
+
+        <button class="toolbar-btn" title="List view">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+        </button>
+
+        <div class="toolbar-divider"></div>
+
+        <button class="toolbar-btn" title="Open folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Library Content -->
+      <div class="library-content">
+        <!-- Today -->
+        <div class="date-group">
+          <div class="date-header">
+            <span class="date-label">Today</span>
+            <div class="date-line"></div>
+            <span class="date-count">4 captures</span>
+          </div>
+          <div class="capture-grid">
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">2:34</span>
+                <div class="capture-favorite">
+                  <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                </div>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Screen Recording</div>
+                <div class="capture-meta">12:45 PM · 1920×1080</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge gif">GIF</span>
+                <span class="capture-duration">0:08</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Button Animation</div>
+                <div class="capture-meta">11:30 AM · 800×600</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge photo">PNG</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Bug Screenshot</div>
+                <div class="capture-meta">10:15 AM · 2560×1440</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">3:21</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Feature Preview</div>
+                <div class="capture-meta">9:00 AM · 1920×1080</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Yesterday -->
+        <div class="date-group">
+          <div class="date-header">
+            <span class="date-label">Yesterday</span>
+            <div class="date-line"></div>
+            <span class="date-count">2 captures</span>
+          </div>
+          <div class="capture-grid">
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">5:12</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Design Review</div>
+                <div class="capture-meta">4:30 PM · 1920×1080</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">8:45</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Tutorial Recording</div>
+                <div class="capture-meta">2:00 PM · 1920×1080</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- This Week -->
+        <div class="date-group">
+          <div class="date-header">
+            <span class="date-label">This Week</span>
+            <div class="date-line"></div>
+            <span class="date-count">3 captures</span>
+          </div>
+          <div class="capture-grid">
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge photo">PNG</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">UI Mockup</div>
+                <div class="capture-meta">Monday · 2560×1440</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge video">MP4</span>
+                <span class="capture-duration">12:30</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Product Demo</div>
+                <div class="capture-meta">Sunday · 1920×1080</div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-thumb">
+                <span class="capture-type-badge gif">GIF</span>
+                <span class="capture-duration">0:05</span>
+              </div>
+              <div class="capture-info">
+                <div class="capture-title">Loading Spinner</div>
+                <div class="capture-meta">Saturday · 400×400</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       REFERENCE / STYLE GUIDE
+       ============================================ -->
+  <div class="reference-section">
+    <h2 class="reference-title">Component Reference</h2>
+
+    <div class="reference-grid">
+      <!-- Buttons -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Mode Buttons</h3>
+        <div class="reference-items">
+          <div class="reference-item">
+            <button class="mode-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+              </svg>
+              <span>DEFAULT</span>
+            </button>
+            <span class="reference-item-label">Default</span>
+          </div>
+          <div class="reference-item">
+            <button class="mode-btn active">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+              </svg>
+              <span>ACTIVE</span>
+            </button>
+            <span class="reference-item-label">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Source Buttons -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Source Buttons</h3>
+        <div class="reference-items">
+          <div class="reference-item">
+            <button class="source-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+              </svg>
+              <span>DEFAULT</span>
+            </button>
+            <span class="reference-item-label">Default</span>
+          </div>
+          <div class="reference-item">
+            <button class="source-btn active">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+              </svg>
+              <span>ACTIVE</span>
+            </button>
+            <span class="reference-item-label">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toolbar Buttons -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Toolbar Buttons</h3>
+        <div class="reference-items">
+          <div class="reference-item">
+            <button class="toolbar-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"/>
+                <rect x="14" y="3" width="7" height="7"/>
+              </svg>
+            </button>
+            <span class="reference-item-label">Default</span>
+          </div>
+          <div class="reference-item">
+            <button class="toolbar-btn active">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"/>
+                <rect x="14" y="3" width="7" height="7"/>
+              </svg>
+            </button>
+            <span class="reference-item-label">Active</span>
+          </div>
+          <div class="reference-item">
+            <button class="settings-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+            <span class="reference-item-label">Settings</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Record Button -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Record Button</h3>
+        <div class="reference-items">
+          <div class="reference-item">
+            <button class="record-btn">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="12" r="8"/>
+              </svg>
+              <span>REC</span>
+            </button>
+            <span class="reference-item-label">Record</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Knobs -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Device Knobs</h3>
+        <div class="reference-items">
+          <div class="reference-item">
+            <div class="device-knob off" style="--rotation: -45deg"></div>
+            <span class="reference-item-label">Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="device-knob" style="--rotation: 0deg"></div>
+            <span class="reference-item-label">Default</span>
+          </div>
+          <div class="reference-item">
+            <div class="device-knob active" style="--rotation: 45deg"></div>
+            <span class="reference-item-label">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- LEDs -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">LED Indicators</h3>
+        <div class="reference-items" style="gap: 20px;">
+          <div class="reference-item">
+            <div class="led"></div>
+            <span class="reference-item-label">Off</span>
+          </div>
+          <div class="reference-item">
+            <div class="led on"></div>
+            <span class="reference-item-label">Green</span>
+          </div>
+          <div class="reference-item">
+            <div class="led coral"></div>
+            <span class="reference-item-label">Coral</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Screws -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Hardware Details</h3>
+        <div class="reference-items" style="gap: 24px;">
+          <div class="reference-item">
+            <div class="screw" style="position: relative;"></div>
+            <span class="reference-item-label">Screw</span>
+          </div>
+          <div class="reference-item">
+            <div style="width: 60px; height: 30px; background: var(--panel-inset); border-radius: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);"></div>
+            <span class="reference-item-label">Inset</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Type Badges -->
+      <div class="reference-card textured">
+        <h3 class="reference-card-title">Type Badges</h3>
+        <div class="reference-items" style="gap: 16px;">
+          <div class="reference-item">
+            <span class="capture-type-badge video" style="position: relative;">MP4</span>
+            <span class="reference-item-label">Video</span>
+          </div>
+          <div class="reference-item">
+            <span class="capture-type-badge gif" style="position: relative;">GIF</span>
+            <span class="reference-item-label">GIF</span>
+          </div>
+          <div class="reference-item">
+            <span class="capture-type-badge photo" style="position: relative;">PNG</span>
+            <span class="reference-item-label">Photo</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

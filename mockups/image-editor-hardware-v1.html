@@ -1,0 +1,1779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnapIt Image Editor - Hardware UI Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      /* Chassis colors */
+      --chassis: #2a2a2d;
+      --chassis-dark: #232326;
+      --chassis-darker: #1a1a1d;
+      --chassis-darkest: #131315;
+      --chassis-light: #353538;
+      --chassis-lighter: #3f3f43;
+
+      /* Panel colors */
+      --panel: #252528;
+      --panel-dark: #1f1f22;
+      --panel-border: #1c1c1e;
+      --panel-inset: #161618;
+
+      /* Screen */
+      --screen-bg: #0a0a0c;
+
+      /* Accent */
+      --coral: #F97066;
+      --coral-dark: #d85a50;
+      --coral-darker: #a04038;
+      --coral-glow: rgba(249, 112, 102, 0.4);
+
+      /* Tool colors */
+      --tool-arrow: #F97066;
+      --tool-rect: #60a5fa;
+      --tool-ellipse: #a78bfa;
+      --tool-text: #4ade80;
+      --tool-highlight: #facc15;
+      --tool-blur: #f472b6;
+
+      /* Text */
+      --text-bright: #e8e8ea;
+      --text-primary: #b0b0b4;
+      --text-label: #5a5a60;
+      --text-dim: #404046;
+      --text-faint: #2a2a2e;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--chassis-darkest);
+      color: var(--text-primary);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* === TEXTURE === */
+    .textured {
+      position: relative;
+    }
+
+    .textured::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      opacity: 0.04;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    /* === APP FRAME === */
+    .app-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 6px;
+      gap: 4px;
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--chassis-darkest) 100%);
+    }
+
+    /* === PANEL BASE === */
+    .panel {
+      background: var(--panel);
+      border-radius: 8px;
+      position: relative;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.4),
+        0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+
+    .panel-border {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      border: 1px solid var(--panel-border);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* === SCREW === */
+    .screw {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      background: radial-gradient(circle at 30% 30%, var(--chassis-light) 0%, var(--chassis-dark) 50%, var(--panel-border) 100%);
+      border-radius: 50%;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.02);
+      z-index: 10;
+    }
+
+    .screw::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 6px;
+      height: 1.5px;
+      background: linear-gradient(90deg, var(--panel-border) 0%, var(--chassis-darker) 50%, var(--panel-border) 100%);
+      transform: translate(-50%, -50%) rotate(35deg);
+    }
+
+    .screw.tl { top: 6px; left: 6px; }
+    .screw.tr { top: 6px; right: 6px; }
+    .screw.bl { bottom: 6px; left: 6px; }
+    .screw.br { bottom: 6px; right: 6px; }
+
+    /* === TITLE BAR === */
+    .title-bar {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      background: linear-gradient(180deg, var(--chassis-dark) 0%, var(--chassis-darker) 100%);
+      border-radius: 6px 6px 0 0;
+    }
+
+    .title-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-left: 4px;
+    }
+
+    .back-btn {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 0 var(--panel-border), 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    .back-btn svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-label);
+    }
+
+    .back-btn:hover svg { color: var(--text-primary); }
+
+    .title-icon svg {
+      width: 14px;
+      height: 14px;
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral-glow));
+    }
+
+    .title-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+    }
+
+    .title-grille {
+      flex: 1;
+      height: 20px;
+      margin: 0 20px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .title-grille::before {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      background:
+        repeating-linear-gradient(45deg, transparent, transparent 1.5px, rgba(60, 60, 65, 0.7) 1.5px, rgba(60, 60, 65, 0.7) 3px),
+        repeating-linear-gradient(-45deg, transparent, transparent 1.5px, rgba(60, 60, 65, 0.7) 1.5px, rgba(60, 60, 65, 0.7) 3px);
+    }
+
+    /* History buttons in title bar */
+    .history-btns {
+      display: flex;
+      gap: 4px;
+      margin-right: 12px;
+    }
+
+    .history-btn {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 0 var(--panel-border), 0 2px 4px rgba(0, 0, 0, 0.4);
+      transition: all 0.1s;
+    }
+
+    .history-btn svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-label);
+    }
+
+    .history-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .history-btn:hover svg { color: var(--text-primary); }
+
+    .history-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Export buttons */
+    .export-btns {
+      display: flex;
+      gap: 8px;
+    }
+
+    .copy-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      box-shadow: 0 2px 0 var(--panel-border), 0 3px 6px rgba(0, 0, 0, 0.4);
+      transition: all 0.1s;
+    }
+
+    .copy-btn svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-label);
+    }
+
+    .copy-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-label);
+      letter-spacing: 0.08em;
+    }
+
+    .copy-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .copy-btn:hover svg, .copy-btn:hover span { color: var(--text-primary); }
+
+    .save-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      box-shadow: 0 2px 0 var(--coral-darker), 0 3px 6px rgba(0, 0, 0, 0.4), 0 0 12px var(--coral-glow);
+      transition: all 0.1s;
+    }
+
+    .save-btn svg {
+      width: 14px;
+      height: 14px;
+      color: white;
+    }
+
+    .save-btn span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: white;
+      letter-spacing: 0.08em;
+    }
+
+    .save-btn:hover {
+      background: linear-gradient(180deg, #ff8a7a 0%, var(--coral) 100%);
+    }
+
+    .window-controls {
+      display: flex;
+      gap: 0;
+      margin-left: 12px;
+    }
+
+    .win-btn {
+      width: 46px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+    }
+
+    .win-btn svg {
+      width: 12px;
+      height: 12px;
+      color: var(--text-label);
+    }
+
+    .win-btn:hover { background: rgba(255, 255, 255, 0.06); }
+    .win-btn:hover svg { color: var(--text-primary); }
+    .win-btn.close:hover { background: #c42b1c; }
+    .win-btn.close:hover svg { color: white; }
+
+    /* === MAIN CONTENT === */
+    .main-content {
+      flex: 1;
+      display: flex;
+      gap: 4px;
+      min-height: 0;
+    }
+
+    /* === LEFT SIDEBAR - TOOLS === */
+    .tools-sidebar {
+      width: 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .tools-panel {
+      padding: 20px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .panel-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      text-align: center;
+    }
+
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 4px;
+    }
+
+    .tool-btn {
+      width: 26px;
+      height: 26px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 0 var(--panel-border), 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .tool-btn svg {
+      width: 13px;
+      height: 13px;
+      color: var(--text-label);
+    }
+
+    .tool-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .tool-btn:hover svg { color: var(--text-primary); }
+
+    .tool-btn.active {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 0 8px rgba(249, 112, 102, 0.1), 0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .tool-btn.active svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 3px var(--coral));
+    }
+
+    /* Large tool button */
+    .tool-btn-lg {
+      width: 48px;
+      height: 40px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      box-shadow: 0 2px 0 var(--panel-border), 0 3px 6px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.1s;
+    }
+
+    .tool-btn-lg svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-label);
+    }
+
+    .tool-btn-lg span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .tool-btn-lg:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .tool-btn-lg:hover svg { color: var(--text-primary); }
+    .tool-btn-lg:hover span { color: var(--text-label); }
+
+    .tool-btn-lg.active {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.6), inset 0 0 10px rgba(249, 112, 102, 0.1), 0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .tool-btn-lg.active svg {
+      color: var(--coral);
+      filter: drop-shadow(0 0 4px var(--coral));
+    }
+
+    .tool-btn-lg.active span { color: var(--coral); }
+
+    .tool-divider {
+      width: 36px;
+      height: 1px;
+      background: var(--panel-border);
+      margin: 4px 0;
+    }
+
+    /* Grille decoration */
+    .grille-strip {
+      height: 24px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .grille-strip::before {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      background-image: radial-gradient(circle, rgba(55, 55, 60, 0.9) 1.5px, transparent 1.5px);
+      background-size: 6px 6px;
+    }
+
+    /* === CENTER - CANVAS === */
+    .center-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .canvas-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .canvas-screen {
+      flex: 1;
+      margin: 12px;
+      background: var(--screen-bg);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /* Checkerboard for transparency */
+      background-image:
+        linear-gradient(45deg, #0f0f12 25%, transparent 25%),
+        linear-gradient(-45deg, #0f0f12 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #0f0f12 75%),
+        linear-gradient(-45deg, transparent 75%, #0f0f12 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+      background-color: #0a0a0c;
+    }
+
+    /* Image container with background compositor */
+    .image-container {
+      position: relative;
+      padding: 32px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    .image-frame {
+      width: 480px;
+      aspect-ratio: 16/9;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f1a 100%);
+      border-radius: 12px;
+      position: relative;
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+    }
+
+    /* Sample annotations */
+    .annotation {
+      position: absolute;
+    }
+
+    .annotation-arrow {
+      top: 30%;
+      left: 15%;
+    }
+
+    .annotation-arrow svg {
+      width: 80px;
+      height: 40px;
+      stroke: var(--tool-arrow);
+      stroke-width: 3;
+      fill: none;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+    }
+
+    .annotation-rect {
+      top: 20%;
+      right: 20%;
+      width: 100px;
+      height: 60px;
+      border: 3px solid var(--tool-rect);
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(96, 165, 250, 0.3);
+    }
+
+    .annotation-ellipse {
+      bottom: 25%;
+      left: 25%;
+      width: 80px;
+      height: 50px;
+      border: 3px solid var(--tool-ellipse);
+      border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(167, 139, 250, 0.3);
+    }
+
+    .annotation-text {
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'Inter', sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--tool-text);
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+    }
+
+    .annotation-highlight {
+      bottom: 15%;
+      right: 15%;
+      width: 120px;
+      height: 24px;
+      background: rgba(250, 204, 21, 0.35);
+      border-radius: 2px;
+    }
+
+    .annotation-step {
+      top: 15%;
+      left: 40%;
+      width: 28px;
+      height: 28px;
+      background: var(--coral);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: white;
+      box-shadow: 0 2px 8px rgba(249, 112, 102, 0.5);
+    }
+
+    /* Selection handles */
+    .selection-handles {
+      position: absolute;
+      top: 20%;
+      right: 20%;
+      width: 106px;
+      height: 66px;
+      pointer-events: none;
+    }
+
+    .handle {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: white;
+      border: 2px solid var(--coral);
+      border-radius: 2px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    }
+
+    .handle.tl { top: -4px; left: -4px; cursor: nwse-resize; }
+    .handle.tr { top: -4px; right: -4px; cursor: nesw-resize; }
+    .handle.bl { bottom: -4px; left: -4px; cursor: nesw-resize; }
+    .handle.br { bottom: -4px; right: -4px; cursor: nwse-resize; }
+    .handle.t { top: -4px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .handle.b { bottom: -4px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .handle.l { top: 50%; left: -4px; transform: translateY(-50%); cursor: ew-resize; }
+    .handle.r { top: 50%; right: -4px; transform: translateY(-50%); cursor: ew-resize; }
+
+    /* Canvas footer */
+    .canvas-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--panel-border);
+    }
+
+    .zoom-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .zoom-btn {
+      width: 22px;
+      height: 22px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .zoom-btn svg {
+      width: 12px;
+      height: 12px;
+      color: var(--text-label);
+    }
+
+    .zoom-btn:hover svg { color: var(--text-primary); }
+
+    .zoom-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-primary);
+      min-width: 40px;
+      text-align: center;
+    }
+
+    .canvas-spacer { flex: 1; }
+
+    .lcd-display {
+      background: #0a1a12;
+      border-radius: 4px;
+      padding: 5px 10px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+      border: 1px solid #0d2818;
+    }
+
+    .lcd-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      color: #4ade80;
+      text-shadow: 0 0 8px rgba(74, 222, 128, 0.5);
+      letter-spacing: 0.05em;
+    }
+
+    .fit-btn {
+      padding: 6px 12px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-label);
+      box-shadow: 0 2px 0 var(--panel-border), 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .fit-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+    }
+
+    /* === RIGHT SIDEBAR === */
+    .right-sidebar {
+      width: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      overflow: hidden;
+    }
+
+    .properties-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .properties-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .properties-content {
+      flex: 1;
+      padding: 16px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .prop-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .prop-section-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .prop-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .prop-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-label);
+      min-width: 50px;
+    }
+
+    /* Color swatch bank */
+    .swatch-bank {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .swatch-btn {
+      width: 24px;
+      height: 24px;
+      background: var(--swatch-color);
+      border: 2px solid var(--panel-border);
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      transition: all 0.1s;
+    }
+
+    .swatch-btn:hover {
+      transform: scale(1.1);
+    }
+
+    .swatch-btn.active {
+      border-color: var(--coral);
+      box-shadow: 0 0 0 2px var(--coral), 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .swatch-btn.transparent {
+      background:
+        linear-gradient(45deg, #333 25%, transparent 25%),
+        linear-gradient(-45deg, #333 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #333 75%),
+        linear-gradient(-45deg, transparent 75%, #333 75%);
+      background-size: 8px 8px;
+      background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+      background-color: #666;
+    }
+
+    /* Stroke width buttons */
+    .stroke-widths {
+      display: flex;
+      gap: 4px;
+    }
+
+    .stroke-btn {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 0 var(--panel-border), 0 2px 4px rgba(0, 0, 0, 0.3);
+      transition: all 0.1s;
+    }
+
+    .stroke-btn .stroke-preview {
+      background: var(--text-label);
+      border-radius: 1px;
+    }
+
+    .stroke-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .stroke-btn:hover .stroke-preview { background: var(--text-primary); }
+
+    .stroke-btn.active {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .stroke-btn.active .stroke-preview {
+      background: var(--coral);
+    }
+
+    /* Preset pads */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+    }
+
+    .preset-pad {
+      height: 36px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      box-shadow: 0 2px 0 var(--panel-border), 0 3px 6px rgba(0, 0, 0, 0.3);
+      transition: all 0.1s;
+      position: relative;
+    }
+
+    .preset-pad::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--preset-color);
+      opacity: 0.6;
+    }
+
+    .preset-pad span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .preset-pad:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+    }
+
+    .preset-pad.active {
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .preset-pad.active::before {
+      opacity: 1;
+      box-shadow: 0 0 6px var(--preset-color);
+    }
+
+    .preset-pad.active span { color: var(--text-primary); }
+
+    /* Numeric stepper */
+    .num-stepper {
+      display: flex;
+      align-items: center;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+    }
+
+    .stepper-btn {
+      width: 22px;
+      height: 22px;
+      background: linear-gradient(180deg, var(--chassis) 0%, var(--chassis-dark) 100%);
+      border: none;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-label);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .stepper-btn:hover {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+    }
+
+    .stepper-display {
+      min-width: 36px;
+      padding: 0 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-align: center;
+      background: var(--panel-inset);
+    }
+
+    /* Slider */
+    .prop-slider {
+      flex: 1;
+      height: 6px;
+      background: var(--chassis-darker);
+      border-radius: 3px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    .prop-slider-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, var(--coral-dark) 0%, var(--coral) 100%);
+      border-radius: 3px;
+    }
+
+    .prop-slider-thumb {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 12px;
+      height: 12px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+    }
+
+    /* Toggle */
+    .hw-toggle {
+      position: relative;
+      width: 40px;
+      height: 20px;
+      background: linear-gradient(180deg, var(--chassis-darker) 0%, var(--panel-border) 100%);
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+    }
+
+    .hw-toggle::before {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      background: linear-gradient(180deg, var(--chassis-lighter) 0%, var(--chassis) 100%);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+      transition: all 0.15s;
+    }
+
+    .hw-toggle.on::before {
+      left: 22px;
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4), 0 0 8px var(--coral-glow);
+    }
+
+    /* Segment control */
+    .segment-control {
+      display: flex;
+      background: var(--chassis-darker);
+      border-radius: 4px;
+      padding: 2px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .segment-btn {
+      padding: 5px 8px;
+      background: transparent;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      transition: all 0.15s;
+    }
+
+    .segment-btn:hover { color: var(--text-label); }
+
+    .segment-btn.active {
+      background: linear-gradient(180deg, var(--chassis-light) 0%, var(--chassis) 100%);
+      color: var(--text-primary);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Gradient swatches */
+    .gradient-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+    }
+
+    .gradient-swatch {
+      height: 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 2px solid var(--panel-border);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      transition: all 0.1s;
+    }
+
+    .gradient-swatch:hover {
+      transform: scale(1.05);
+    }
+
+    .gradient-swatch.active {
+      border-color: var(--coral);
+      box-shadow: 0 0 0 2px var(--coral);
+    }
+
+    /* Background panel */
+    .bg-panel {
+      padding: 18px 20px;
+    }
+
+    .bg-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    /* === ANIMATIONS === */
+    @keyframes led-glow-pulse {
+      0%, 100% { box-shadow: 0 0 8px currentColor, inset 0 1px 2px rgba(255,255,255,0.3); }
+      50% { box-shadow: 0 0 14px currentColor, 0 0 20px currentColor, inset 0 1px 2px rgba(255,255,255,0.3); }
+    }
+
+    @keyframes lcd-flicker {
+      0%, 100% { opacity: 1; }
+      97% { opacity: 1; }
+      98% { opacity: 0.8; }
+      99% { opacity: 1; }
+    }
+
+    @keyframes handle-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
+
+    @keyframes toggle-spring {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+      100% { transform: scale(1); }
+    }
+
+    /* Tool button animations */
+    .tool-btn,
+    .tool-btn-lg {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tool-btn:active,
+    .tool-btn-lg:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 var(--panel-border), inset 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .tool-btn.active svg,
+    .tool-btn-lg.active svg {
+      animation: led-glow-pulse 2.5s ease-in-out infinite;
+    }
+
+    /* History button animations */
+    .history-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .history-btn:not(:disabled):active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border), 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Back button animation */
+    .back-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .back-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border), 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Copy/Save button animations */
+    .copy-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .copy-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border), 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .save-btn {
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .save-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 3px 0 var(--coral-darker), 0 5px 10px rgba(0, 0, 0, 0.4), 0 0 16px var(--coral-glow);
+    }
+
+    .save-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--coral-darker), 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Swatch animations */
+    .swatch-btn {
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .swatch-btn:hover {
+      transform: scale(1.15);
+      z-index: 5;
+    }
+
+    .swatch-btn:active {
+      transform: scale(0.95);
+    }
+
+    .swatch-btn.active {
+      animation: led-glow-pulse 2s ease-in-out infinite;
+    }
+
+    /* Stroke width button animations */
+    .stroke-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .stroke-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border), 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .stroke-btn.active .stroke-preview {
+      animation: led-glow-pulse 2.5s ease-in-out infinite;
+    }
+
+    /* Preset pad animations */
+    .preset-pad {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .preset-pad:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 var(--panel-border), inset 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .preset-pad.active::before {
+      animation: led-glow-pulse 2s ease-in-out infinite;
+    }
+
+    /* Toggle switch animations */
+    .hw-toggle {
+      transition: all 0.15s ease;
+    }
+
+    .hw-toggle::before {
+      transition: all 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+
+    .hw-toggle:hover::before {
+      animation: toggle-spring 0.3s ease;
+    }
+
+    .hw-toggle.on::before {
+      animation: led-glow-pulse 2s ease-in-out infinite;
+    }
+
+    /* Slider thumb interactions */
+    .prop-slider-thumb {
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+    }
+
+    .prop-slider-thumb:hover {
+      transform: translate(-50%, -50%) scale(1.2);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 12px var(--coral-glow);
+    }
+
+    .prop-slider-thumb:active {
+      transform: translate(-50%, -50%) scale(1.1);
+      background: linear-gradient(180deg, var(--coral) 0%, var(--coral-dark) 100%);
+    }
+
+    /* Segment button animations */
+    .segment-btn {
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .segment-btn:hover:not(.active) {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .segment-btn.active {
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* Stepper button animations */
+    .stepper-btn {
+      transition: all 0.1s ease;
+    }
+
+    .stepper-btn:active {
+      background: linear-gradient(180deg, var(--chassis-dark) 0%, var(--chassis-darker) 100%);
+    }
+
+    /* Zoom button animations */
+    .zoom-btn {
+      transition: all 0.1s ease;
+    }
+
+    .zoom-btn:hover {
+      transform: scale(1.1);
+    }
+
+    .zoom-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* Fit button animations */
+    .fit-btn {
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .fit-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 0 var(--panel-border), 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Gradient swatch animations */
+    .gradient-swatch {
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .gradient-swatch:hover {
+      transform: scale(1.08);
+      z-index: 5;
+    }
+
+    .gradient-swatch:active {
+      transform: scale(0.95);
+    }
+
+    .gradient-swatch.active {
+      animation: led-glow-pulse 2s ease-in-out infinite;
+    }
+
+    /* LCD display animation */
+    .lcd-display {
+      animation: lcd-flicker 10s ease-in-out infinite;
+    }
+
+    .lcd-text {
+      transition: text-shadow 0.2s ease;
+    }
+
+    .lcd-display:hover .lcd-text {
+      text-shadow: 0 0 15px rgba(74, 222, 128, 0.8), 0 0 30px rgba(74, 222, 128, 0.4);
+    }
+
+    /* Selection handle animations */
+    .handle {
+      transition: all 0.1s ease;
+    }
+
+    .handle:hover {
+      transform: scale(1.3);
+      animation: handle-pulse 0.5s ease-in-out infinite;
+    }
+
+    /* Image container hover effect */
+    .image-container {
+      transition: all 0.3s ease;
+    }
+
+    .image-container:hover {
+      box-shadow: 0 25px 70px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Annotation hover effects */
+    .annotation {
+      transition: all 0.2s ease;
+    }
+
+    .annotation-rect:hover,
+    .annotation-ellipse:hover {
+      filter: brightness(1.2);
+      transform: scale(1.02);
+    }
+
+    .annotation-step:hover {
+      transform: scale(1.1);
+      animation: led-glow-pulse 1s ease-in-out infinite;
+    }
+
+    /* Window button animations */
+    .win-btn {
+      transition: background 0.1s ease;
+    }
+
+    /* Focus states for accessibility */
+    .tool-btn:focus-visible,
+    .tool-btn-lg:focus-visible,
+    .history-btn:focus-visible,
+    .copy-btn:focus-visible,
+    .save-btn:focus-visible,
+    .swatch-btn:focus-visible,
+    .stroke-btn:focus-visible,
+    .preset-pad:focus-visible,
+    .segment-btn:focus-visible,
+    .gradient-swatch:focus-visible {
+      outline: 2px solid var(--coral);
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-frame">
+    <!-- Title Bar -->
+    <div class="title-bar">
+      <div class="title-bar-left">
+        <button class="back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <div class="title-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <path d="M21 15l-5-5L5 21"/>
+          </svg>
+        </div>
+        <span class="title-text">IMAGE EDITOR</span>
+      </div>
+
+      <div class="history-btns">
+        <button class="history-btn" title="Undo (Ctrl+Z)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+          </svg>
+        </button>
+        <button class="history-btn" disabled title="Redo (Ctrl+Y)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="title-grille"></div>
+
+      <div class="export-btns">
+        <button class="copy-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          <span>COPY</span>
+        </button>
+        <button class="save-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>SAVE</span>
+        </button>
+      </div>
+
+      <div class="window-controls">
+        <button class="win-btn">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h8"/></svg>
+        </button>
+        <button class="win-btn">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="8" height="8" rx="1"/></svg>
+        </button>
+        <button class="win-btn close">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2l8 8M10 2l-8 8"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- Left Sidebar - Tools -->
+      <div class="tools-sidebar">
+        <div class="panel tools-panel textured">
+          <div class="panel-border"></div>
+          <div class="screw tl"></div>
+          <div class="screw br"></div>
+          <span class="panel-label">Select</span>
+          <div class="tool-grid">
+            <button class="tool-btn active" title="Select (V)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+            </button>
+            <button class="tool-btn" title="Crop (C)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/></svg>
+            </button>
+          </div>
+          <div class="tool-divider"></div>
+          <span class="panel-label">Draw</span>
+          <div class="tool-grid">
+            <button class="tool-btn" title="Arrow (A)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+            </button>
+            <button class="tool-btn" title="Line (L)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button class="tool-btn" title="Rectangle (R)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+            </button>
+            <button class="tool-btn" title="Ellipse (E)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+            </button>
+            <button class="tool-btn" title="Text (T)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="8" y1="20" x2="16" y2="20"/></svg>
+            </button>
+            <button class="tool-btn" title="Pen (P)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+            </button>
+          </div>
+          <div class="tool-divider"></div>
+          <span class="panel-label">Effects</span>
+          <div class="tool-grid">
+            <button class="tool-btn" title="Highlight (H)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>
+            </button>
+            <button class="tool-btn" title="Blur (B)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+            </button>
+            <button class="tool-btn" title="Steps (S)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+            </button>
+            <button class="tool-btn" title="Background (G)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M5 19l1 3 3-1-1-3-3 1z"/><path d="M19 5l-1-3-3 1 1 3 3-1z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel tools-panel textured" style="flex: 1;">
+          <div class="panel-border"></div>
+          <span class="panel-label">Quick</span>
+          <button class="tool-btn-lg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>UPLOAD</span>
+          </button>
+          <button class="tool-btn-lg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            <span>SPLIT</span>
+          </button>
+          <div class="grille-strip" style="width: 48px; margin-top: auto;"></div>
+        </div>
+      </div>
+
+      <!-- Center Area -->
+      <div class="center-area">
+        <div class="panel canvas-panel textured">
+          <div class="panel-border"></div>
+          <div class="screw tl"></div>
+          <div class="screw tr"></div>
+          <div class="screw bl"></div>
+          <div class="screw br"></div>
+
+          <div class="canvas-screen">
+            <div class="image-container">
+              <div class="image-frame">
+                <!-- Sample annotations -->
+                <div class="annotation annotation-arrow">
+                  <svg viewBox="0 0 80 40">
+                    <path d="M5 35 L60 10" stroke-linecap="round"/>
+                    <path d="M50 5 L60 10 L55 20" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div class="annotation annotation-rect"></div>
+                <div class="annotation annotation-ellipse"></div>
+                <div class="annotation annotation-text">Sample Text</div>
+                <div class="annotation annotation-highlight"></div>
+                <div class="annotation annotation-step">1</div>
+
+                <!-- Selection handles on rectangle -->
+                <div class="selection-handles">
+                  <div class="handle tl"></div>
+                  <div class="handle tr"></div>
+                  <div class="handle bl"></div>
+                  <div class="handle br"></div>
+                  <div class="handle t"></div>
+                  <div class="handle b"></div>
+                  <div class="handle l"></div>
+                  <div class="handle r"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="canvas-footer">
+            <div class="zoom-control">
+              <button class="zoom-btn" title="Zoom Out">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M8 11h6"/></svg>
+              </button>
+              <span class="zoom-value">100%</span>
+              <button class="zoom-btn" title="Zoom In">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M11 8v6M8 11h6"/></svg>
+              </button>
+            </div>
+
+            <button class="fit-btn">FIT</button>
+            <button class="fit-btn">100%</button>
+
+            <div class="canvas-spacer"></div>
+
+            <div class="lcd-display">
+              <span class="lcd-text">1920 × 1080</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Sidebar -->
+      <div class="right-sidebar">
+        <div class="panel properties-panel textured">
+          <div class="panel-border"></div>
+          <div class="screw tl"></div>
+          <div class="screw tr"></div>
+          <div class="screw bl"></div>
+          <div class="screw br"></div>
+
+          <div class="properties-header">
+            <span class="panel-label">Properties</span>
+          </div>
+
+          <div class="properties-content">
+            <!-- Stroke Color -->
+            <div class="prop-section">
+              <span class="prop-section-title">Stroke Color</span>
+              <div class="swatch-bank">
+                <button class="swatch-btn" style="--swatch-color: #EF4444;"></button>
+                <button class="swatch-btn" style="--swatch-color: #F97316;"></button>
+                <button class="swatch-btn active" style="--swatch-color: #F97066;"></button>
+                <button class="swatch-btn" style="--swatch-color: #22C55E;"></button>
+                <button class="swatch-btn" style="--swatch-color: #3B82F6;"></button>
+                <button class="swatch-btn" style="--swatch-color: #8B5CF6;"></button>
+                <button class="swatch-btn" style="--swatch-color: #EC4899;"></button>
+                <button class="swatch-btn" style="--swatch-color: #FFFFFF;"></button>
+                <button class="swatch-btn" style="--swatch-color: #1A1A1A;"></button>
+                <button class="swatch-btn transparent"></button>
+              </div>
+            </div>
+
+            <!-- Fill Color -->
+            <div class="prop-section">
+              <span class="prop-section-title">Fill Color</span>
+              <div class="swatch-bank">
+                <button class="swatch-btn" style="--swatch-color: #EF4444;"></button>
+                <button class="swatch-btn" style="--swatch-color: #F97316;"></button>
+                <button class="swatch-btn" style="--swatch-color: #F97066;"></button>
+                <button class="swatch-btn" style="--swatch-color: #22C55E;"></button>
+                <button class="swatch-btn" style="--swatch-color: #3B82F6;"></button>
+                <button class="swatch-btn" style="--swatch-color: #8B5CF6;"></button>
+                <button class="swatch-btn" style="--swatch-color: #EC4899;"></button>
+                <button class="swatch-btn" style="--swatch-color: #FFFFFF;"></button>
+                <button class="swatch-btn" style="--swatch-color: #1A1A1A;"></button>
+                <button class="swatch-btn transparent active"></button>
+              </div>
+            </div>
+
+            <!-- Stroke Width -->
+            <div class="prop-section">
+              <span class="prop-section-title">Stroke Width</span>
+              <div class="stroke-widths">
+                <button class="stroke-btn"><div class="stroke-preview" style="width: 12px; height: 1px;"></div></button>
+                <button class="stroke-btn"><div class="stroke-preview" style="width: 12px; height: 2px;"></div></button>
+                <button class="stroke-btn active"><div class="stroke-preview" style="width: 12px; height: 3px;"></div></button>
+                <button class="stroke-btn"><div class="stroke-preview" style="width: 12px; height: 4px;"></div></button>
+                <button class="stroke-btn"><div class="stroke-preview" style="width: 12px; height: 6px;"></div></button>
+                <button class="stroke-btn"><div class="stroke-preview" style="width: 12px; height: 8px;"></div></button>
+              </div>
+            </div>
+
+            <!-- Quick Styles -->
+            <div class="prop-section">
+              <span class="prop-section-title">Quick Styles</span>
+              <div class="preset-grid">
+                <button class="preset-pad active" style="--preset-color: #EF4444;">
+                  <span>BUG</span>
+                </button>
+                <button class="preset-pad" style="--preset-color: #3B82F6;">
+                  <span>INFO</span>
+                </button>
+                <button class="preset-pad" style="--preset-color: #F97316;">
+                  <span>WARN</span>
+                </button>
+                <button class="preset-pad" style="--preset-color: #6B7280;">
+                  <span>MUTE</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Text Settings (shown when text tool selected) -->
+            <div class="prop-section">
+              <span class="prop-section-title">Text Settings</span>
+              <div class="prop-row">
+                <span class="prop-label">Font</span>
+                <div class="segment-control" style="flex: 1;">
+                  <button class="segment-btn active">INTER</button>
+                  <button class="segment-btn">MONO</button>
+                </div>
+              </div>
+              <div class="prop-row">
+                <span class="prop-label">Size</span>
+                <div class="num-stepper">
+                  <button class="stepper-btn">−</button>
+                  <div class="stepper-display">18</div>
+                  <button class="stepper-btn">+</button>
+                </div>
+                <div class="prop-slider" style="flex: 1; margin-left: 8px;">
+                  <div class="prop-slider-fill" style="width: 35%;"></div>
+                  <div class="prop-slider-thumb" style="left: 35%;"></div>
+                </div>
+              </div>
+              <div class="prop-row">
+                <span class="prop-label">Style</span>
+                <div class="tool-grid" style="gap: 4px;">
+                  <button class="tool-btn" style="width: 24px; height: 24px;" title="Bold">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>
+                  </button>
+                  <button class="tool-btn" style="width: 24px; height: 24px;" title="Italic">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
+                  </button>
+                  <button class="tool-btn" style="width: 24px; height: 24px;" title="Underline">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"/><line x1="4" y1="21" x2="20" y2="21"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Background Panel -->
+        <div class="panel bg-panel textured">
+          <div class="panel-border"></div>
+          <div class="screw tl"></div>
+          <div class="screw br"></div>
+
+          <div class="prop-row" style="margin-bottom: 8px;">
+            <span class="panel-label" style="flex: 1;">Background</span>
+            <div class="hw-toggle on"></div>
+          </div>
+
+          <div class="segment-control" style="width: 100%;">
+            <button class="segment-btn">SOLID</button>
+            <button class="segment-btn active">GRADIENT</button>
+            <button class="segment-btn">IMAGE</button>
+          </div>
+
+          <div class="bg-controls">
+            <div class="gradient-grid">
+              <div class="gradient-swatch active" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div>
+              <div class="gradient-swatch" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></div>
+              <div class="gradient-swatch" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div>
+              <div class="gradient-swatch" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);"></div>
+              <div class="gradient-swatch" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);"></div>
+              <div class="gradient-swatch" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);"></div>
+              <div class="gradient-swatch" style="background: linear-gradient(135deg, #d299c2 0%, #fef9d7 100%);"></div>
+              <div class="gradient-swatch" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);"></div>
+            </div>
+
+            <div class="prop-row">
+              <span class="prop-label">Padding</span>
+              <div class="prop-slider" style="flex: 1;">
+                <div class="prop-slider-fill" style="width: 30%;"></div>
+                <div class="prop-slider-thumb" style="left: 30%;"></div>
+              </div>
+              <span style="font-family: 'JetBrains Mono'; font-size: 9px; color: var(--text-label); min-width: 28px; text-align: right;">32px</span>
+            </div>
+
+            <div class="prop-row">
+              <span class="prop-label">Radius</span>
+              <div class="prop-slider" style="flex: 1;">
+                <div class="prop-slider-fill" style="width: 40%;"></div>
+                <div class="prop-slider-thumb" style="left: 40%;"></div>
+              </div>
+              <span style="font-family: 'JetBrains Mono'; font-size: 9px; color: var(--text-label); min-width: 28px; text-align: right;">16px</span>
+            </div>
+
+            <div class="prop-row">
+              <span class="prop-label">Shadow</span>
+              <div class="hw-toggle on" style="margin-left: auto;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

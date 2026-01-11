@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capture Section - Ambient/Minimal Concept</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-base: #0c0c0e;
+      --bg-elevated: #141416;
+      --bg-surface: #1c1c1f;
+      --bg-hover: #28282c;
+      --text-primary: #f0f0f2;
+      --text-secondary: rgba(240, 240, 242, 0.6);
+      --text-tertiary: rgba(240, 240, 242, 0.35);
+      --coral: #F97066;
+      --coral-soft: #ff8a82;
+      --coral-glow: rgba(249, 112, 102, 0.2);
+      --border-subtle: rgba(255, 255, 255, 0.06);
+    }
+
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    .app-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .title-bar {
+      height: 32px;
+      background: var(--bg-base);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 8px;
+    }
+
+    .traffic-light { width: 12px; height: 12px; border-radius: 50%; }
+    .traffic-light.red { background: #FF5F57; }
+    .traffic-light.yellow { background: #FEBC2E; }
+    .traffic-light.green { background: #28C840; }
+
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* === CAPTURE SECTION - AMBIENT CONCEPT === */
+    .capture-section {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 24px 40px;
+      background: var(--bg-base);
+    }
+
+    .capture-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .library-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--coral) 0%, var(--coral-soft) 100%);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 20px var(--coral-glow);
+    }
+
+    .brand-icon svg {
+      width: 20px;
+      height: 20px;
+      color: white;
+    }
+
+    .brand-text {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .capture-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .capture-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .capture-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .capture-btn:hover {
+      background: var(--bg-surface);
+      border-color: rgba(255, 255, 255, 0.1);
+      color: var(--text-primary);
+    }
+
+    .capture-btn.primary {
+      background: var(--coral);
+      border-color: transparent;
+      color: white;
+      padding: 10px 20px;
+    }
+
+    .capture-btn.primary:hover {
+      background: #e85a50;
+      box-shadow: 0 6px 24px var(--coral-glow);
+      transform: translateY(-1px);
+    }
+
+    .capture-btn .kbd {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      background: rgba(0,0,0,0.2);
+      padding: 2px 5px;
+      border-radius: 3px;
+      margin-left: 2px;
+    }
+
+    .capture-btn.primary .kbd {
+      color: rgba(255,255,255,0.7);
+      background: rgba(0,0,0,0.2);
+    }
+
+    /* Divider line */
+    .section-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, var(--border-subtle) 20%, var(--border-subtle) 80%, transparent 100%);
+      margin-top: 24px;
+    }
+
+    /* Library content */
+    .library-content {
+      flex: 1;
+      padding: 24px 40px 40px;
+      overflow-y: auto;
+    }
+
+    .date-section {
+      margin-bottom: 40px;
+    }
+
+    .date-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .date-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+    }
+
+    .date-count {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      background: var(--bg-surface);
+      padding: 3px 8px;
+      border-radius: 12px;
+    }
+
+    .capture-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .capture-card {
+      position: relative;
+      aspect-ratio: 16/10;
+      background: var(--bg-elevated);
+      border-radius: 14px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .capture-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      pointer-events: none;
+      transition: border-color 0.2s;
+    }
+
+    .capture-card:hover {
+      transform: translateY(-4px) scale(1.01);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    }
+
+    .capture-card:hover::before {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .capture-card-thumb {
+      width: 100%;
+      height: 65%;
+      background: linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-elevated) 100%);
+    }
+
+    .capture-card-info {
+      padding: 14px 16px;
+    }
+
+    .capture-card-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .capture-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+
+    .meta-dot {
+      width: 3px;
+      height: 3px;
+      background: var(--text-tertiary);
+      border-radius: 50%;
+    }
+
+    /* Type badge */
+    .capture-type {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      padding: 5px 10px;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.9);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .capture-type svg {
+      width: 12px;
+      height: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-frame">
+    <div class="title-bar">
+      <div class="traffic-light red"></div>
+      <div class="traffic-light yellow"></div>
+      <div class="traffic-light green"></div>
+    </div>
+
+    <div class="main-content">
+      <!-- CAPTURE SECTION - AMBIENT CONCEPT -->
+      <div class="capture-section">
+        <div class="capture-header">
+          <div class="library-brand">
+            <div class="brand-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="12" cy="12" r="10"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </div>
+            <span class="brand-text">Library</span>
+          </div>
+
+          <div class="capture-controls">
+            <button class="capture-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="4" y="4" width="16" height="16" rx="2"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              Screenshot
+              <span class="kbd">⌘4</span>
+            </button>
+            <button class="capture-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="2" width="20" height="20" rx="5"/>
+                <path d="M15 8l-6 8"/>
+                <circle cx="9" cy="9" r="2"/>
+                <circle cx="15" cy="15" r="2"/>
+              </svg>
+              GIF
+              <span class="kbd">⌘G</span>
+            </button>
+            <button class="capture-btn primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <circle cx="12" cy="12" r="4" fill="currentColor"/>
+              </svg>
+              New Recording
+              <span class="kbd">⌘⇧5</span>
+            </button>
+          </div>
+        </div>
+        <div class="section-divider"></div>
+      </div>
+
+      <!-- Library content -->
+      <div class="library-content">
+        <div class="date-section">
+          <div class="date-header">
+            <span class="date-label">Today</span>
+            <span class="date-count">4 captures</span>
+          </div>
+          <div class="capture-grid">
+            <div class="capture-card">
+              <div class="capture-type">
+                <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                2:34
+              </div>
+              <div class="capture-card-thumb"></div>
+              <div class="capture-card-info">
+                <div class="capture-card-title">Screen Recording</div>
+                <div class="capture-card-meta">
+                  <span>12:45 PM</span>
+                  <span class="meta-dot"></span>
+                  <span>1920×1080</span>
+                </div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-type">
+                <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                1:12
+              </div>
+              <div class="capture-card-thumb"></div>
+              <div class="capture-card-info">
+                <div class="capture-card-title">App Demo</div>
+                <div class="capture-card-meta">
+                  <span>11:30 AM</span>
+                  <span class="meta-dot"></span>
+                  <span>1920×1080</span>
+                </div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-type">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                PNG
+              </div>
+              <div class="capture-card-thumb"></div>
+              <div class="capture-card-info">
+                <div class="capture-card-title">Bug Screenshot</div>
+                <div class="capture-card-meta">
+                  <span>10:15 AM</span>
+                  <span class="meta-dot"></span>
+                  <span>2560×1440</span>
+                </div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-type">
+                <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                3:21
+              </div>
+              <div class="capture-card-thumb"></div>
+              <div class="capture-card-info">
+                <div class="capture-card-title">Feature Preview</div>
+                <div class="capture-card-meta">
+                  <span>9:00 AM</span>
+                  <span class="meta-dot"></span>
+                  <span>1920×1080</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="date-section">
+          <div class="date-header">
+            <span class="date-label">Yesterday</span>
+            <span class="date-count">2 captures</span>
+          </div>
+          <div class="capture-grid">
+            <div class="capture-card">
+              <div class="capture-type">
+                <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                5:12
+              </div>
+              <div class="capture-card-thumb"></div>
+              <div class="capture-card-info">
+                <div class="capture-card-title">Design Review</div>
+                <div class="capture-card-meta">
+                  <span>4:30 PM</span>
+                  <span class="meta-dot"></span>
+                  <span>1920×1080</span>
+                </div>
+              </div>
+            </div>
+            <div class="capture-card">
+              <div class="capture-type">
+                <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                8:45
+              </div>
+              <div class="capture-card-thumb"></div>
+              <div class="capture-card-info">
+                <div class="capture-card-title">Tutorial</div>
+                <div class="capture-card-meta">
+                  <span>2:00 PM</span>
+                  <span class="meta-dot"></span>
+                  <span>1920×1080</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

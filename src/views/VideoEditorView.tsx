@@ -10,7 +10,7 @@
 
 import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
-import { X, Circle, Square, Monitor, Crop, AlignLeft, AlignCenter, AlignRight, Italic } from 'lucide-react';
+import { X, Circle, Square, Monitor, Crop, Italic } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -24,7 +24,7 @@ import { BackgroundSettings } from '../components/VideoEditor/BackgroundSettings
 import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
-import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, SceneMode, ZoomRegion, CropConfig, MaskSegment, MaskType, TextSegment, TextAlign } from '../types';
+import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, SceneMode, ZoomRegion, CropConfig, MaskSegment, MaskType, TextSegment } from '../types';
 import { videoEditorLogger } from '../utils/logger';
 
 /**
@@ -437,7 +437,7 @@ function MaskSegmentConfig({ segment, onUpdate, onDelete, onDone }: MaskSegmentC
 
 /**
  * TextSegmentConfig - Configuration panel for text segments.
- * Allows editing text content, font, colors, and effects.
+ * Uses Cap's simplified model: content, center positioning, size, basic font properties.
  */
 interface TextSegmentConfigProps {
   segment: TextSegment;
@@ -446,22 +446,14 @@ interface TextSegmentConfigProps {
   onDone: () => void;
 }
 
-// Common font families
+// System font families - these map to OS default fonts
 const FONT_FAMILIES = [
-  'Arial',
-  'Helvetica',
-  'Times New Roman',
-  'Georgia',
-  'Verdana',
-  'Courier New',
-  'Impact',
-  'Comic Sans MS',
+  'sans-serif',
+  'serif',
+  'monospace',
 ];
 
 function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentConfigProps) {
-  const [showShadow, setShowShadow] = useState(segment.shadow !== null);
-  const [showBackground, setShowBackground] = useState(segment.backgroundColor !== null);
-
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -487,8 +479,8 @@ function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentC
       <div>
         <span className="text-xs text-[var(--ink-muted)] block mb-2">Text</span>
         <textarea
-          value={segment.text}
-          onChange={(e) => onUpdate({ text: e.target.value })}
+          value={segment.content}
+          onChange={(e) => onUpdate({ content: e.target.value })}
           placeholder="Enter text..."
           className="w-full h-20 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2 py-1.5 resize-none"
         />
@@ -560,29 +552,6 @@ function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentC
         </div>
       </div>
 
-      {/* Text Alignment */}
-      <div>
-        <span className="text-xs text-[var(--ink-muted)] block mb-2">Alignment</span>
-        <ToggleGroup
-          type="single"
-          value={segment.textAlign}
-          onValueChange={(value) => {
-            if (value) onUpdate({ textAlign: value as TextAlign });
-          }}
-          className="justify-start"
-        >
-          <ToggleGroupItem value="left" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
-            <AlignLeft className="w-4 h-4" />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="center" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
-            <AlignCenter className="w-4 h-4" />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="right" className="h-8 w-8 p-0 data-[state=on]:bg-[var(--polar-frost)]">
-            <AlignRight className="w-4 h-4" />
-          </ToggleGroupItem>
-        </ToggleGroup>
-      </div>
-
       {/* Text Color */}
       <div className="flex items-center justify-between">
         <span className="text-xs text-[var(--ink-muted)]">Text Color</span>
@@ -594,153 +563,27 @@ function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentC
         />
       </div>
 
-      {/* Background Section */}
-      <div className="pt-3 border-t border-[var(--glass-border)]">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs text-[var(--ink-muted)]">Background</span>
-          <button
-            onClick={() => {
-              const enabled = !showBackground;
-              setShowBackground(enabled);
-              onUpdate({ backgroundColor: enabled ? '#000000' : null });
-            }}
-            className={`relative w-10 h-5 rounded-full transition-colors ${
-              showBackground ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                showBackground ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
+      {/* Fade Duration */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-[var(--ink-muted)]">Fade Duration</span>
+          <span className="text-xs text-[var(--ink-dark)] font-mono">{segment.fadeDuration.toFixed(2)}s</span>
         </div>
-
-        {showBackground && (
-          <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
-              <input
-                type="color"
-                value={segment.backgroundColor || '#000000'}
-                onChange={(e) => onUpdate({ backgroundColor: e.target.value })}
-                className="w-8 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Padding</span>
-                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.backgroundPadding}px</span>
-              </div>
-              <Slider
-                value={[segment.backgroundPadding]}
-                min={0}
-                max={32}
-                step={2}
-                onValueChange={(values) => onUpdate({ backgroundPadding: values[0] })}
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Radius</span>
-                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.backgroundRadius}px</span>
-              </div>
-              <Slider
-                value={[segment.backgroundRadius]}
-                min={0}
-                max={24}
-                step={2}
-                onValueChange={(values) => onUpdate({ backgroundRadius: values[0] })}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Shadow Section */}
-      <div className="pt-3 border-t border-[var(--glass-border)]">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs text-[var(--ink-muted)]">Shadow</span>
-          <button
-            onClick={() => {
-              const enabled = !showShadow;
-              setShowShadow(enabled);
-              onUpdate({
-                shadow: enabled ? { offsetX: 2, offsetY: 2, blur: 4, color: '#000000' } : null
-              });
-            }}
-            className={`relative w-10 h-5 rounded-full transition-colors ${
-              showShadow ? 'bg-[var(--coral-400)]' : 'bg-[var(--polar-frost)]'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                showShadow ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
-        </div>
-
-        {showShadow && segment.shadow && (
-          <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
-              <input
-                type="color"
-                value={segment.shadow.color}
-                onChange={(e) => onUpdate({ shadow: { ...segment.shadow!, color: e.target.value } })}
-                className="w-8 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Offset X</span>
-                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.shadow.offsetX}px</span>
-              </div>
-              <Slider
-                value={[segment.shadow.offsetX]}
-                min={-20}
-                max={20}
-                step={1}
-                onValueChange={(values) => onUpdate({ shadow: { ...segment.shadow!, offsetX: values[0] } })}
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Offset Y</span>
-                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.shadow.offsetY}px</span>
-              </div>
-              <Slider
-                value={[segment.shadow.offsetY]}
-                min={-20}
-                max={20}
-                step={1}
-                onValueChange={(values) => onUpdate({ shadow: { ...segment.shadow!, offsetY: values[0] } })}
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Blur</span>
-                <span className="text-[11px] text-[var(--ink-muted)] font-mono">{segment.shadow.blur}px</span>
-              </div>
-              <Slider
-                value={[segment.shadow.blur]}
-                min={0}
-                max={20}
-                step={1}
-                onValueChange={(values) => onUpdate({ shadow: { ...segment.shadow!, blur: values[0] } })}
-              />
-            </div>
-          </div>
-        )}
+        <Slider
+          value={[segment.fadeDuration * 100]}
+          min={0}
+          max={100}
+          step={5}
+          onValueChange={(values) => onUpdate({ fadeDuration: values[0] / 100 })}
+        />
       </div>
 
       {/* Position info */}
       <div className="pt-3 border-t border-[var(--glass-border)]">
         <div className="text-xs">
-          <span className="text-[var(--ink-subtle)]">Position</span>
+          <span className="text-[var(--ink-subtle)]">Center Position</span>
           <p className="text-[var(--ink-dark)] font-mono mt-0.5">
-            {Math.round(segment.x * 100)}%, {Math.round(segment.y * 100)}%
+            {Math.round(segment.center.x * 100)}%, {Math.round(segment.center.y * 100)}%
           </p>
         </div>
         <p className="text-[10px] text-[var(--ink-faint)] mt-2">
@@ -1161,17 +1004,27 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
                 )}
 
                 {/* Text Segment Properties */}
-                {selectedTextSegmentId && project.text?.segments.find(s => s.id === selectedTextSegmentId) && (
-                  <TextSegmentConfig
-                    segment={project.text.segments.find(s => s.id === selectedTextSegmentId)!}
-                    onUpdate={(updates) => updateTextSegment(selectedTextSegmentId, updates)}
-                    onDelete={() => {
-                      deleteTextSegment(selectedTextSegmentId);
-                      selectTextSegment(null);
-                    }}
-                    onDone={() => selectTextSegment(null)}
-                  />
-                )}
+                {selectedTextSegmentId && (() => {
+                  // Find segment by generated ID (format: text_<start>_<index>)
+                  const idParts = selectedTextSegmentId.match(/^text_([0-9.]+)_/);
+                  if (!idParts) return null;
+                  const targetStart = parseFloat(idParts[1]);
+                  const segment = project.text?.segments.find(s =>
+                    Math.abs(s.start - targetStart) < 0.001
+                  );
+                  if (!segment) return null;
+                  return (
+                    <TextSegmentConfig
+                      segment={segment}
+                      onUpdate={(updates) => updateTextSegment(selectedTextSegmentId, updates)}
+                      onDelete={() => {
+                        deleteTextSegment(selectedTextSegmentId);
+                        selectTextSegment(null);
+                      }}
+                      onDone={() => selectTextSegment(null)}
+                    />
+                  );
+                })()}
               </div>
             )}
 

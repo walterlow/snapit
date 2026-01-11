@@ -8,7 +8,9 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
 use crate::commands::video_recording::video_project::VideoProject;
-use crate::rendering::{EditorInstance, EditorInstanceInfo, PlaybackState, RenderedFrame};
+use crate::rendering::{
+    EditorInstance, EditorInstanceInfo, PlaybackState, RenderedFrame, RendererState,
+};
 
 /// Global state for managing editor instances.
 pub struct EditorState {
@@ -35,17 +37,21 @@ pub async fn create_editor_instance(
     app_handle: AppHandle,
     project: VideoProject,
     state: State<'_, EditorState>,
+    renderer_state: State<'_, RendererState>,
 ) -> Result<EditorInstanceInfo, String> {
     log::info!(
         "[GPU_EDITOR] Creating editor instance for project: {}",
         project.id
     );
 
+    // Get the shared renderer
+    let renderer = renderer_state.get_renderer().await?;
+
     // Get resource directory for wallpaper path resolution
     let resource_dir = app_handle.path().resource_dir().ok();
 
-    // Create the editor instance
-    let mut instance = EditorInstance::new(project, resource_dir).await?;
+    // Create the editor instance with shared renderer
+    let mut instance = EditorInstance::new(project, renderer, resource_dir).await?;
     let info = instance.info();
     let instance_id = info.instance_id.clone();
 

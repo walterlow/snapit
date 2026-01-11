@@ -12,6 +12,8 @@ use wgpu::{Device, Queue};
 
 use super::background::{Background, BackgroundLayer};
 use super::renderer::Renderer;
+use super::text::PreparedText;
+use super::text_layer::TextLayer;
 use super::types::{
     BackgroundStyle, BackgroundType, CornerStyle, DecodedFrame, RenderOptions, WebcamShape,
 };
@@ -322,6 +324,8 @@ pub struct Compositor {
     placeholder_view: wgpu::TextureView,
     // Background layer for rendering backgrounds
     background_layer: BackgroundLayer,
+    // Text layer for GPU text rendering
+    text_layer: TextLayer,
 }
 
 impl Compositor {
@@ -487,6 +491,9 @@ impl Compositor {
         // Initialize background layer
         let background_layer = BackgroundLayer::new(&device);
 
+        // Initialize text layer
+        let text_layer = TextLayer::new(&device, &queue);
+
         Self {
             device,
             queue,
@@ -497,6 +504,7 @@ impl Compositor {
             placeholder_texture,
             placeholder_view,
             background_layer,
+            text_layer,
         }
     }
 
@@ -811,6 +819,66 @@ impl Compositor {
         }
 
         self.queue.submit(Some(encoder.finish()));
+
+        output_texture
+    }
+
+    /// Composite a frame with text overlays.
+    ///
+    /// This is the main entry point for rendering with text support.
+    pub async fn composite_with_text(
+        &mut self,
+        renderer: &Renderer,
+        frame: &DecodedFrame,
+        options: &RenderOptions,
+        time_ms: f32,
+        texts: &[PreparedText],
+    ) -> wgpu::Texture {
+        // First, do the regular composite (background, video, webcam)
+        let output_texture = self.composite(renderer, frame, options, time_ms).await;
+
+        // If there are texts to render, add them on top
+        if !texts.is_empty() {
+            let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Prepare text for rendering
+            self.text_layer.prepare(
+                &self.device,
+                &self.queue,
+                (options.output_width, options.output_height),
+                texts,
+            );
+
+            // Render text in a third pass
+            if self.text_layer.has_texts() {
+                let mut encoder =
+                    self.device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Text Encoder"),
+                        });
+
+                {
+                    let mut text_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Text Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &output_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
+                    self.text_layer.render(&mut text_pass);
+                }
+
+                self.queue.submit(Some(encoder.finish()));
+            }
+        }
 
         output_texture
     }

@@ -12,7 +12,8 @@ import { CursorOverlay } from './CursorOverlay';
 import { ClickHighlightOverlay } from './ClickHighlightOverlay';
 import { MaskOverlay } from './MaskOverlay';
 import { TextOverlay } from './TextOverlay';
-import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment } from '../../types';
+import { GPUPreviewCanvas } from './GPUPreviewCanvas';
+import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment, VideoProject } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
@@ -249,6 +250,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   videoHeight,
   maskSegments,
   textSegments,
+  project,
+  useGPUPreview,
   onVideoClick,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -272,6 +275,10 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   maskSegments: MaskSegment[] | undefined;
   /** Text segments for text overlays */
   textSegments: TextSegment[] | undefined;
+  /** Full project for GPU preview */
+  project: VideoProject | null;
+  /** Whether to use GPU preview (renders text via glyphon) */
+  useGPUPreview?: boolean;
   onVideoClick: () => void;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
@@ -397,13 +404,25 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
         />
       )}
 
-      {/* Text overlay - text annotations on top of everything (only when screen visible) */}
+      {/* GPU Preview Canvas - renders text with glyphon for pixel-perfect preview */}
+      {useGPUPreview && showScreen && project && (
+        <GPUPreviewCanvas
+          project={project}
+          currentTimeMs={currentTimeMs}
+          enabled={true}
+          onError={(error) => console.error('[GPUPreview]', error)}
+        />
+      )}
+
+      {/* Text overlay - bounding boxes for interaction (GPU preview renders actual text) */}
       {showScreen && textSegments && textSegments.length > 0 && containerWidth > 0 && containerHeight > 0 && (
         <TextOverlay
           segments={textSegments}
           currentTimeMs={currentTimeMs}
           previewWidth={containerWidth}
           previewHeight={containerHeight}
+          videoAspectRatio={videoAspectRatio}
+          showTextContent={!useGPUPreview}
         />
       )}
     </>
@@ -911,6 +930,8 @@ export function GPUVideoPreview() {
               videoHeight={project?.sources.originalHeight ?? 1080}
               maskSegments={project?.mask?.segments}
               textSegments={project?.text?.segments}
+              project={project}
+              useGPUPreview={true}  // GPU preview renders text with glyphon
               onVideoClick={handleVideoClick}
             />
           ) : (

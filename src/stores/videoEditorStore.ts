@@ -56,11 +56,20 @@ interface VideoEditorState {
   draggedSceneEdge: 'start' | 'end' | 'move' | null;
   isDraggingMaskSegment: boolean;
   draggedMaskEdge: 'start' | 'end' | 'move' | null;
+  isDraggingTextSegment: boolean;
+  draggedTextEdge: 'start' | 'end' | 'move' | null;
   previewTimeMs: number | null; // Hover preview time for scrubbing
   hoveredTrack: 'video' | 'zoom' | 'audio' | 'scene' | 'text' | 'webcam' | 'mask' | null; // Which track is hovered
   splitMode: boolean; // Split mode for cutting regions at playhead
   
   // View state
+  trackVisibility: {
+    video: boolean;
+    text: boolean;
+    mask: boolean;
+    zoom: boolean;
+    scene: boolean;
+  };
   timelineZoom: number; // pixels per millisecond
   timelineScrollLeft: number;
   
@@ -130,12 +139,14 @@ interface VideoEditorState {
   // Timeline view actions
   setTimelineZoom: (zoom: number) => void;
   setTimelineScrollLeft: (scrollLeft: number) => void;
+  toggleTrackVisibility: (track: keyof VideoEditorState['trackVisibility']) => void;
   
   // Drag state actions
   setDraggingPlayhead: (dragging: boolean) => void;
   setDraggingZoomRegion: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
   setDraggingSceneSegment: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
   setDraggingMaskSegment: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
+  setDraggingTextSegment: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
   setPreviewTime: (timeMs: number | null) => void;
   setHoveredTrack: (track: VideoEditorState['hoveredTrack']) => void;
 
@@ -198,11 +209,20 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       draggedSceneEdge: null,
       isDraggingMaskSegment: false,
       draggedMaskEdge: null,
+      isDraggingTextSegment: false,
+      draggedTextEdge: null,
       previewTimeMs: null,
       hoveredTrack: null,
       splitMode: false,
       timelineZoom: DEFAULT_TIMELINE_ZOOM,
       timelineScrollLeft: 0,
+      trackVisibility: {
+        video: true,
+        text: true,
+        mask: true,
+        zoom: true,
+        scene: true,
+      },
       isGeneratingAutoZoom: false,
       isExporting: false,
       exportProgress: null,
@@ -356,7 +376,11 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         if (!project) return;
 
         const segments = [...project.text.segments, segment];
-        segments.sort((a, b) => a.startMs - b.startMs);
+        // Sort by start time (Cap uses seconds)
+        segments.sort((a, b) => a.start - b.start);
+
+        // Generate ID for selection (matches frontend component ID generation)
+        const segmentId = `text_${segment.start}_${segment.content?.slice(0, 10) || 'empty'}`;
 
         set({
           project: {
@@ -366,7 +390,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
               segments,
             },
           },
-          selectedTextSegmentId: segment.id,
+          selectedTextSegmentId: segmentId,
         });
       },
 
@@ -374,14 +398,25 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         const { project } = get();
         if (!project) return;
 
+        // Find segment by generated ID (format: text_<start>_<index>)
+        // We only need the start time as unique identifier
+        const idParts = id.match(/^text_([0-9.]+)_/);
+        if (!idParts) return;
+
+        const targetStart = parseFloat(idParts[1]);
+
         set({
           project: {
             ...project,
             text: {
               ...project.text,
-              segments: project.text.segments.map((s) =>
-                s.id === id ? { ...s, ...updates } : s
-              ),
+              segments: project.text.segments.map((s) => {
+                // Match by start time (unique identifier)
+                if (Math.abs(s.start - targetStart) < 0.001) {
+                  return { ...s, ...updates };
+                }
+                return s;
+              }),
             },
           },
         });
@@ -391,12 +426,22 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         const { project, selectedTextSegmentId } = get();
         if (!project) return;
 
+        // Find segment by generated ID (format: text_<start>_<index>)
+        // We only need the start time as unique identifier
+        const idParts = id.match(/^text_([0-9.]+)_/);
+        if (!idParts) return;
+
+        const targetStart = parseFloat(idParts[1]);
+
         set({
           project: {
             ...project,
             text: {
               ...project.text,
-              segments: project.text.segments.filter((s) => s.id !== id),
+              segments: project.text.segments.filter((s) => {
+                // Keep segments that don't match by start time
+                return Math.abs(s.start - targetStart) >= 0.001;
+              }),
             },
           },
           selectedTextSegmentId: selectedTextSegmentId === id ? null : selectedTextSegmentId,
@@ -721,6 +766,13 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       
       setTimelineScrollLeft: (scrollLeft) => set({ timelineScrollLeft: scrollLeft }),
 
+      toggleTrackVisibility: (track) => set((state) => ({
+        trackVisibility: {
+          ...state.trackVisibility,
+          [track]: !state.trackVisibility[track],
+        },
+      })),
+
       // Drag state actions
       setDraggingPlayhead: (dragging) => set({ isDraggingPlayhead: dragging }),
       setPreviewTime: (timeMs) => set({ previewTimeMs: timeMs }),
@@ -740,6 +792,11 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       setDraggingMaskSegment: (dragging, edge) => set({
         isDraggingMaskSegment: dragging,
         draggedMaskEdge: dragging ? edge ?? null : null,
+      }),
+
+      setDraggingTextSegment: (dragging, edge) => set({
+        isDraggingTextSegment: dragging,
+        draggedTextEdge: dragging ? edge ?? null : null,
       }),
 
       // Split mode actions
@@ -933,11 +990,24 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           isDraggingPlayhead: false,
           isDraggingZoomRegion: false,
           draggedZoomEdge: null,
+          isDraggingSceneSegment: false,
+          draggedSceneEdge: null,
+          isDraggingMaskSegment: false,
+          draggedMaskEdge: null,
+          isDraggingTextSegment: false,
+          draggedTextEdge: null,
           previewTimeMs: null,
           hoveredTrack: null,
           splitMode: false,
           timelineZoom: DEFAULT_TIMELINE_ZOOM,
           timelineScrollLeft: 0,
+          trackVisibility: {
+            video: true,
+            text: true,
+            mask: true,
+            zoom: true,
+            scene: true,
+          },
           isGeneratingAutoZoom: false,
           isExporting: false,
           exportProgress: null,

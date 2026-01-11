@@ -36,6 +36,7 @@ mod commands;
 pub mod config;
 pub mod cursor;
 pub mod error;
+pub mod preview;
 pub mod rendering;
 
 // Re-export TrayState for external use
@@ -270,6 +271,12 @@ pub fn run() {
             commands::video_recording::gpu_editor::editor_get_state,
             commands::video_recording::gpu_editor::editor_render_frame,
             commands::video_recording::gpu_editor::editor_get_timestamp,
+            // GPU preview commands (WebSocket streaming)
+            commands::preview::init_preview,
+            commands::preview::set_preview_project,
+            commands::preview::render_preview_frame,
+            commands::preview::shutdown_preview,
+            commands::preview::get_preview_ws_port,
             // Audio monitoring commands
             commands::video_recording::start_audio_monitoring,
             commands::video_recording::stop_audio_monitoring,
@@ -316,8 +323,14 @@ pub fn run() {
                 // after settings are loaded. See commands::settings module.
             }
 
+            // Initialize shared GPU renderer state (singleton pattern to avoid GPU conflicts)
+            app.manage(rendering::RendererState::new());
+
             // Initialize GPU editor state for video editing
             app.manage(commands::video_recording::EditorState::new());
+
+            // Initialize preview state for GPU-rendered preview streaming
+            app.manage(commands::preview::PreviewState::new());
 
             // Set window icon on library window (kept for when it's shown via tray)
             if let Some(window) = app.get_webview_window("library") {

@@ -83,10 +83,8 @@ export type { SceneMode } from './SceneMode';
 export type { SceneSegment } from './SceneSegment';
 export type { SceneConfig } from './SceneConfig';
 
-// Video editor - Text overlay types
-export type { TextAnimation } from './TextAnimation';
-export type { TextAlign } from './TextAlign';
-export type { TextShadow } from './TextShadow';
+// Video editor - Text overlay types (Cap's model)
+export type { XY } from './XY';
 export type { TextSegment } from './TextSegment';
 export type { TextConfig } from './TextConfig';
 

@@ -125,6 +125,13 @@
   --track-mask-text: rgba(216, 180, 254, 0.9);
   --track-mask-hover: rgba(192, 132, 252, 0.5);
 
+  --track-text-bg: rgba(244, 63, 94, 0.25);
+  --track-text-bg-selected: rgba(244, 63, 94, 0.4);
+  --track-text-border: rgba(244, 63, 94, 0.5);
+  --track-text-border-selected: #FB7185;
+  --track-text-text: rgba(251, 113, 133, 0.9);
+  --track-text-hover: rgba(251, 113, 133, 0.5);
+
   --track-scene-default-bg: rgba(16, 185, 129, 0.2);
   --track-scene-default-border: rgba(16, 185, 129, 0.4);
   --track-scene-default-text: #34D399;
@@ -191,6 +198,13 @@ html.light,
   --track-mask-border-selected: #A855F7;
   --track-mask-text: #7C3AED;
   --track-mask-hover: #E9D5FF;
+
+  --track-text-bg: #FFE4E6;
+  --track-text-bg-selected: #FECDD3;
+  --track-text-border: #FDA4AF;
+  --track-text-border-selected: #F43F5E;
+  --track-text-text: #BE123C;
+  --track-text-hover: #FECDD3;
 
   --track-scene-default-bg: #D1FAE5;
   --track-scene-default-border: #6EE7B7;

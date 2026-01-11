@@ -289,12 +289,13 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   }, []);
 
   // Try to get dimensions from video ref (handles already-loaded videos)
+  // Only run once on mount, not every render
   useEffect(() => {
     const video = videoRef.current;
     if (video && video.readyState >= 1) {
       updateVideoDimensions(video);
     }
-  });
+  }, [updateVideoDimensions]);
 
   // Check visibility at current time
   const isVisible = useMemo(() => {

@@ -23,10 +23,12 @@ use super::renderer::Renderer;
 use super::scene::SceneInterpolator;
 use super::stream_decoder::StreamDecoder;
 use super::svg_cursor::render_svg_cursor;
+use super::text::prepare_texts;
 use super::types::{BackgroundStyle, RenderOptions};
 use super::zoom::ZoomInterpolator;
 use crate::commands::video_recording::cursor::events::load_cursor_recording;
 use crate::commands::video_recording::video_export::{ExportResult, ExportStage};
+use crate::commands::video_recording::video_project::XY;
 use crate::commands::video_recording::video_project::{CursorType, SceneMode, VideoProject};
 
 // Re-export submodule functions used externally
@@ -346,13 +348,23 @@ pub async fn export_video_gpu(
             background: background_style,
         };
 
-        // Render frame on GPU
+        // Prepare text overlays for this frame
+        // Time is in seconds, output_size uses XY struct
+        let frame_time_secs = relative_time_ms as f64 / 1000.0;
+        let prepared_texts = prepare_texts(
+            XY::new(out_w, out_h),
+            frame_time_secs,
+            &project.text.segments,
+        );
+
+        // Render frame on GPU (with text overlays)
         let output_texture = compositor
-            .composite(
+            .composite_with_text(
                 &renderer,
                 &frame_to_render,
                 &render_options,
                 relative_time_ms as f32,
+                &prepared_texts,
             )
             .await;
 

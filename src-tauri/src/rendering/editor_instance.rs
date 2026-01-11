@@ -66,12 +66,15 @@ struct PlaybackStateInner {
 
 impl EditorInstance {
     /// Create a new editor instance for a video project.
+    ///
+    /// `renderer` is the shared GPU renderer from RendererState.
     /// `resource_dir` is used to resolve wallpaper paths for backgrounds.
-    pub async fn new(project: VideoProject, resource_dir: Option<PathBuf>) -> Result<Self, String> {
+    pub async fn new(
+        project: VideoProject,
+        renderer: Arc<Renderer>,
+        resource_dir: Option<PathBuf>,
+    ) -> Result<Self, String> {
         let id = uuid::Uuid::new_v4().to_string();
-
-        // Initialize GPU renderer
-        let renderer = Arc::new(Renderer::new().await?);
 
         // Create screen decoder
         let screen_path = Path::new(&project.sources.screen_video);

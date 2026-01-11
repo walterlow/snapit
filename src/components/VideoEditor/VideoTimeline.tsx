@@ -25,6 +25,8 @@ import { TimelineRuler } from './TimelineRuler';
 import { ZoomTrack } from './ZoomTrack';
 import { SceneTrack } from './SceneTrack';
 import { MaskTrack } from './MaskTrack';
+import { TextTrack } from './TextTrack';
+import { TrackManager } from './TrackManager';
 import type { AudioWaveform } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
@@ -33,6 +35,7 @@ const selectTimelineZoom = (s: ReturnType<typeof useVideoEditorStore.getState>) 
 const selectIsDraggingPlayhead = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isDraggingPlayhead;
 const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
 const selectPreviewTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.previewTimeMs;
+const selectTrackVisibility = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.trackVisibility;
 
 /**
  * Preview scrubber - ghost playhead that follows mouse when not playing.
@@ -350,6 +353,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
   const isDraggingPlayhead = useVideoEditorStore(selectIsDraggingPlayhead);
   const isPlaying = useVideoEditorStore(selectIsPlaying);
   const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
+  const trackVisibility = useVideoEditorStore(selectTrackVisibility);
 
   const {
     setTimelineScrollLeft,
@@ -542,6 +546,11 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
                 </TooltipContent>
               </Tooltip>
             </div>
+
+            <div className="w-px h-5 bg-[var(--glass-border)]" />
+
+            {/* Track Manager */}
+            <TrackManager />
           </div>
 
           {/* Center Section - Playback Controls */}
@@ -674,15 +683,27 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
           </div>
 
           {/* Video Track */}
-          <VideoTrack
-            durationMs={durationMs}
-            timelineZoom={timelineZoom}
-            width={timelineWidth + trackLabelWidth}
-            audioPath={project?.sources.systemAudio ?? project?.sources.microphoneAudio ?? project?.sources.screenVideo ?? undefined}
-          />
+          {trackVisibility.video && (
+            <VideoTrack
+              durationMs={durationMs}
+              timelineZoom={timelineZoom}
+              width={timelineWidth + trackLabelWidth}
+              audioPath={project?.sources.systemAudio ?? project?.sources.microphoneAudio ?? project?.sources.screenVideo ?? undefined}
+            />
+          )}
+
+          {/* Text Track */}
+          {project && trackVisibility.text && (
+            <TextTrack
+              segments={project.text.segments}
+              durationMs={durationMs}
+              timelineZoom={timelineZoom}
+              width={timelineWidth + trackLabelWidth}
+            />
+          )}
 
           {/* Zoom Track */}
-          {project && (
+          {project && trackVisibility.zoom && (
             <ZoomTrack
               regions={project.zoom.regions}
               durationMs={durationMs}
@@ -692,7 +713,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
           )}
 
           {/* Scene Track */}
-          {project && project.sources.webcamVideo && (
+          {project && project.sources.webcamVideo && trackVisibility.scene && (
             <div className="h-10 border-b border-[var(--glass-border)]">
               <SceneTrack
                 segments={project.scene.segments}
@@ -704,7 +725,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
           )}
 
           {/* Mask Track */}
-          {project && (
+          {project && trackVisibility.mask && (
             <MaskTrack
               segments={project.mask.segments}
               durationMs={durationMs}

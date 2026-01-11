@@ -31,6 +31,7 @@ pub mod fonts;
 pub mod image;
 pub mod keyboard_hook;
 pub mod logging;
+pub mod preview;
 pub mod settings;
 pub mod storage;
 pub mod video_recording;

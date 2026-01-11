@@ -297,7 +297,7 @@ export const ZoomTrack = memo(function ZoomTrack({
 
   return (
     <div
-      className="relative h-10 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)]"
+      className="relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)]"
       style={{ width: `${width}px` }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}

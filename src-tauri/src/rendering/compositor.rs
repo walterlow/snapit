@@ -882,4 +882,82 @@ impl Compositor {
 
         output_texture
     }
+
+    /// Render only text overlays on a transparent background.
+    ///
+    /// This is used during playback when HTML video handles the video frame
+    /// but we need accurate text rendering via GPU.
+    pub fn composite_text_only(
+        &mut self,
+        output_width: u32,
+        output_height: u32,
+        texts: &[PreparedText],
+    ) -> wgpu::Texture {
+        // Create transparent output texture
+        // Must use Rgba8UnormSrgb to match glyphon pipeline format
+        let output_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Text Only Output"),
+            size: wgpu::Extent3d {
+                width: output_width,
+                height: output_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        if texts.is_empty() {
+            // Return empty transparent texture
+            return output_texture;
+        }
+
+        let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Prepare text for rendering
+        self.text_layer.prepare(
+            &self.device,
+            &self.queue,
+            (output_width, output_height),
+            texts,
+        );
+
+        // Render text on transparent background
+        if self.text_layer.has_texts() {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Text Only Encoder"),
+                });
+
+            {
+                let mut text_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Text Only Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &output_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            // Clear to transparent (0, 0, 0, 0)
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                self.text_layer.render(&mut text_pass);
+            }
+
+            self.queue.submit(Some(encoder.finish()));
+        }
+
+        output_texture
+    }
 }

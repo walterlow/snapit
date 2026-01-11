@@ -23,6 +23,10 @@ interface GPUPreviewCanvasProps {
   containerHeight: number;
   /** Whether to enable GPU preview (falls back to HTML video if false) */
   enabled?: boolean;
+  /** Whether currently playing (uses text-only mode for performance) */
+  isPlaying?: boolean;
+  /** Zoom style to apply (matches video zoom) */
+  zoomStyle?: React.CSSProperties;
   /** Callback when preview is ready */
   onReady?: () => void;
   /** Callback on error */
@@ -39,6 +43,8 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
   containerWidth,
   containerHeight,
   enabled = true,
+  isPlaying = false,
+  zoomStyle,
   onReady,
   onError,
 }: GPUPreviewCanvasProps) {
@@ -54,6 +60,7 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
     isConnected,
     initPreview,
     renderFrame,
+    renderTextOnly,
     shutdown,
   } = usePreviewStream({
     onFrame: (_frameNumber) => {
@@ -201,19 +208,28 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
   }, [enabled, project, isConnected, projectId, textVersion, currentTimeMs, doSetProject]);
 
   // Render frame when time changes
+  // Use different modes: full frame for scrubbing, text-only for playback
+  const lastRenderTimeRef = useRef<number>(0);
+
   useEffect(() => {
     // Only render if connected, ready, AND project is set
     if (!isConnected || !enabled || initStateRef.current !== 'ready' || !projectId) {
       return;
     }
 
-    // Debounce rapid time changes
-    const timeoutId = setTimeout(() => {
-      renderFrame(currentTimeMs);
-    }, 16); // ~60fps max
+    const now = Date.now();
+    const timeSinceLastRender = now - lastRenderTimeRef.current;
 
-    return () => clearTimeout(timeoutId);
-  }, [currentTimeMs, isConnected, enabled, projectId, renderFrame]);
+    // Always use text-only mode (no video decoding - much faster)
+    // Video is handled by HTML video (playback) or WebCodecs (scrubbing)
+    // GPU only renders text overlay on transparent background
+    const minInterval = isPlaying ? 66 : 16; // ~15fps playback, ~60fps scrub
+    if (timeSinceLastRender < minInterval) {
+      return;
+    }
+    lastRenderTimeRef.current = now;
+    renderTextOnly(currentTimeMs);
+  }, [currentTimeMs, isConnected, enabled, projectId, isPlaying, renderFrame, renderTextOnly]);
 
   if (!enabled) {
     return null;
@@ -221,13 +237,15 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
 
   // Center the canvas and set explicit pixel dimensions (Cap's approach)
   // This ensures the canvas fills the container without gaps
+  // Apply zoomStyle to match video zoom transform
   return (
-    <div className="absolute inset-0 flex items-center justify-center">
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
       <canvas
         ref={canvasRef}
         style={{
           width: `${displaySize.width}px`,
           height: `${displaySize.height}px`,
+          ...zoomStyle,
         }}
       />
     </div>

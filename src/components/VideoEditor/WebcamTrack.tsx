@@ -199,7 +199,7 @@ export const WebcamTrack = memo(function WebcamTrack({
 
   return (
     <div 
-      className={`relative h-10 ${enabled ? 'bg-zinc-800/60' : 'bg-zinc-800/30 opacity-60'}`}
+      className={`relative h-12 ${enabled ? 'bg-zinc-800/60' : 'bg-zinc-800/30 opacity-60'}`}
       style={{ width: `${width}px` }}
     >
       {/* Track label */}

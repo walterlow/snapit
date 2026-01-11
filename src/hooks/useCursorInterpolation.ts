@@ -474,16 +474,7 @@ export function useCursorInterpolation(
   // This compensates for the delay between recording start and first video frame
   const videoStartOffsetMs = cursorRecording?.videoStartOffsetMs ?? 0;
 
-  // Log timing offset for debugging (only once when recording loads)
-  useMemo(() => {
-    if (cursorRecording && videoStartOffsetMs > 0 && process.env.NODE_ENV === 'development') {
-      console.log(
-        `[useCursorInterpolation] Timing sync: videoStartOffsetMs=${videoStartOffsetMs}ms, ` +
-        `first cursor event at ${cursorRecording.events[0]?.timestampMs ?? 'N/A'}ms, ` +
-        `total events: ${cursorRecording.events.length}`
-      );
-    }
-  }, [cursorRecording, videoStartOffsetMs]);
+  // Debug logging removed - was too noisy in development
 
   // Return interpolation function
   const getCursorAt = useCallback(

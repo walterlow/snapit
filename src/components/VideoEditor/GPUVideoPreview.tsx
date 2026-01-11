@@ -32,22 +32,35 @@ const WebCodecsCanvas = memo(function WebCodecsCanvas({
   videoPath,
   zoomRegions,
   cursorRecording,
+  backgroundPadding = 0,
+  rounding = 0,
+  videoWidth = 1920,
+  videoHeight = 1080,
 }: {
   videoPath: string | null;
   zoomRegions: ZoomRegion[] | undefined;
   cursorRecording: CursorRecording | null | undefined;
+  /** Background padding - when > 0, allows extended zoom range */
+  backgroundPadding?: number;
+  /** Corner rounding - preserves rounded corners when zooming */
+  rounding?: number;
+  /** Video width for calculating rounding ratio */
+  videoWidth?: number;
+  /** Video height for calculating rounding ratio */
+  videoHeight?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastDrawnTimeRef = useRef<number | null>(null);
   const rafIdRef = useRef<number>(0);
   const [hasFrame, setHasFrame] = useState(false);
-  
+
   const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
   const isPlaying = useVideoEditorStore(selectIsPlaying);
   const { getFrame, prefetchAround, isReady } = useWebCodecsPreview(videoPath);
-  
+
   // Get zoom style for the current preview time
-  const zoomStyle = useZoomPreview(zoomRegions, previewTimeMs ?? 0, cursorRecording);
+  // Smart clamping: extended range with padding, preserves rounded corners
+  const zoomStyle = useZoomPreview(zoomRegions, previewTimeMs ?? 0, cursorRecording, { backgroundPadding, rounding, videoWidth, videoHeight });
 
   // Prefetch frames when preview position changes
   useEffect(() => {
@@ -131,6 +144,7 @@ const WebCodecsCanvas = memo(function WebCodecsCanvas({
  * Memoized video element with zoom transform.
  * Re-renders at 60fps via usePreviewOrPlaybackTime, syncs with scrubbing.
  * Supports auto-zoom mode that follows cursor position.
+ * Keeps video seeked even when hidden (for mask overlay sampling).
  */
 const VideoWithZoom = memo(function VideoWithZoom({
   videoRef,
@@ -139,6 +153,10 @@ const VideoWithZoom = memo(function VideoWithZoom({
   cursorRecording,
   onVideoClick,
   hidden,
+  backgroundPadding = 0,
+  rounding = 0,
+  videoWidth = 1920,
+  videoHeight = 1080,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string;
@@ -146,9 +164,33 @@ const VideoWithZoom = memo(function VideoWithZoom({
   cursorRecording: CursorRecording | null | undefined;
   onVideoClick: () => void;
   hidden?: boolean;
+  /** Background padding - when > 0, allows extended zoom range */
+  backgroundPadding?: number;
+  /** Corner rounding - preserves rounded corners when zooming */
+  rounding?: number;
+  /** Video width for calculating rounding ratio */
+  videoWidth?: number;
+  /** Video height for calculating rounding ratio */
+  videoHeight?: number;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
-  const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs, cursorRecording);
+  const isPlaying = useVideoEditorStore(selectIsPlaying);
+  // Smart clamping: extended range with padding, preserves rounded corners
+  const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs, cursorRecording, { backgroundPadding, rounding, videoWidth, videoHeight });
+
+  // Keep video seeked even when hidden (needed for mask overlay sampling)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || isPlaying) return;
+
+    const targetTime = currentTimeMs / 1000;
+    const diff = Math.abs(video.currentTime - targetTime);
+
+    // Seek when difference is noticeable
+    if (diff > 0.05) {
+      video.currentTime = targetTime;
+    }
+  }, [videoRef, currentTimeMs, isPlaying]);
 
   return (
     <video
@@ -252,7 +294,10 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   textSegments,
   project,
   useGPUPreview,
+  isPlaying,
   onVideoClick,
+  backgroundPadding = 0,
+  rounding = 0,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string | null | undefined;
@@ -279,7 +324,13 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   project: VideoProject | null;
   /** Whether to use GPU preview (renders text via glyphon) */
   useGPUPreview?: boolean;
+  /** Whether currently playing (for text-only GPU mode) */
+  isPlaying?: boolean;
   onVideoClick: () => void;
+  /** Background padding - when > 0, allows extended zoom range */
+  backgroundPadding?: number;
+  /** Corner rounding - preserves rounded corners when zooming */
+  rounding?: number;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
   const scene = useInterpolatedScene(sceneSegments, defaultSceneMode, currentTimeMs);
@@ -293,6 +344,10 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
 
   // Get the original video path for WebCodecs (before convertFileSrc)
   const originalVideoPath = useVideoEditorStore((s) => s.project?.sources.screenVideo ?? null);
+
+  // Compute zoom style for GPU preview canvas (must match video zoom)
+  // Smart clamping: extended range with padding, preserves rounded corners
+  const zoomStyle = useZoomPreview(zoomRegions, currentTimeMs, cursorRecording, { backgroundPadding, rounding, videoWidth, videoHeight });
 
   // Calculate transition styles - no CSS transitions, JS interpolation handles smoothness
   const screenStyle: React.CSSProperties = {
@@ -325,18 +380,26 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
             zoomRegions={zoomRegions}
             cursorRecording={cursorRecording}
             onVideoClick={onVideoClick}
-            hidden={useGPUPreview}
+            hidden={false}
+            backgroundPadding={backgroundPadding}
+            rounding={rounding}
+            videoWidth={videoWidth}
+            videoHeight={videoHeight}
           />
         </div>
       )}
 
-      {/* WebCodecs preview canvas - shown during scrubbing for instant preview (disabled when GPU preview active) */}
-      {showScreen && originalVideoPath && !useGPUPreview && (
+      {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
+      {showScreen && originalVideoPath && !isPlaying && (
         <div style={screenStyle}>
           <WebCodecsCanvas
             videoPath={originalVideoPath}
             zoomRegions={zoomRegions}
             cursorRecording={cursorRecording}
+            backgroundPadding={backgroundPadding}
+            rounding={rounding}
+            videoWidth={videoWidth}
+            videoHeight={videoHeight}
           />
         </div>
       )}
@@ -392,7 +455,23 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
         />
       )}
 
-      {/* Mask overlay - blur/pixelate regions on top of video (only when screen visible) */}
+      {/* GPU Preview Canvas - renders text with glyphon for pixel-perfect preview */}
+      {/* During playback: renders text-only on transparent background (overlay on HTML video) */}
+      {/* During scrubbing: renders full frame (video + text) */}
+      {useGPUPreview && showScreen && project && (
+        <GPUPreviewCanvas
+          project={project}
+          currentTimeMs={currentTimeMs}
+          containerWidth={containerWidth}
+          containerHeight={containerHeight}
+          enabled={true}
+          isPlaying={isPlaying}
+          zoomStyle={zoomStyle}
+          onError={(error) => console.error('[GPUPreview]', error)}
+        />
+      )}
+
+      {/* Mask overlay - blur/pixelate regions on top of video/GPU canvas */}
       {showScreen && maskSegments && maskSegments.length > 0 && containerWidth > 0 && containerHeight > 0 && (
         <MaskOverlay
           segments={maskSegments}
@@ -402,18 +481,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           videoElement={videoRef.current}
           videoWidth={videoWidth}
           videoHeight={videoHeight}
-        />
-      )}
-
-      {/* GPU Preview Canvas - renders text with glyphon for pixel-perfect preview */}
-      {useGPUPreview && showScreen && project && (
-        <GPUPreviewCanvas
-          project={project}
-          currentTimeMs={currentTimeMs}
-          containerWidth={containerWidth}
-          containerHeight={containerHeight}
-          enabled={true}
-          onError={(error) => console.error('[GPUPreview]', error)}
+          zoomStyle={zoomStyle}
         />
       )}
 
@@ -525,9 +593,11 @@ export function GPUVideoPreview() {
   const backgroundConfig = project?.export?.background;
   const originalWidth = project?.sources.originalWidth ?? 1920;
 
-  // GPU preview renders video + text overlays
-  // CSS handles background/padding as fallback since GPU background rendering may not be fully working
-  const useGPUPreview = true;
+  // GPU preview modes:
+  // - During scrubbing (not playing): Full frame (video + text) rendered by GPU
+  // - During playback: HTML video plays smoothly, GPU renders text-only overlay (transparent)
+  // This gives us smooth video playback AND accurate GPU-rendered text
+  const useGPUPreview = true; // Always enabled - mode changes based on isPlaying
 
   // Check if frame styling is enabled (has any visual effect)
   // CSS handles backgrounds as fallback until GPU background rendering is complete
@@ -596,12 +666,16 @@ export function GPUVideoPreview() {
     // Scale rounding proportionally
     const scaledRounding = backgroundConfig.rounding * previewScale;
 
-    // Border radius with squircle/rounded support
+    // Use clip-path for reliable clipping (works even with transforms on children)
+    // This ensures rounded corners always appear at viewport edges during zoom
     if (scaledRounding > 0) {
+      // Use clip-path: inset(0 round Xpx) for proper clipping
       if (backgroundConfig.roundingType === 'squircle') {
-        // Squircle approximation using superellipse-like border-radius
+        // Squircle approximation
+        style.clipPath = `inset(0 round ${scaledRounding * 1.2}px / ${scaledRounding}px)`;
         style.borderRadius = `${scaledRounding * 1.2}px / ${scaledRounding}px`;
       } else {
+        style.clipPath = `inset(0 round ${scaledRounding}px)`;
         style.borderRadius = scaledRounding;
       }
     }
@@ -936,7 +1010,10 @@ export function GPUVideoPreview() {
               textSegments={project?.text?.segments}
               project={project}
               useGPUPreview={useGPUPreview}
+              isPlaying={isPlaying}
               onVideoClick={handleVideoClick}
+              backgroundPadding={backgroundConfig?.padding ?? 0}
+              rounding={backgroundConfig?.rounding ?? 0}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">

@@ -12,6 +12,8 @@ interface MaskOverlayProps {
   /** Original video dimensions for proper sampling */
   videoWidth: number;
   videoHeight: number;
+  /** Zoom transform style - masks follow the video zoom */
+  zoomStyle?: React.CSSProperties;
 }
 
 interface MaskItemProps {
@@ -427,6 +429,7 @@ export const MaskOverlay = memo(function MaskOverlay({
   videoElement,
   videoWidth,
   videoHeight,
+  zoomStyle,
 }: MaskOverlayProps) {
   const selectedMaskSegmentId = useVideoEditorStore((s) => s.selectedMaskSegmentId);
   const selectMaskSegment = useVideoEditorStore((s) => s.selectMaskSegment);
@@ -449,6 +452,7 @@ export const MaskOverlay = memo(function MaskOverlay({
   return (
     <div
       className="absolute inset-0 pointer-events-none"
+      style={zoomStyle}
       onClick={handleContainerClick}
     >
       {activeSegments.map((segment) => (

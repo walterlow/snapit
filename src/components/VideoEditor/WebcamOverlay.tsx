@@ -261,18 +261,6 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   // Track native video dimensions for "source" shape
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
 
-  // Debug: log webcam config on mount
-  useEffect(() => {
-    webcamLogger.debug('Config:', {
-      path: webcamVideoPath,
-      enabled: config.enabled,
-      position: config.position,
-      size: config.size,
-      shape: config.shape,
-      segments: config.visibilitySegments,
-    });
-  }, [webcamVideoPath, config]);
-
   // Callback to update dimensions from video element
   const updateVideoDimensions = useCallback((video: HTMLVideoElement) => {
     if (video.videoWidth > 0 && video.videoHeight > 0) {
@@ -280,7 +268,6 @@ export const WebcamOverlay = memo(function WebcamOverlay({
       setVideoDimensions(prev => {
         // Only update if different to avoid unnecessary re-renders
         if (prev?.width !== newDims.width || prev?.height !== newDims.height) {
-          webcamLogger.debug('Video dimensions:', newDims.width, 'x', newDims.height);
           return newDims;
         }
         return prev;
@@ -299,21 +286,12 @@ export const WebcamOverlay = memo(function WebcamOverlay({
 
   // Check visibility at current time
   const isVisible = useMemo(() => {
-    // Always show if enabled and no segments defined
-    if (!config.enabled) {
-      webcamLogger.debug('Hidden: not enabled');
-      return false;
-    }
-    const visible = isWebcamVisibleAt(config.visibilitySegments, currentTimeMs);
-    return visible;
+    if (!config.enabled) return false;
+    return isWebcamVisibleAt(config.visibilitySegments, currentTimeMs);
   }, [config.enabled, config.visibilitySegments, currentTimeMs]);
 
   // Convert file path to asset URL
-  const videoSrc = useMemo(() => {
-    const src = convertFileSrc(webcamVideoPath);
-    webcamLogger.debug('Video src:', src);
-    return src;
-  }, [webcamVideoPath]);
+  const videoSrc = useMemo(() => convertFileSrc(webcamVideoPath), [webcamVideoPath]);
 
   // Calculate webcam dimensions based on shape
   // - Source: uses native video aspect ratio with squircle rounding (like Cap)
@@ -439,7 +417,6 @@ export const WebcamOverlay = memo(function WebcamOverlay({
         onLoadedData={(e) => {
           // Also try here in case metadata event was missed
           updateVideoDimensions(e.currentTarget);
-          webcamLogger.debug('Video loaded OK');
         }}
       />
     </div>

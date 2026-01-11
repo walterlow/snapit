@@ -123,6 +123,21 @@ pub async fn render_preview_frame(
     renderer.render_frame(time_ms).await
 }
 
+/// Render only text overlays (no video decoding).
+/// Much faster than full frame rendering - used during playback.
+#[command]
+pub async fn render_text_only_frame(
+    state: State<'_, PreviewState>,
+    time_ms: u64,
+) -> Result<(), String> {
+    let renderer = state.renderer.read().await;
+    let renderer = renderer
+        .as_ref()
+        .ok_or_else(|| "Preview not initialized".to_string())?;
+
+    renderer.render_text_only(time_ms).await
+}
+
 /// Shutdown the preview renderer and WebSocket server.
 #[command]
 pub async fn shutdown_preview(state: State<'_, PreviewState>) -> Result<(), String> {

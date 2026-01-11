@@ -662,7 +662,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef>(function VideoEdit
   const [isCropDialogOpen, setIsCropDialogOpen] = useState(false);
 
   // Timeline height state for vertical resizing
-  const [timelineHeight, setTimelineHeight] = useState(224); // 14rem = 224px
+  const [timelineHeight, setTimelineHeight] = useState(300); // Default height
   const [isResizingTimeline, setIsResizingTimeline] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
   const MIN_TIMELINE_HEIGHT = 160;

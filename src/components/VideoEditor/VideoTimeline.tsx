@@ -714,7 +714,7 @@ export function VideoTimeline({ onBack, onExport }: VideoTimelineProps) {
 
           {/* Scene Track */}
           {project && project.sources.webcamVideo && trackVisibility.scene && (
-            <div className="h-10 border-b border-[var(--glass-border)]">
+            <div className="h-12 border-b border-[var(--glass-border)]">
               <SceneTrack
                 segments={project.scene.segments}
                 defaultMode={project.scene.defaultMode}

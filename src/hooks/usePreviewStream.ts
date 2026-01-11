@@ -35,8 +35,10 @@ interface UsePreviewStreamResult {
   frameNumber: number;
   /** Initialize the preview stream */
   initPreview: () => Promise<void>;
-  /** Request a frame render at a specific time */
+  /** Request a full frame render at a specific time (video + text) */
   renderFrame: (timeMs: number) => Promise<void>;
+  /** Request text-only render (no video decoding - much faster) */
+  renderTextOnly: (timeMs: number) => Promise<void>;
   /** Shutdown the preview stream */
   shutdown: () => Promise<void>;
   /** Current WebSocket URL */
@@ -118,10 +120,10 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
       ctxRef.current = null; // Reset context on resize
     }
 
-    // Get or create context
+    // Get or create context (alpha: true for text-only transparent rendering)
     let ctx = ctxRef.current;
     if (!ctx) {
-      ctx = canvas.getContext('2d', { alpha: false });
+      ctx = canvas.getContext('2d', { alpha: true });
       ctxRef.current = ctx;
     }
 
@@ -186,13 +188,22 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
     }
   }, [handleFrame]);
 
-  // Request a frame render at a specific time
+  // Request a full frame render at a specific time (video + text)
   const renderFrame = useCallback(async (timeMs: number) => {
     try {
       // Convert to integer - backend expects u64
       await invoke('render_preview_frame', { timeMs: Math.floor(timeMs) });
     } catch (error) {
       console.error('[PreviewStream] Failed to render frame:', error);
+    }
+  }, []);
+
+  // Request text-only render (no video decoding - much faster for playback)
+  const renderTextOnly = useCallback(async (timeMs: number) => {
+    try {
+      await invoke('render_text_only_frame', { timeMs: Math.floor(timeMs) });
+    } catch (error) {
+      console.error('[PreviewStream] Failed to render text-only frame:', error);
     }
   }, []);
 
@@ -232,6 +243,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
     frameNumber,
     initPreview,
     renderFrame,
+    renderTextOnly,
     shutdown,
     wsUrl,
   };

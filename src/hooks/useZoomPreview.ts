@@ -346,10 +346,27 @@ export function getZoomStateAt(
   return boundsToZoomState(interp);
 }
 
+interface ZoomTransformOptions {
+  /** Background padding in pixels - when > 0, allows extended zoom range */
+  backgroundPadding?: number;
+  /** Corner rounding in pixels - used to preserve rounded corners when zooming */
+  rounding?: number;
+  /** Video dimensions for calculating rounding ratio */
+  videoWidth?: number;
+  videoHeight?: number;
+}
+
 /**
  * Convert zoom state to CSS transform properties.
+ *
+ * Clamping behavior:
+ * - No padding: Clamp to prevent showing empty areas at edges
+ * - With padding: Allow extended range, but preserve enough margin for rounded corners
  */
-export function zoomStateToTransform(state: ZoomState): ZoomTransformStyle {
+export function zoomStateToTransform(
+  state: ZoomState,
+  options: ZoomTransformOptions = {}
+): ZoomTransformStyle {
   if (state.scale <= 1.001) {
     return {
       transform: 'none',
@@ -357,30 +374,71 @@ export function zoomStateToTransform(state: ZoomState): ZoomTransformStyle {
     };
   }
 
-  // Clamp center position to prevent showing empty areas at edges
+  const { backgroundPadding = 0, rounding = 0, videoWidth = 1920, videoHeight = 1080 } = options;
+
+  let centerX = state.centerX;
+  let centerY = state.centerY;
+
+  // Calculate minimum edge distance based on zoom scale
   const halfVisible = 0.5 / state.scale;
-  const clampedCenterX = Math.max(halfVisible, Math.min(1 - halfVisible, state.centerX));
-  const clampedCenterY = Math.max(halfVisible, Math.min(1 - halfVisible, state.centerY));
+
+  if (backgroundPadding > 0 && rounding > 0) {
+    // With padding: Allow extended range but preserve rounded corners
+    // Calculate how much of the edge (as ratio) the rounding occupies
+    const roundingRatioX = rounding / videoWidth;
+    const roundingRatioY = rounding / videoHeight;
+
+    // Minimum edge distance = rounding ratio (to keep corners visible)
+    // This is much smaller than halfVisible, giving more zoom range
+    const minEdgeX = Math.min(halfVisible, roundingRatioX);
+    const minEdgeY = Math.min(halfVisible, roundingRatioY);
+
+    centerX = Math.max(minEdgeX, Math.min(1 - minEdgeX, centerX));
+    centerY = Math.max(minEdgeY, Math.min(1 - minEdgeY, centerY));
+  } else if (backgroundPadding === 0) {
+    // No padding: Clamp to prevent showing empty areas at edges
+    centerX = Math.max(halfVisible, Math.min(1 - halfVisible, centerX));
+    centerY = Math.max(halfVisible, Math.min(1 - halfVisible, centerY));
+  }
+  // else: padding > 0 but no rounding - allow full range (no clamping)
 
   // Calculate translation to keep the target point centered
-  const translateX = (0.5 - clampedCenterX) * 100 * (state.scale - 1) / state.scale;
-  const translateY = (0.5 - clampedCenterY) * 100 * (state.scale - 1) / state.scale;
+  const translateX = (0.5 - centerX) * 100 * (state.scale - 1) / state.scale;
+  const translateY = (0.5 - centerY) * 100 * (state.scale - 1) / state.scale;
 
   return {
     transform: `scale(${state.scale}) translate(${translateX}%, ${translateY}%)`,
-    transformOrigin: `${clampedCenterX * 100}% ${clampedCenterY * 100}%`,
+    transformOrigin: `${centerX * 100}% ${centerY * 100}%`,
   };
+}
+
+interface UseZoomPreviewOptions {
+  /** Background padding in pixels - when > 0, allows extended zoom range */
+  backgroundPadding?: number;
+  /** Corner rounding in pixels - preserves rounded corners when zooming */
+  rounding?: number;
+  /** Video width for calculating rounding ratio */
+  videoWidth?: number;
+  /** Video height for calculating rounding ratio */
+  videoHeight?: number;
 }
 
 /**
  * Hook to get zoom transform style for the current timestamp.
+ *
+ * Clamping behavior based on background settings:
+ * - No padding: Clamp to prevent showing empty areas
+ * - With padding + rounding: Allow extended range while preserving rounded corners
+ * - With padding, no rounding: Allow full zoom range
  */
 export function useZoomPreview(
   regions: ZoomRegion[] | undefined,
   currentTimeMs: number,
-  cursorRecording?: CursorRecording | null
+  cursorRecording?: CursorRecording | null,
+  options: UseZoomPreviewOptions = {}
 ): ZoomTransformStyle {
   const { getCursorAt, hasCursorData } = useCursorInterpolation(cursorRecording);
+  const { backgroundPadding = 0, rounding = 0, videoWidth = 1920, videoHeight = 1080 } = options;
 
   return useMemo(() => {
     if (!regions || regions.length === 0) {
@@ -392,8 +450,10 @@ export function useZoomPreview(
       currentTimeMs,
       hasCursorData ? getCursorAt : null
     );
-    return zoomStateToTransform(state);
-  }, [regions, currentTimeMs, getCursorAt, hasCursorData]);
+
+    // Pass through all options for smart clamping
+    return zoomStateToTransform(state, { backgroundPadding, rounding, videoWidth, videoHeight });
+  }, [regions, currentTimeMs, getCursorAt, hasCursorData, backgroundPadding, rounding, videoWidth, videoHeight]);
 }
 
 /**

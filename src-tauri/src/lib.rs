@@ -275,6 +275,7 @@ pub fn run() {
             commands::preview::init_preview,
             commands::preview::set_preview_project,
             commands::preview::render_preview_frame,
+            commands::preview::render_text_only_frame,
             commands::preview::shutdown_preview,
             commands::preview::get_preview_ws_port,
             // Audio monitoring commands

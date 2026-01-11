@@ -137,7 +137,7 @@ const SettingsWindow: React.FC = () => {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+    <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
       <Titlebar title="Settings" showLogo={true} showMaximize={true} />
 
       <div className="flex-1 flex min-h-0">

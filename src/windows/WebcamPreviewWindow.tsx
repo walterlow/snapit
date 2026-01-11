@@ -9,7 +9,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
-import { X, Circle, Square, FlipHorizontal2 } from 'lucide-react';
+import { X, Circle, Square, FlipHorizontal2, Maximize2, Minimize2 } from 'lucide-react';
 import type { WebcamSettings, WebcamSize, WebcamShape } from '@/types/generated';
 import { webcamLogger } from '@/utils/logger';
 
@@ -214,6 +214,26 @@ const WebcamPreviewWindow: React.FC = () => {
     }
   }, [settings]);
 
+  // Cycle size: small -> medium -> large -> small
+  const handleCycleSize = useCallback(async () => {
+    const sizes: WebcamSize[] = ['small', 'medium', 'large'];
+    const currentIndex = sizes.indexOf(settings.size);
+    const nextIndex = (currentIndex + 1) % sizes.length;
+    const newSize = sizes[nextIndex];
+    try {
+      await invoke('set_webcam_size', { size: newSize });
+      const newSettings = { ...settings, size: newSize };
+      setSettings(newSettings);
+      emit('webcam-settings-changed', newSettings);
+      // Trigger anchor recalculation for new size
+      if (settings.position.type !== 'custom') {
+        emit('webcam-anchor-changed', { anchor: settings.position.type });
+      }
+    } catch (e) {
+      webcamLogger.error('Failed to cycle size:', e);
+    }
+  }, [settings]);
+
   // Handle window dragging
   const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
     // Don't drag if clicking on buttons
@@ -303,6 +323,23 @@ const WebcamPreviewWindow: React.FC = () => {
             title={settings.mirror ? 'Disable mirror' : 'Enable mirror'}
           >
             <FlipHorizontal2 size={16} />
+          </button>
+          <button
+            onClick={handleCycleSize}
+            style={{
+              padding: '6px',
+              borderRadius: '6px',
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255, 255, 255, 0.8)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            title={`Size: ${settings.size} (click to change)`}
+          >
+            {settings.size === 'large' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
           <button
             onClick={handleClose}

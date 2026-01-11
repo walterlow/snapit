@@ -136,6 +136,24 @@ pub fn setup_system_tray(app: &App) -> Result<TrayState, Box<dyn std::error::Err
             },
             "show" => {
                 if let Some(window) = app.get_webview_window("library") {
+                    // Use Windows API to forcefully bring window to front
+                    #[cfg(target_os = "windows")]
+                    {
+                        use windows::Win32::Foundation::HWND;
+                        use windows::Win32::UI::WindowsAndMessaging::{
+                            BringWindowToTop, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+                        };
+
+                        if let Ok(hwnd) = window.hwnd() {
+                            unsafe {
+                                let hwnd = HWND(hwnd.0);
+                                let _ = ShowWindow(hwnd, SW_RESTORE);
+                                let _ = ShowWindow(hwnd, SW_SHOW);
+                                let _ = BringWindowToTop(hwnd);
+                                let _ = SetForegroundWindow(hwnd);
+                            }
+                        }
+                    }
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
@@ -143,6 +161,24 @@ pub fn setup_system_tray(app: &App) -> Result<TrayState, Box<dyn std::error::Err
             "settings" => {
                 // Show library window and emit event to open settings modal
                 if let Some(window) = app.get_webview_window("library") {
+                    // Use Windows API to forcefully bring window to front
+                    #[cfg(target_os = "windows")]
+                    {
+                        use windows::Win32::Foundation::HWND;
+                        use windows::Win32::UI::WindowsAndMessaging::{
+                            BringWindowToTop, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+                        };
+
+                        if let Ok(hwnd) = window.hwnd() {
+                            unsafe {
+                                let hwnd = HWND(hwnd.0);
+                                let _ = ShowWindow(hwnd, SW_RESTORE);
+                                let _ = ShowWindow(hwnd, SW_SHOW);
+                                let _ = BringWindowToTop(hwnd);
+                                let _ = SetForegroundWindow(hwnd);
+                            }
+                        }
+                    }
                     let _ = window.show();
                     let _ = window.set_focus();
                 }

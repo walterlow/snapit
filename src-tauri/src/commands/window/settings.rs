@@ -28,7 +28,6 @@ pub async fn show_settings_window(app: AppHandle, tab: Option<String>) -> Result
     let url = WebviewUrl::App("settings.html".into());
 
     // Create settings window - centered, resizable, with custom titlebar
-    // NOTE: Do NOT apply DWM transparency - it can break click events on Windows
     let window = WebviewWindowBuilder::new(&app, SETTINGS_WINDOW_LABEL, url)
         .title("SnapIt Settings")
         .inner_size(560.0, 600.0)

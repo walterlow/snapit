@@ -327,7 +327,37 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
 
     // Check if window already exists
     if let Some(window) = app.get_webview_window(CAPTURE_TOOLBAR_LABEL) {
-        log::info!("[show_startup_toolbar] Window already exists, showing it");
+        log::info!("[show_startup_toolbar] Window already exists, bringing to front");
+
+        // Use Windows API to forcefully bring window to front
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                BringWindowToTop, SetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOPMOST,
+                SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
+            };
+
+            if let Ok(hwnd) = window.hwnd() {
+                unsafe {
+                    let hwnd = HWND(hwnd.0);
+                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                    let _ = ShowWindow(hwnd, SW_SHOW);
+                    let _ = SetWindowPos(
+                        hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    );
+                    let _ = BringWindowToTop(hwnd);
+                    let _ = SetForegroundWindow(hwnd);
+                }
+            }
+        }
+
         window
             .show()
             .map_err(|e| format!("Failed to show toolbar: {}", e))?;

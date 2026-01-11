@@ -329,13 +329,18 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
 
   // Combined frame + zoom style for the wrapper
   // The frame (rounded corners, shadow, border) zooms together with content
+  // During camera-only transitions, fade out the frame to prevent zoomed content
+  // from bleeding through at the edges behind the fullscreen webcam
+  const frameOpacity = 1 - cameraOnlyOpacity; // Fade out frame as webcam fades in
   const frameZoomStyle: React.CSSProperties = {
     position: 'relative',
     width: '100%',
     height: '100%',
     overflow: 'hidden',
     ...frameStyle,
-    ...zoomStyle,
+    ...(showScreen ? zoomStyle : {}),
+    opacity: frameOpacity,
+    visibility: frameOpacity < 0.01 ? 'hidden' : 'visible',
   };
 
   return (

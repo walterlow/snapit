@@ -14,6 +14,14 @@ export default defineConfig(async () => ({
     },
   },
 
+  // Ensure WASM files are served correctly
+  assetsInclude: ["**/*.wasm"],
+
+  optimizeDeps: {
+    // Exclude WASM modules from dependency optimization
+    exclude: ["text-renderer-wasm"],
+  },
+
   // Multi-page build configuration
   build: {
     rollupOptions: {

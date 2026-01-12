@@ -13,7 +13,11 @@ import { ClickHighlightOverlay } from './ClickHighlightOverlay';
 import { MaskOverlay } from './MaskOverlay';
 import { TextOverlay } from './TextOverlay';
 import { GPUPreviewCanvas } from './GPUPreviewCanvas';
+import { WasmTextCanvas } from './WasmTextCanvas';
 import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment, VideoProject } from '../../types';
+
+// Feature flag: Use WASM text renderer instead of GPU preview WebSocket
+const USE_WASM_TEXT_RENDERER = true;
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
@@ -395,18 +399,47 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           />
         )}
 
-        {/* GPU Preview Canvas - renders text with glyphon for pixel-perfect preview */}
-        {/* Only shown when text segments exist (Rust only sends frames when there's text) */}
-        {useGPUPreview && showScreen && project && textSegments && textSegments.length > 0 && (
-          <GPUPreviewCanvas
-            project={project}
-            currentTimeMs={currentTimeMs}
-            containerWidth={containerWidth}
-            containerHeight={containerHeight}
-            enabled={true}
-            isPlaying={isPlaying}
-            onError={(error) => console.error('[GPUPreview]', error)}
-          />
+        {/* Text rendering - WASM (fast, direct) or GPU preview (WebSocket to Rust) */}
+        {/* Only shown when text segments exist */}
+        {useGPUPreview && showScreen && textSegments && textSegments.length > 0 && containerWidth > 0 && (
+          USE_WASM_TEXT_RENDERER ? (
+            <WasmTextCanvas
+              segments={textSegments}
+              currentTimeMs={currentTimeMs}
+              containerWidth={containerWidth}
+              containerHeight={containerHeight}
+              videoWidth={videoWidth}
+              videoHeight={videoHeight}
+              enabled={true}
+              onError={(error) => console.error('[WasmText]', error)}
+              fallback={
+                // Fallback to GPU preview if WebGPU not supported
+                project && (
+                  <GPUPreviewCanvas
+                    project={project}
+                    currentTimeMs={currentTimeMs}
+                    containerWidth={containerWidth}
+                    containerHeight={containerHeight}
+                    enabled={true}
+                    isPlaying={isPlaying}
+                    onError={(error) => console.error('[GPUPreview]', error)}
+                  />
+                )
+              }
+            />
+          ) : (
+            project && (
+              <GPUPreviewCanvas
+                project={project}
+                currentTimeMs={currentTimeMs}
+                containerWidth={containerWidth}
+                containerHeight={containerHeight}
+                enabled={true}
+                isPlaying={isPlaying}
+                onError={(error) => console.error('[GPUPreview]', error)}
+              />
+            )
+          )
         )}
 
         {/* Mask overlay - blur/pixelate regions on top of video/GPU canvas */}

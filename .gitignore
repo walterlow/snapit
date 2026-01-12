@@ -48,3 +48,7 @@ coverage/
 # FFmpeg binaries (downloaded during build)
 src-tauri/binaries/
 *-cwd*
+
+# WASM text renderer build artifacts
+wasm/text-renderer/target/
+wasm/text-renderer/Cargo.lock

@@ -1,4 +1,5 @@
 import { memo, useCallback, useRef, useState, useEffect } from 'react';
+import { TIMING } from '@/constants';
 import {
   Film,
   Download,
@@ -364,25 +365,35 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // Measure container width and sync to store
+  // Measure container width and sync to store (debounced to avoid resize lag)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const updateWidth = (width: number) => {
+      setContainerWidth(width);
+      setTimelineContainerWidth(width);
+    };
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect.width;
-        setContainerWidth(width);
-        setTimelineContainerWidth(width);
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => updateWidth(width), TIMING.RESIZE_DEBOUNCE_MS);
       }
     });
 
     observer.observe(container);
+    // Set initial width without debounce
     const initialWidth = container.clientWidth;
-    setContainerWidth(initialWidth);
-    setTimelineContainerWidth(initialWidth);
+    updateWidth(initialWidth);
 
-    return () => observer.disconnect();
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      observer.disconnect();
+    };
   }, [setTimelineContainerWidth]);
 
   // Fit timeline to window when project loads and container is measured

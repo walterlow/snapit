@@ -25,6 +25,7 @@ import {
 import { useState, useEffect } from 'react';
 import type { Tool } from '../../types';
 import { useEditorStore } from '../../stores/editorStore';
+import { TIMING } from '../../constants';
 
 import {
   Tooltip,
@@ -90,12 +91,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const canRedo = useEditorStore((state) => state.canRedo);
 
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const checkSize = () => {
       setIsCompact(window.innerWidth < 720 || window.innerHeight < 500);
     };
+    const debouncedCheck = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(checkSize, TIMING.RESIZE_DEBOUNCE_MS);
+    };
     checkSize();
-    window.addEventListener('resize', checkSize);
-    return () => window.removeEventListener('resize', checkSize);
+    window.addEventListener('resize', debouncedCheck);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener('resize', debouncedCheck);
+    };
   }, []);
 
   const handleCopy = async () => {

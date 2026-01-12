@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { CaptureListItem } from '../../types';
 import { DateHeader, CaptureCard, CaptureRow } from './components';
 import { useThumbnailPrefetch } from './hooks';
-import { LAYOUT } from '../../constants';
+import { LAYOUT, TIMING } from '../../constants';
 
 interface DateGroup {
   label: string;
@@ -123,6 +123,8 @@ export function VirtualizedGrid({
     const container = scrollContainerRef.current;
     if (!container || viewMode === 'list') return;
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     const updateLayout = () => {
       const width = container.clientWidth;
       const cols = getColumnsForWidth(width);
@@ -130,12 +132,21 @@ export function VirtualizedGrid({
       setContainerWidth(width);
     };
 
+    const debouncedUpdate = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(updateLayout, TIMING.RESIZE_DEBOUNCE_MS);
+    };
+
+    // Initial layout without debounce
     updateLayout();
 
-    const observer = new ResizeObserver(updateLayout);
+    const observer = new ResizeObserver(debouncedUpdate);
     observer.observe(container);
 
-    return () => observer.disconnect();
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      observer.disconnect();
+    };
   }, [viewMode]);
 
   // Build rows: headers + card/list rows

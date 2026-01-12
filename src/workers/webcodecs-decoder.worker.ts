@@ -18,6 +18,7 @@ let input: Input<UrlSource> | null = null;
 let sink: VideoSampleSink | null = null;
 let videoTrack: InputVideoTrack | null = null;
 let durationMs = 0;
+let isDisposed = false; // Prevents race conditions during async init
 
 // Decode queue - prioritizes immediate requests over prefetch
 const pendingDecodes = new Map<number, DecodeFrameMessage>();
@@ -44,6 +45,7 @@ async function handleInit(videoUrl: string, maxCacheSize: number): Promise<void>
   try {
     // Clean up previous state if re-initializing
     dispose();
+    isDisposed = false; // Reset disposed flag for new init
 
     const source = new UrlSource(videoUrl, {
       maxCacheSize,
@@ -54,20 +56,32 @@ async function handleInit(videoUrl: string, maxCacheSize: number): Promise<void>
       source,
     });
 
+    // Check if disposed during async operations
+    if (isDisposed) return;
+
     videoTrack = await input.getPrimaryVideoTrack();
+    if (isDisposed) return; // Check again after async
+
     if (!videoTrack) {
       throw new Error('No video track found');
     }
 
     const canDecode = await videoTrack.canDecode();
+    if (isDisposed) return;
+
     if (!canDecode) {
       throw new Error('Video codec not supported by WebCodecs');
     }
 
     const duration = await videoTrack.computeDuration();
+    if (isDisposed) return;
+
     durationMs = duration * 1000;
 
     sink = new VideoSampleSink(videoTrack);
+
+    // Final check before sending ready
+    if (isDisposed) return;
 
     postTypedMessage({
       type: 'ready',
@@ -78,6 +92,9 @@ async function handleInit(videoUrl: string, maxCacheSize: number): Promise<void>
       durationMs,
     });
   } catch (err) {
+    // Don't report errors if we were disposed during init
+    if (isDisposed) return;
+
     postTypedMessage({
       type: 'init-error',
       error: err instanceof Error ? err.message : 'Failed to initialize',
@@ -223,6 +240,7 @@ function clearCache(): void {
  * Clean up all resources
  */
 function dispose(): void {
+  isDisposed = true; // Signal to abort any in-progress async init
   clearCache();
   pendingDecodes.clear();
 

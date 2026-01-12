@@ -913,9 +913,13 @@ export function GPUVideoPreview() {
           maxWidth: '100%',
           maxHeight: '100%',
           padding: hasFrameStyling ? (backgroundConfig?.padding ?? 0) * previewScale : undefined,
-          backgroundColor: hasFrameStyling && backgroundConfig?.bgType === 'solid' ? backgroundConfig.solidColor : undefined,
-          background: hasFrameStyling && backgroundConfig?.bgType === 'gradient'
-            ? `linear-gradient(${backgroundConfig.gradientAngle}deg, ${backgroundConfig.gradientStart}, ${backgroundConfig.gradientEnd})`
+          // Use only 'background' to avoid React warning about mixing shorthand/non-shorthand properties
+          background: hasFrameStyling
+            ? backgroundConfig?.bgType === 'solid'
+              ? backgroundConfig.solidColor
+              : backgroundConfig?.bgType === 'gradient'
+                ? `linear-gradient(${backgroundConfig.gradientAngle}deg, ${backgroundConfig.gradientStart}, ${backgroundConfig.gradientEnd})`
+                : undefined
             : undefined,
         }}
       >

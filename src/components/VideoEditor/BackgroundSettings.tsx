@@ -45,19 +45,15 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
             let resolvedPath: string;
             try {
               resolvedPath = await resolveResource(`assets/backgrounds/${theme}/thumbs/${name}.jpg`);
-              console.log(`[Wallpaper] Thumb resolved: ${resolvedPath}`);
               url = convertFileSrc(resolvedPath);
-            } catch (thumbErr) {
-              console.warn(`[Wallpaper] Thumb failed for ${id}:`, thumbErr);
+            } catch {
               // Fallback to full image if thumbnail not found
               resolvedPath = await resolveResource(`assets/backgrounds/${id}.jpg`);
-              console.log(`[Wallpaper] Full resolved: ${resolvedPath}`);
               url = convertFileSrc(resolvedPath);
             }
-            console.log(`[Wallpaper] Final URL: ${url}`);
             loaded.push({ id, url });
-          } catch (err) {
-            console.warn(`Failed to load wallpaper ${id}:`, err);
+          } catch {
+            // Silently skip wallpapers that fail to load
           }
         }
 

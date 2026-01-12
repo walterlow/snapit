@@ -5,7 +5,7 @@
  * Components subscribe to store.currentTimeMs for reactive updates.
  */
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useVideoEditorStore } from '../stores/videoEditorStore';
 
 // Module-level state for RAF loop
@@ -88,31 +88,18 @@ export function usePlaybackControls() {
   const play = useCallback(() => {
     if (isPlayingInternal) return;
     isPlayingInternal = true;
-
-    // Start video element (use module-level variable)
-    videoElement?.play();
-
-    // Start RAF loop to update store
-    startRAFLoop();
-
-    // Update store
+    // Only update store - the effect in GPUVideoPreview handles video.play()
     useVideoEditorStore.getState().setIsPlaying(true);
   }, []);
 
   const pause = useCallback(() => {
     if (!isPlayingInternal) return;
     isPlayingInternal = false;
-
-    // Stop RAF loop
-    stopRAFLoop();
-
-    // Pause video element (use module-level variable)
-    videoElement?.pause();
-
-    // Sync final time to store
+    // Sync final time to store before pausing
     if (videoElement) {
       useVideoEditorStore.getState().setCurrentTime(videoElement.currentTime * 1000);
     }
+    // Only update store - the effect in GPUVideoPreview handles video.pause()
     useVideoEditorStore.getState().setIsPlaying(false);
   }, []);
 
@@ -149,7 +136,9 @@ export function usePlaybackControls() {
     // Not used anymore - RAF loop handles syncing
   }, []);
 
-  return {
+  // Memoize return object to prevent re-renders from creating new object references
+  // This is critical - effects depending on 'controls' will re-run if this changes
+  return useMemo(() => ({
     play,
     pause,
     seek,
@@ -159,7 +148,7 @@ export function usePlaybackControls() {
     syncFromVideo,
     isPlaying: () => isPlayingInternal,
     getCurrentTime: () => useVideoEditorStore.getState().currentTimeMs,
-  };
+  }), [play, pause, seek, toggle, setDuration, setVideoElement, syncFromVideo]);
 }
 
 /**

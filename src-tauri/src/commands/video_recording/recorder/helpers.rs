@@ -9,6 +9,59 @@ use super::super::video_project::VideoProject;
 use super::super::RecordingMode;
 
 // ============================================================================
+// Video Fast Start (moov atom relocation)
+// ============================================================================
+
+/// Relocate the moov atom to the start of an MP4 file for faster streaming.
+/// This allows browsers to start playing immediately without downloading the entire file.
+pub fn make_video_faststart(video_path: &PathBuf) -> Result<(), String> {
+    if !video_path.exists() {
+        return Err(format!(
+            "Video file does not exist: {}",
+            video_path.to_string_lossy()
+        ));
+    }
+
+    let ffmpeg_path = crate::commands::storage::find_ffmpeg()
+        .ok_or_else(|| "FFmpeg not found - cannot make faststart".to_string())?;
+
+    let temp_path = video_path.with_extension("faststart_temp.mp4");
+
+    log::info!(
+        "[FASTSTART] Relocating moov atom for: {}",
+        video_path.to_string_lossy()
+    );
+
+    let output = crate::commands::storage::ffmpeg::create_hidden_command(&ffmpeg_path)
+        .args([
+            "-y",
+            "-i",
+            &video_path.to_string_lossy(),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            &temp_path.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg for faststart: {}", e))?;
+
+    if output.status.success() {
+        // Replace original with faststart version
+        std::fs::remove_file(video_path)
+            .map_err(|e| format!("Failed to remove original video: {}", e))?;
+        std::fs::rename(&temp_path, video_path)
+            .map_err(|e| format!("Failed to rename faststart video: {}", e))?;
+        log::info!("[FASTSTART] Successfully relocated moov atom");
+        Ok(())
+    } else {
+        let _ = std::fs::remove_file(&temp_path);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("FFmpeg faststart failed: {}", stderr))
+    }
+}
+
+// ============================================================================
 // Video Validation
 // ============================================================================
 

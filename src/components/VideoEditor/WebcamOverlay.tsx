@@ -359,13 +359,14 @@ export const WebcamOverlay = memo(function WebcamOverlay({
     if (!video) return;
 
     if (isPlaying && video.paused) {
-      // Sync time before playing to ensure alignment
-      video.currentTime = currentTimeMs / 1000;
+      // Read current time once from store, don't subscribe to updates
+      const targetTime = useVideoEditorStore.getState().currentTimeMs / 1000;
+      video.currentTime = targetTime;
       video.play().catch(() => {});
     } else if (!isPlaying && !video.paused) {
       video.pause();
     }
-  }, [isPlaying, currentTimeMs]);
+  }, [isPlaying]); // Remove currentTimeMs - only respond to play/pause changes
 
   // Seek webcam video when scrubbing (not playing)
   useEffect(() => {

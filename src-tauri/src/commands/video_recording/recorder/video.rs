@@ -29,7 +29,9 @@ use super::super::{
 };
 use super::buffer::FrameBufferPool;
 use super::capture_source::CaptureSource;
-use super::helpers::{create_video_project_file, is_window_mode, mux_audio_to_video};
+use super::helpers::{
+    create_video_project_file, is_window_mode, make_video_faststart, mux_audio_to_video,
+};
 
 /// Run video (MP4) capture using Windows Graphics Capture (WGC).
 ///
@@ -747,6 +749,12 @@ pub fn run_video_capture(
         }
     } else {
         log::debug!("[CAPTURE] Editor flow: keeping separate audio files for editing");
+    }
+
+    // Make video faststart-enabled for instant streaming in editor
+    // This relocates the moov atom to the start of the file
+    if let Err(e) = make_video_faststart(&screen_video_path) {
+        log::warn!("[CAPTURE] Faststart failed (video will load slowly): {}", e);
     }
 
     // NOTE: Webcam sync is now handled in finish_with_duration() above.

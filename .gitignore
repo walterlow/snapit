@@ -47,3 +47,4 @@ coverage/
 
 # FFmpeg binaries (downloaded during build)
 src-tauri/binaries/
+*-cwd*

@@ -191,12 +191,14 @@ const FullscreenWebcam = memo(function FullscreenWebcam({
     if (!video) return;
 
     if (isPlaying && video.paused) {
-      video.currentTime = currentTimeMs / 1000;
+      // Read current time once from store, don't subscribe to updates
+      const targetTime = useVideoEditorStore.getState().currentTimeMs / 1000;
+      video.currentTime = targetTime;
       video.play().catch(() => {});
     } else if (!isPlaying && !video.paused) {
       video.pause();
     }
-  }, [isPlaying, currentTimeMs]);
+  }, [isPlaying]); // Remove currentTimeMs - only respond to play/pause changes
 
   // Seek webcam video when scrubbing (not playing)
   useEffect(() => {
@@ -748,11 +750,11 @@ export function GPUVideoPreview() {
     if (isPlaying) {
       if (video.paused) {
         video.play().catch(e => {
+          if (e.name === 'AbortError') return; // Expected when interrupted
           videoEditorLogger.error('Play failed:', e);
           controls.pause();
         });
       }
-      // Start RAF loop to update currentTimeMs in store
       startPlaybackLoop();
     } else {
       if (!video.paused) {
@@ -808,9 +810,10 @@ export function GPUVideoPreview() {
     const micAudio = micAudioRef.current;
     const video = videoRef.current;
 
-    if (isPlaying) {
-      // Sync audio time with video before playing
-      if (video) {
+    if (isPlaying && video) {
+      // Wait for video to actually start playing before syncing audio
+      // This prevents audio seek from blocking video startup
+      const syncAudio = () => {
         const videoTime = video.currentTime;
         if (systemAudio) {
           systemAudio.currentTime = videoTime;
@@ -824,6 +827,15 @@ export function GPUVideoPreview() {
             videoEditorLogger.warn('Mic audio play failed:', e);
           });
         }
+      };
+
+      // If video is already playing, sync immediately
+      if (!video.paused) {
+        syncAudio();
+      } else {
+        // Wait for video to start playing
+        video.addEventListener('playing', syncAudio, { once: true });
+        return () => video.removeEventListener('playing', syncAudio);
       }
     } else {
       // Pause audio tracks

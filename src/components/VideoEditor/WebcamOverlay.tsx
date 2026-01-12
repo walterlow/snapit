@@ -2,10 +2,12 @@ import { memo, useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { usePreviewOrPlaybackTime } from '../../hooks/usePlaybackEngine';
 import { useVideoEditorStore } from '../../stores/videoEditorStore';
+import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { webcamLogger } from '../../utils/logger';
 import type { WebcamConfig, VisibilitySegment, CornerStyle } from '../../types';
 
 const selectIsPlaying = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.isPlaying;
+const selectPreviewTimeMs = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.previewTimeMs;
 
 interface WebcamOverlayProps {
   webcamVideoPath: string;
@@ -255,8 +257,17 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   containerHeight,
 }: WebcamOverlayProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastDrawnTimeRef = useRef<number | null>(null);
+  const rafIdRef = useRef<number>(0);
+
   const currentTimeMs = usePreviewOrPlaybackTime();
   const isPlaying = useVideoEditorStore(selectIsPlaying);
+  const previewTimeMs = useVideoEditorStore(selectPreviewTimeMs);
+
+  // WebCodecs preview for instant scrubbing
+  const { getFrame, prefetchAround, isReady: webCodecsReady } = useWebCodecsPreview(webcamVideoPath);
+  const [hasFrame, setHasFrame] = useState(false);
 
   // Track native video dimensions for "source" shape
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
@@ -289,6 +300,64 @@ export const WebcamOverlay = memo(function WebcamOverlay({
     if (!config.enabled) return false;
     return isWebcamVisibleAt(config.visibilitySegments, currentTimeMs);
   }, [config.enabled, config.visibilitySegments, currentTimeMs]);
+
+  // Prefetch frames when preview position changes (scrubbing)
+  useEffect(() => {
+    if (!webCodecsReady || isPlaying || previewTimeMs === null) return;
+    prefetchAround(previewTimeMs);
+  }, [webCodecsReady, isPlaying, previewTimeMs, prefetchAround]);
+
+  // RAF-based canvas drawing for WebCodecs preview frames
+  useEffect(() => {
+    if (!webCodecsReady || isPlaying || previewTimeMs === null) {
+      setHasFrame(false);
+      return;
+    }
+
+    let active = true;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    const tryDraw = () => {
+      if (!active) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const frame = getFrame(previewTimeMs);
+
+      if (frame) {
+        if (lastDrawnTimeRef.current !== previewTimeMs) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            if (canvas.width !== frame.width || canvas.height !== frame.height) {
+              canvas.width = frame.width;
+              canvas.height = frame.height;
+            }
+            ctx.drawImage(frame, 0, 0);
+            lastDrawnTimeRef.current = previewTimeMs;
+          }
+        }
+        setHasFrame(true);
+      } else {
+        attempts++;
+        if (attempts < maxAttempts) {
+          rafIdRef.current = requestAnimationFrame(tryDraw);
+        } else {
+          setHasFrame(false);
+        }
+      }
+    };
+
+    tryDraw();
+
+    return () => {
+      active = false;
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, [webCodecsReady, isPlaying, previewTimeMs, getFrame]);
 
   // Convert file path to asset URL
   const videoSrc = useMemo(() => convertFileSrc(webcamVideoPath), [webcamVideoPath]);
@@ -403,7 +472,7 @@ export const WebcamOverlay = memo(function WebcamOverlay({
         src={videoSrc}
         className="w-full h-full object-cover bg-zinc-800"
         style={{
-          // Mirror flips horizontally (removed the scale(1.2) hack)
+          // Mirror flips horizontally
           transform: config.mirror ? 'scaleX(-1)' : 'none',
         }}
         muted
@@ -420,6 +489,16 @@ export const WebcamOverlay = memo(function WebcamOverlay({
           updateVideoDimensions(e.currentTarget);
         }}
       />
+      {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
+      {!isPlaying && previewTimeMs !== null && webCodecsReady && hasFrame && (
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          style={{
+            transform: config.mirror ? 'scaleX(-1)' : 'none',
+          }}
+        />
+      )}
     </div>
   );
 });

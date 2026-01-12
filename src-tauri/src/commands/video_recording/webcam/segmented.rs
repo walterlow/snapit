@@ -418,6 +418,8 @@ impl SegmentedWebcamMuxer {
                 "ultrafast",
                 "-crf",
                 &self.config.crf.to_string(),
+                "-g",
+                "30", // Keyframe every 1 second at 30fps for fast seeking
                 "-pix_fmt",
                 "yuv420p",
                 "-movflags",

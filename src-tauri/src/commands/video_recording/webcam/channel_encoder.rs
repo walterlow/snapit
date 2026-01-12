@@ -309,6 +309,8 @@ fn spawn_ffmpeg(
         "ultrafast",
         "-crf",
         "18",
+        "-g",
+        "30", // Keyframe every 1 second at 30fps for fast seeking
         "-pix_fmt",
         "yuv420p",
         "-movflags",

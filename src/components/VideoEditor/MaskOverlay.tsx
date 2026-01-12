@@ -344,35 +344,53 @@ const MaskItem = memo(function MaskItem({
   // Pixelate handles feather internally via the canvas
   const featherStyle = !isPixelate ? getFeatherMask(segment.feather, width, height) : {};
 
+  // Show gizmo (outline, handles) only when selected
+  const showGizmo = isSelected;
+
   return (
     <div
-      className={`absolute transition-shadow overflow-hidden ${isSelected ? 'ring-2 ring-purple-500 ring-offset-1' : ''}`}
+      className="absolute transition-shadow"
       style={{
         left: `${left}px`,
         top: `${top}px`,
         width: `${width}px`,
         height: `${height}px`,
         cursor: isDragging ? (dragType === 'move' ? 'grabbing' : 'nwse-resize') : 'pointer',
-        ...(isPixelate ? {} : getMaskStyle(segment.maskType, segment.intensity)),
-        '--mask-solid-color': segment.color,
-        ...featherStyle,
-      } as React.CSSProperties}
+      }}
       onClick={handleClick}
     >
-      {/* Canvas-based pixelation for pixelate type */}
-      {isPixelate && (
-        <PixelateCanvas
-          videoElement={videoElement}
-          videoWidth={videoWidth}
-          videoHeight={videoHeight}
-          segmentX={segment.x}
-          segmentY={segment.y}
-          segmentWidth={segment.width}
-          segmentHeight={segment.height}
-          previewWidth={previewWidth}
-          previewHeight={previewHeight}
-          intensity={segment.intensity}
-          feather={segment.feather}
+      {/* Mask effect layer - separate from gizmo outline for proper feathering */}
+      <div
+        className="absolute inset-0 overflow-hidden"
+        style={{
+          ...(isPixelate ? {} : getMaskStyle(segment.maskType, segment.intensity)),
+          '--mask-solid-color': segment.color,
+          ...featherStyle,
+        } as React.CSSProperties}
+      >
+        {/* Canvas-based pixelation for pixelate type */}
+        {isPixelate && (
+          <PixelateCanvas
+            videoElement={videoElement}
+            videoWidth={videoWidth}
+            videoHeight={videoHeight}
+            segmentX={segment.x}
+            segmentY={segment.y}
+            segmentWidth={segment.width}
+            segmentHeight={segment.height}
+            previewWidth={previewWidth}
+            previewHeight={previewHeight}
+            intensity={segment.intensity}
+            feather={segment.feather}
+          />
+        )}
+      </div>
+
+      {/* Gizmo dashed outline - only when selected */}
+      {showGizmo && (
+        <div
+          className="absolute inset-0 border-2 border-dashed border-purple-500 pointer-events-none z-10"
+          style={{ borderRadius: 2 }}
         />
       )}
 
@@ -382,8 +400,8 @@ const MaskItem = memo(function MaskItem({
         onMouseDown={(e) => handleMouseDown(e, 'move')}
       />
 
-      {/* Resize handles (corners) - only show when selected */}
-      {isSelected && (
+      {/* Corner resize handles - only when selected */}
+      {showGizmo && (
         <>
           {/* Top-left */}
           <div

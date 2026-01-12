@@ -1187,7 +1187,9 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         set({ isSaving: true });
 
         try {
-          await invoke('save_video_project', { project });
+          // Sanitize project to ensure all ms values are integers (Rust expects u64)
+          const sanitizedProject = sanitizeProjectForSave(project);
+          await invoke('save_video_project', { project: sanitizedProject });
           const savedAt = new Date().toISOString();
           set({ isSaving: false, lastSavedAt: savedAt });
         } catch (error) {
@@ -1202,6 +1204,56 @@ export const useVideoEditorStore = create<VideoEditorState>()(
 );
 
 // Utility functions
+
+/**
+ * Sanitize project for saving - ensures all millisecond values are integers.
+ * Rust backend expects u64 for timeline values, but JS may have floats.
+ */
+function sanitizeProjectForSave(project: VideoProject): VideoProject {
+  return {
+    ...project,
+    timeline: {
+      ...project.timeline,
+      durationMs: Math.round(project.timeline.durationMs),
+      inPoint: Math.round(project.timeline.inPoint),
+      outPoint: Math.round(project.timeline.outPoint),
+    },
+    zoom: {
+      ...project.zoom,
+      regions: project.zoom.regions.map(region => ({
+        ...region,
+        startMs: Math.round(region.startMs),
+        endMs: Math.round(region.endMs),
+      })),
+    },
+    mask: {
+      ...project.mask,
+      segments: project.mask.segments.map(segment => ({
+        ...segment,
+        startMs: Math.round(segment.startMs),
+        endMs: Math.round(segment.endMs),
+      })),
+    },
+    scene: {
+      ...project.scene,
+      segments: project.scene.segments.map(segment => ({
+        ...segment,
+        startMs: Math.round(segment.startMs),
+        endMs: Math.round(segment.endMs),
+      })),
+    },
+    webcam: {
+      ...project.webcam,
+      visibilitySegments: project.webcam.visibilitySegments.map(segment => ({
+        ...segment,
+        startMs: Math.round(segment.startMs),
+        endMs: Math.round(segment.endMs),
+      })),
+    },
+    // Note: text.segments uses start/end in seconds (f32), not ms
+  };
+}
+
 export function generateZoomRegionId(): string {
   return `zoom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }

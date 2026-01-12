@@ -3,12 +3,9 @@
 //! Records system audio and microphone to separate WAV files for later mixing.
 //! This enables independent volume control and audio editing in post-production.
 //!
-//! **NOTE**: Currently unused - audio is mixed in real-time instead of multi-track.
-//! Kept for potential future use in advanced audio editing.
-
-#![allow(dead_code)]
-
 //! # Architecture
+//!
+//! Uses async write queues to decouple real-time audio capture from disk I/O:
 //!
 //! ```text
 //! ┌─────────────────┐     ┌─────────────────┐
@@ -18,13 +15,21 @@
 //!          │                       │
 //!          ▼                       ▼
 //!    ┌───────────┐           ┌───────────┐
-//!    │ Thread 1  │           │ Thread 2  │
-//!    │ WAV Write │           │ WAV Write │
+//!    │ Capture   │           │ Capture   │
+//!    │ Thread    │           │ Thread    │
+//!    └─────┬─────┘           └─────┬─────┘
+//!          │ (channel)             │ (channel)
+//!          ▼                       ▼
+//!    ┌───────────┐           ┌───────────┐
+//!    │ Writer    │           │ Writer    │
+//!    │ Thread    │           │ Thread    │
 //!    └─────┬─────┘           └─────┬─────┘
 //!          │                       │
 //!          ▼                       ▼
 //!   system_audio.wav         microphone.wav
 //! ```
+//!
+//! This prevents disk I/O from blocking real-time audio capture, eliminating jitter.
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -35,6 +40,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crossbeam_channel::{bounded, Sender};
 use hound::{WavSpec, WavWriter};
 use wasapi::*;
 
@@ -42,6 +48,14 @@ use wasapi::*;
 const SAMPLE_RATE: u32 = 48000;
 const CHANNELS: u16 = 2;
 const BITS_PER_SAMPLE: u16 = 32;
+
+/// Async write queue buffer size (in sample batches).
+/// ~5 seconds of audio buffer at 48kHz stereo (48000 * 2 channels * 5 seconds / 4800 batch size)
+const WRITE_QUEUE_SIZE: usize = 100;
+
+/// Event timeout for WASAPI buffer events (ms).
+/// Lower = more responsive capture, but more CPU. 10-20ms is optimal.
+const EVENT_TIMEOUT_MS: u32 = 15;
 
 /// Multi-track audio recorder that captures system audio and microphone to separate files.
 pub struct MultiTrackAudioRecorder {
@@ -214,13 +228,91 @@ impl Drop for MultiTrackAudioRecorder {
     }
 }
 
+/// Spawn async WAV writer thread that consumes samples from a channel.
+/// Returns sender channel for samples.
+fn spawn_wav_writer(
+    output_path: PathBuf,
+    should_stop: Arc<AtomicBool>,
+    name: &str,
+) -> Result<(Sender<Vec<f32>>, JoinHandle<Result<u64, String>>), String> {
+    let (tx, rx) = bounded::<Vec<f32>>(WRITE_QUEUE_SIZE);
+    let name = name.to_string();
+
+    let handle = thread::Builder::new()
+        .name(format!("{}-writer", name))
+        .spawn(move || {
+            let spec = WavSpec {
+                channels: CHANNELS,
+                sample_rate: SAMPLE_RATE,
+                bits_per_sample: BITS_PER_SAMPLE,
+                sample_format: hound::SampleFormat::Float,
+            };
+
+            let file = File::create(&output_path)
+                .map_err(|e| format!("Failed to create WAV file: {}", e))?;
+            let mut writer = WavWriter::new(BufWriter::new(file), spec)
+                .map_err(|e| format!("Failed to create WAV writer: {}", e))?;
+
+            let mut total_samples = 0u64;
+
+            // Process samples until channel closes or stop signal
+            loop {
+                match rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(samples) => {
+                        for sample in &samples {
+                            if let Err(e) = writer.write_sample(*sample) {
+                                log::error!("[{}] Write error: {}", name, e);
+                                // Continue writing remaining samples
+                            }
+                        }
+                        total_samples += samples.len() as u64;
+                    },
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        if should_stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    },
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                        break;
+                    },
+                }
+            }
+
+            // Drain any remaining samples
+            while let Ok(samples) = rx.try_recv() {
+                for sample in &samples {
+                    let _ = writer.write_sample(*sample);
+                }
+                total_samples += samples.len() as u64;
+            }
+
+            writer
+                .finalize()
+                .map_err(|e| format!("Failed to finalize WAV: {}", e))?;
+
+            log::info!("[{}] Writer finished, {} samples", name, total_samples);
+            Ok(total_samples)
+        })
+        .map_err(|e| format!("Failed to spawn writer thread: {}", e))?;
+
+    Ok((tx, handle))
+}
+
 /// Record system audio (loopback) to a WAV file.
+/// Uses async write queue to prevent disk I/O from blocking real-time capture.
 fn record_system_audio(
     output_path: &PathBuf,
     should_stop: Arc<AtomicBool>,
     is_paused: Arc<AtomicBool>,
     _start_time: Instant,
 ) -> Result<(), String> {
+    // Spawn async writer thread first
+    let (sample_tx, writer_handle) = spawn_wav_writer(
+        output_path.clone(),
+        Arc::clone(&should_stop),
+        "system-audio",
+    )?;
+
     // Initialize COM for this thread
     initialize_mta()
         .ok()
@@ -277,31 +369,19 @@ fn record_system_audio(
         .get_audiocaptureclient()
         .map_err(|e| format!("Failed to get capture client: {:?}", e))?;
 
-    // Create WAV writer
-    let spec = WavSpec {
-        channels: CHANNELS,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: BITS_PER_SAMPLE,
-        sample_format: hound::SampleFormat::Float,
-    };
-
-    let file =
-        File::create(output_path).map_err(|e| format!("Failed to create WAV file: {}", e))?;
-    let mut writer = WavWriter::new(BufWriter::new(file), spec)
-        .map_err(|e| format!("Failed to create WAV writer: {}", e))?;
-
     // Start capture
     audio_client
         .start_stream()
         .map_err(|e| format!("Failed to start audio stream: {:?}", e))?;
 
-    log::info!("[MULTITRACK] System audio capture started");
+    log::info!("[MULTITRACK] System audio capture started (async write queue)");
 
-    // Capture buffer
-    let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(SAMPLE_RATE as usize * 4);
-    let mut total_samples = 0u64;
+    // Capture buffer - pre-allocate for ~100ms of audio to reduce allocations
+    let buffer_capacity = (SAMPLE_RATE as usize * CHANNELS as usize) / 10;
+    let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(buffer_capacity * 4);
+    let mut captured_samples = 0u64;
 
-    // Capture loop
+    // Capture loop - only captures, never blocks on disk I/O
     while !should_stop.load(Ordering::Relaxed) {
         // Handle pause
         if is_paused.load(Ordering::Relaxed) {
@@ -314,46 +394,66 @@ fn record_system_audio(
             continue;
         }
 
-        // Wait for buffer event
-        if event_handle.wait_for_event(100).is_err() {
+        // Wait for buffer event with lower timeout for responsive capture
+        if event_handle.wait_for_event(EVENT_TIMEOUT_MS).is_err() {
             continue;
         }
 
         // Read audio data
-        if let Ok(_) = capture_client.read_from_device_to_deque(&mut sample_queue) {
-            if sample_queue.len() >= 4 {
-                // Convert to f32 samples and write
-                let samples = bytes_to_f32_samples(&sample_queue);
-                for sample in &samples {
-                    writer
-                        .write_sample(*sample)
-                        .map_err(|e| format!("Failed to write sample: {}", e))?;
-                }
-                total_samples += samples.len() as u64;
-                sample_queue.clear();
+        if capture_client
+            .read_from_device_to_deque(&mut sample_queue)
+            .is_ok()
+            && sample_queue.len() >= 4
+        {
+            // Convert to f32 samples
+            let samples = bytes_to_f32_samples(&sample_queue);
+            captured_samples += samples.len() as u64;
+            sample_queue.clear();
+
+            // Send to async writer (non-blocking - drops samples if queue full)
+            if sample_tx.try_send(samples).is_err() {
+                log::warn!("[MULTITRACK] System audio write queue full, dropping samples");
             }
         }
     }
 
-    // Finalize WAV file
-    writer
-        .finalize()
-        .map_err(|e| format!("Failed to finalize WAV file: {}", e))?;
+    // Drop sender to signal writer to finish
+    drop(sample_tx);
 
-    log::info!(
-        "[MULTITRACK] System audio recorded {} samples",
-        total_samples
-    );
+    // Wait for writer to finish
+    match writer_handle.join() {
+        Ok(Ok(total)) => {
+            log::info!(
+                "[MULTITRACK] System audio: captured {}, written {}",
+                captured_samples,
+                total
+            );
+        },
+        Ok(Err(e)) => {
+            log::error!("[MULTITRACK] System audio writer error: {}", e);
+            return Err(e);
+        },
+        Err(_) => {
+            log::error!("[MULTITRACK] System audio writer thread panicked");
+            return Err("Writer thread panicked".to_string());
+        },
+    }
+
     Ok(())
 }
 
 /// Record microphone audio to a WAV file.
+/// Uses async write queue to prevent disk I/O from blocking real-time capture.
 fn record_microphone(
     output_path: &PathBuf,
     should_stop: Arc<AtomicBool>,
     is_paused: Arc<AtomicBool>,
     _start_time: Instant,
 ) -> Result<(), String> {
+    // Spawn async writer thread first
+    let (sample_tx, writer_handle) =
+        spawn_wav_writer(output_path.clone(), Arc::clone(&should_stop), "microphone")?;
+
     // Initialize COM for this thread
     initialize_mta()
         .ok()
@@ -410,31 +510,19 @@ fn record_microphone(
         .get_audiocaptureclient()
         .map_err(|e| format!("Failed to get capture client: {:?}", e))?;
 
-    // Create WAV writer
-    let spec = WavSpec {
-        channels: CHANNELS,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: BITS_PER_SAMPLE,
-        sample_format: hound::SampleFormat::Float,
-    };
-
-    let file =
-        File::create(output_path).map_err(|e| format!("Failed to create WAV file: {}", e))?;
-    let mut writer = WavWriter::new(BufWriter::new(file), spec)
-        .map_err(|e| format!("Failed to create WAV writer: {}", e))?;
-
     // Start capture
     audio_client
         .start_stream()
         .map_err(|e| format!("Failed to start audio stream: {:?}", e))?;
 
-    log::info!("[MULTITRACK] Microphone capture started");
+    log::info!("[MULTITRACK] Microphone capture started (async write queue)");
 
-    // Capture buffer
-    let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(SAMPLE_RATE as usize * 4);
-    let mut total_samples = 0u64;
+    // Capture buffer - pre-allocate for ~100ms of audio to reduce allocations
+    let buffer_capacity = (SAMPLE_RATE as usize * CHANNELS as usize) / 10;
+    let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(buffer_capacity * 4);
+    let mut captured_samples = 0u64;
 
-    // Capture loop
+    // Capture loop - only captures, never blocks on disk I/O
     while !should_stop.load(Ordering::Relaxed) {
         // Handle pause
         if is_paused.load(Ordering::Relaxed) {
@@ -447,33 +535,51 @@ fn record_microphone(
             continue;
         }
 
-        // Wait for buffer event
-        if event_handle.wait_for_event(100).is_err() {
+        // Wait for buffer event with lower timeout for responsive capture
+        if event_handle.wait_for_event(EVENT_TIMEOUT_MS).is_err() {
             continue;
         }
 
         // Read audio data
-        if let Ok(_) = capture_client.read_from_device_to_deque(&mut sample_queue) {
-            if sample_queue.len() >= 4 {
-                // Convert to f32 samples and write
-                let samples = bytes_to_f32_samples(&sample_queue);
-                for sample in &samples {
-                    writer
-                        .write_sample(*sample)
-                        .map_err(|e| format!("Failed to write sample: {}", e))?;
-                }
-                total_samples += samples.len() as u64;
-                sample_queue.clear();
+        if capture_client
+            .read_from_device_to_deque(&mut sample_queue)
+            .is_ok()
+            && sample_queue.len() >= 4
+        {
+            // Convert to f32 samples
+            let samples = bytes_to_f32_samples(&sample_queue);
+            captured_samples += samples.len() as u64;
+            sample_queue.clear();
+
+            // Send to async writer (non-blocking - drops samples if queue full)
+            if sample_tx.try_send(samples).is_err() {
+                log::warn!("[MULTITRACK] Microphone write queue full, dropping samples");
             }
         }
     }
 
-    // Finalize WAV file
-    writer
-        .finalize()
-        .map_err(|e| format!("Failed to finalize WAV file: {}", e))?;
+    // Drop sender to signal writer to finish
+    drop(sample_tx);
 
-    log::info!("[MULTITRACK] Microphone recorded {} samples", total_samples);
+    // Wait for writer to finish
+    match writer_handle.join() {
+        Ok(Ok(total)) => {
+            log::info!(
+                "[MULTITRACK] Microphone: captured {}, written {}",
+                captured_samples,
+                total
+            );
+        },
+        Ok(Err(e)) => {
+            log::error!("[MULTITRACK] Microphone writer error: {}", e);
+            return Err(e);
+        },
+        Err(_) => {
+            log::error!("[MULTITRACK] Microphone writer thread panicked");
+            return Err("Writer thread panicked".to_string());
+        },
+    }
+
     Ok(())
 }
 

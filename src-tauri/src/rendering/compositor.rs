@@ -912,12 +912,36 @@ impl Compositor {
             view_formats: &[],
         });
 
-        if texts.is_empty() {
-            // Return empty transparent texture
-            return output_texture;
+        let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Always clear to transparent (even if no texts, so old text is cleared from canvas)
+        {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Clear Text Encoder"),
+                });
+            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Text Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.queue.submit(std::iter::once(encoder.finish()));
         }
 
-        let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        if texts.is_empty() {
+            // Return cleared transparent texture
+            return output_texture;
+        }
 
         // Prepare text for rendering
         self.text_layer.prepare(

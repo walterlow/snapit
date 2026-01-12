@@ -170,12 +170,8 @@ impl PreviewRenderer {
         let frame_time_secs = time_ms as f64 / 1000.0;
         let prepared_texts = prepare_texts(output_size, frame_time_secs, &project.text.segments);
 
-        // Skip if no text to render
-        if prepared_texts.is_empty() {
-            return Ok(());
-        }
-
-        // Render text-only (no video decoding - much faster)
+        // Render text-only (transparent background)
+        // Always send a frame even if no text - this clears any previous text from canvas
         let mut compositor = self.compositor.lock().await;
         let output_texture =
             compositor.composite_text_only(output_width, output_height, &prepared_texts);

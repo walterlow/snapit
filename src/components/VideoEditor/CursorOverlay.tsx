@@ -24,9 +24,6 @@ const DEFAULT_CURSOR_SIZE = 24; // Default cursor size in pixels
 // Larger value = higher quality when zoomed, but more memory
 const SVG_RASTERIZATION_HEIGHT = 200;
 
-// Cursor shape change debouncing
-// Prevents rapid flickering when hovering over resize handles, etc.
-const CURSOR_SHAPE_DEBOUNCE_MS = 80;
 
 interface CursorOverlayProps {
   cursorRecording: CursorRecording | null | undefined;
@@ -219,6 +216,15 @@ export const CursorOverlay = memo(function CursorOverlay({
 
   // Preload SVG cursors for all shapes found in recording + default arrow
   useEffect(() => {
+    // Clear bitmap cache entries when cursor images change (new project loaded)
+    // SVG entries (keys starting with __svg_) are project-independent and can stay
+    // Bitmap entries use cursor IDs like "cursor_0" which can collide between projects
+    for (const key of cursorImageCache.keys()) {
+      if (!key.startsWith('__svg_')) {
+        cursorImageCache.delete(key);
+      }
+    }
+
     // Always load default arrow as final fallback
     loadSvgCursor('arrow', triggerUpdate);
 
@@ -256,72 +262,21 @@ export const CursorOverlay = memo(function CursorOverlay({
   // Get cursor position at current time
   const cursorData = hasCursorData ? getCursorAt(currentTimeMs) : null;
 
-  // Cursor shape debouncing state
-  // Prevents rapid flickering when cursor alternates between shapes (e.g., arrow ↔ resize)
-  const stableCursorRef = useRef<{
-    cursorId: string | null;
-    shape: WindowsCursorShape | null;
-    pendingShape: WindowsCursorShape | null;
-    pendingCursorId: string | null;
-    pendingSince: number;
-  }>({
-    cursorId: null,
-    shape: null,
-    pendingShape: null,
-    pendingCursorId: null,
-    pendingSince: 0,
-  });
-
-  // Compute the debounced/stable cursor to render
-  const stableCursor = useMemo(() => {
+  // Get current cursor shape directly from cursor data
+  // Note: Cursor shape stabilization (debouncing short-lived shapes) should happen
+  // at recording time in Rust (stabilize_short_lived_cursor_shapes), not here.
+  // Previous debouncing logic here was buggy and caused random cursor display.
+  const currentCursor = useMemo(() => {
     if (!cursorData?.cursorId) {
       return { cursorId: null, shape: null };
     }
 
     const cursorId = cursorData.cursorId;
     const cursorImageData = cursorImages[cursorId];
-    // Use cursor's detected shape, or fallback to most common shape in recording
-    const currentShape = cursorImageData?.cursorShape ?? fallbackCursorShape;
-    const now = performance.now();
-    const stable = stableCursorRef.current;
+    // Use cursor's detected shape, or fallback to arrow
+    const shape = cursorImageData?.cursorShape ?? fallbackCursorShape;
 
-    // If cursor ID or shape matches current stable, keep it
-    if (stable.cursorId === cursorId || stable.shape === currentShape) {
-      // Reset pending since we're back to stable
-      stable.pendingShape = null;
-      stable.pendingCursorId = null;
-      return { cursorId: stable.cursorId, shape: stable.shape };
-    }
-
-    // New cursor detected - check if it's the same as pending
-    if (stable.pendingCursorId === cursorId || stable.pendingShape === currentShape) {
-      // Same pending cursor - check if debounce period passed
-      if (now - stable.pendingSince >= CURSOR_SHAPE_DEBOUNCE_MS) {
-        // Debounce complete - promote to stable
-        stable.cursorId = cursorId;
-        stable.shape = currentShape;
-        stable.pendingShape = null;
-        stable.pendingCursorId = null;
-        return { cursorId, shape: currentShape };
-      }
-      // Still waiting for debounce
-      return { cursorId: stable.cursorId, shape: stable.shape };
-    }
-
-    // Different pending cursor - reset debounce timer
-    stable.pendingCursorId = cursorId;
-    stable.pendingShape = currentShape;
-    stable.pendingSince = now;
-
-    // Return current stable while we wait
-    // If no stable yet, use the new one immediately
-    if (stable.cursorId === null && stable.shape === null) {
-      stable.cursorId = cursorId;
-      stable.shape = currentShape;
-      return { cursorId, shape: currentShape };
-    }
-
-    return { cursorId: stable.cursorId, shape: stable.shape };
+    return { cursorId, shape };
   }, [cursorData?.cursorId, cursorImages, fallbackCursorShape]);
 
   useEffect(() => {
@@ -443,9 +398,8 @@ export const CursorOverlay = memo(function CursorOverlay({
       return;
     }
 
-    // Get debounced/stable cursor data for current frame
-    // This prevents rapid flickering between cursor shapes (e.g., arrow ↔ resize)
-    const { cursorId, shape } = stableCursor;
+    // Get cursor data for current frame
+    const { cursorId, shape } = currentCursor;
     const cursorImageData = cursorId ? cursorImages[cursorId] : null;
 
     // Priority 1: SVG cursor (if cursorShape is detected)
@@ -480,7 +434,7 @@ export const CursorOverlay = memo(function CursorOverlay({
     // Nothing loaded yet - don't clear, keep previous frame
   }, [
     cursorData,
-    stableCursor,
+    currentCursor,
     visible,
     cursorType,
     scale,

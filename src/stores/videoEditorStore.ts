@@ -72,6 +72,7 @@ export interface VideoEditorState {
   };
   timelineZoom: number; // pixels per millisecond
   timelineScrollLeft: number;
+  timelineContainerWidth: number; // measured container width for fit-to-window
   
   // Export state
   isExporting: boolean;
@@ -139,6 +140,8 @@ export interface VideoEditorState {
   // Timeline view actions
   setTimelineZoom: (zoom: number) => void;
   setTimelineScrollLeft: (scrollLeft: number) => void;
+  setTimelineContainerWidth: (width: number) => void;
+  fitTimelineToWindow: () => void;
   toggleTrackVisibility: (track: keyof VideoEditorState['trackVisibility']) => void;
   
   // Drag state actions
@@ -219,6 +222,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       splitMode: false,
       timelineZoom: DEFAULT_TIMELINE_ZOOM,
       timelineScrollLeft: 0,
+      timelineContainerWidth: 0,
       trackVisibility: {
         video: true,
         text: true,
@@ -809,8 +813,32 @@ export const useVideoEditorStore = create<VideoEditorState>()(
 
       // Timeline view actions
       setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(0.01, Math.min(0.5, zoom)) }),
-      
+
       setTimelineScrollLeft: (scrollLeft) => set({ timelineScrollLeft: scrollLeft }),
+
+      setTimelineContainerWidth: (width) => set({ timelineContainerWidth: width }),
+
+      fitTimelineToWindow: () => {
+        const { project, timelineContainerWidth } = get();
+        if (!project || timelineContainerWidth <= 0) return;
+
+        const durationMs = project.timeline.durationMs;
+        if (durationMs <= 0) return;
+
+        // Calculate zoom to fit timeline with 10% buffer (5% each side)
+        const trackLabelWidth = 80;
+        const availableWidth = timelineContainerWidth - trackLabelWidth;
+        const targetWidth = availableWidth * 0.9; // 90% of available space
+        const fitZoom = targetWidth / durationMs;
+
+        // Clamp to valid zoom range
+        const clampedZoom = Math.max(0.01, Math.min(0.5, fitZoom));
+
+        set({
+          timelineZoom: clampedZoom,
+          timelineScrollLeft: 0, // Reset scroll to start
+        });
+      },
 
       toggleTrackVisibility: (track) => set((state) => ({
         trackVisibility: {
@@ -1047,6 +1075,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
           splitMode: false,
           timelineZoom: DEFAULT_TIMELINE_ZOOM,
           timelineScrollLeft: 0,
+          timelineContainerWidth: 0,
           trackVisibility: {
             video: true,
             text: true,

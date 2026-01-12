@@ -4,6 +4,7 @@ import {
   Download,
   ZoomIn,
   ZoomOut,
+  Maximize2,
   SkipBack,
   SkipForward,
   Play,
@@ -355,12 +356,14 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
 
   const {
     setTimelineScrollLeft,
+    setTimelineContainerWidth,
     setDraggingPlayhead,
     setTimelineZoom,
     setPreviewTime,
     togglePlayback,
     selectZoomRegion,
     selectWebcamSegment,
+    fitTimelineToWindow,
   } = useVideoEditorStore();
 
   const controls = usePlaybackControls();
@@ -368,22 +371,35 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // Measure container width
+  // Measure container width and sync to store
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
+        const width = entry.contentRect.width;
+        setContainerWidth(width);
+        setTimelineContainerWidth(width);
       }
     });
 
     observer.observe(container);
-    setContainerWidth(container.clientWidth);
+    const initialWidth = container.clientWidth;
+    setContainerWidth(initialWidth);
+    setTimelineContainerWidth(initialWidth);
 
     return () => observer.disconnect();
-  }, []);
+  }, [setTimelineContainerWidth]);
+
+  // Fit timeline to window when project loads and container is measured
+  const projectId = project?.id;
+  const hasContainerWidth = containerWidth > 0;
+  useEffect(() => {
+    if (projectId && hasContainerWidth) {
+      fitTimelineToWindow();
+    }
+  }, [projectId, hasContainerWidth, fitTimelineToWindow]);
 
   // Clear preview time when playback starts
   useEffect(() => {
@@ -528,6 +544,17 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p className="text-xs">Zoom In Timeline</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={fitTimelineToWindow} className="glass-btn h-7 w-7">
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">Fit Timeline to Window</p>
                 </TooltipContent>
               </Tooltip>
             </div>

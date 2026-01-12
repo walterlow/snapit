@@ -464,8 +464,22 @@ export function useCursorInterpolation(
 
   // Get fallback cursor ID from available cursor images
   // This handles old recordings where early events might not have cursor_id
+  // IMPORTANT: We look for cursor_0 specifically (the first captured cursor)
+  // because HashMap iteration order is non-deterministic - Object.keys()[0]
+  // could be any cursor (arrow, ibeam, hand) randomly on each load!
   const fallbackCursorId = useMemo(() => {
     const images = cursorRecording?.cursorImages ?? {};
+    // Prefer cursor_0 (first captured, usually arrow at recording start)
+    if (images['cursor_0']) {
+      return 'cursor_0';
+    }
+    // Fallback: find a cursor with 'arrow' shape
+    for (const [id, img] of Object.entries(images)) {
+      if (img?.cursorShape === 'arrow') {
+        return id;
+      }
+    }
+    // Last resort: any cursor (but this is non-deterministic)
     const keys = Object.keys(images);
     return keys.length > 0 ? keys[0] : null;
   }, [cursorRecording?.cursorImages]);
@@ -526,11 +540,26 @@ export function getRawCursorAt(
   }
 
   // Get cursor ID with fallback to first available image
+  // Use deterministic fallback (cursor_0 or arrow shape) to avoid random cursor on load
   let cursorId = getActiveCursorId(recording.events, adjustedTimeMs);
   if (cursorId === null && recording.cursorImages) {
-    const keys = Object.keys(recording.cursorImages);
-    if (keys.length > 0) {
-      cursorId = keys[0];
+    if (recording.cursorImages['cursor_0']) {
+      cursorId = 'cursor_0';
+    } else {
+      // Find cursor with arrow shape
+      for (const [id, img] of Object.entries(recording.cursorImages)) {
+        if (img?.cursorShape === 'arrow') {
+          cursorId = id;
+          break;
+        }
+      }
+      // Last resort: any cursor
+      if (cursorId === null) {
+        const keys = Object.keys(recording.cursorImages);
+        if (keys.length > 0) {
+          cursorId = keys[0];
+        }
+      }
     }
   }
 

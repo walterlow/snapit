@@ -845,10 +845,18 @@ export function GPUVideoPreview() {
   }, [isPlaying]);
 
   // Seek audio when preview time or current time changes (for timeline scrubbing/clicking)
+  // Also seek during playback to support timeline seeking while playing
+  const lastSeekTimeRef = useRef<number>(0);
   useEffect(() => {
-    if (isPlaying) return;
-
     const targetTime = (previewTimeMs !== null ? previewTimeMs : currentTimeMs) / 1000;
+
+    // During playback, only seek if the time jump is significant (user-initiated seek)
+    // This prevents constant seeking during normal playback RAF loop updates
+    if (isPlaying) {
+      const timeDiff = Math.abs(targetTime - lastSeekTimeRef.current);
+      if (timeDiff < 0.5) return; // Less than 500ms difference, skip (normal playback)
+    }
+    lastSeekTimeRef.current = targetTime;
 
     if (systemAudioRef.current) {
       systemAudioRef.current.currentTime = targetTime;

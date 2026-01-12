@@ -214,11 +214,11 @@ const TextSegmentItem = memo(function TextSegmentItem({
 });
 
 /**
- * TextTrack - Displays and allows editing of text overlay segments.
+ * TextTrackContent - Track content without label for two-column layout.
  * Uses Cap's model: time in seconds, center-based positioning.
  * Memoized to prevent re-renders during playback.
  */
-export const TextTrack = memo(function TextTrack({
+export const TextTrackContent = memo(function TextTrackContent({
   segments,
   durationMs,
   timelineZoom,
@@ -323,60 +323,49 @@ export const TextTrack = memo(function TextTrack({
 
   return (
     <div
-      className="relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)]"
+      className={`relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)] ${
+        hoveredTrack === 'text' && previewSegmentDetails ? 'cursor-pointer' : ''
+      }`}
       style={{ width: `${width}px` }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={handleTrackClick}
     >
-      {/* Track label */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center z-10">
-        <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
-          <Type className="w-3.5 h-3.5" />
-          <span className="text-[11px] font-medium">Text</span>
-        </div>
-      </div>
-
-      {/* Text segments */}
-      <div className={`absolute left-20 top-0 bottom-0 right-0 ${
-        hoveredTrack === 'text' && previewSegmentDetails ? 'cursor-pointer' : ''
-      }`}>
-        {segments.map((segment, index) => {
-          const segmentId = getSegmentId(segment, index);
-          return (
-            <TextSegmentItem
-              key={`text_segment_${index}`}  // Use stable key (index doesn't change during drag)
-              segment={segment}
-              segmentId={segmentId}
-              isSelected={segmentId === selectedTextSegmentId}
-              timelineZoom={timelineZoom}
-              durationSec={durationSec}
-              onSelect={selectTextSegment}
-              onUpdate={updateTextSegment}
-              onDelete={deleteTextSegment}
-              onDragStart={setDraggingTextSegment}
-            />
-          );
-        })}
-
-        {/* Preview segment (ghost) when hovering over empty space */}
-        {previewSegmentDetails && (
-          <PreviewSegment
-            startSec={previewSegmentDetails.startSec}
-            endSec={previewSegmentDetails.endSec}
+      {segments.map((segment, index) => {
+        const segmentId = getSegmentId(segment, index);
+        return (
+          <TextSegmentItem
+            key={`text_segment_${index}`}
+            segment={segment}
+            segmentId={segmentId}
+            isSelected={segmentId === selectedTextSegmentId}
             timelineZoom={timelineZoom}
+            durationSec={durationSec}
+            onSelect={selectTextSegment}
+            onUpdate={updateTextSegment}
+            onDelete={deleteTextSegment}
+            onDragStart={setDraggingTextSegment}
           />
-        )}
+        );
+      })}
 
-        {/* Empty state hint */}
-        {segments.length === 0 && !previewSegmentDetails && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-[10px] text-[var(--ink-subtle)]">
-              Hover to add text overlays
-            </span>
-          </div>
-        )}
-      </div>
+      {/* Preview segment (ghost) when hovering over empty space */}
+      {previewSegmentDetails && (
+        <PreviewSegment
+          startSec={previewSegmentDetails.startSec}
+          endSec={previewSegmentDetails.endSec}
+          timelineZoom={timelineZoom}
+        />
+      )}
+
+      {/* Empty state hint */}
+      {segments.length === 0 && !previewSegmentDetails && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="text-[10px] text-[var(--ink-subtle)]">
+            Hover to add text overlays
+          </span>
+        </div>
+      )}
     </div>
   );
 });

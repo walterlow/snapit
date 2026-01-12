@@ -52,17 +52,27 @@ export const TimelineRuler = memo(function TimelineRuler({ durationMs, timelineZ
 
   return (
     <div
-      className="relative h-6 bg-[var(--polar-mist)] border-b border-[var(--glass-border)]"
+      className="relative h-8 bg-[var(--polar-mist)] border-b border-[var(--glass-border)]"
       style={{ width: `${width}px` }}
     >
       {/* Tick marks */}
       {ticks.map((tick) => (
         <div
           key={tick.timeMs}
-          className="absolute top-0 flex flex-col items-center"
+          className="absolute inset-y-0 flex flex-col items-center"
           style={{ left: `${tick.x}px` }}
         >
-          {/* Tick line */}
+          {/* Time label (only for major ticks) - positioned at top */}
+          {tick.isMajor && (
+            <span className="text-[10px] text-[var(--ink-muted)] font-mono mt-0.5 select-none">
+              {formatTimeSimple(tick.timeMs)}
+            </span>
+          )}
+
+          {/* Spacer to push tick to bottom */}
+          <div className="flex-1" />
+
+          {/* Tick line - at bottom */}
           <div
             className={`w-px ${
               tick.isMajor
@@ -70,13 +80,6 @@ export const TimelineRuler = memo(function TimelineRuler({ durationMs, timelineZ
                 : 'h-2 bg-[var(--ink-subtle)]/50'
             }`}
           />
-
-          {/* Time label (only for major ticks) */}
-          {tick.isMajor && (
-            <span className="text-[10px] text-[var(--ink-muted)] font-mono mt-0.5 select-none">
-              {formatTimeSimple(tick.timeMs)}
-            </span>
-          )}
         </div>
       ))}
     </div>

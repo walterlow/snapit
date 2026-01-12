@@ -9,6 +9,9 @@ import {
   SkipForward,
   Play,
   Pause,
+  Type,
+  Video,
+  EyeOff,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
@@ -22,10 +25,10 @@ import {
 import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
 import { usePlaybackTime, usePlaybackControls, getPlaybackState } from '../../hooks/usePlaybackEngine';
 import { TimelineRuler } from './TimelineRuler';
-import { ZoomTrack } from './ZoomTrack';
-import { SceneTrack } from './SceneTrack';
-import { MaskTrack } from './MaskTrack';
-import { TextTrack } from './TextTrack';
+import { ZoomTrackContent } from './ZoomTrack';
+import { SceneTrackContent } from './SceneTrack';
+import { MaskTrackContent } from './MaskTrack';
+import { TextTrackContent } from './TextTrack';
 import { TrackManager } from './TrackManager';
 import type { AudioWaveform } from '../../types';
 
@@ -287,9 +290,9 @@ const WaveformCanvas = memo(function WaveformCanvas({
 });
 
 /**
- * Memoized video track with thumbnails and waveform.
+ * Memoized video track content (without label) with thumbnails and waveform.
  */
-const VideoTrack = memo(function VideoTrack({
+const VideoTrackContent = memo(function VideoTrackContent({
   durationMs,
   timelineZoom,
   width,
@@ -307,35 +310,25 @@ const VideoTrack = memo(function VideoTrack({
       className="relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)]"
       style={{ width: `${width}px` }}
     >
-      {/* Track label */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center z-10">
-        <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
-          <Film className="w-3.5 h-3.5" />
-          <span className="text-[11px] font-medium">Video</span>
-        </div>
-      </div>
-
       {/* Video clip item */}
-      <div className="absolute left-20 top-0 bottom-0 right-0">
-        <div
-          className="absolute top-1 bottom-1 rounded-md bg-[var(--coral-100)] border border-[var(--coral-200)] overflow-hidden"
-          style={{ left: 0, width: `${clipWidth}px` }}
-        >
-          {/* Waveform overlay */}
-          {audioPath && clipWidth > 0 && (
-            <WaveformCanvas
-              audioPath={audioPath}
-              width={clipWidth}
-              height={40}
-            />
-          )}
+      <div
+        className="absolute top-1 bottom-1 rounded-md bg-[var(--coral-100)] border border-[var(--coral-200)] overflow-hidden"
+        style={{ left: 0, width: `${clipWidth}px` }}
+      >
+        {/* Waveform overlay */}
+        {audioPath && clipWidth > 0 && (
+          <WaveformCanvas
+            audioPath={audioPath}
+            width={clipWidth}
+            height={40}
+          />
+        )}
 
-          {/* Clip label */}
-          <div className="absolute top-0 left-0 right-0 flex items-center px-2 h-full pointer-events-none">
-            <span className="text-[10px] text-[var(--coral-300)]/80 font-medium truncate drop-shadow-sm">
-              Recording
-            </span>
-          </div>
+        {/* Clip label */}
+        <div className="absolute top-0 left-0 right-0 flex items-center px-2 h-full pointer-events-none">
+          <span className="text-[10px] text-[var(--coral-300)]/80 font-medium truncate drop-shadow-sm">
+            Recording
+          </span>
         </div>
       </div>
     </div>
@@ -414,11 +407,11 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
   const durationWidth = durationMs * timelineZoom;
   const timelineWidth = Math.max(durationWidth, containerWidth - trackLabelWidth);
 
-  // Handle clicking on timeline to seek
+  // Handle clicking on timeline to seek (event is on content div which moves with scroll)
   const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
-    const x = e.clientX - rect.left + scrollLeft - trackLabelWidth;
+    // No scroll offset needed - event target already accounts for scroll position
+    const x = e.clientX - rect.left;
     const newTimeMs = Math.max(0, Math.min(durationMs, x / timelineZoom));
     controls.seek(newTimeMs);
 
@@ -427,15 +420,15 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
     selectWebcamSegment(null);
   }, [durationMs, timelineZoom, controls, selectZoomRegion, selectWebcamSegment]);
 
-  // Handle mouse move for preview scrubber
+  // Handle mouse move for preview scrubber (event is on content div which moves with scroll)
   const handleTimelineMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isPlaying) {
       setPreviewTime(null);
       return;
     }
     const rect = e.currentTarget.getBoundingClientRect();
-    const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
-    const x = e.clientX - rect.left + scrollLeft - trackLabelWidth;
+    // No scroll offset needed - event target already accounts for scroll position
+    const x = e.clientX - rect.left;
     if (x < 0) {
       setPreviewTime(null);
       return;
@@ -449,19 +442,19 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
     setPreviewTime(null);
   }, [setPreviewTime]);
 
-  // Handle playhead dragging
+  // Handle playhead dragging (content area, account for label column offset)
   const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDraggingPlayhead(true);
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const container = containerRef.current;
-      if (!container) return;
-      
-      const rect = container.getBoundingClientRect();
-      const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
-      const x = moveEvent.clientX - rect.left + scrollLeft - trackLabelWidth;
+      const scrollContainer = scrollRef.current;
+      if (!scrollContainer) return;
+
+      const rect = scrollContainer.getBoundingClientRect();
+      const scrollLeft = scrollContainer.scrollLeft;
+      const x = moveEvent.clientX - rect.left + scrollLeft;
       const newTimeMs = Math.max(0, Math.min(durationMs, x / timelineZoom));
       controls.seek(newTimeMs);
     };
@@ -509,6 +502,24 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
     setTimelineZoom(timelineZoom / 1.5);
   }, [timelineZoom, setTimelineZoom]);
 
+  // Ctrl + Mouse wheel to zoom timeline
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (!e.ctrlKey) return;
+
+    e.preventDefault();
+
+    // Zoom factor - smaller for smoother zooming
+    const zoomFactor = 1.15;
+
+    if (e.deltaY < 0) {
+      // Scroll up = zoom in
+      setTimelineZoom(timelineZoom * zoomFactor);
+    } else {
+      // Scroll down = zoom out
+      setTimelineZoom(timelineZoom / zoomFactor);
+    }
+  }, [timelineZoom, setTimelineZoom]);
+
   return (
     <div
       ref={containerRef}
@@ -519,48 +530,6 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
         <div className="flex items-center h-11 px-3 bg-[var(--glass-surface-dark)] border-b border-[var(--glass-border)]">
           {/* Left Section */}
           <div className="flex items-center gap-2">
-            {/* Timeline Zoom Controls */}
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button onClick={handleZoomOut} className="glass-btn h-7 w-7">
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">Zoom Out Timeline</p>
-                </TooltipContent>
-              </Tooltip>
-
-              <span className="text-[10px] text-[var(--ink-subtle)] font-mono w-12 text-center">
-                {Math.round(timelineZoom * 1000)}px/s
-              </span>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button onClick={handleZoomIn} className="glass-btn h-7 w-7">
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">Zoom In Timeline</p>
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button onClick={fitTimelineToWindow} className="glass-btn h-7 w-7">
-                    <Maximize2 className="w-3.5 h-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">Fit Timeline to Window</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-
-            <div className="w-px h-5 bg-[var(--glass-border)]" />
-
             {/* Track Manager */}
             <TrackManager />
           </div>
@@ -651,6 +620,48 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
 
           {/* Right Section */}
           <div className="flex items-center gap-2">
+            {/* Timeline Zoom Controls */}
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleZoomOut} className="glass-btn h-7 w-7">
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">Zoom Out Timeline</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <span className="text-[10px] text-[var(--ink-subtle)] font-mono w-12 text-center">
+                {Math.round(timelineZoom * 1000)}px/s
+              </span>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleZoomIn} className="glass-btn h-7 w-7">
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">Zoom In Timeline</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={fitTimelineToWindow} className="glass-btn h-7 w-7">
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">Fit Timeline to Window</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <div className="w-px h-5 bg-[var(--glass-border)]" />
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -672,96 +683,153 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
         </div>
       </TooltipProvider>
 
-      {/* Scrollable Timeline Content */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-x-auto overflow-y-auto"
-        onScroll={handleScroll}
-      >
+      {/* Two-Column Timeline Layout */}
+      <div className="flex-1 flex min-h-0 min-w-0">
+        {/* Fixed Track Labels Column */}
+        <div className="flex-shrink-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] z-20">
+          {/* Ruler spacer */}
+          <div className="h-8 border-b border-[var(--glass-border)]" />
+
+          {/* Video label */}
+          {trackVisibility.video && (
+            <div className="h-12 border-b border-[var(--glass-border)] flex items-center justify-center">
+              <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
+                <Film className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">Video</span>
+              </div>
+            </div>
+          )}
+
+          {/* Text label */}
+          {project && trackVisibility.text && (
+            <div className="h-12 border-b border-[var(--glass-border)] flex items-center justify-center">
+              <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
+                <Type className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">Text</span>
+              </div>
+            </div>
+          )}
+
+          {/* Zoom label */}
+          {project && trackVisibility.zoom && (
+            <div className="h-12 border-b border-[var(--glass-border)] flex items-center justify-center">
+              <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
+                <ZoomIn className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">Zoom</span>
+              </div>
+            </div>
+          )}
+
+          {/* Scene label */}
+          {project && project.sources.webcamVideo && trackVisibility.scene && (
+            <div className="h-12 border-b border-[var(--glass-border)] flex items-center justify-center">
+              <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
+                <Video className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">Scene</span>
+              </div>
+            </div>
+          )}
+
+          {/* Mask label */}
+          {project && trackVisibility.mask && (
+            <div className="h-12 border-b border-[var(--glass-border)] flex items-center justify-center">
+              <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
+                <EyeOff className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">Mask</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Scrollable Timeline Content */}
         <div
-          className="relative"
-          style={{ width: `${timelineWidth + trackLabelWidth}px` }}
-          onClick={handleTimelineClick}
-          onMouseMove={handleTimelineMouseMove}
-          onMouseLeave={handleTimelineMouseLeave}
+          ref={scrollRef}
+          className="flex-1 min-w-0 overflow-x-auto overflow-y-auto"
+          onScroll={handleScroll}
+          onWheel={handleWheel}
         >
-          {/* Time Ruler */}
-          <div className="sticky left-0" style={{ marginLeft: `${trackLabelWidth}px` }}>
+          <div
+            className="relative"
+            style={{ width: `${timelineWidth}px` }}
+            onClick={handleTimelineClick}
+            onMouseMove={handleTimelineMouseMove}
+            onMouseLeave={handleTimelineMouseLeave}
+          >
+            {/* Time Ruler */}
             <TimelineRuler
               durationMs={durationMs}
               timelineZoom={timelineZoom}
               width={timelineWidth}
             />
-          </div>
 
-          {/* Video Track */}
-          {trackVisibility.video && (
-            <VideoTrack
-              durationMs={durationMs}
-              timelineZoom={timelineZoom}
-              width={timelineWidth + trackLabelWidth}
-              audioPath={project?.sources.systemAudio ?? project?.sources.microphoneAudio ?? project?.sources.screenVideo ?? undefined}
-            />
-          )}
+            {/* Video Track Content */}
+            {trackVisibility.video && (
+              <VideoTrackContent
+                durationMs={durationMs}
+                timelineZoom={timelineZoom}
+                width={timelineWidth}
+                audioPath={project?.sources.systemAudio ?? project?.sources.microphoneAudio ?? project?.sources.screenVideo ?? undefined}
+              />
+            )}
 
-          {/* Text Track */}
-          {project && trackVisibility.text && (
-            <TextTrack
-              segments={project.text.segments}
-              durationMs={durationMs}
-              timelineZoom={timelineZoom}
-              width={timelineWidth + trackLabelWidth}
-            />
-          )}
+            {/* Text Track Content */}
+            {project && trackVisibility.text && (
+              <TextTrackContent
+                segments={project.text.segments}
+                durationMs={durationMs}
+                timelineZoom={timelineZoom}
+                width={timelineWidth}
+              />
+            )}
 
-          {/* Zoom Track */}
-          {project && trackVisibility.zoom && (
-            <ZoomTrack
-              regions={project.zoom.regions}
-              durationMs={durationMs}
-              timelineZoom={timelineZoom}
-              width={timelineWidth + trackLabelWidth}
-            />
-          )}
+            {/* Zoom Track Content */}
+            {project && trackVisibility.zoom && (
+              <ZoomTrackContent
+                regions={project.zoom.regions}
+                durationMs={durationMs}
+                timelineZoom={timelineZoom}
+                width={timelineWidth}
+              />
+            )}
 
-          {/* Scene Track */}
-          {project && project.sources.webcamVideo && trackVisibility.scene && (
-            <div className="h-12 border-b border-[var(--glass-border)]">
-              <SceneTrack
+            {/* Scene Track Content */}
+            {project && project.sources.webcamVideo && trackVisibility.scene && (
+              <SceneTrackContent
                 segments={project.scene.segments}
                 defaultMode={project.scene.defaultMode}
                 durationMs={durationMs}
                 timelineZoom={timelineZoom}
+                width={timelineWidth}
               />
-            </div>
-          )}
+            )}
 
-          {/* Mask Track */}
-          {project && trackVisibility.mask && (
-            <MaskTrack
-              segments={project.mask.segments}
-              durationMs={durationMs}
+            {/* Mask Track Content */}
+            {project && trackVisibility.mask && (
+              <MaskTrackContent
+                segments={project.mask.segments}
+                durationMs={durationMs}
+                timelineZoom={timelineZoom}
+                width={timelineWidth}
+              />
+            )}
+
+            {/* Preview Scrubber - only when not playing */}
+            {!isPlaying && previewTimeMs !== null && (
+              <PreviewScrubber
+                previewTimeMs={previewTimeMs}
+                timelineZoom={timelineZoom}
+                trackLabelWidth={0}
+              />
+            )}
+
+            {/* Playhead */}
+            <Playhead
               timelineZoom={timelineZoom}
-              width={timelineWidth + trackLabelWidth}
+              trackLabelWidth={0}
+              isDragging={isDraggingPlayhead}
+              onMouseDown={handlePlayheadMouseDown}
             />
-          )}
-
-          {/* Preview Scrubber - only when not playing */}
-          {!isPlaying && previewTimeMs !== null && (
-            <PreviewScrubber
-              previewTimeMs={previewTimeMs}
-              timelineZoom={timelineZoom}
-              trackLabelWidth={trackLabelWidth}
-            />
-          )}
-
-          {/* Playhead */}
-          <Playhead
-            timelineZoom={timelineZoom}
-            trackLabelWidth={trackLabelWidth}
-            isDragging={isDraggingPlayhead}
-            onMouseDown={handlePlayheadMouseDown}
-          />
+          </div>
         </div>
       </div>
     </div>

@@ -49,9 +49,13 @@ pub fn run() {
     // Only in debug builds to avoid spamming production
     #[cfg(debug_assertions)]
     {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-            .format_timestamp_millis()
-            .init();
+        // Filter out noisy GPU/graphics logs while keeping app logs at info level
+        env_logger::Builder::from_env(
+            env_logger::Env::default()
+                .default_filter_or("info,wgpu_hal=warn,wgpu_core=warn,naga=warn"),
+        )
+        .format_timestamp_millis()
+        .init();
     }
 
     // WebView2 GPU flags disabled - was causing capture artifacts

@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo } from 'react';
-import { ZoomIn, GripVertical, Plus } from 'lucide-react';
+import { GripVertical, Plus } from 'lucide-react';
 import type { ZoomRegion, ZoomTransition } from '../../types';
 import { useVideoEditorStore, formatTimeSimple, generateZoomRegionId } from '../../stores/videoEditorStore';
 
@@ -206,10 +206,10 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
 });
 
 /**
- * ZoomTrack - Displays and allows editing of zoom regions.
+ * ZoomTrackContent - Track content without label for two-column layout.
  * Memoized to prevent re-renders during playback.
  */
-export const ZoomTrack = memo(function ZoomTrack({
+export const ZoomTrackContent = memo(function ZoomTrackContent({
   regions,
   durationMs,
   timelineZoom,
@@ -304,56 +304,45 @@ export const ZoomTrack = memo(function ZoomTrack({
 
   return (
     <div
-      className="relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)]"
+      className={`relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)] ${
+        hoveredTrack === 'zoom' && previewRegionDetails ? 'cursor-pointer' : ''
+      }`}
       style={{ width: `${width}px` }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={handleTrackClick}
     >
-      {/* Track label */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center z-10">
-        <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
-          <ZoomIn className="w-3.5 h-3.5" />
-          <span className="text-[11px] font-medium">Zoom</span>
+      {regions.map((region) => (
+        <ZoomRegionItem
+          key={region.id}
+          region={region}
+          isSelected={region.id === selectedZoomRegionId}
+          timelineZoom={timelineZoom}
+          durationMs={durationMs}
+          onSelect={selectZoomRegion}
+          onUpdate={updateZoomRegion}
+          onDelete={deleteZoomRegion}
+          onDragStart={setDraggingZoomRegion}
+        />
+      ))}
+
+      {/* Preview region (ghost) when hovering over empty space */}
+      {previewRegionDetails && (
+        <PreviewRegion
+          startMs={previewRegionDetails.startMs}
+          endMs={previewRegionDetails.endMs}
+          timelineZoom={timelineZoom}
+        />
+      )}
+
+      {/* Empty state hint */}
+      {regions.length === 0 && !previewRegionDetails && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="text-[10px] text-[var(--ink-subtle)]">
+            Hover to add zoom regions
+          </span>
         </div>
-      </div>
-
-      {/* Zoom regions */}
-      <div className={`absolute left-20 top-0 bottom-0 right-0 ${
-        hoveredTrack === 'zoom' && previewRegionDetails ? 'cursor-pointer' : ''
-      }`}>
-        {regions.map((region) => (
-          <ZoomRegionItem
-            key={region.id}
-            region={region}
-            isSelected={region.id === selectedZoomRegionId}
-            timelineZoom={timelineZoom}
-            durationMs={durationMs}
-            onSelect={selectZoomRegion}
-            onUpdate={updateZoomRegion}
-            onDelete={deleteZoomRegion}
-            onDragStart={setDraggingZoomRegion}
-          />
-        ))}
-
-        {/* Preview region (ghost) when hovering over empty space */}
-        {previewRegionDetails && (
-          <PreviewRegion
-            startMs={previewRegionDetails.startMs}
-            endMs={previewRegionDetails.endMs}
-            timelineZoom={timelineZoom}
-          />
-        )}
-
-        {/* Empty state hint */}
-        {regions.length === 0 && !previewRegionDetails && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-[10px] text-[var(--ink-subtle)]">
-              Hover to add zoom regions
-            </span>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 });

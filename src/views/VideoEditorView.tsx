@@ -670,12 +670,6 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
   // Crop dialog state
   const [isCropDialogOpen, setIsCropDialogOpen] = useState(false);
 
-  // Timeline height state for vertical resizing
-  const [timelineHeight, setTimelineHeight] = useState(300); // Default height
-  const [isResizingTimeline, setIsResizingTimeline] = useState(false);
-  const timelineRef = useRef<HTMLDivElement>(null);
-  const MIN_TIMELINE_HEIGHT = 160;
-  const MAX_TIMELINE_HEIGHT = 500;
 
   // Skip amount in milliseconds
   const SKIP_AMOUNT_MS = 5000;
@@ -794,35 +788,6 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
 
     return () => clearTimeout(timeoutId);
   }, [project, isSaving, isExporting, saveProject]);
-
-  // Timeline resize handlers - uses DOM manipulation during drag to avoid React re-renders
-  const handleTimelineResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizingTimeline(true);
-    const startY = e.clientY;
-    const startHeight = timelineHeight;
-    let currentHeight = startHeight;
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const delta = startY - moveEvent.clientY;
-      currentHeight = Math.min(MAX_TIMELINE_HEIGHT, Math.max(MIN_TIMELINE_HEIGHT, startHeight + delta));
-      // Update DOM directly to avoid React re-renders during drag
-      if (timelineRef.current) {
-        timelineRef.current.style.height = `${currentHeight}px`;
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizingTimeline(false);
-      // Sync React state with final height when drag ends
-      setTimelineHeight(currentHeight);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  }, [timelineHeight]);
 
   // Navigate back to library
   const handleBack = useCallback(() => {
@@ -1786,20 +1751,9 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
         </div>
       </div>
 
-      {/* Timeline with integrated controls and resize handle */}
-      <div ref={timelineRef} className="relative flex flex-col" style={{ height: timelineHeight }}>
-        {/* Resize handle */}
-        <div
-          className={`absolute top-0 left-0 right-0 h-1.5 cursor-ns-resize z-10 group ${
-            isResizingTimeline ? 'bg-[var(--coral-400)]' : 'hover:bg-[var(--coral-300)]'
-          }`}
-          onMouseDown={handleTimelineResizeStart}
-        >
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-1 rounded-full bg-[var(--ink-faint)] group-hover:bg-[var(--coral-400)] transition-colors" />
-        </div>
-        <div className="flex-1 pt-1">
-          <VideoTimeline onExport={handleExport} />
-        </div>
+      {/* Timeline with integrated controls */}
+      <div className="h-80 flex flex-col">
+        <VideoTimeline onExport={handleExport} />
       </div>
 
       {/* Crop Dialog */}

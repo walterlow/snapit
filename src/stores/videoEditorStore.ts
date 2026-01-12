@@ -812,7 +812,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
       },
 
       // Timeline view actions
-      setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(0.01, Math.min(0.5, zoom)) }),
+      setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(0.01, Math.min(0.1, zoom)) }),
 
       setTimelineScrollLeft: (scrollLeft) => set({ timelineScrollLeft: scrollLeft }),
 
@@ -832,7 +832,7 @@ export const useVideoEditorStore = create<VideoEditorState>()(
         const fitZoom = targetWidth / durationMs;
 
         // Clamp to valid zoom range
-        const clampedZoom = Math.max(0.01, Math.min(0.5, fitZoom));
+        const clampedZoom = Math.max(0.01, Math.min(0.1, fitZoom));
 
         set({
           timelineZoom: clampedZoom,

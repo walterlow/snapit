@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo } from 'react';
-import { EyeOff, GripVertical, Plus } from 'lucide-react';
+import { GripVertical, Plus } from 'lucide-react';
 import type { MaskSegment, MaskType } from '../../types';
 import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
 
@@ -224,10 +224,10 @@ const MaskSegmentItem = memo(function MaskSegmentItem({
 });
 
 /**
- * MaskTrack - Displays and allows editing of mask/blur segments.
+ * MaskTrackContent - Track content without label for two-column layout.
  * Memoized to prevent re-renders during playback.
  */
-export const MaskTrack = memo(function MaskTrack({
+export const MaskTrackContent = memo(function MaskTrackContent({
   segments,
   durationMs,
   timelineZoom,
@@ -318,56 +318,45 @@ export const MaskTrack = memo(function MaskTrack({
 
   return (
     <div
-      className="relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)]"
+      className={`relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)] ${
+        hoveredTrack === 'mask' && previewSegmentDetails ? 'cursor-pointer' : ''
+      }`}
       style={{ width: `${width}px` }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={handleTrackClick}
     >
-      {/* Track label */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center z-10">
-        <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
-          <EyeOff className="w-3.5 h-3.5" />
-          <span className="text-[11px] font-medium">Mask</span>
+      {segments.map((segment) => (
+        <MaskSegmentItem
+          key={segment.id}
+          segment={segment}
+          isSelected={segment.id === selectedMaskSegmentId}
+          timelineZoom={timelineZoom}
+          durationMs={durationMs}
+          onSelect={selectMaskSegment}
+          onUpdate={updateMaskSegment}
+          onDelete={deleteMaskSegment}
+          onDragStart={setDraggingMaskSegment}
+        />
+      ))}
+
+      {/* Preview segment (ghost) when hovering over empty space */}
+      {previewSegmentDetails && (
+        <PreviewSegment
+          startMs={previewSegmentDetails.startMs}
+          endMs={previewSegmentDetails.endMs}
+          timelineZoom={timelineZoom}
+        />
+      )}
+
+      {/* Empty state hint */}
+      {segments.length === 0 && !previewSegmentDetails && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="text-[10px] text-[var(--ink-subtle)]">
+            Hover to add blur/mask regions
+          </span>
         </div>
-      </div>
-
-      {/* Mask segments */}
-      <div className={`absolute left-20 top-0 bottom-0 right-0 ${
-        hoveredTrack === 'mask' && previewSegmentDetails ? 'cursor-pointer' : ''
-      }`}>
-        {segments.map((segment) => (
-          <MaskSegmentItem
-            key={segment.id}
-            segment={segment}
-            isSelected={segment.id === selectedMaskSegmentId}
-            timelineZoom={timelineZoom}
-            durationMs={durationMs}
-            onSelect={selectMaskSegment}
-            onUpdate={updateMaskSegment}
-            onDelete={deleteMaskSegment}
-            onDragStart={setDraggingMaskSegment}
-          />
-        ))}
-
-        {/* Preview segment (ghost) when hovering over empty space */}
-        {previewSegmentDetails && (
-          <PreviewSegment
-            startMs={previewSegmentDetails.startMs}
-            endMs={previewSegmentDetails.endMs}
-            timelineZoom={timelineZoom}
-          />
-        )}
-
-        {/* Empty state hint */}
-        {segments.length === 0 && !previewSegmentDetails && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-[10px] text-[var(--ink-subtle)]">
-              Hover to add blur/mask regions
-            </span>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 });

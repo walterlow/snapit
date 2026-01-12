@@ -111,34 +111,34 @@ function formatMessage(...args: unknown[]): string {
 
 /**
  * Create a logger instance for a specific source/module
+ *
+ * Debug/info logs go to log files only (no console spam).
+ * Warn/error logs go to both console and log files.
  */
 export function createLogger(source: string) {
   return {
     debug(...args: unknown[]): void {
       const message = formatMessage(...args);
-      // Use original console to avoid double-logging when dev mode intercepts console
-      if (import.meta.env.DEV) {
-        originalConsole.debug(`[${source}]`, ...args);
-      }
+      // Debug logs go to file only, not console
       addLog('debug', source, message);
     },
 
     info(...args: unknown[]): void {
       const message = formatMessage(...args);
-      if (import.meta.env.DEV) {
-        originalConsole.info(`[${source}]`, ...args);
-      }
+      // Info logs go to file only, not console
       addLog('info', source, message);
     },
 
     warn(...args: unknown[]): void {
       const message = formatMessage(...args);
+      // Warnings show in console and log file
       originalConsole.warn(`[${source}]`, ...args);
       addLog('warn', source, message);
     },
 
     error(...args: unknown[]): void {
       const message = formatMessage(...args);
+      // Errors show in console and log file
       originalConsole.error(`[${source}]`, ...args);
       addLog('error', source, message);
     },
@@ -148,7 +148,8 @@ export function createLogger(source: string) {
      */
     log(level: LogLevel, ...args: unknown[]): void {
       const message = formatMessage(...args);
-      if (import.meta.env.DEV || level === 'warn' || level === 'error') {
+      // Only warn/error go to console
+      if (level === 'warn' || level === 'error') {
         originalConsole[level](`[${source}]`, ...args);
       }
       addLog(level, source, message);

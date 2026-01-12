@@ -2,5 +2,5 @@
 export { VideoPreview } from './VideoPreview';
 export { VideoTimeline } from './VideoTimeline';
 export { TimelineRuler } from './TimelineRuler';
-export { ZoomTrack } from './ZoomTrack';
+export { ZoomTrackContent } from './ZoomTrack';
 export { WebcamTrack } from './WebcamTrack';

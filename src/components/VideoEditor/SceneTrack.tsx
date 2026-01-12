@@ -8,6 +8,7 @@ interface SceneTrackProps {
   defaultMode: SceneMode;
   durationMs: number;
   timelineZoom: number;
+  width?: number;
 }
 
 // Generate unique IDs for segments
@@ -265,7 +266,6 @@ export const SceneTrack = memo(function SceneTrack({
   const isPlaying = useVideoEditorStore((s) => s.isPlaying);
 
   const totalWidth = durationMs * timelineZoom;
-  const defaultVars = SCENE_MODE_VARS[defaultMode];
 
   // Calculate preview segment details when hovering
   const previewSegmentDetails = useMemo(() => {
@@ -335,8 +335,8 @@ export const SceneTrack = memo(function SceneTrack({
 
   return (
     <div className="h-full flex items-stretch border-b border-[var(--glass-border)]">
-      {/* Track Label - must match VideoTimeline's trackLabelWidth (80px / w-20) */}
-      <div className="flex-shrink-0 w-20 bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center">
+      {/* Track label - sticky to stay visible during horizontal scroll */}
+      <div className="sticky left-0 flex-shrink-0 w-20 h-full bg-[var(--polar-mist)] border-r border-[var(--glass-border)] flex items-center justify-center z-10">
         <div className="flex items-center gap-1.5 text-[var(--ink-dark)]">
           <Video className="w-3.5 h-3.5" />
           <span className="text-[11px] font-medium">Scene</span>
@@ -353,13 +353,7 @@ export const SceneTrack = memo(function SceneTrack({
         onMouseLeave={handleMouseLeave}
         onClick={handleTrackClick}
       >
-        {/* Default mode background */}
-        <div
-          className="absolute inset-0 opacity-30 pointer-events-none"
-          style={{ backgroundColor: defaultVars.bg }}
-        />
-
-        {/* Render segments */}
+          {/* Render segments */}
         {segments.map((segment) => (
           <SceneSegmentItem
             key={segment.id}
@@ -393,6 +387,139 @@ export const SceneTrack = memo(function SceneTrack({
           </div>
         )}
       </div>
+    </div>
+  );
+});
+
+/**
+ * SceneTrackContent - Track content without label for two-column layout.
+ */
+export const SceneTrackContent = memo(function SceneTrackContent({
+  segments,
+  defaultMode,
+  durationMs,
+  timelineZoom,
+  width,
+}: SceneTrackProps) {
+  const selectSceneSegment = useVideoEditorStore((s) => s.selectSceneSegment);
+  const addSceneSegment = useVideoEditorStore((s) => s.addSceneSegment);
+  const updateSceneSegment = useVideoEditorStore((s) => s.updateSceneSegment);
+  const deleteSceneSegment = useVideoEditorStore((s) => s.deleteSceneSegment);
+  const setDraggingSceneSegment = useVideoEditorStore((s) => s.setDraggingSceneSegment);
+  const selectedSceneSegmentId = useVideoEditorStore((s) => s.selectedSceneSegmentId);
+  const previewTimeMs = useVideoEditorStore((s) => s.previewTimeMs);
+  const hoveredTrack = useVideoEditorStore((s) => s.hoveredTrack);
+  const setHoveredTrack = useVideoEditorStore((s) => s.setHoveredTrack);
+  const isPlaying = useVideoEditorStore((s) => s.isPlaying);
+
+  // Calculate preview segment details when hovering
+  const previewSegmentDetails = useMemo(() => {
+    // Only show preview when hovering over this track and not playing
+    if (hoveredTrack !== 'scene' || previewTimeMs === null || isPlaying) {
+      return null;
+    }
+
+    // Check if hovering over an existing segment
+    const isOnSegment = segments.some(
+      (seg) => previewTimeMs >= seg.startMs && previewTimeMs <= seg.endMs
+    );
+
+    if (isOnSegment) {
+      return null;
+    }
+
+    // Calculate preview segment bounds - left edge at playhead
+    const startMs = previewTimeMs;
+    const endMs = Math.min(durationMs, startMs + DEFAULT_SEGMENT_DURATION_MS);
+
+    // Don't allow if there's not enough space for minimum duration
+    if (endMs - startMs < MIN_SEGMENT_DURATION_MS) {
+      return null;
+    }
+
+    // Check for collisions with existing segments and adjust
+    for (const seg of segments) {
+      // If preview would overlap with an existing segment, don't show it
+      if (startMs < seg.endMs && endMs > seg.startMs) {
+        return null;
+      }
+    }
+
+    // Determine the mode for new segment (opposite of default for visibility)
+    const newMode: SceneMode = defaultMode === 'default' ? 'cameraOnly' : 'default';
+
+    return { startMs, endMs, mode: newMode };
+  }, [hoveredTrack, previewTimeMs, isPlaying, segments, durationMs, defaultMode]);
+
+  // Handle track hover
+  const handleMouseEnter = useCallback(() => {
+    setHoveredTrack('scene');
+  }, [setHoveredTrack]);
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredTrack(null);
+  }, [setHoveredTrack]);
+
+  // Handle click to add segment
+  const handleTrackClick = useCallback((e: React.MouseEvent) => {
+    // Only add if we have a valid preview segment
+    if (!previewSegmentDetails) return;
+
+    // Don't add if clicking on a segment
+    if ((e.target as HTMLElement).closest('[data-segment]')) return;
+
+    const newSegment: SceneSegment = {
+      id: generateSegmentId(),
+      startMs: previewSegmentDetails.startMs,
+      endMs: previewSegmentDetails.endMs,
+      mode: previewSegmentDetails.mode,
+    };
+
+    addSceneSegment(newSegment);
+  }, [previewSegmentDetails, addSceneSegment]);
+
+  return (
+    <div
+      className={`relative h-12 bg-[var(--polar-mist)]/60 border-b border-[var(--glass-border)] ${
+        hoveredTrack === 'scene' && previewSegmentDetails ? 'cursor-pointer' : ''
+      }`}
+      style={{ width: width ? `${width}px` : undefined }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleTrackClick}
+    >
+      {segments.map((segment) => (
+        <SceneSegmentItem
+          key={segment.id}
+          segment={segment}
+          isSelected={selectedSceneSegmentId === segment.id}
+          timelineZoom={timelineZoom}
+          durationMs={durationMs}
+          onSelect={selectSceneSegment}
+          onUpdate={updateSceneSegment}
+          onDelete={deleteSceneSegment}
+          onDragStart={setDraggingSceneSegment}
+        />
+      ))}
+
+      {/* Preview segment (ghost) when hovering over empty space */}
+      {previewSegmentDetails && (
+        <PreviewSegment
+          startMs={previewSegmentDetails.startMs}
+          endMs={previewSegmentDetails.endMs}
+          mode={previewSegmentDetails.mode}
+          timelineZoom={timelineZoom}
+        />
+      )}
+
+      {/* Empty state hint */}
+      {segments.length === 0 && !previewSegmentDetails && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="text-[10px] text-[var(--ink-subtle)]">
+            Hover to add scene modes
+          </span>
+        </div>
+      )}
     </div>
   );
 });

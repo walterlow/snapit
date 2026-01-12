@@ -10,7 +10,7 @@
 import { memo, useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useCursorInterpolation } from '../../hooks/useCursorInterpolation';
 import { usePreviewOrPlaybackTime } from '../../hooks/usePlaybackEngine';
-import { useZoomPreview } from '../../hooks/useZoomPreview';
+import { useZoomPreview, getZoomStateAt } from '../../hooks/useZoomPreview';
 import { WINDOWS_CURSORS, DEFAULT_CURSOR, type CursorDefinition } from '../../constants/cursors';
 import { editorLogger } from '../../utils/logger';
 import type { CursorRecording, CursorConfig, CursorImage, WindowsCursorShape, ZoomRegion } from '../../types';
@@ -19,6 +19,10 @@ import type { CursorRecording, CursorConfig, CursorImage, WindowsCursorShape, Zo
 const DEFAULT_CURSOR_SCALE = 1.0;
 const DEFAULT_CIRCLE_SIZE = 20; // Circle diameter in pixels at scale 1.0
 const DEFAULT_CURSOR_SIZE = 24; // Default cursor size in pixels
+
+// SVG rasterization height (matches Cap's SVG_CURSOR_RASTERIZED_HEIGHT = 200)
+// Larger value = higher quality when zoomed, but more memory
+const SVG_RASTERIZATION_HEIGHT = 200;
 
 // Cursor shape change debouncing
 // Prevents rapid flickering when hovering over resize handles, etc.
@@ -51,7 +55,9 @@ function svgCacheKey(shape: WindowsCursorShape): string {
 }
 
 /**
- * Load an SVG cursor by shape.
+ * Load an SVG cursor by shape at high resolution.
+ * Fetches the SVG, modifies dimensions for high-quality rasterization (like Cap's 200px),
+ * then creates an Image from the modified SVG.
  */
 function loadSvgCursor(
   shape: WindowsCursorShape,
@@ -68,15 +74,58 @@ function loadSvgCursor(
     return null;
   }
 
-  const img = new Image();
-  img.onload = () => {
-    cursorImageCache.set(key, img);
-    onLoad();
-  };
-  img.onerror = () => {
-    editorLogger.warn(`Failed to load SVG cursor: ${shape}`);
-  };
-  img.src = definition.svg;
+  // Fetch SVG and modify dimensions for high-quality rasterization
+  fetch(definition.svg)
+    .then(response => response.text())
+    .then(svgText => {
+      // Parse the SVG to get original dimensions
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, 'image/svg+xml');
+      const svgElement = doc.querySelector('svg');
+
+      if (!svgElement) {
+        throw new Error('Invalid SVG');
+      }
+
+      // Get original dimensions
+      const origWidth = parseFloat(svgElement.getAttribute('width') || '24');
+      const origHeight = parseFloat(svgElement.getAttribute('height') || '24');
+
+      // Calculate new dimensions maintaining aspect ratio (target: SVG_RASTERIZATION_HEIGHT)
+      const scale = SVG_RASTERIZATION_HEIGHT / origHeight;
+      const newWidth = Math.round(origWidth * scale);
+      const newHeight = SVG_RASTERIZATION_HEIGHT;
+
+      // Update SVG dimensions for high-res rasterization
+      svgElement.setAttribute('width', String(newWidth));
+      svgElement.setAttribute('height', String(newHeight));
+
+      // Create data URL from modified SVG
+      const serializer = new XMLSerializer();
+      const modifiedSvg = serializer.serializeToString(doc);
+      const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(modifiedSvg)}`;
+
+      // Load as Image
+      const img = new Image();
+      img.onload = () => {
+        cursorImageCache.set(key, img);
+        onLoad();
+      };
+      img.onerror = () => {
+        editorLogger.warn(`Failed to load high-res SVG cursor: ${shape}`);
+      };
+      img.src = dataUrl;
+    })
+    .catch(err => {
+      editorLogger.warn(`Failed to fetch SVG cursor ${shape}:`, err);
+      // Fallback: load at original size
+      const img = new Image();
+      img.onload = () => {
+        cursorImageCache.set(key, img);
+        onLoad();
+      };
+      img.src = definition.svg;
+    });
 
   return null;
 }
@@ -308,6 +357,13 @@ export const CursorOverlay = memo(function CursorOverlay({
     }
   }, [cursorData, hideWhenIdle, idleTimeoutMs]);
 
+  // Calculate current zoom scale for high-resolution canvas rendering
+  const zoomScale = useMemo(() => {
+    if (!zoomRegions || zoomRegions.length === 0) return 1;
+    const state = getZoomStateAt(zoomRegions, currentTimeMs);
+    return state.scale;
+  }, [zoomRegions, currentTimeMs]);
+
   // Draw cursor on canvas
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -316,11 +372,26 @@ export const CursorOverlay = memo(function CursorOverlay({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Set canvas size to match container
-    if (canvas.width !== containerWidth || canvas.height !== containerHeight) {
-      canvas.width = containerWidth;
-      canvas.height = containerHeight;
+    // Calculate the render scale: DPR * zoom scale
+    // This ensures the cursor remains sharp when zoomed in
+    const dpr = window.devicePixelRatio || 1;
+    const renderScale = dpr * Math.max(1, zoomScale);
+
+    // Set canvas size at higher resolution for sharpness
+    const targetWidth = Math.round(containerWidth * renderScale);
+    const targetHeight = Math.round(containerHeight * renderScale);
+
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
     }
+
+    // Scale the context to draw at the higher resolution
+    ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+
+    // Enable high-quality image smoothing for SVG cursor rendering
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     // Calculate pixel position from normalized coordinates
     // The cursor coordinates are normalized (0-1) relative to the capture region.
@@ -436,6 +507,7 @@ export const CursorOverlay = memo(function CursorOverlay({
     cursorRecording?.width,
     cursorRecording?.height,
     imageLoadCounter, // Re-run when SVG/bitmap images finish loading
+    zoomScale, // Re-render at higher resolution when zoomed
   ]);
 
   // Don't render if no cursor data or not visible
@@ -449,11 +521,12 @@ export const CursorOverlay = memo(function CursorOverlay({
       className="absolute inset-0 pointer-events-none"
       style={{
         zIndex: 15,
+        // Use CSS dimensions for visual size (canvas internal resolution is higher for sharpness)
+        width: containerWidth,
+        height: containerHeight,
         // Apply the same zoom transform as the video for cursor alignment at all zoom levels
         ...zoomStyle,
       }}
-      width={containerWidth}
-      height={containerHeight}
     />
   );
 });

@@ -12,7 +12,7 @@ import { CursorOverlay } from './CursorOverlay';
 import { ClickHighlightOverlay } from './ClickHighlightOverlay';
 import { MaskOverlay } from './MaskOverlay';
 import { TextOverlay } from './TextOverlay';
-import { WasmTextCanvas } from './WasmTextCanvas';
+import { UnifiedTextOverlay } from './UnifiedTextOverlay';
 import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
@@ -394,12 +394,12 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           />
         )}
 
-        {/* Text rendering - WASM WebGPU (matches export glyphon renderer for WYSIWYG) */}
-        {/* Only shown when text segments exist */}
+        {/* Text rendering - Native wgpu surface (Windows) with WebSocket fallback */}
+        {/* Uses same glyphon renderer as export for WYSIWYG */}
         {useGPUPreview && showScreen && textSegments && textSegments.length > 0 && containerWidth > 0 && (
-          <WasmTextCanvas
+          <UnifiedTextOverlay
             segments={textSegments}
-            currentTimeMs={currentTimeMs}
+            currentTime={currentTimeMs / 1000}
             containerWidth={containerWidth}
             containerHeight={containerHeight}
             videoWidth={videoWidth}

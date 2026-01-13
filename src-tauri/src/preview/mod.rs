@@ -2,12 +2,16 @@
 //!
 //! Provides GPU-rendered preview frames streamed via WebSocket.
 //! This ensures the preview exactly matches the exported video.
+//!
+//! Also provides native wgpu surface rendering for zero-latency text preview.
 
 mod decoder;
 mod frame_ws;
+pub mod native_surface;
 
 pub use decoder::{spawn_decoder, AsyncVideoDecoderHandle, DecodedFrame as AsyncDecodedFrame};
 pub use frame_ws::{create_frame_ws, ShutdownSignal, WSFrame};
+pub use native_surface::{get_preview_instance, remove_preview_instance, NativeTextPreview};
 
 use crate::commands::video_recording::video_project::{VideoProject, XY};
 use crate::rendering::compositor::Compositor;
@@ -192,6 +196,50 @@ impl PreviewRenderer {
             width: output_width,
             height: output_height,
             stride: output_width * 4,
+            frame_number: *frame_num,
+            target_time_ns: time_ms * 1_000_000,
+            created_at: Instant::now(),
+        };
+
+        self.frame_tx.send(Some(ws_frame)).ok();
+
+        Ok(())
+    }
+
+    /// Render text overlay with segments passed directly (no project required).
+    /// This is the simplest path for text-only preview.
+    pub async fn render_text_with_segments(
+        &self,
+        time_ms: u64,
+        width: u32,
+        height: u32,
+        segments: &[crate::commands::video_recording::video_project::TextSegment],
+    ) -> Result<(), String> {
+        // Prepare text overlays
+        let output_size = XY::new(width, height);
+        let frame_time_secs = time_ms as f64 / 1000.0;
+        let prepared_texts = prepare_texts(output_size, frame_time_secs, segments);
+
+        // Render text-only (transparent background)
+        let mut compositor = self.compositor.lock().await;
+        let output_texture = compositor.composite_text_only(width, height, &prepared_texts);
+
+        // Read rendered frame back to CPU
+        let rgba_data = self
+            .renderer
+            .read_texture(&output_texture, width, height)
+            .await;
+
+        // Update frame number
+        let mut frame_num = self.frame_number.lock().await;
+        *frame_num += 1;
+
+        // Send frame to WebSocket
+        let ws_frame = WSFrame {
+            data: rgba_data,
+            width,
+            height,
+            stride: width * 4,
             frame_number: *frame_num,
             target_time_ns: time_ms * 1_000_000,
             created_at: Instant::now(),

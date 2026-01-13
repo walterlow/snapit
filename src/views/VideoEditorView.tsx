@@ -8,7 +8,7 @@
  * - Timeline-based editing
  */
 
-import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef } from 'react';
+import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
 import { X, Circle, Square, Monitor, Crop, Italic, ArrowLeft } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
@@ -467,17 +467,27 @@ const WEIGHT_LABELS: Record<number, string> = {
 };
 
 function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentConfigProps) {
-  // System fonts state
-  const [fontFamilies, setFontFamilies] = useState<string[]>(DEFAULT_FONT_FAMILIES);
+  // System fonts state - start with defaults + current font
+  const [systemFonts, setSystemFonts] = useState<string[]>([]);
   // Available font weights for the selected font
   const [availableWeights, setAvailableWeights] = useState<number[]>([400, 700]);
+
+  // Ensure current font is always in the list, even before system fonts load
+  const fontFamilies = useMemo(() => {
+    const fonts = systemFonts.length > 0 ? systemFonts : DEFAULT_FONT_FAMILIES;
+    // Add current font if not in list
+    if (segment.fontFamily && !fonts.includes(segment.fontFamily)) {
+      return [segment.fontFamily, ...fonts];
+    }
+    return fonts;
+  }, [systemFonts, segment.fontFamily]);
 
   // Fetch system fonts on mount
   useEffect(() => {
     invoke<string[]>('get_system_fonts')
       .then((fonts) => {
         if (fonts && fonts.length > 0) {
-          setFontFamilies(fonts);
+          setSystemFonts(fonts);
         }
       })
       .catch((err) => {

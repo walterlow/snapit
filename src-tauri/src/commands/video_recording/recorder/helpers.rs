@@ -403,18 +403,25 @@ pub fn sync_webcam_to_screen_duration(
 
 /// Get video duration in seconds using ffprobe.
 pub fn get_video_duration(ffprobe_path: &PathBuf, video_path: &PathBuf) -> Result<f64, String> {
-    let output = std::process::Command::new(ffprobe_path)
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-        ])
-        .arg(video_path)
-        .output()
-        .map_err(|e| format!("ffprobe failed: {}", e))?;
+    let mut cmd = std::process::Command::new(ffprobe_path);
+    cmd.args([
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+    ])
+    .arg(video_path);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = cmd.output().map_err(|e| format!("ffprobe failed: {}", e))?;
 
     if !output.status.success() {
         return Err("ffprobe failed to get duration".to_string());

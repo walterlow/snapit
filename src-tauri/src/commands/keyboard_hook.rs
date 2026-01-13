@@ -320,6 +320,22 @@ fn start_message_loop(app: AppHandle) -> Result<(), String> {
         if s.running {
             // Already running, just update app handle
             s.app_handle = Some(app);
+            // Still need to wait for hwnd if not set yet
+            let hwnd_ready = s.hwnd.is_some();
+            drop(s);
+            if !hwnd_ready {
+                // Wait for the window to be created
+                let timeout = std::time::Duration::from_millis(500);
+                let start = std::time::Instant::now();
+                while start.elapsed() < timeout {
+                    if let Ok(s) = state.lock() {
+                        if s.hwnd.is_some() {
+                            break;
+                        }
+                    }
+                    thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
             return Ok(());
         }
         s.app_handle = Some(app);
@@ -377,8 +393,17 @@ fn start_message_loop(app: AppHandle) -> Result<(), String> {
         }
     });
 
-    // Give the thread time to start
-    thread::sleep(std::time::Duration::from_millis(50));
+    // Wait for the window to be created (with timeout)
+    let timeout = std::time::Duration::from_millis(500);
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if let Ok(s) = state.lock() {
+            if s.hwnd.is_some() {
+                break;
+            }
+        }
+        thread::sleep(std::time::Duration::from_millis(10));
+    }
 
     Ok(())
 }

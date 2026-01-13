@@ -95,44 +95,62 @@ pub fn find_ffprobe() -> Option<PathBuf> {
 
 /// Test if an ffmpeg binary works by running -version
 fn test_ffmpeg_binary(path: &PathBuf) -> bool {
-    std::process::Command::new(path)
-        .arg("-version")
+    let mut cmd = std::process::Command::new(path);
+    cmd.arg("-version")
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .stderr(std::process::Stdio::null());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
 /// Test if an ffprobe binary works by running -version
 fn test_ffprobe_binary(path: &PathBuf) -> bool {
-    std::process::Command::new(path)
-        .arg("-version")
+    let mut cmd = std::process::Command::new(path);
+    cmd.arg("-version")
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .stderr(std::process::Stdio::null());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
 /// Find an executable in system PATH
 fn find_in_system_path(name: &str) -> Option<PathBuf> {
-    let cmd = if cfg!(windows) { "where" } else { "which" };
+    let cmd_name = if cfg!(windows) { "where" } else { "which" };
 
-    std::process::Command::new(cmd)
-        .arg(name)
-        .output()
-        .ok()
-        .and_then(|output| {
-            if output.status.success() {
-                let path_str = String::from_utf8_lossy(&output.stdout);
-                let first_line = path_str.lines().next()?.trim();
-                if !first_line.is_empty() {
-                    return Some(PathBuf::from(first_line));
-                }
+    let mut cmd = std::process::Command::new(cmd_name);
+    cmd.arg(name);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd.output().ok().and_then(|output| {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            let first_line = path_str.lines().next()?.trim();
+            if !first_line.is_empty() {
+                return Some(PathBuf::from(first_line));
             }
-            None
-        })
+        }
+        None
+    })
 }
 
 /// Get video dimensions using bundled ffprobe.

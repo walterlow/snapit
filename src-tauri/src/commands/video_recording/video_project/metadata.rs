@@ -23,18 +23,27 @@ impl VideoMetadata {
         let ffprobe_path = find_ffprobe()
             .ok_or_else(|| "ffprobe not found. Ensure FFmpeg is installed.".to_string())?;
 
-        let output = std::process::Command::new(&ffprobe_path)
-            .args([
-                "-v",
-                "quiet",
-                "-print_format",
-                "json",
-                "-show_format",
-                "-show_streams",
-                "-select_streams",
-                "v:0",
-            ])
-            .arg(video_path)
+        let mut cmd = std::process::Command::new(&ffprobe_path);
+        cmd.args([
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            "-select_streams",
+            "v:0",
+        ])
+        .arg(video_path);
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let output = cmd
             .output()
             .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
 
@@ -121,10 +130,18 @@ fn find_ffprobe() -> Option<PathBuf> {
     }
 
     // Check system PATH
-    if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
-        .arg(binary_name)
-        .output()
+    let cmd_name = if cfg!(windows) { "where" } else { "which" };
+    let mut cmd = std::process::Command::new(cmd_name);
+    cmd.arg(binary_name);
+
+    #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    if let Ok(output) = cmd.output() {
         if output.status.success() {
             let path_str = String::from_utf8_lossy(&output.stdout);
             let first_line = path_str.lines().next().unwrap_or("").trim();

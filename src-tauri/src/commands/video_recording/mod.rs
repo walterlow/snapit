@@ -1143,9 +1143,19 @@ pub async fn extract_audio_waveform(
     };
     let ffprobe_path = ffmpeg_path.with_file_name(ffprobe_name);
 
-    let probe_output = std::process::Command::new(&ffprobe_path)
+    let mut probe_cmd = std::process::Command::new(&ffprobe_path);
+    probe_cmd
         .args(["-v", "quiet", "-print_format", "json", "-show_format"])
-        .arg(&path)
+        .arg(&path);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        probe_cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let probe_output = probe_cmd
         .output()
         .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
 

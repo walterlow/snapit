@@ -108,7 +108,7 @@ impl CameraPreviewManager {
         let window = WebviewWindowBuilder::new(
             &app,
             "webcam-preview",
-            tauri::WebviewUrl::App("/webcam-preview.html".into()),
+            tauri::WebviewUrl::App("windows/webcam-preview.html".into()),
         )
         .title("Webcam Preview")
         .inner_size(width as f64, height as f64)

@@ -25,7 +25,7 @@ pub async fn show_settings_window(app: AppHandle, tab: Option<String>) -> Result
         return Ok(());
     }
 
-    let url = WebviewUrl::App("settings.html".into());
+    let url = WebviewUrl::App("windows/settings.html".into());
 
     // Create settings window - centered, resizable, with custom titlebar
     let window = WebviewWindowBuilder::new(&app, SETTINGS_WINDOW_LABEL, url)

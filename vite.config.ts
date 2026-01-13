@@ -1,8 +1,31 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { resolve } from "path";
+import { resolve, basename } from "path";
+import { readdirSync } from "fs";
 
 const host = process.env.TAURI_DEV_HOST;
+
+// Auto-discover all HTML entry points
+// - index.html stays at root (main library window)
+// - All other windows are in windows/ folder
+// This prevents issues where new HTML files work in dev but fail in release builds
+function getHtmlEntryPoints() {
+  const entries: Record<string, string> = {
+    main: resolve(__dirname, "index.html"),
+  };
+
+  const windowsDir = resolve(__dirname, "windows");
+  const windowFiles = readdirSync(windowsDir).filter((file) =>
+    file.endsWith(".html")
+  );
+
+  for (const file of windowFiles) {
+    const name = basename(file, ".html");
+    entries[name] = resolve(windowsDir, file);
+  }
+
+  return entries;
+}
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -22,17 +45,10 @@ export default defineConfig(async () => ({
     exclude: ["text-renderer-wasm"],
   },
 
-  // Multi-page build configuration
+  // Multi-page build configuration - auto-discovers all HTML files in root
   build: {
     rollupOptions: {
-      input: {
-        main: resolve(__dirname, "index.html"),
-        "recording-border": resolve(__dirname, "recording-border.html"),
-        "capture-toolbar": resolve(__dirname, "capture-toolbar.html"),
-        countdown: resolve(__dirname, "countdown.html"),
-        "webcam-preview": resolve(__dirname, "webcam-preview.html"),
-        settings: resolve(__dirname, "settings.html"),
-      },
+      input: getHtmlEntryPoints(),
     },
   },
 

@@ -40,7 +40,7 @@ pub async fn show_capture_toolbar(
     }
 
     // No URL params - toolbar always starts in startup state
-    let url = WebviewUrl::App("capture-toolbar.html".into());
+    let url = WebviewUrl::App("windows/capture-toolbar.html".into());
 
     // Create window hidden - frontend will configure size/position and show it
     // Uses custom titlebar like the main library window (decorations: false, transparent: true)
@@ -383,7 +383,7 @@ pub async fn show_startup_toolbar(app: AppHandle) -> Result<(), String> {
     let monitor_size = primary_monitor.size();
 
     // No URL params - toolbar starts in startup state by default
-    let url = WebviewUrl::App("capture-toolbar.html".into());
+    let url = WebviewUrl::App("windows/capture-toolbar.html".into());
 
     // Fixed toolbar size: 1280x144px
     let initial_width = 1280u32;

@@ -70,7 +70,7 @@ fn show_recording_border_impl(
     }
 
     // Create the window
-    let url = WebviewUrl::App("recording-border.html".into());
+    let url = WebviewUrl::App("windows/recording-border.html".into());
 
     let window = WebviewWindowBuilder::new(&app, RECORDING_BORDER_LABEL, url)
         .title("")
@@ -146,7 +146,7 @@ pub async fn show_countdown_window(
         let _ = window.close();
     }
 
-    let url = WebviewUrl::App("countdown.html".into());
+    let url = WebviewUrl::App("windows/countdown.html".into());
 
     let window = WebviewWindowBuilder::new(&app, COUNTDOWN_WINDOW_LABEL, url)
         .title("Countdown")

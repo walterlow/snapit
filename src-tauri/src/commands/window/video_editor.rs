@@ -63,7 +63,7 @@ pub async fn show_video_editor_window(
 
     // Pass project path via URL query parameter for immediate availability
     let encoded_path = urlencoding::encode(&project_path);
-    let url = WebviewUrl::App(format!("video-editor.html?path={}", encoded_path).into());
+    let url = WebviewUrl::App(format!("windows/video-editor.html?path={}", encoded_path).into());
 
     // Extract filename for window title
     let filename = std::path::Path::new(&project_path)

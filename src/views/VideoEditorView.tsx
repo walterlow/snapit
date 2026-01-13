@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { X, Circle, Square, Monitor, Crop, Italic, ArrowLeft } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { useCaptureStore } from '../stores/captureStore';
 import { useVideoEditorStore } from '../stores/videoEditorStore';
 import { useVideoEditorShortcuts } from '../hooks/useVideoEditorShortcuts';
@@ -446,14 +446,30 @@ interface TextSegmentConfigProps {
   onDone: () => void;
 }
 
-// System font families - these map to OS default fonts
-const FONT_FAMILIES = [
+// Default font families (fallback if system fonts fail to load)
+const DEFAULT_FONT_FAMILIES = [
   'sans-serif',
   'serif',
   'monospace',
 ];
 
 function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentConfigProps) {
+  // System fonts state
+  const [fontFamilies, setFontFamilies] = useState<string[]>(DEFAULT_FONT_FAMILIES);
+
+  // Fetch system fonts on mount
+  useEffect(() => {
+    invoke<string[]>('get_system_fonts')
+      .then((fonts) => {
+        if (fonts && fonts.length > 0) {
+          setFontFamilies(fonts);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load system fonts:', err);
+      });
+  }, []);
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -494,7 +510,7 @@ function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentC
           onChange={(e) => onUpdate({ fontFamily: e.target.value })}
           className="w-full h-8 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2"
         >
-          {FONT_FAMILIES.map((font) => (
+          {fontFamilies.map((font) => (
             <option key={font} value={font} style={{ fontFamily: font }}>
               {font}
             </option>

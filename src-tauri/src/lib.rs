@@ -177,6 +177,7 @@ pub fn run() {
             config::app::set_app_config,
             // Font commands
             commands::fonts::get_system_fonts,
+            commands::fonts::get_font_data,
             // Keyboard hook commands (Windows shortcut override)
             commands::keyboard_hook::register_shortcut_with_hook,
             commands::keyboard_hook::unregister_shortcut_hook,

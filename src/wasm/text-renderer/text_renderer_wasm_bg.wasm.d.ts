@@ -4,6 +4,7 @@ export const memory: WebAssembly.Memory;
 export const __wbg_wasmtextrenderer_free: (a: number, b: number) => void;
 export const init: () => void;
 export const wasmtextrenderer_create: (a: number, b: number) => any;
+export const wasmtextrenderer_load_font: (a: number, b: number, c: number) => [number, number];
 export const wasmtextrenderer_render: (a: number, b: any, c: number) => [number, number];
 export const wasmtextrenderer_resize: (a: number, b: number, c: number) => void;
 export const wasm_bindgen__convert__closures_____invoke__h56d30e2ffafd8683: (a: number, b: number, c: any) => void;

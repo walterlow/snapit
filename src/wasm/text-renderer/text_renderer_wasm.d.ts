@@ -17,6 +17,10 @@ export class WasmTextRenderer {
    * Resize the renderer when canvas size changes
    */
   resize(width: number, height: number): void;
+  /**
+   * Load a font from raw TTF/OTF data
+   */
+  load_font(font_data: Uint8Array): void;
 }
 
 /**
@@ -31,6 +35,7 @@ export interface InitOutput {
   readonly __wbg_wasmtextrenderer_free: (a: number, b: number) => void;
   readonly init: () => void;
   readonly wasmtextrenderer_create: (a: number, b: number) => any;
+  readonly wasmtextrenderer_load_font: (a: number, b: number, c: number) => [number, number];
   readonly wasmtextrenderer_render: (a: number, b: any, c: number) => [number, number];
   readonly wasmtextrenderer_resize: (a: number, b: number, c: number) => void;
   readonly wasm_bindgen__convert__closures_____invoke__h56d30e2ffafd8683: (a: number, b: number, c: any) => void;

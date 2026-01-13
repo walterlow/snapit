@@ -7,12 +7,14 @@
  */
 
 import { useRef, useCallback, useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import type { TextSegment } from '../types';
 
 // WASM module types
 interface WasmTextRenderer {
   resize(width: number, height: number): void;
   render(segments: WasmTextSegment[], timeSec: number): void;
+  load_font(fontData: Uint8Array): void;
   free(): void;
 }
 
@@ -44,6 +46,21 @@ interface WasmTextSegment {
 // Module singleton
 let wasmModule: WasmModule | null = null;
 let moduleLoadPromise: Promise<WasmModule> | null = null;
+
+// Font cache - maps font family name to loaded status
+const loadedFonts = new Set<string>();
+const fontLoadPromises = new Map<string, Promise<boolean>>();
+
+// Built-in fonts that don't need loading (always available)
+const BUILTIN_FONTS = new Set([
+  'sans-serif',
+  'serif',
+  'monospace',
+  'system-ui',
+  'cursive',
+  'fantasy',
+  '',
+]);
 
 /**
  * Load the WASM module (singleton pattern).
@@ -118,6 +135,8 @@ export interface UseWasmTextRendererResult {
   isSupported: boolean;
   /** Render text segments at the given time */
   render: (segments: TextSegment[], timeSec: number) => void;
+  /** Load a font by family name (fetches from system) */
+  loadFont: (fontFamily: string) => Promise<boolean>;
   /** Cleanup the renderer */
   cleanup: () => void;
 }
@@ -198,6 +217,55 @@ export function useWasmTextRenderer({
     }
   }, [width, height]);
 
+  // Load font function
+  const loadFont = useCallback(async (fontFamily: string): Promise<boolean> => {
+    // Skip built-in/generic fonts
+    const normalizedFamily = fontFamily.toLowerCase().trim();
+    if (BUILTIN_FONTS.has(normalizedFamily)) {
+      return true;
+    }
+
+    // Check if already loaded
+    if (loadedFonts.has(fontFamily)) {
+      return true;
+    }
+
+    // Check if loading in progress
+    const existingPromise = fontLoadPromises.get(fontFamily);
+    if (existingPromise) {
+      return existingPromise;
+    }
+
+    // Start loading
+    const loadPromise = (async (): Promise<boolean> => {
+      try {
+        if (!rendererRef.current) {
+          console.warn('[WasmTextRenderer] Cannot load font: renderer not ready');
+          return false;
+        }
+
+        console.log(`[WasmTextRenderer] Loading font: ${fontFamily}`);
+        const fontData = await invoke<number[]>('get_font_data', { family: fontFamily });
+
+        // Convert to Uint8Array
+        const fontBytes = new Uint8Array(fontData);
+        rendererRef.current.load_font(fontBytes);
+
+        loadedFonts.add(fontFamily);
+        console.log(`[WasmTextRenderer] Font loaded: ${fontFamily} (${fontBytes.length} bytes)`);
+        return true;
+      } catch (error) {
+        console.error(`[WasmTextRenderer] Failed to load font "${fontFamily}":`, error);
+        return false;
+      } finally {
+        fontLoadPromises.delete(fontFamily);
+      }
+    })();
+
+    fontLoadPromises.set(fontFamily, loadPromise);
+    return loadPromise;
+  }, []);
+
   // Render function
   const render = useCallback((segments: TextSegment[], timeSec: number) => {
     if (!rendererRef.current) {
@@ -231,6 +299,7 @@ export function useWasmTextRenderer({
     isReady,
     isSupported,
     render,
+    loadFont,
     cleanup,
   };
 }

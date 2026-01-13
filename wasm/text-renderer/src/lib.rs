@@ -171,6 +171,17 @@ impl WasmTextRenderer {
         log::debug!("[TextRenderer] Resized to {}x{}", width, height);
     }
 
+    /// Load a font from raw TTF/OTF data
+    #[wasm_bindgen]
+    pub fn load_font(&mut self, font_data: Vec<u8>) -> Result<(), JsValue> {
+        if font_data.is_empty() {
+            return Err("Font data is empty".into());
+        }
+        self.font_system.db_mut().load_font_data(font_data.clone());
+        log::info!("[TextRenderer] Loaded font ({} bytes)", font_data.len());
+        Ok(())
+    }
+
     /// Render text segments at the given time
     #[wasm_bindgen]
     pub fn render(&mut self, segments_js: JsValue, time_sec: f64) -> Result<(), JsValue> {

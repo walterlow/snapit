@@ -220,6 +220,13 @@ function makeMutClosure(arg0, arg1, dtor, f) {
     return real;
 }
 
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
 function passStringToWasm0(arg, malloc, realloc) {
     if (realloc === undefined) {
         const buf = cachedTextEncoder.encode(arg);
@@ -404,6 +411,18 @@ export class WasmTextRenderer {
      */
     resize(width, height) {
         wasm.wasmtextrenderer_resize(this.__wbg_ptr, width, height);
+    }
+    /**
+     * Load a font from raw TTF/OTF data
+     * @param {Uint8Array} font_data
+     */
+    load_font(font_data) {
+        const ptr0 = passArray8ToWasm0(font_data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmtextrenderer_load_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
 }
 if (Symbol.dispose) WasmTextRenderer.prototype[Symbol.dispose] = WasmTextRenderer.prototype.free;

@@ -11,7 +11,7 @@
  * - Transparent background for compositing over video
  */
 
-import { memo, useEffect, useRef, useMemo, useId } from 'react';
+import { memo, useEffect, useRef, useMemo, useId, useState } from 'react';
 import { useWasmTextRenderer } from '../../hooks/useWasmTextRenderer';
 import type { TextSegment } from '../../types';
 
@@ -80,17 +80,55 @@ export const WasmTextCanvas = memo(function WasmTextCanvas({
   }, [containerWidth, containerHeight, videoWidth, videoHeight]);
 
   // Use WASM text renderer
-  const { isReady, isSupported, render } = useWasmTextRenderer({
+  const { isReady, isSupported, render, loadFont } = useWasmTextRenderer({
     canvasId,
     width: displaySize.width,
     height: displaySize.height,
     onError,
   });
 
+  // Track loaded fonts - use state to trigger re-render when fonts load
+  const loadedFontsRef = useRef<Set<string>>(new Set());
+  const [fontsVersion, setFontsVersion] = useState(0);
+
   // Track last render time to throttle during playback
   const lastRenderRef = useRef<number>(0);
 
-  // Render on time changes
+  // Load fonts when segments change
+  useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
+    // Extract unique font families from segments
+    const fonts = new Set<string>();
+    for (const segment of segments) {
+      if (segment.fontFamily) {
+        fonts.add(segment.fontFamily);
+      }
+    }
+
+    // Load any new fonts
+    for (const fontFamily of fonts) {
+      if (!loadedFontsRef.current.has(fontFamily)) {
+        loadedFontsRef.current.add(fontFamily);
+        loadFont(fontFamily)
+          .then((success) => {
+            if (success) {
+              // Reset throttle and trigger re-render when font loads
+              lastRenderRef.current = 0;
+              setFontsVersion((v) => v + 1);
+            }
+          })
+          .catch(() => {
+            // Font load failed, remove from loaded set so it can be retried
+            loadedFontsRef.current.delete(fontFamily);
+          });
+      }
+    }
+  }, [isReady, segments, loadFont]);
+
+  // Render on time changes (and when fonts load)
   useEffect(() => {
     if (!enabled || !isReady || segments.length === 0) {
       return;
@@ -105,7 +143,7 @@ export const WasmTextCanvas = memo(function WasmTextCanvas({
 
     const timeSec = currentTimeMs / 1000;
     render(segments, timeSec);
-  }, [enabled, isReady, segments, currentTimeMs, render]);
+  }, [enabled, isReady, segments, currentTimeMs, render, fontsVersion]);
 
   // Show fallback if WebGPU not supported
   if (!isSupported) {

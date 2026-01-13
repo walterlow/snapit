@@ -453,9 +453,24 @@ const DEFAULT_FONT_FAMILIES = [
   'monospace',
 ];
 
+// Weight labels for display
+const WEIGHT_LABELS: Record<number, string> = {
+  100: 'Thin',
+  200: 'Extra Light',
+  300: 'Light',
+  400: 'Regular',
+  500: 'Medium',
+  600: 'Semibold',
+  700: 'Bold',
+  800: 'Extra Bold',
+  900: 'Black',
+};
+
 function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentConfigProps) {
   // System fonts state
   const [fontFamilies, setFontFamilies] = useState<string[]>(DEFAULT_FONT_FAMILIES);
+  // Available font weights for the selected font
+  const [availableWeights, setAvailableWeights] = useState<number[]>([400, 700]);
 
   // Fetch system fonts on mount
   useEffect(() => {
@@ -469,6 +484,33 @@ function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentC
         console.warn('Failed to load system fonts:', err);
       });
   }, []);
+
+  // Fetch available weights when font family changes
+  useEffect(() => {
+    if (!segment.fontFamily || segment.fontFamily === 'sans-serif') {
+      // Generic fonts - show common weights
+      setAvailableWeights([400, 700]);
+      return;
+    }
+
+    invoke<number[]>('get_font_weights', { family: segment.fontFamily })
+      .then((weights) => {
+        if (weights && weights.length > 0) {
+          setAvailableWeights(weights);
+          // If current weight isn't available, switch to closest available
+          if (!weights.includes(segment.fontWeight)) {
+            const closest = weights.reduce((prev, curr) =>
+              Math.abs(curr - segment.fontWeight) < Math.abs(prev - segment.fontWeight) ? curr : prev
+            );
+            onUpdate({ fontWeight: closest });
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load font weights:', err);
+        setAvailableWeights([400, 700]); // Fallback
+      });
+  }, [segment.fontFamily]);
 
   return (
     <div className="space-y-4">
@@ -543,12 +585,11 @@ function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextSegmentC
             onChange={(e) => onUpdate({ fontWeight: parseInt(e.target.value) })}
             className="w-full h-8 bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-sm text-[var(--ink-dark)] px-2"
           >
-            <option value={300}>Light</option>
-            <option value={400}>Regular</option>
-            <option value={500}>Medium</option>
-            <option value={600}>Semibold</option>
-            <option value={700}>Bold</option>
-            <option value={800}>Extra Bold</option>
+            {availableWeights.map((weight) => (
+              <option key={weight} value={weight}>
+                {WEIGHT_LABELS[weight] || `Weight ${weight}`}
+              </option>
+            ))}
           </select>
         </div>
 

@@ -207,15 +207,73 @@ pub fn render_svg_cursor(shape: WindowsCursorShape, scale: f32) -> Option<Render
     })
 }
 
-/// Get or render an SVG cursor at the specified size.
+/// Render an SVG cursor to exactly the specified target height.
+///
+/// This properly handles SVGs of any original size by calculating the scale
+/// based on the actual SVG dimensions, not an assumed base size.
+pub fn render_svg_cursor_to_height(
+    shape: WindowsCursorShape,
+    target_height: u32,
+) -> Option<RenderedSvgCursor> {
+    let svg_data = get_svg_data(shape)?;
+
+    // Parse SVG to get actual dimensions
+    let opts = resvg::usvg::Options::default();
+    let tree = resvg::usvg::Tree::from_str(svg_data.svg_data, &opts).ok()?;
+
+    let size = tree.size();
+    let orig_width = size.width();
+    let orig_height = size.height();
+
+    // Calculate scale to achieve target height
+    let scale = target_height as f32 / orig_height;
+
+    // Calculate scaled dimensions (preserve aspect ratio)
+    let scaled_width = (orig_width * scale).ceil() as u32;
+    let scaled_height = target_height;
+
+    // Minimum size of 1
+    let scaled_width = scaled_width.max(1);
+    let scaled_height = scaled_height.max(1);
+
+    // Create pixmap for rendering
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(scaled_width, scaled_height)?;
+
+    // Calculate transform for scaling
+    let transform = resvg::tiny_skia::Transform::from_scale(
+        scaled_width as f32 / orig_width,
+        scaled_height as f32 / orig_height,
+    );
+
+    // Render SVG to pixmap
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+
+    // Keep premultiplied alpha (like Cap) for correct compositing
+    let mut rgba_data = Vec::with_capacity((scaled_width * scaled_height * 4) as usize);
+    for pixel in pixmap.pixels() {
+        rgba_data.extend_from_slice(&[pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]);
+    }
+
+    // Calculate hotspot in pixels
+    let hotspot_x = (svg_data.hotspot_x * scaled_width as f32).round() as i32;
+    let hotspot_y = (svg_data.hotspot_y * scaled_height as f32).round() as i32;
+
+    Some(RenderedSvgCursor {
+        width: scaled_width,
+        height: scaled_height,
+        hotspot_x,
+        hotspot_y,
+        data: rgba_data,
+    })
+}
+
+/// Get or render an SVG cursor at the specified target height.
 ///
 /// Uses a cache to avoid re-rendering the same cursor at the same size.
-/// The `target_height` is used to determine the scale factor.
+/// The cursor is scaled to fit the target_height while preserving aspect ratio.
 pub fn get_svg_cursor(shape: WindowsCursorShape, target_height: u32) -> Option<RenderedSvgCursor> {
-    // For now, just render fresh each time
-    // In a production system, we'd use the cache
-    let scale = target_height as f32 / 24.0; // Base cursor height is ~24px
-    render_svg_cursor(shape, scale)
+    // Render at the exact target height
+    render_svg_cursor_to_height(shape, target_height)
 }
 
 #[cfg(test)]

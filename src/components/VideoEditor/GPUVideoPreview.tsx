@@ -12,12 +12,8 @@ import { CursorOverlay } from './CursorOverlay';
 import { ClickHighlightOverlay } from './ClickHighlightOverlay';
 import { MaskOverlay } from './MaskOverlay';
 import { TextOverlay } from './TextOverlay';
-import { GPUPreviewCanvas } from './GPUPreviewCanvas';
 import { WasmTextCanvas } from './WasmTextCanvas';
-import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment, VideoProject } from '../../types';
-
-// Feature flag: Use WASM text renderer instead of GPU preview WebSocket
-const USE_WASM_TEXT_RENDERER = true;
+import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
@@ -254,7 +250,6 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   videoHeight,
   maskSegments,
   textSegments,
-  project,
   useGPUPreview,
   isPlaying,
   onVideoClick,
@@ -283,9 +278,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   maskSegments: MaskSegment[] | undefined;
   /** Text segments for text overlays */
   textSegments: TextSegment[] | undefined;
-  /** Full project for GPU preview */
-  project: VideoProject | null;
-  /** Whether to use GPU preview (renders text via glyphon) */
+  /** Whether to use Canvas 2D text rendering */
   useGPUPreview?: boolean;
   /** Whether currently playing (for text-only GPU mode) */
   isPlaying?: boolean;
@@ -394,52 +387,25 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
             cursorConfig={cursorConfig}
             containerWidth={containerWidth}
             containerHeight={containerHeight}
+            videoWidth={videoWidth}
+            videoHeight={videoHeight}
             videoAspectRatio={videoAspectRatio}
             zoomRegions={zoomRegions}
           />
         )}
 
-        {/* Text rendering - WASM (fast, direct) or GPU preview (WebSocket to Rust) */}
+        {/* Text rendering - WASM WebGPU (matches export glyphon renderer for WYSIWYG) */}
         {/* Only shown when text segments exist */}
         {useGPUPreview && showScreen && textSegments && textSegments.length > 0 && containerWidth > 0 && (
-          USE_WASM_TEXT_RENDERER ? (
-            <WasmTextCanvas
-              segments={textSegments}
-              currentTimeMs={currentTimeMs}
-              containerWidth={containerWidth}
-              containerHeight={containerHeight}
-              videoWidth={videoWidth}
-              videoHeight={videoHeight}
-              enabled={true}
-              onError={(error) => console.error('[WasmText]', error)}
-              fallback={
-                // Fallback to GPU preview if WebGPU not supported
-                project && (
-                  <GPUPreviewCanvas
-                    project={project}
-                    currentTimeMs={currentTimeMs}
-                    containerWidth={containerWidth}
-                    containerHeight={containerHeight}
-                    enabled={true}
-                    isPlaying={isPlaying}
-                    onError={(error) => console.error('[GPUPreview]', error)}
-                  />
-                )
-              }
-            />
-          ) : (
-            project && (
-              <GPUPreviewCanvas
-                project={project}
-                currentTimeMs={currentTimeMs}
-                containerWidth={containerWidth}
-                containerHeight={containerHeight}
-                enabled={true}
-                isPlaying={isPlaying}
-                onError={(error) => console.error('[GPUPreview]', error)}
-              />
-            )
-          )
+          <WasmTextCanvas
+            segments={textSegments}
+            currentTimeMs={currentTimeMs}
+            containerWidth={containerWidth}
+            containerHeight={containerHeight}
+            videoWidth={videoWidth}
+            videoHeight={videoHeight}
+            enabled={true}
+          />
         )}
 
         {/* Mask overlay - blur/pixelate regions on top of video/GPU canvas */}
@@ -1032,7 +998,6 @@ export function GPUVideoPreview() {
               videoHeight={project?.sources.originalHeight ?? 1080}
               maskSegments={project?.mask?.segments}
               textSegments={project?.text?.segments}
-              project={project}
               useGPUPreview={useGPUPreview}
               isPlaying={isPlaying}
               onVideoClick={handleVideoClick}

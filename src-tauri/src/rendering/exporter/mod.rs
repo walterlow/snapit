@@ -22,7 +22,7 @@ use super::cursor::{composite_cursor, CursorInterpolator};
 use super::renderer::Renderer;
 use super::scene::SceneInterpolator;
 use super::stream_decoder::StreamDecoder;
-use super::svg_cursor::render_svg_cursor;
+use super::svg_cursor::render_svg_cursor_to_height;
 use super::text::prepare_texts;
 use super::types::{BackgroundStyle, RenderOptions};
 use super::zoom::ZoomInterpolator;
@@ -405,10 +405,11 @@ pub async fn export_video_gpu(
 
                     // Try SVG cursor first (if shape is detected)
                     if let Some(shape) = cursor.cursor_shape {
-                        // Render SVG at final size (svg base is ~24px)
-                        let svg_scale = final_cursor_height / 24.0;
+                        // Render SVG at final cursor height (handles any original SVG size)
+                        let target_height = final_cursor_height.round() as u32;
 
-                        if let Some(svg_cursor) = render_svg_cursor(shape, svg_scale) {
+                        if let Some(svg_cursor) = render_svg_cursor_to_height(shape, target_height)
+                        {
                             let svg_decoded = super::cursor::DecodedCursorImage {
                                 width: svg_cursor.width,
                                 height: svg_cursor.height,

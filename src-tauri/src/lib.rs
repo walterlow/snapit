@@ -178,6 +178,7 @@ pub fn run() {
             // Font commands
             commands::fonts::get_system_fonts,
             commands::fonts::get_font_data,
+            commands::fonts::get_font_weights,
             // Keyboard hook commands (Windows shortcut override)
             commands::keyboard_hook::register_shortcut_with_hook,
             commands::keyboard_hook::unregister_shortcut_hook,

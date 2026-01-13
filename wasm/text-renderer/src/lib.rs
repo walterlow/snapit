@@ -7,15 +7,13 @@ use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Weight, cosmic_text::Align,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
 
-// Embedded fallback font - Noto Sans Regular (subset, ~50KB)
-// This ensures text always renders even without network
-static EMBEDDED_FONT: &[u8] = include_bytes!("../fonts/NotoSans-Regular.ttf");
+/// Embedded fallback font (Noto Sans Regular) - required because WASM has no system fonts
+static FALLBACK_FONT: &[u8] = include_bytes!("../fonts/NotoSans-Regular.ttf");
 
 /// Initialize panic hook and logging for better error messages
 #[wasm_bindgen(start)]
@@ -23,6 +21,13 @@ pub fn init() {
     console_error_panic_hook::set_once();
     console_log::init_with_level(log::Level::Info).ok();
     log::info!("[TextRenderer] WASM module initialized");
+}
+
+/// Font info returned to JavaScript after loading
+#[derive(Serialize)]
+pub struct FontInfo {
+    pub family: String,
+    pub weight: u16,
 }
 
 /// Text segment data passed from JavaScript
@@ -79,17 +84,17 @@ impl WasmTextRenderer {
         let width = canvas.width();
         let height = canvas.height();
 
-        // Create wgpu instance with WebGPU backend (wgpu 28 API: takes reference)
+        // Create wgpu instance with WebGPU backend (wgpu 25 API)
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::BROWSER_WEBGPU,
             ..Default::default()
         });
 
-        // Create surface from canvas
+        // Create surface from canvas (wgpu 25)
         let surface = instance.create_surface(wgpu::SurfaceTarget::Canvas(canvas))
             .map_err(|e| format!("Failed to create surface: {}", e))?;
 
-        // Request adapter (wgpu 28: returns Result, not Option)
+        // Request adapter (wgpu 25: returns Result)
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -99,9 +104,15 @@ impl WasmTextRenderer {
             .await
             .map_err(|e| format!("Failed to get adapter: {}", e))?;
 
-        // Request device with default limits for browser compatibility
-        let (device, queue): (wgpu::Device, wgpu::Queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
+        // Request device with default limits for browser compatibility (wgpu 25: trace moved to DeviceDescriptor)
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await
             .map_err(|e| format!("Failed to get device: {}", e))?;
 
@@ -129,10 +140,20 @@ impl WasmTextRenderer {
         };
         surface.configure(&device, &surface_config);
 
-        // Initialize text rendering with embedded font (WASM has no system fonts)
-        let mut font_system = FontSystem::new();
-        font_system.db_mut().load_font_data(EMBEDDED_FONT.to_vec());
-        log::info!("[TextRenderer] Embedded font loaded ({} bytes)", EMBEDDED_FONT.len());
+        // Initialize text rendering with embedded fallback font
+        // WASM has no system fonts, so we create an empty font system with explicit locale
+        // and configure our fallback font as the default for all generic families
+        let mut db = glyphon::fontdb::Database::new();
+        db.load_font_data(FALLBACK_FONT.to_vec());
+        // Set Noto Sans as the default for all generic family types
+        // This ensures cosmic-text can fall back when requested fonts can't render certain glyphs
+        db.set_sans_serif_family("Noto Sans");
+        db.set_serif_family("Noto Sans");
+        db.set_monospace_family("Noto Sans");
+        db.set_cursive_family("Noto Sans");
+        db.set_fantasy_family("Noto Sans");
+        let font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), db);
+        log::info!("[TextRenderer] Created font system with Noto Sans as default fallback");
 
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&device);
@@ -171,20 +192,65 @@ impl WasmTextRenderer {
         log::debug!("[TextRenderer] Resized to {}x{}", width, height);
     }
 
-    /// Load a font from raw TTF/OTF data
+    /// Load a font from raw TTF/OTF data.
+    /// Returns JSON with actual registered family name and weight: {"family": "...", "weight": 400}
     #[wasm_bindgen]
-    pub fn load_font(&mut self, font_data: Vec<u8>) -> Result<(), JsValue> {
+    pub fn load_font(&mut self, font_data: Vec<u8>) -> Result<JsValue, JsValue> {
         if font_data.is_empty() {
             return Err("Font data is empty".into());
         }
-        self.font_system.db_mut().load_font_data(font_data.clone());
-        log::info!("[TextRenderer] Loaded font ({} bytes)", font_data.len());
-        Ok(())
+
+        // Load font and get the actual registered info
+        let db = self.font_system.db_mut();
+        let count_before = db.faces().count();
+        db.load_font_data(font_data.clone());
+        let count_after = db.faces().count();
+
+        // Get the actual family name and weight that was registered
+        if count_after > count_before {
+            // Get the first newly added face
+            if let Some(face) = db.faces().nth(count_before) {
+                let family = face.families.first().map(|(name, _)| name.clone()).unwrap_or_default();
+                let weight = face.weight.0;
+                log::info!("[TextRenderer] Loaded font: family=\"{}\" weight={} ({} bytes)", family, weight, font_data.len());
+
+                // Return actual font info
+                let result = FontInfo { family, weight };
+                return serde_wasm_bindgen::to_value(&result)
+                    .map_err(|e| JsValue::from_str(&format!("Failed to serialize: {}", e)));
+            }
+        }
+
+        log::warn!("[TextRenderer] Font loaded ({} bytes) but no new faces added", font_data.len());
+        Err("No font faces added".into())
     }
 
     /// Render text segments at the given time
     #[wasm_bindgen]
     pub fn render(&mut self, segments_js: JsValue, time_sec: f64) -> Result<(), JsValue> {
+        // Catch any panics and convert to JS errors (glyphon can panic on missing fonts)
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.render_impl(segments_js, time_sec)
+        }));
+
+        match result {
+            Ok(inner_result) => inner_result,
+            Err(panic_info) => {
+                let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    format!("Render panicked: {}", s)
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    format!("Render panicked: {}", s)
+                } else {
+                    "Render panicked: unknown error (font may not be loaded correctly)".to_string()
+                };
+                log::error!("[TextRenderer] {}", msg);
+                Err(JsValue::from_str(&msg))
+            }
+        }
+    }
+
+    /// Internal render implementation
+    fn render_impl(&mut self, segments_js: JsValue, time_sec: f64) -> Result<(), JsValue> {
         // Parse segments from JS
         let segments: Vec<TextSegment> = serde_wasm_bindgen::from_value(segments_js)
             .map_err(|e| format!("Failed to parse segments: {}", e))?;
@@ -276,12 +342,10 @@ impl WasmTextRenderer {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
-                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
-                multiview_mask: None,
             });
 
             if !buffers.is_empty() {
@@ -295,6 +359,37 @@ impl WasmTextRenderer {
         output.present();
 
         Ok(())
+    }
+}
+
+/// Find the closest available weight for a font family.
+/// Returns (family_name, weight) - falls back to Noto Sans if family not found.
+fn find_best_font_match<'a>(font_system: &FontSystem, family_name: &'a str, requested_weight: u16) -> (&'a str, u16) {
+    let db = font_system.db();
+    let mut best_weight: Option<u16> = None;
+    let mut min_diff = u16::MAX;
+
+    for face in db.faces() {
+        // Check if this face belongs to the requested family
+        let matches_family = face.families.iter().any(|(name, _)| {
+            name.eq_ignore_ascii_case(family_name)
+        });
+
+        if matches_family {
+            let face_weight = face.weight.0;
+            let diff = (face_weight as i32 - requested_weight as i32).unsigned_abs() as u16;
+            if diff < min_diff {
+                min_diff = diff;
+                best_weight = Some(face_weight);
+            }
+        }
+    }
+
+    // If font family found, return it with the closest weight
+    // Otherwise fall back to Noto Sans (our embedded font)
+    match best_weight {
+        Some(weight) => (family_name, weight),
+        None => ("Noto Sans", 400),
     }
 }
 
@@ -342,17 +437,23 @@ fn prepare_text_buffer(
     buffer.set_wrap(font_system, glyphon::Wrap::Word);
 
     // Set font attributes
-    let family = match segment.font_family.trim() {
-        "" => Family::SansSerif,
-        name => match name.to_ascii_lowercase().as_str() {
-            "sans" | "sans-serif" | "system sans" => Family::SansSerif,
-            "serif" | "system serif" => Family::Serif,
-            "mono" | "monospace" | "system mono" => Family::Monospace,
-            _ => Family::Name(name),
-        },
+    // In WASM we can't use generic families (SansSerif/Serif/Monospace) because
+    // there are no system fonts. Always use Family::Name() with explicit font name.
+    // Fall back to "Noto Sans" (our embedded font) for generic family requests.
+    let trimmed_name = segment.font_family.trim();
+    let requested_family = match trimmed_name.to_ascii_lowercase().as_str() {
+        "" | "sans" | "sans-serif" | "system sans" | "serif" | "system serif"
+        | "mono" | "monospace" | "system mono" => "Noto Sans",
+        _ => trimmed_name,
     };
 
-    let weight = Weight(segment.font_weight.round().clamp(100.0, 900.0) as u16);
+    // Find the best available font match (family + weight)
+    // Falls back to Noto Sans if requested font isn't loaded yet
+    let requested_weight = segment.font_weight.round().clamp(100.0, 900.0) as u16;
+    let (family_name, actual_weight) = find_best_font_match(font_system, requested_family, requested_weight);
+    let family = Family::Name(family_name);
+    let weight = Weight(actual_weight);
+
     let attrs = Attrs::new()
         .family(family)
         .color(color)
@@ -363,8 +464,12 @@ fn prepare_text_buffer(
             glyphon::Style::Normal
         });
 
-    // glyphon 0.10 API: set_text takes 5 args (font_system, text, attrs, shaping, align)
-    buffer.set_text(font_system, &segment.content, &attrs, Shaping::Advanced, Some(Align::Center));
+    // glyphon 0.9 API: set_text takes 4 args, align is set separately
+    buffer.set_text(font_system, &segment.content, &attrs, Shaping::Advanced);
+    // Set center alignment on all lines
+    for line in buffer.lines.iter_mut() {
+        line.set_align(Some(Align::Center));
+    }
     buffer.shape_until_scroll(font_system, false);
 
     let bounds = TextBounds {
@@ -390,22 +495,4 @@ fn parse_color(hex: &str, opacity: f32) -> Color {
         }
     }
     Color::rgba(255, 255, 255, (opacity * 255.0) as u8)
-}
-
-/// Load font data from a URL
-async fn load_font_from_url(url: &str) -> Result<Vec<u8>, JsValue> {
-    let window = web_sys::window().ok_or("No window")?;
-    let response = JsFuture::from(window.fetch_with_str(url)).await?;
-    let response: web_sys::Response = response.dyn_into()?;
-
-    if !response.ok() {
-        return Err(format!("Failed to fetch font: {}", response.status()).into());
-    }
-
-    let array_buffer = JsFuture::from(response.array_buffer()?).await?;
-    let uint8_array = js_sys::Uint8Array::new(&array_buffer);
-    let mut data = vec![0u8; uint8_array.length() as usize];
-    uint8_array.copy_to(&mut data);
-
-    Ok(data)
 }

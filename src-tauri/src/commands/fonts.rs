@@ -76,12 +76,12 @@ fn get_fallback_fonts() -> Vec<String> {
     ]
 }
 
-/// Get font file data for a given font family name
+/// Get font file data for a given font family name and weight
 #[tauri::command]
-pub fn get_font_data(family: String) -> Result<Vec<u8>, String> {
+pub fn get_font_data(family: String, weight: Option<u32>) -> Result<Vec<u8>, String> {
     #[cfg(target_os = "windows")]
     {
-        get_windows_font_data(&family)
+        get_windows_font_data(&family, weight.unwrap_or(400))
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -90,13 +90,27 @@ pub fn get_font_data(family: String) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Get available font weights for a font family
+#[tauri::command]
+pub fn get_font_weights(family: String) -> Result<Vec<u32>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        get_windows_font_weights(&family)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Fallback: return common weights
+        Ok(vec![400, 700])
+    }
+}
+
 #[cfg(target_os = "windows")]
-fn get_windows_font_data(family: &str) -> Result<Vec<u8>, String> {
-    use std::fs;
-    use windows::core::Interface;
+fn get_windows_font_weights(family: &str) -> Result<Vec<u32>, String> {
+    use std::collections::BTreeSet;
     use windows::Win32::Graphics::DirectWrite::{
-        DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, IDWriteFontFile,
-        IDWriteLocalFontFileLoader, DWRITE_FACTORY_TYPE_SHARED,
+        DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, DWRITE_FACTORY_TYPE_SHARED,
+        DWRITE_FONT_SIMULATIONS_NONE,
     };
 
     unsafe {
@@ -135,10 +149,103 @@ fn get_windows_font_data(family: &str) -> Result<Vec<u8>, String> {
             .GetFontFamily(index)
             .map_err(|e| format!("Failed to get font family: {}", e))?;
 
-        // Get the first font in the family (regular weight)
-        let font = font_family
-            .GetFont(0)
-            .map_err(|e| format!("Failed to get font: {}", e))?;
+        // Iterate through all fonts in the family and collect unique weights
+        // Only include fonts that are NOT simulated (actual font files)
+        let font_count = font_family.GetFontCount();
+        let mut weights: BTreeSet<u32> = BTreeSet::new();
+
+        for i in 0..font_count {
+            if let Ok(font) = font_family.GetFont(i) {
+                // Skip simulated fonts (synthesized bold/italic)
+                let simulations = font.GetSimulations();
+                if simulations != DWRITE_FONT_SIMULATIONS_NONE {
+                    continue;
+                }
+
+                let weight = font.GetWeight().0 as u32;
+                // Round to nearest 100 for standard weight values
+                let rounded_weight = ((weight + 50) / 100) * 100;
+                weights.insert(rounded_weight.clamp(100, 900));
+            }
+        }
+
+        Ok(weights.into_iter().collect())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_windows_font_data(family: &str, target_weight: u32) -> Result<Vec<u8>, String> {
+    use std::fs;
+    use windows::core::Interface;
+    use windows::Win32::Graphics::DirectWrite::{
+        DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, IDWriteFontFile,
+        IDWriteLocalFontFileLoader, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STYLE_NORMAL,
+    };
+
+    unsafe {
+        // Create DirectWrite factory
+        let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
+            .map_err(|e| format!("Failed to create DirectWrite factory: {}", e))?;
+
+        // Get system font collection
+        let mut font_collection: Option<IDWriteFontCollection> = None;
+        factory
+            .GetSystemFontCollection(&mut font_collection, false)
+            .map_err(|e| format!("Failed to get system font collection: {}", e))?;
+
+        let font_collection =
+            font_collection.ok_or_else(|| "Font collection is null".to_string())?;
+
+        // Find the font family by name
+        let family_wide: Vec<u16> = family.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut index: u32 = 0;
+        let mut exists = windows::Win32::Foundation::BOOL::default();
+
+        font_collection
+            .FindFamilyName(
+                windows::core::PCWSTR(family_wide.as_ptr()),
+                &mut index,
+                &mut exists,
+            )
+            .map_err(|e| format!("Failed to find font family: {}", e))?;
+
+        if !exists.as_bool() {
+            return Err(format!("Font family '{}' not found", family));
+        }
+
+        // Get the font family
+        let font_family = font_collection
+            .GetFontFamily(index)
+            .map_err(|e| format!("Failed to get font family: {}", e))?;
+
+        // Find the font with the closest matching weight from the family
+        let font_count = font_family.GetFontCount();
+        let mut best_font = None;
+        let mut best_weight_diff = u32::MAX;
+
+        for i in 0..font_count {
+            if let Ok(font) = font_family.GetFont(i) {
+                let font_weight = font.GetWeight().0 as u32;
+                let diff = (font_weight as i32 - target_weight as i32).unsigned_abs();
+                if diff < best_weight_diff {
+                    best_weight_diff = diff;
+                    best_font = Some(font);
+                }
+            }
+        }
+
+        let font = best_font.ok_or_else(|| format!("No fonts found in family '{}'", family))?;
+
+        // Log actual vs requested weight for debugging
+        let actual_weight = font.GetWeight().0 as u32;
+        if actual_weight != target_weight {
+            log::debug!(
+                "Font '{}': requested weight {} -> actual weight {}",
+                family,
+                target_weight,
+                actual_weight
+            );
+        }
 
         // Create font face
         let font_face = font

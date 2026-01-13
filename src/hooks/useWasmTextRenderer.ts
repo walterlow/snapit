@@ -11,10 +11,15 @@ import { invoke } from '@tauri-apps/api/core';
 import type { TextSegment } from '../types';
 
 // WASM module types
+interface FontInfo {
+  family: string;
+  weight: number;
+}
+
 interface WasmTextRenderer {
   resize(width: number, height: number): void;
   render(segments: WasmTextSegment[], timeSec: number): void;
-  load_font(fontData: Uint8Array): void;
+  load_font(fontData: Uint8Array): FontInfo;
   free(): void;
 }
 
@@ -47,11 +52,14 @@ interface WasmTextSegment {
 let wasmModule: WasmModule | null = null;
 let moduleLoadPromise: Promise<WasmModule> | null = null;
 
-// Font cache - maps font family name to loaded status
-const loadedFonts = new Set<string>();
-const fontLoadPromises = new Map<string, Promise<boolean>>();
+// Font cache - maps requested "family:weight" to actual registered info
+const fontMapping = new Map<string, FontInfo>();
+const fontLoadPromises = new Map<string, Promise<FontInfo | null>>();
 
-// Built-in fonts that don't need loading (always available)
+// Lock counter to prevent concurrent access to renderer (causes aliasing errors in WASM)
+let rendererLockCount = 0;
+
+// Built-in fonts that don't need loading (always available via fallback)
 const BUILTIN_FONTS = new Set([
   'sans-serif',
   'serif',
@@ -76,12 +84,8 @@ async function loadWasmModule(): Promise<WasmModule> {
 
   moduleLoadPromise = (async () => {
     try {
-      // Dynamic import of the WASM module
       const module = await import('../wasm/text-renderer/text_renderer_wasm.js') as WasmModule;
-
-      // Initialize the WASM module
       await module.default();
-
       console.log('[WasmTextRenderer] Module loaded successfully');
       wasmModule = module;
       return module;
@@ -96,9 +100,13 @@ async function loadWasmModule(): Promise<WasmModule> {
 }
 
 /**
- * Convert TextSegment to WASM format.
+ * Convert TextSegment to WASM format, using actual registered font names.
  */
-function toWasmSegment(segment: TextSegment): WasmTextSegment {
+function toWasmSegment(segment: TextSegment, fontMap: Map<string, FontInfo>): WasmTextSegment {
+  // Look up actual font info from our mapping
+  const requestedKey = `${segment.fontFamily}:${Math.round(segment.fontWeight / 100) * 100}`;
+  const actualFont = fontMap.get(requestedKey);
+
   return {
     start: segment.start,
     end: segment.end,
@@ -108,9 +116,11 @@ function toWasmSegment(segment: TextSegment): WasmTextSegment {
     centerY: segment.center.y,
     sizeX: segment.size.x,
     sizeY: segment.size.y,
-    fontFamily: segment.fontFamily,
+    // Use actual registered font name if available, otherwise use requested
+    fontFamily: actualFont?.family ?? segment.fontFamily,
     fontSize: segment.fontSize,
-    fontWeight: segment.fontWeight,
+    // Use actual registered weight if available, otherwise use requested
+    fontWeight: actualFont?.weight ?? segment.fontWeight,
     italic: segment.italic,
     color: segment.color,
     fadeDuration: segment.fadeDuration,
@@ -118,26 +128,17 @@ function toWasmSegment(segment: TextSegment): WasmTextSegment {
 }
 
 export interface UseWasmTextRendererOptions {
-  /** Canvas element ID */
   canvasId: string;
-  /** Canvas width */
   width: number;
-  /** Canvas height */
   height: number;
-  /** Callback on error */
   onError?: (error: string) => void;
 }
 
 export interface UseWasmTextRendererResult {
-  /** Whether the renderer is ready */
   isReady: boolean;
-  /** Whether WebGPU is supported */
   isSupported: boolean;
-  /** Render text segments at the given time */
   render: (segments: TextSegment[], timeSec: number) => void;
-  /** Load a font by family name (fetches from system) */
-  loadFont: (fontFamily: string) => Promise<boolean>;
-  /** Cleanup the renderer */
+  loadFont: (fontFamily: string, weight?: number) => Promise<FontInfo | null>;
   cleanup: () => void;
 }
 
@@ -155,7 +156,6 @@ export function useWasmTextRenderer({
   const [isSupported, setIsSupported] = useState(true);
   const initializingRef = useRef(false);
 
-  // Store callbacks in refs to avoid stale closures
   const onErrorRef = useRef(onError);
   useEffect(() => {
     onErrorRef.current = onError;
@@ -167,7 +167,6 @@ export function useWasmTextRenderer({
       return;
     }
 
-    // Check WebGPU support
     if (!('gpu' in navigator)) {
       console.warn('[WasmTextRenderer] WebGPU not supported');
       setIsSupported(false);
@@ -185,6 +184,11 @@ export function useWasmTextRenderer({
         const module = await loadWasmModule();
         const renderer = await module.WasmTextRenderer.create(canvasId);
         renderer.resize(width, height);
+
+        // Clear caches when new renderer is created
+        fontMapping.clear();
+        fontLoadPromises.clear();
+        rendererLockCount = 0;
 
         rendererRef.current = renderer;
         setIsReady(true);
@@ -217,52 +221,59 @@ export function useWasmTextRenderer({
     }
   }, [width, height]);
 
-  // Load font function
-  const loadFont = useCallback(async (fontFamily: string): Promise<boolean> => {
-    // Skip built-in/generic fonts
+  // Load font function - returns actual registered font info
+  const loadFont = useCallback(async (fontFamily: string, weight?: number): Promise<FontInfo | null> => {
     const normalizedFamily = fontFamily.toLowerCase().trim();
     if (BUILTIN_FONTS.has(normalizedFamily)) {
-      return true;
+      return { family: 'Noto Sans', weight: 400 }; // Will use embedded fallback
     }
 
+    const fontWeight = weight ?? 400;
+    const cacheKey = `${fontFamily}:${fontWeight}`;
+
     // Check if already loaded
-    if (loadedFonts.has(fontFamily)) {
-      return true;
+    const cached = fontMapping.get(cacheKey);
+    if (cached) {
+      return cached;
     }
 
     // Check if loading in progress
-    const existingPromise = fontLoadPromises.get(fontFamily);
+    const existingPromise = fontLoadPromises.get(cacheKey);
     if (existingPromise) {
       return existingPromise;
     }
 
     // Start loading
-    const loadPromise = (async (): Promise<boolean> => {
+    rendererLockCount++;
+
+    const loadPromise = (async (): Promise<FontInfo | null> => {
       try {
         if (!rendererRef.current) {
           console.warn('[WasmTextRenderer] Cannot load font: renderer not ready');
-          return false;
+          return null;
         }
 
-        console.log(`[WasmTextRenderer] Loading font: ${fontFamily}`);
-        const fontData = await invoke<number[]>('get_font_data', { family: fontFamily });
+        console.debug(`[WasmTextRenderer] Loading font: ${fontFamily} (weight: ${fontWeight})`);
+        const fontData = await invoke<number[]>('get_font_data', { family: fontFamily, weight: fontWeight });
 
-        // Convert to Uint8Array
         const fontBytes = new Uint8Array(fontData);
-        rendererRef.current.load_font(fontBytes);
+        const actualInfo = rendererRef.current.load_font(fontBytes) as FontInfo;
 
-        loadedFonts.add(fontFamily);
-        console.log(`[WasmTextRenderer] Font loaded: ${fontFamily} (${fontBytes.length} bytes)`);
-        return true;
+        // Store the mapping from requested -> actual
+        fontMapping.set(cacheKey, actualInfo);
+        console.log(`[WasmTextRenderer] Font loaded: "${fontFamily}:${fontWeight}" -> actual: "${actualInfo.family}:${actualInfo.weight}"`);
+
+        return actualInfo;
       } catch (error) {
-        console.error(`[WasmTextRenderer] Failed to load font "${fontFamily}":`, error);
-        return false;
+        console.error(`[WasmTextRenderer] Failed to load font "${fontFamily}" weight ${fontWeight}:`, error);
+        return null;
       } finally {
-        fontLoadPromises.delete(fontFamily);
+        fontLoadPromises.delete(cacheKey);
+        rendererLockCount--;
       }
     })();
 
-    fontLoadPromises.set(fontFamily, loadPromise);
+    fontLoadPromises.set(cacheKey, loadPromise);
     return loadPromise;
   }, []);
 
@@ -272,8 +283,14 @@ export function useWasmTextRenderer({
       return;
     }
 
+    if (rendererLockCount > 0) {
+      console.debug('[WasmTextRenderer] Render skipped: font loading in progress');
+      return;
+    }
+
     try {
-      const wasmSegments = segments.map(toWasmSegment);
+      // Convert segments using actual font mapping
+      const wasmSegments = segments.map(s => toWasmSegment(s, fontMapping));
       rendererRef.current.render(wasmSegments, timeSec);
     } catch (error) {
       console.error('[WasmTextRenderer] Render failed:', error);
@@ -281,13 +298,12 @@ export function useWasmTextRenderer({
     }
   }, []);
 
-  // Cleanup function
   const cleanup = useCallback(() => {
     if (rendererRef.current) {
       try {
         rendererRef.current.free();
       } catch {
-        // Ignore errors during cleanup
+        // Ignore
       }
       rendererRef.current = null;
     }

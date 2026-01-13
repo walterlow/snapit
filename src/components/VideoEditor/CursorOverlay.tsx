@@ -18,7 +18,10 @@ import type { CursorRecording, CursorConfig, CursorImage, WindowsCursorShape, Zo
 // Default cursor config values
 const DEFAULT_CURSOR_SCALE = 1.0;
 const DEFAULT_CIRCLE_SIZE = 20; // Circle diameter in pixels at scale 1.0
-const DEFAULT_CURSOR_SIZE = 24; // Default cursor size in pixels
+
+// Cursor scaling constants - MUST match export (src-tauri/src/rendering/exporter/mod.rs)
+const BASE_CURSOR_HEIGHT = 24.0; // Base cursor height in pixels
+const REFERENCE_HEIGHT = 720.0;  // Reference video height for scaling
 
 // SVG rasterization height (matches Cap's SVG_CURSOR_RASTERIZED_HEIGHT = 200)
 // Larger value = higher quality when zoomed, but more memory
@@ -32,6 +35,10 @@ interface CursorOverlayProps {
   containerWidth: number;
   /** Container height in pixels */
   containerHeight: number;
+  /** Actual output video width (for WYSIWYG cursor scaling) */
+  videoWidth: number;
+  /** Actual output video height (for WYSIWYG cursor scaling) */
+  videoHeight: number;
   /** Video aspect ratio (width/height) for object-contain offset calculation */
   videoAspectRatio?: number;
   /** Zoom regions for applying the same transform as the video */
@@ -190,6 +197,8 @@ export const CursorOverlay = memo(function CursorOverlay({
   cursorConfig,
   containerWidth,
   containerHeight,
+  videoWidth: _videoWidth, // Used for aspect ratio, actual scaling uses videoHeight
+  videoHeight: actualVideoHeight,
   videoAspectRatio,
   zoomRegions,
 }: CursorOverlayProps) {
@@ -342,6 +351,7 @@ export const CursorOverlay = memo(function CursorOverlay({
     // These can differ for area selection recordings (FFmpeg may force even dimensions, etc.)
     let pixelX: number;
     let pixelY: number;
+    let previewVideoHeight: number;
 
     // Use cursor recording's aspect ratio for cursor positioning
     // This ensures cursor positions match the capture region they were normalized to
@@ -354,16 +364,30 @@ export const CursorOverlay = memo(function CursorOverlay({
       const bounds = calculateVideoBounds(containerWidth, containerHeight, cursorAspectRatio);
       pixelX = bounds.offsetX + cursorData.x * bounds.width;
       pixelY = bounds.offsetY + cursorData.y * bounds.height;
+      previewVideoHeight = bounds.height;
     } else {
       // Fallback: assume container matches video aspect ratio exactly
       pixelX = cursorData.x * containerWidth;
       pixelY = cursorData.y * containerHeight;
+      previewVideoHeight = containerHeight;
     }
+
+    // Calculate cursor size for WYSIWYG with export
+    // Step 1: Calculate at EXPORT resolution (matches exporter/mod.rs exactly)
+    const exportSizeScale = actualVideoHeight / REFERENCE_HEIGHT;
+    const exportCursorHeight = Math.min(Math.max(BASE_CURSOR_HEIGHT * exportSizeScale * scale, 16), 256);
+
+    // Step 2: Scale to preview resolution
+    const previewScale = previewVideoHeight / actualVideoHeight;
+    const finalCursorHeight = exportCursorHeight * previewScale;
 
     // Helper to draw circle cursor
     const drawCircle = () => {
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      const radius = (DEFAULT_CIRCLE_SIZE / 2) * scale;
+      // Circle uses the same resolution-dependent scaling as cursor
+      // Calculate at export resolution, then scale to preview
+      const exportCircleSize = DEFAULT_CIRCLE_SIZE * exportSizeScale * scale;
+      const radius = (exportCircleSize / 2) * previewScale;
       ctx.beginPath();
       ctx.arc(pixelX, pixelY, radius, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
@@ -373,10 +397,11 @@ export const CursorOverlay = memo(function CursorOverlay({
       ctx.stroke();
     };
 
-    // Helper to draw cursor with image and definition
+    // Helper to draw cursor with image and definition (for SVG cursors)
+    // SVG cursors use fractional hotspot (0-1)
     const drawCursor = (img: HTMLImageElement, def: CursorDefinition) => {
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      const drawHeight = DEFAULT_CURSOR_SIZE * scale;
+      const drawHeight = finalCursorHeight;
       const drawWidth = (img.width / img.height) * drawHeight;
       const drawX = pixelX - drawWidth * def.hotspotX;
       const drawY = pixelY - drawHeight * def.hotspotY;
@@ -384,12 +409,16 @@ export const CursorOverlay = memo(function CursorOverlay({
     };
 
     // Helper to draw bitmap cursor with pixel hotspot
+    // Bitmap cursors are scaled to match finalCursorHeight (same as export)
     const drawBitmap = (img: HTMLImageElement, hotspotX: number, hotspotY: number) => {
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      const drawWidth = img.width * scale;
-      const drawHeight = img.height * scale;
-      const drawX = pixelX - hotspotX * scale;
-      const drawY = pixelY - hotspotY * scale;
+      // Scale bitmap to finalCursorHeight, matching export formula:
+      // bitmap_scale = final_cursor_height / cursor_image.height
+      const bitmapScale = finalCursorHeight / img.height;
+      const drawWidth = img.width * bitmapScale;
+      const drawHeight = img.height * bitmapScale;
+      const drawX = pixelX - hotspotX * bitmapScale;
+      const drawY = pixelY - hotspotY * bitmapScale;
       ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
     };
 
@@ -440,6 +469,7 @@ export const CursorOverlay = memo(function CursorOverlay({
     scale,
     containerWidth,
     containerHeight,
+    actualVideoHeight, // For WYSIWYG cursor sizing
     videoAspectRatio,
     cursorImages,
     hideWhenIdle,

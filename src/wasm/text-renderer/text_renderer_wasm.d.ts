@@ -18,9 +18,10 @@ export class WasmTextRenderer {
    */
   resize(width: number, height: number): void;
   /**
-   * Load a font from raw TTF/OTF data
+   * Load a font from raw TTF/OTF data.
+   * Returns JSON with actual registered family name and weight: {"family": "...", "weight": 400}
    */
-  load_font(font_data: Uint8Array): void;
+  load_font(font_data: Uint8Array): any;
 }
 
 /**
@@ -35,12 +36,12 @@ export interface InitOutput {
   readonly __wbg_wasmtextrenderer_free: (a: number, b: number) => void;
   readonly init: () => void;
   readonly wasmtextrenderer_create: (a: number, b: number) => any;
-  readonly wasmtextrenderer_load_font: (a: number, b: number, c: number) => [number, number];
+  readonly wasmtextrenderer_load_font: (a: number, b: number, c: number) => [number, number, number];
   readonly wasmtextrenderer_render: (a: number, b: any, c: number) => [number, number];
   readonly wasmtextrenderer_resize: (a: number, b: number, c: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h56d30e2ffafd8683: (a: number, b: number, c: any) => void;
-  readonly wasm_bindgen__closure__destroy__h646d02263ff8cc4c: (a: number, b: number) => void;
-  readonly wasm_bindgen__convert__closures_____invoke__h326e7dae65bf6d83: (a: number, b: number, c: any, d: any) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h83f5efd394ae5b03: (a: number, b: number, c: any) => void;
+  readonly wasm_bindgen__closure__destroy__h79f33c3c0d0850dd: (a: number, b: number) => void;
+  readonly wasm_bindgen__convert__closures_____invoke__h181afe9263d2d602: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;

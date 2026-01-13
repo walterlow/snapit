@@ -94,27 +94,45 @@ export const WasmTextCanvas = memo(function WasmTextCanvas({
   // Track last render time to throttle during playback
   const lastRenderRef = useRef<number>(0);
 
-  // Load fonts when segments change
+  // Clear local font tracking when renderer is recreated
+  // This ensures fonts are reloaded into the new renderer
+  useEffect(() => {
+    if (isReady) {
+      loadedFontsRef.current.clear();
+    }
+  }, [isReady]);
+
+  // Load fonts when segments change - now loads specific weights for WYSIWYG
   useEffect(() => {
     if (!isReady) {
       return;
     }
 
-    // Extract unique font families from segments
-    const fonts = new Set<string>();
+    // Extract unique font family + weight combinations from segments
+    const fontKeys = new Set<string>();
+    const fontRequests: Array<{ family: string; weight: number }> = [];
+
     for (const segment of segments) {
       if (segment.fontFamily) {
-        fonts.add(segment.fontFamily);
+        // Round weight to nearest 100 (standard font weights)
+        const weight = Math.round(segment.fontWeight / 100) * 100;
+        const key = `${segment.fontFamily}:${weight}`;
+
+        if (!fontKeys.has(key)) {
+          fontKeys.add(key);
+          fontRequests.push({ family: segment.fontFamily, weight });
+        }
       }
     }
 
-    // Load any new fonts
-    for (const fontFamily of fonts) {
-      if (!loadedFontsRef.current.has(fontFamily)) {
-        loadedFontsRef.current.add(fontFamily);
-        loadFont(fontFamily)
-          .then((success) => {
-            if (success) {
+    // Load any new font/weight combinations
+    for (const { family, weight } of fontRequests) {
+      const key = `${family}:${weight}`;
+      if (!loadedFontsRef.current.has(key)) {
+        loadedFontsRef.current.add(key);
+        loadFont(family, weight)
+          .then((fontInfo) => {
+            if (fontInfo) {
               // Reset throttle and trigger re-render when font loads
               lastRenderRef.current = 0;
               setFontsVersion((v) => v + 1);
@@ -122,28 +140,39 @@ export const WasmTextCanvas = memo(function WasmTextCanvas({
           })
           .catch(() => {
             // Font load failed, remove from loaded set so it can be retried
-            loadedFontsRef.current.delete(fontFamily);
+            loadedFontsRef.current.delete(key);
           });
       }
     }
   }, [isReady, segments, loadFont]);
 
-  // Render on time changes (and when fonts load)
+  // Create a stable key for segments to detect property changes (not just reference changes)
+  // This ensures re-render when font weight or other properties change
+  const segmentsKey = useMemo(() => {
+    return segments.map(s => `${s.fontFamily}:${s.fontWeight}:${s.fontSize}:${s.color}:${s.content}`).join('|');
+  }, [segments]);
+
+  // Render on time changes, segment changes, and when fonts load
   useEffect(() => {
     if (!enabled || !isReady || segments.length === 0) {
       return;
     }
 
-    // Throttle rendering during rapid updates
-    const now = performance.now();
-    if (now - lastRenderRef.current < 16) { // ~60fps max
-      return;
-    }
-    lastRenderRef.current = now;
+    // Update render timestamp
+    // Note: Throttling removed - the dependency array naturally limits re-renders
+    // to when segments, time, or fonts actually change
+    lastRenderRef.current = performance.now();
 
     const timeSec = currentTimeMs / 1000;
+
+    // Debug: log when render is triggered with font info
+    const activeSegment = segments.find(s => s.enabled && timeSec >= s.start && timeSec <= s.end);
+    if (activeSegment) {
+      console.debug(`[WasmText] Rendering: font="${activeSegment.fontFamily}" weight=${activeSegment.fontWeight} fontsVersion=${fontsVersion}`);
+    }
+
     render(segments, timeSec);
-  }, [enabled, isReady, segments, currentTimeMs, render, fontsVersion]);
+  }, [enabled, isReady, segments, currentTimeMs, render, fontsVersion, segmentsKey]);
 
   // Show fallback if WebGPU not supported
   if (!isSupported) {

@@ -84,6 +84,32 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
+      - name: Install FFmpeg (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Download and extract FFmpeg dev libraries
+          $ffmpegVersion = "7.1"
+          $ffmpegUrl = "https://github.com/GyanD/codexffmpeg/releases/download/$ffmpegVersion/ffmpeg-$ffmpegVersion-full_build-shared.zip"
+          $ffmpegZip = "$env:RUNNER_TEMP\ffmpeg.zip"
+          $ffmpegDir = "$env:RUNNER_TEMP\ffmpeg"
+
+          Write-Host "Downloading FFmpeg $ffmpegVersion..."
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegZip
+
+          Write-Host "Extracting FFmpeg..."
+          Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegDir -Force
+
+          $ffmpegPath = Get-ChildItem -Path $ffmpegDir -Directory | Select-Object -First 1
+
+          # Set environment variables for ffmpeg-sys-next
+          echo "FFMPEG_DIR=$($ffmpegPath.FullName)" >> $env:GITHUB_ENV
+          echo "$($ffmpegPath.FullName)\bin" >> $env:GITHUB_PATH
+
+          # Install LLVM/Clang (required by ffmpeg-sys-next for bindgen)
+          choco install llvm -y
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+
       - name: Install frontend dependencies
         run: bun install
 

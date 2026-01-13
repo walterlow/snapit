@@ -106,6 +106,13 @@ jobs:
           echo "FFMPEG_DIR=$($ffmpegPath.FullName)" >> $env:GITHUB_ENV
           echo "$($ffmpegPath.FullName)\bin" >> $env:GITHUB_PATH
 
+          # Copy FFmpeg DLLs to binaries folder for bundling
+          Write-Host "Copying FFmpeg DLLs for bundling..."
+          $binariesDir = "src-tauri\binaries"
+          if (!(Test-Path $binariesDir)) { New-Item -ItemType Directory -Path $binariesDir -Force }
+          Copy-Item "$($ffmpegPath.FullName)\bin\*.dll" -Destination $binariesDir -Force
+          Get-ChildItem $binariesDir -Filter "*.dll" | ForEach-Object { Write-Host "  - $($_.Name)" }
+
           # Install LLVM/Clang (required by ffmpeg-sys-next for bindgen)
           choco install llvm -y
           echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV

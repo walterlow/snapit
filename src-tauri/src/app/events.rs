@@ -4,6 +4,7 @@
 
 use tauri::{Manager, Window, WindowEvent};
 
+use crate::commands::video_recording::audio_monitor;
 use crate::commands::window::video_editor;
 use crate::config;
 
@@ -23,8 +24,21 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
         WindowEvent::CloseRequested { api, .. } => {
             let label = window.label();
 
-            // Close webcam preview when main window or capture toolbar closes
-            if label == "library" || label == "capture-toolbar" {
+            // Clean up resources when capture toolbar closes
+            if label == "capture-toolbar" {
+                // Stop audio monitoring (releases microphone)
+                let _ = audio_monitor::stop_monitoring();
+
+                // Close webcam preview
+                if let Some(webcam_window) =
+                    window.app_handle().get_webview_window("webcam-preview")
+                {
+                    let _ = webcam_window.destroy();
+                }
+            }
+
+            // Close webcam preview when library window closes
+            if label == "library" {
                 if let Some(webcam_window) =
                     window.app_handle().get_webview_window("webcam-preview")
                 {

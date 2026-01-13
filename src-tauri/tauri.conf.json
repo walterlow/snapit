@@ -60,9 +60,10 @@
       "binaries/ffmpeg",
       "binaries/ffprobe"
     ],
-    "resources": [
-      "assets/backgrounds/**/*"
-    ],
+    "resources": {
+      "assets/backgrounds/**/*": "assets/backgrounds/",
+      "binaries/*.dll": "./"
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"

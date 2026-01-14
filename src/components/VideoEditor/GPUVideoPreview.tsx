@@ -5,7 +5,7 @@ import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { videoEditorLogger } from '../../utils/logger';
 import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine, startPlaybackLoop, stopPlaybackLoop } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
-import { useInterpolatedScene, shouldRenderScreen, shouldRenderCursor, getCameraOnlyTransitionOpacity, getRegularCameraTransitionOpacity } from '../../hooks/useSceneMode';
+import { useInterpolatedScene, shouldRenderScreen, shouldRenderCursor, getCameraOnlyTransitionOpacity } from '../../hooks/useSceneMode';
 import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { WebcamOverlay } from './WebcamOverlay';
 import { CursorOverlay } from './CursorOverlay';
@@ -297,8 +297,6 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   const showScreen = shouldRenderScreen(scene);
   const showCursor = shouldRenderCursor(scene); // Hide cursor in Camera Only mode
   const cameraOnlyOpacity = getCameraOnlyTransitionOpacity(scene);
-  // Regular webcam overlay opacity - fades at 1.5x speed during cameraOnly transitions
-  const regularCameraOpacity = getRegularCameraTransitionOpacity(scene);
 
   // Get the original video path for WebCodecs (before convertFileSrc)
   const originalVideoPath = useVideoEditorStore((s) => s.project?.sources.screenVideo ?? null);
@@ -311,10 +309,6 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   const screenStyle: React.CSSProperties = {
     opacity: scene.screenOpacity,
     filter: scene.screenBlur > 0.01 ? `blur(${scene.screenBlur * 20}px)` : undefined,
-  };
-
-  const webcamOverlayStyle: React.CSSProperties = {
-    opacity: regularCameraOpacity,
   };
 
   const fullscreenWebcamStyle: React.CSSProperties = {
@@ -451,17 +445,6 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
         </div>
       )}
 
-      {/* Webcam overlay - outside the frame wrapper (positioned relative to container) */}
-      {regularCameraOpacity > 0.01 && webcamVideoPath && webcamConfig && containerWidth > 0 && (
-        <div style={webcamOverlayStyle}>
-          <WebcamOverlay
-            webcamVideoPath={webcamVideoPath}
-            config={webcamConfig}
-            containerWidth={containerWidth}
-            containerHeight={containerHeight}
-          />
-        </div>
-      )}
     </>
   );
 });
@@ -614,6 +597,16 @@ export function GPUVideoPreview() {
     if (containerSize.width === 0 || originalWidth === 0) return 1;
     return containerSize.width / originalWidth;
   }, [containerSize.width, originalWidth]);
+
+  // Calculate composition size in preview coordinates (video area + padding)
+  // This is used for webcam positioning so it's anchored to the full composition, not just the video
+  const compositionSize = useMemo(() => {
+    const scaledPadding = hasFrameStyling ? (backgroundConfig?.padding ?? 0) * previewScale : 0;
+    return {
+      width: containerSize.width + scaledPadding * 2,
+      height: containerSize.height + scaledPadding * 2,
+    };
+  }, [containerSize, hasFrameStyling, backgroundConfig?.padding, previewScale]);
 
   // Helper to convert hex to rgba
   const hexToRgba = (hex: string, alpha: number) => {
@@ -1029,6 +1022,17 @@ export function GPUVideoPreview() {
           )}
 
         </div>
+
+        {/* Webcam overlay - positioned relative to composition (includes padding) */}
+        {/* Rendered outside containerRef so it anchors to the full canvas, not just video area */}
+        {project?.sources.webcamVideo && project?.webcam && compositionSize.width > 0 && (
+          <WebcamOverlay
+            webcamVideoPath={project.sources.webcamVideo}
+            config={project.webcam}
+            containerWidth={compositionSize.width}
+            containerHeight={compositionSize.height}
+          />
+        )}
       </div>
     </div>
   );

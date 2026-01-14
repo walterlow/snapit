@@ -355,8 +355,6 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
     setTimelineZoom,
     setPreviewTime,
     togglePlayback,
-    selectZoomRegion,
-    selectWebcamSegment,
     fitTimelineToWindow,
   } = useVideoEditorStore();
 
@@ -419,17 +417,14 @@ export function VideoTimeline({ onExport }: VideoTimelineProps) {
   const timelineWidth = Math.max(durationWidth, containerWidth - trackLabelWidth);
 
   // Handle clicking on timeline to seek (event is on content div which moves with scroll)
+  // Keep any selected segments - user can click empty track area to deselect
   const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     // No scroll offset needed - event target already accounts for scroll position
     const x = e.clientX - rect.left;
     const newTimeMs = Math.max(0, Math.min(durationMs, x / timelineZoom));
     controls.seek(newTimeMs);
-
-    // Deselect any selected regions
-    selectZoomRegion(null);
-    selectWebcamSegment(null);
-  }, [durationMs, timelineZoom, controls, selectZoomRegion, selectWebcamSegment]);
+  }, [durationMs, timelineZoom, controls]);
 
   // Handle mouse move for preview scrubber (event is on content div which moves with scroll)
   const handleTimelineMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

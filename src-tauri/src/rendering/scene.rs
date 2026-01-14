@@ -137,18 +137,8 @@ impl InterpolatedScene {
             0.0
         };
 
-        // Camera zoom during camera-only transition
-        let camera_only_zoom = if matches!(next_mode, SceneMode::CameraOnly)
-            && !matches!(current_mode, SceneMode::CameraOnly)
-        {
-            Self::lerp(1.1, 1.0, transition_progress)
-        } else if matches!(current_mode, SceneMode::CameraOnly)
-            && !matches!(next_mode, SceneMode::CameraOnly)
-        {
-            Self::lerp(1.0, 1.1, transition_progress)
-        } else {
-            1.0
-        };
+        // Camera zoom during camera-only transition (disabled - just fade)
+        let camera_only_zoom = 1.0;
 
         // Camera blur during camera-only transition
         let camera_only_blur = if matches!(next_mode, SceneMode::CameraOnly)

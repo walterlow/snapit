@@ -77,9 +77,15 @@ pub async fn export_video_gpu(
     let duration_secs = duration_ms as f64 / 1000.0;
     let total_frames = ((duration_ms as f64 / 1000.0) * fps as f64).ceil() as u32;
 
-    // Ensure even dimensions
-    let out_w = (width / 2) * 2;
-    let out_h = (height / 2) * 2;
+    // Include background padding in output dimensions (matches preview composition size)
+    // This ensures webcam overlay is anchored to the full composition, not just the video area
+    let padding = project.export.background.padding as u32;
+    let out_w = ((width + padding * 2) / 2) * 2;
+    let out_h = ((height + padding * 2) / 2) * 2;
+
+    // Video dimensions without padding (for camera-only blending)
+    let video_w = (width / 2) * 2;
+    let video_h = (height / 2) * 2;
 
     // Initialize streaming decoders (ONE FFmpeg process each!)
     let screen_path = Path::new(&project.sources.screen_video);
@@ -258,10 +264,14 @@ pub async fn export_video_gpu(
         }
 
         // Build the frame to render with proper blending
+        // Note: Camera-only blending uses video dimensions (not output dimensions with padding)
+        // because screen_frame comes from decoder at video dimensions. The compositor will
+        // add background/padding around the blended result.
         let (frame_to_render, webcam_overlay) = if camera_only_opacity > 0.99 {
             // Fully in cameraOnly mode - just show fullscreen webcam
+            // Scale to video dimensions since compositor will add padding
             if let Some(ref webcam_frame) = current_webcam_frame {
-                let scaled_frame = scale_frame_to_fill(webcam_frame, out_w, out_h);
+                let scaled_frame = scale_frame_to_fill(webcam_frame, video_w, video_h);
                 (scaled_frame, None)
             } else {
                 (screen_frame.clone(), None)
@@ -278,8 +288,8 @@ pub async fn export_video_gpu(
                     screen_frame.clone()
                 };
 
-                // Scale webcam to fill output
-                let fullscreen_webcam = scale_frame_to_fill(webcam_frame, out_w, out_h);
+                // Scale webcam to fill video area (matches screen_frame dimensions)
+                let fullscreen_webcam = scale_frame_to_fill(webcam_frame, video_w, video_h);
 
                 // Blend fullscreen webcam over screen with camera_only_opacity
                 blend_frames_alpha(

@@ -21,13 +21,18 @@ describe('AudioLevelMeter', () => {
       expect(meter).toBeInTheDocument();
     });
 
-    it('should not render when disabled', () => {
+    it('should render with 0% fill when disabled in external mode', () => {
       const { container } = render(
         <AudioLevelMeter enabled={false} level={0.5} />
       );
 
+      // In external mode (level prop provided), component always renders
       const meter = container.querySelector('.glass-audio-meter');
-      expect(meter).not.toBeInTheDocument();
+      expect(meter).toBeInTheDocument();
+
+      // But fill should be 0% when disabled
+      const fill = container.querySelector('.glass-audio-meter-fill') as HTMLElement;
+      expect(fill.style.width).toBe('0%');
     });
 
     it('should not render in self-managed mode without deviceIndex', () => {

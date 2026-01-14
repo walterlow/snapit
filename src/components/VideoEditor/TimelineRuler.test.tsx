@@ -34,7 +34,7 @@ describe('TimelineRuler', () => {
 
       // With pxPerSecond = 100, minorMs = 500
       // Ticks at: 0, 500, 1000, 1500, 2000, 2500, 3000 = 7 ticks
-      const ticks = container.querySelectorAll('.absolute.top-0');
+      const ticks = container.querySelectorAll('.absolute.inset-y-0');
       expect(ticks.length).toBe(7);
     });
 
@@ -46,7 +46,7 @@ describe('TimelineRuler', () => {
 
       // Minor ticks at 10 second intervals
       // 0, 10000, 20000, 30000, 40000, 50000, 60000 = 7 ticks
-      const ticks = container.querySelectorAll('.absolute.top-0');
+      const ticks = container.querySelectorAll('.absolute.inset-y-0');
       expect(ticks.length).toBe(7);
     });
 
@@ -55,11 +55,11 @@ describe('TimelineRuler', () => {
         <TimelineRuler durationMs={2000} timelineZoom={0.1} width={200} />
       );
 
-      const ticks = container.querySelectorAll('.absolute.top-0');
-      
+      const ticks = container.querySelectorAll('.absolute.inset-y-0');
+
       // First tick at 0ms -> 0px
       expect((ticks[0] as HTMLElement).style.left).toBe('0px');
-      
+
       // Tick at 1000ms -> 100px (1000 * 0.1)
       const tick1000 = Array.from(ticks).find(
         (t) => (t as HTMLElement).style.left === '100px'

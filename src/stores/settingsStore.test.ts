@@ -21,6 +21,11 @@ vi.mock('@tauri-apps/plugin-store', () => {
   };
 });
 
+// Mock Tauri invoke for window commands
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('settingsStore', () => {
   beforeEach(() => {
     // Reset store to initial state
@@ -165,33 +170,22 @@ describe('settingsStore', () => {
   });
 
   describe('modal UI state', () => {
-    it('should open settings modal with default tab', () => {
+    it('should set default tab when opening settings', async () => {
       const { openSettingsModal } = useSettingsStore.getState();
 
-      openSettingsModal();
+      await openSettingsModal();
 
       const state = useSettingsStore.getState();
-      expect(state.settingsModalOpen).toBe(true);
       expect(state.activeTab).toBe('general');
     });
 
-    it('should open settings modal with specific tab', () => {
+    it('should set specific tab when opening settings', async () => {
       const { openSettingsModal } = useSettingsStore.getState();
 
-      openSettingsModal('shortcuts');
+      await openSettingsModal('shortcuts');
 
       const state = useSettingsStore.getState();
-      expect(state.settingsModalOpen).toBe(true);
       expect(state.activeTab).toBe('shortcuts');
-    });
-
-    it('should close settings modal', () => {
-      const { openSettingsModal, closeSettingsModal } = useSettingsStore.getState();
-
-      openSettingsModal();
-      closeSettingsModal();
-
-      expect(useSettingsStore.getState().settingsModalOpen).toBe(false);
     });
 
     it('should switch active tab', () => {

@@ -61,7 +61,7 @@
       "binaries/ffprobe"
     ],
     "resources": {
-      "assets/backgrounds/**/*": "assets/backgrounds/",
+      "assets/backgrounds/": "assets/backgrounds/",
       "binaries/*.dll": "./"
     },
     "windows": {

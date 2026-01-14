@@ -747,6 +747,12 @@ export function GPUVideoPreview() {
     if (!video) return;
 
     if (isPlaying) {
+      // Restore video to actual playhead position before playing
+      // (video may have been seeked to preview position during hover)
+      // Read currentTimeMs directly from store to avoid adding it as dependency
+      // (which would cause re-runs every frame during playback)
+      const playheadTime = useVideoEditorStore.getState().currentTimeMs;
+      video.currentTime = playheadTime / 1000;
       if (video.paused) {
         video.play().catch(e => {
           if (e.name === 'AbortError') return; // Expected when interrupted

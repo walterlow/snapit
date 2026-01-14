@@ -13,10 +13,12 @@ import { toast } from 'sonner';
 import { X, Circle, Square, Monitor, Crop, Italic, ArrowLeft } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { useCaptureStore } from '../stores/captureStore';
 import { useVideoEditorStore } from '../stores/videoEditorStore';
 import { useVideoEditorShortcuts } from '../hooks/useVideoEditorShortcuts';
+import { useWebCodecsPreview } from '../hooks/useWebCodecsPreview';
+import { usePreviewOrPlaybackTime } from '../hooks/usePlaybackEngine';
 import { GPUVideoPreview } from '../components/VideoEditor/GPUVideoPreview';
 import { VideoTimeline } from '../components/VideoEditor/VideoTimeline';
 import { CropDialog } from '../components/VideoEditor/CropDialog';
@@ -128,46 +130,44 @@ interface ZoomRegionConfigProps {
 }
 
 function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, onDone }: ZoomRegionConfigProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const lastDrawnTimeRef = useRef<number | null>(null);
 
-  // Load video frame at the region's start time
+  // Use WebCodecs for instant frame access (same cache as main preview)
+  const { getFrame, prefetchAround, isReady, dimensions } = useWebCodecsPreview(videoSrc);
+  const currentTimeMs = usePreviewOrPlaybackTime();
+
+  // Draw the current frame to canvas (uses cached frames - instant!)
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    if (!isReady || !dimensions) return;
 
-    video.src = convertFileSrc(videoSrc);
-    video.preload = 'auto';
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const handleLoadedData = () => {
-      // Seek to the region's start time
-      video.currentTime = region.startMs / 1000;
-    };
+    // Set canvas size to match video dimensions
+    if (canvas.width !== dimensions.width || canvas.height !== dimensions.height) {
+      canvas.width = dimensions.width;
+      canvas.height = dimensions.height;
+    }
 
-    const handleSeeked = () => {
-      // Draw frame to canvas
-      const canvas = canvasRef.current;
-      if (!canvas || !video) return;
+    // Skip if same frame already drawn
+    if (lastDrawnTimeRef.current === currentTimeMs) return;
 
+    // Try to get cached frame
+    const frame = getFrame(currentTimeMs);
+    if (frame) {
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      if (ctx) {
+        ctx.drawImage(frame, 0, 0);
+        lastDrawnTimeRef.current = currentTimeMs;
+      }
+    } else {
+      // Request frame to be decoded
+      prefetchAround(currentTimeMs);
+    }
+  }, [isReady, dimensions, currentTimeMs, getFrame, prefetchAround]);
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
-      setIsLoaded(true);
-    };
-
-    video.addEventListener('loadeddata', handleLoadedData);
-    video.addEventListener('seeked', handleSeeked);
-    video.load();
-
-    return () => {
-      video.removeEventListener('loadeddata', handleLoadedData);
-      video.removeEventListener('seeked', handleSeeked);
-    };
-  }, [videoSrc, region.startMs]);
+  const isLoaded = isReady && dimensions !== null;
 
   // Handle position drag on the thumbnail
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -302,8 +302,6 @@ function ZoomRegionConfig({ region, videoSrc, canUseAuto, onUpdate, onDelete, on
             )}
           </div>
 
-          {/* Hidden video element for frame extraction */}
-          <video ref={videoRef} className="hidden" />
         </div>
       )}
     </div>

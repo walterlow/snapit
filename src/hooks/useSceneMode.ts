@@ -312,13 +312,8 @@ function interpolateScene(cursor: SceneSegmentsCursor): InterpolatedScene {
     }
   }
 
-  // Camera zoom during camera-only transition (slight zoom in/out effect)
-  let cameraOnlyZoom = 1;
-  if (nextMode === 'cameraOnly' && currentMode !== 'cameraOnly') {
-    cameraOnlyZoom = lerp(1.1, 1, transitionProgress);
-  } else if (currentMode === 'cameraOnly' && nextMode !== 'cameraOnly') {
-    cameraOnlyZoom = lerp(1, 1.1, transitionProgress);
-  }
+  // Camera zoom during camera-only transition (disabled - just fade)
+  const cameraOnlyZoom = 1;
 
   // Camera blur during camera-only transition
   let cameraOnlyBlur = 0;

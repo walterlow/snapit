@@ -14,6 +14,8 @@ interface WebcamOverlayProps {
   config: WebcamConfig;
   containerWidth: number;
   containerHeight: number;
+  /** Opacity from scene transitions (0-1). When transitioning to camera-only mode, this fades to 0. */
+  sceneOpacity?: number;
 }
 
 /**
@@ -255,6 +257,7 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   config,
   containerWidth,
   containerHeight,
+  sceneOpacity = 1,
 }: WebcamOverlayProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -451,9 +454,14 @@ export const WebcamOverlay = memo(function WebcamOverlay({
     }
   }, [currentTimeMs, isPlaying]);
 
+  // Hide completely only when webcam is disabled via visibility segments
+  // Keep mounted during scene transitions (sceneOpacity) to maintain video sync
   if (!isVisible) {
     return null;
   }
+
+  // Determine if overlay should be visually hidden (but keep mounted for sync)
+  const isHidden = sceneOpacity <= 0.01;
 
   return (
     // Outer wrapper for shadow filter (must be separate from clipped element)
@@ -464,6 +472,9 @@ export const WebcamOverlay = memo(function WebcamOverlay({
         height: webcamHeight,
         ...positionStyle,
         filter: shadowFilter,
+        opacity: sceneOpacity,
+        visibility: isHidden ? 'hidden' : 'visible',
+        pointerEvents: isHidden ? 'none' : 'auto',
       }}
     >
       {/* Inner container with shape clipping and border */}

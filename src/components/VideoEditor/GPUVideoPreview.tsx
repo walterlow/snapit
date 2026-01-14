@@ -5,7 +5,7 @@ import { useVideoEditorStore } from '../../stores/videoEditorStore';
 import { videoEditorLogger } from '../../utils/logger';
 import { usePreviewOrPlaybackTime, usePlaybackControls, initPlaybackEngine, startPlaybackLoop, stopPlaybackLoop } from '../../hooks/usePlaybackEngine';
 import { useZoomPreview } from '../../hooks/useZoomPreview';
-import { useInterpolatedScene, shouldRenderScreen, shouldRenderCursor, getCameraOnlyTransitionOpacity } from '../../hooks/useSceneMode';
+import { useInterpolatedScene, shouldRenderScreen, shouldRenderCursor, getCameraOnlyTransitionOpacity, getRegularCameraTransitionOpacity } from '../../hooks/useSceneMode';
 import { useWebCodecsPreview } from '../../hooks/useWebCodecsPreview';
 import { WebcamOverlay } from './WebcamOverlay';
 import { CursorOverlay } from './CursorOverlay';
@@ -470,6 +470,19 @@ export function GPUVideoPreview() {
   const cursorRecording = useVideoEditorStore(selectCursorRecording);
   const audioConfig = useVideoEditorStore(selectAudioConfig);
   const controls = usePlaybackControls();
+
+  // Get effective time for scene interpolation (preview time when scrubbing, current time otherwise)
+  const effectiveTimeMs = previewTimeMs !== null ? previewTimeMs : currentTimeMs;
+
+  // Get interpolated scene for webcam overlay opacity during scene transitions
+  const scene = useInterpolatedScene(
+    project?.scene?.segments,
+    project?.scene?.defaultMode ?? 'default',
+    effectiveTimeMs
+  );
+
+  // Calculate webcam overlay opacity - fades out when transitioning to camera-only mode
+  const webcamOverlayOpacity = getRegularCameraTransitionOpacity(scene);
 
   // Track container size for webcam overlay positioning
   // Debounced to only update when resize settles (avoids lag during panel resize)
@@ -1025,12 +1038,14 @@ export function GPUVideoPreview() {
 
         {/* Webcam overlay - positioned relative to composition (includes padding) */}
         {/* Rendered outside containerRef so it anchors to the full canvas, not just video area */}
+        {/* Fades out during camera-only scene transitions (fullscreen webcam takes over) */}
         {project?.sources.webcamVideo && project?.webcam && compositionSize.width > 0 && (
           <WebcamOverlay
             webcamVideoPath={project.sources.webcamVideo}
             config={project.webcam}
             containerWidth={compositionSize.width}
             containerHeight={compositionSize.height}
+            sceneOpacity={webcamOverlayOpacity}
           />
         )}
       </div>

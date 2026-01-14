@@ -870,6 +870,9 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
   const handleExport = useCallback(async () => {
     if (!project) return;
 
+    // Stop playback before exporting
+    useVideoEditorStore.getState().setIsPlaying(false);
+
     try {
       // Show save dialog to choose output path
       const outputPath = await save({

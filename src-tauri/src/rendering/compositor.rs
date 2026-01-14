@@ -666,20 +666,31 @@ impl Compositor {
             renderer.create_output_texture(options.output_width, options.output_height);
         let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Calculate frame bounds based on padding
+        // Calculate frame bounds based on padding, maintaining video aspect ratio
         let out_w = options.output_width as f32;
         let out_h = options.output_height as f32;
         let padding = options.background.padding;
 
-        // Frame is centered with padding on all sides
-        let frame_x = padding;
-        let frame_y = padding;
-        let frame_w = out_w - padding * 2.0;
-        let frame_h = out_h - padding * 2.0;
+        // Calculate video aspect ratio
+        let video_aspect = frame.width as f32 / frame.height as f32;
 
-        // Ensure frame doesn't become negative
-        let frame_w = frame_w.max(1.0);
-        let frame_h = frame_h.max(1.0);
+        // Available space after padding
+        let available_w = (out_w - padding * 2.0).max(1.0);
+        let available_h = (out_h - padding * 2.0).max(1.0);
+        let available_aspect = available_w / available_h;
+
+        // Fit video into available space while maintaining aspect ratio
+        let (frame_w, frame_h) = if video_aspect > available_aspect {
+            // Video is wider than available space - fit to width
+            (available_w, available_w / video_aspect)
+        } else {
+            // Video is taller than available space - fit to height
+            (available_h * video_aspect, available_h)
+        };
+
+        // Center the frame in the output
+        let frame_x = (out_w - frame_w) / 2.0;
+        let frame_y = (out_h - frame_h) / 2.0;
 
         // Rounding type: 0 = rounded, 1 = squircle
         let rounding_type = match options.background.rounding_type {

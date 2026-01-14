@@ -290,22 +290,24 @@ impl InterpolatedZoom {
 
     /// Convert to ZoomState for rendering.
     pub fn to_zoom_state(&self) -> ZoomState {
-        let width = self.bounds.zoom_amount();
+        let scale = self.bounds.zoom_amount();
 
-        // No zoom (width ~= 1.0)
-        if (width - 1.0).abs() < 0.001 {
+        // No zoom (scale ~= 1.0)
+        if (scale - 1.0).abs() < 0.001 {
             return ZoomState::identity();
         }
 
-        // Calculate scale and center from bounds
-        // Scale is the viewport width (2.0 = 2x zoom)
-        // Center is the midpoint of the bounds (NOT divided by width)
-        let scale = width as f32;
-        let center_x = ((self.bounds.top_left.x + self.bounds.bottom_right.x) / 2.0) as f32;
-        let center_y = ((self.bounds.top_left.y + self.bounds.bottom_right.y) / 2.0) as f32;
+        // Recover the original zoom target from bounds.
+        // The bounds were calculated as:
+        //   topLeft = (0 - centerDiff.x, 0 - centerDiff.y)
+        //   where centerDiff = target * (scale - 1)
+        // So: topLeft = -target * (scale - 1)
+        // Therefore: target = -topLeft / (scale - 1)
+        let center_x = (-self.bounds.top_left.x / (scale - 1.0)) as f32;
+        let center_y = (-self.bounds.top_left.y / (scale - 1.0)) as f32;
 
         ZoomState {
-            scale,
+            scale: scale as f32,
             center_x,
             center_y,
         }
@@ -476,5 +478,65 @@ mod tests {
         assert!((bounds.top_left.y - 0.0).abs() < 0.01);
         assert!((bounds.bottom_right.x - 2.0).abs() < 0.01);
         assert!((bounds.bottom_right.y - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_to_zoom_state_recovers_center() {
+        // Test that to_zoom_state correctly recovers the original zoom center
+        // This is critical for export to match preview
+
+        // Test 1: Corner zoom at (0, 0)
+        let bounds1 = SegmentBounds::from_region(&make_region(0, 1000, 2.0, 0.0, 0.0), None);
+        let interp1 = InterpolatedZoom {
+            t: 1.0,
+            bounds: bounds1,
+        };
+        let state1 = interp1.to_zoom_state();
+        assert!(
+            (state1.center_x - 0.0).abs() < 0.01,
+            "Corner zoom: center_x should be 0.0, got {}",
+            state1.center_x
+        );
+        assert!(
+            (state1.center_y - 0.0).abs() < 0.01,
+            "Corner zoom: center_y should be 0.0, got {}",
+            state1.center_y
+        );
+
+        // Test 2: Center zoom at (0.5, 0.5)
+        let bounds2 = SegmentBounds::from_region(&make_region(0, 1000, 2.0, 0.5, 0.5), None);
+        let interp2 = InterpolatedZoom {
+            t: 1.0,
+            bounds: bounds2,
+        };
+        let state2 = interp2.to_zoom_state();
+        assert!(
+            (state2.center_x - 0.5).abs() < 0.01,
+            "Center zoom: center_x should be 0.5, got {}",
+            state2.center_x
+        );
+        assert!(
+            (state2.center_y - 0.5).abs() < 0.01,
+            "Center zoom: center_y should be 0.5, got {}",
+            state2.center_y
+        );
+
+        // Test 3: Off-center zoom at (0.7, 0.3)
+        let bounds3 = SegmentBounds::from_region(&make_region(0, 1000, 2.0, 0.7, 0.3), None);
+        let interp3 = InterpolatedZoom {
+            t: 1.0,
+            bounds: bounds3,
+        };
+        let state3 = interp3.to_zoom_state();
+        assert!(
+            (state3.center_x - 0.7).abs() < 0.01,
+            "Off-center zoom: center_x should be 0.7, got {}",
+            state3.center_x
+        );
+        assert!(
+            (state3.center_y - 0.3).abs() < 0.01,
+            "Off-center zoom: center_y should be 0.3, got {}",
+            state3.center_y
+        );
     }
 }

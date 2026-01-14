@@ -84,6 +84,12 @@ pub fn start_ffmpeg_encoder(
                 "fast".to_string(),
                 "-pix_fmt".to_string(),
                 "yuv420p".to_string(),
+                // Keyframe every 1 second for precise seeking
+                "-g".to_string(),
+                fps.to_string(),
+                // Move moov atom to start for fast playback start
+                "-movflags".to_string(),
+                "+faststart".to_string(),
             ]);
             if !audio_inputs.is_empty() {
                 if let Some(ref filter) = audio_filter {
@@ -113,6 +119,9 @@ pub fn start_ffmpeg_encoder(
                 "realtime".to_string(),
                 "-cpu-used".to_string(),
                 "4".to_string(),
+                // Keyframe every 1 second for precise seeking
+                "-g".to_string(),
+                fps.to_string(),
             ]);
             if !audio_inputs.is_empty() {
                 if let Some(ref filter) = audio_filter {

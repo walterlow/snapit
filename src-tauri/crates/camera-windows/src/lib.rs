@@ -18,7 +18,7 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender},
     time::Duration,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use windows::Win32::{
     Foundation::S_FALSE,
     Media::MediaFoundation::*,
@@ -415,6 +415,7 @@ pub struct VideoDevice {
     name: OsString,
     model_id: Option<String>,
     category: DeviceCategory,
+    #[allow(dead_code)] // Kept for potential future use (device reactivation)
     activate: IMFActivate,
     media_source: IMFMediaSource,
 }

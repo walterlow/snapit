@@ -96,13 +96,22 @@ pub fn prepare_texts(
 
         let fade_duration = segment.fade_duration.max(0.0);
         let opacity = if fade_duration > 0.0 {
-            let time_since_start = (frame_time - segment.start).max(0.0);
-            let time_until_end = (segment.end - frame_time).max(0.0);
+            let time_since_start = frame_time - segment.start;
+            let time_until_end = segment.end - frame_time;
+            let segment_duration = segment.end - segment.start;
 
-            let fade_in = (time_since_start / fade_duration).min(1.0);
-            let fade_out = (time_until_end / fade_duration).min(1.0);
-
-            (fade_in * fade_out) as f32
+            // Fade in at start
+            if time_since_start < fade_duration {
+                (time_since_start / fade_duration).clamp(0.0, 1.0) as f32
+            }
+            // Fade out at end (only if segment long enough for both fades)
+            else if time_until_end < fade_duration && segment_duration > fade_duration * 2.0 {
+                (time_until_end / fade_duration).clamp(0.0, 1.0) as f32
+            }
+            // Hold at full opacity
+            else {
+                1.0
+            }
         } else {
             1.0
         };

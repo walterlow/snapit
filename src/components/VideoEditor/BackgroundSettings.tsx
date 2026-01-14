@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { resolveResource } from '@tauri-apps/api/path';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Slider } from '@/components/ui/slider';
+import { ColorPicker } from '@/components/ui/color-picker';
 import { Check, Upload, X, Loader2 } from 'lucide-react';
 import type { BackgroundConfig, VideoBackgroundType } from '@/types';
 import {
@@ -258,59 +259,42 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
       {/* Solid Color Tab Content */}
       {background.bgType === 'solid' && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={background.solidColor}
-              onChange={(e) => onUpdate({ solidColor: e.target.value })}
-              className="w-10 h-10 rounded-lg border border-[var(--glass-border)] cursor-pointer bg-transparent"
-            />
-            <input
-              type="text"
-              value={background.solidColor}
-              onChange={(e) => onUpdate({ solidColor: e.target.value })}
-              className="flex-1 h-8 px-2 text-xs font-mono bg-[var(--polar-mist)] border border-[var(--glass-border)] rounded-md text-[var(--ink-dark)]"
-            />
-          </div>
-          <div className="grid grid-cols-6 gap-1.5">
-            {COLOR_PRESETS.map((color) => (
-              <button
-                key={color}
-                onClick={() => onUpdate({ solidColor: color })}
-                className={`aspect-square rounded-md border-2 transition-all hover:scale-105 ${
-                  background.solidColor.toLowerCase() === color.toLowerCase()
-                    ? 'border-[var(--ink-dark)]'
-                    : 'border-transparent'
-                }`}
-                style={{ backgroundColor: color }}
-              />
-            ))}
-          </div>
+          <ColorPicker
+            value={background.solidColor}
+            onChange={(color) => onUpdate({ solidColor: color })}
+            presets={COLOR_PRESETS}
+          />
         </div>
       )}
 
       {/* Gradient Tab Content */}
       {background.bgType === 'gradient' && (
         <div className="space-y-3">
-          {/* Current gradient with color pickers */}
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
+          {/* Gradient preview */}
+          <div
+            className="h-8 rounded-lg border border-[var(--glass-border)]"
+            style={{
+              background: `linear-gradient(${background.gradientAngle}deg, ${background.gradientStart}, ${background.gradientEnd})`,
+            }}
+          />
+
+          {/* Start color */}
+          <div>
+            <span className="text-[11px] text-[var(--ink-subtle)] block mb-1.5">Start Color</span>
+            <ColorPicker
               value={background.gradientStart}
-              onChange={(e) => onUpdate({ gradientStart: e.target.value })}
-              className="w-8 h-8 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+              onChange={(color) => onUpdate({ gradientStart: color })}
+              showInput={false}
             />
-            <div
-              className="flex-1 h-6 rounded"
-              style={{
-                background: `linear-gradient(${background.gradientAngle}deg, ${background.gradientStart}, ${background.gradientEnd})`,
-              }}
-            />
-            <input
-              type="color"
+          </div>
+
+          {/* End color */}
+          <div>
+            <span className="text-[11px] text-[var(--ink-subtle)] block mb-1.5">End Color</span>
+            <ColorPicker
               value={background.gradientEnd}
-              onChange={(e) => onUpdate({ gradientEnd: e.target.value })}
-              className="w-8 h-8 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+              onChange={(color) => onUpdate({ gradientEnd: color })}
+              showInput={false}
             />
           </div>
 
@@ -331,23 +315,26 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
           </div>
 
           {/* Gradient presets */}
-          <div className="grid grid-cols-4 gap-1.5">
-            {GRADIENT_PRESETS.map((preset, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleGradientPreset(preset)}
-                className={`aspect-square rounded-md border-2 transition-all hover:scale-105 ${
-                  background.gradientStart === preset.start &&
-                  background.gradientEnd === preset.end
-                    ? 'border-[var(--ink-dark)]'
-                    : 'border-transparent'
-                }`}
-                style={{
-                  background: `linear-gradient(${preset.angle}deg, ${preset.start}, ${preset.end})`,
-                }}
-                title={preset.name}
-              />
-            ))}
+          <div>
+            <span className="text-[11px] text-[var(--ink-subtle)] block mb-1.5">Presets</span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {GRADIENT_PRESETS.map((preset, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleGradientPreset(preset)}
+                  className={`aspect-square rounded-md border-2 transition-all hover:scale-105 ${
+                    background.gradientStart === preset.start &&
+                    background.gradientEnd === preset.end
+                      ? 'border-[var(--ink-dark)]'
+                      : 'border-transparent'
+                  }`}
+                  style={{
+                    background: `linear-gradient(${preset.angle}deg, ${preset.start}, ${preset.end})`,
+                  }}
+                  title={preset.name}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -447,17 +434,16 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
                 step={1}
               />
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[var(--ink-subtle)]">Color</span>
-              <input
-                type="color"
+            <div>
+              <span className="text-[11px] text-[var(--ink-subtle)] block mb-1.5">Color</span>
+              <ColorPicker
                 value={background.border.color}
-                onChange={(e) =>
+                onChange={(color) =>
                   onUpdate({
-                    border: { ...background.border, color: e.target.value },
+                    border: { ...background.border, color },
                   })
                 }
-                className="w-6 h-6 rounded border border-[var(--glass-border)] cursor-pointer bg-transparent"
+                showInput={false}
               />
             </div>
             <div>

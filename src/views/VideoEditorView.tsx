@@ -1668,60 +1668,6 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
                   />
                 </div>
 
-                {/* Advanced Shadow Settings (only when shadow > 0) */}
-                {project.webcam.shadow > 0 && (
-                  <div className="pl-3 border-l border-[var(--glass-border)] space-y-3">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-[var(--ink-subtle)]">Size</span>
-                        <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.webcam.shadowConfig.size)}%</span>
-                      </div>
-                      <Slider
-                        value={[project.webcam.shadowConfig.size]}
-                        onValueChange={(values) => updateWebcamConfig({ 
-                          shadowConfig: { ...project.webcam.shadowConfig, size: values[0] } 
-                        })}
-                        min={0}
-                        max={100}
-                        step={1}
-                        className="w-full"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-[var(--ink-subtle)]">Opacity</span>
-                        <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.webcam.shadowConfig.opacity)}%</span>
-                      </div>
-                      <Slider
-                        value={[project.webcam.shadowConfig.opacity]}
-                        onValueChange={(values) => updateWebcamConfig({ 
-                          shadowConfig: { ...project.webcam.shadowConfig, opacity: values[0] } 
-                        })}
-                        min={0}
-                        max={100}
-                        step={1}
-                        className="w-full"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-[var(--ink-subtle)]">Blur</span>
-                        <span className="text-[11px] text-[var(--ink-faint)]">{Math.round(project.webcam.shadowConfig.blur)}%</span>
-                      </div>
-                      <Slider
-                        value={[project.webcam.shadowConfig.blur]}
-                        onValueChange={(values) => updateWebcamConfig({ 
-                          shadowConfig: { ...project.webcam.shadowConfig, blur: values[0] } 
-                        })}
-                        min={0}
-                        max={100}
-                        step={1}
-                        className="w-full"
-                      />
-                    </div>
-                  </div>
-                )}
-
                 {/* Position Grid */}
                 <div>
                   <span className="text-xs text-[var(--ink-muted)] block mb-2">Position</span>

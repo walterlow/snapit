@@ -177,12 +177,11 @@ function generateSquircleClipPath(
 }
 
 /**
- * Generate CSS drop-shadow filter from shadow settings like Cap.
- * Uses shadow strength as a multiplier for size, opacity, and blur.
+ * Generate CSS drop-shadow filter from a single shadow intensity value.
+ * Creates an even spread shadow around all edges with sensible defaults.
  */
 function getShadowFilter(
   shadow: number,
-  shadowConfig: WebcamConfig['shadowConfig'],
   width: number,
   height: number
 ): string {
@@ -191,13 +190,14 @@ function getShadowFilter(
   const minDim = Math.min(width, height);
   const strength = shadow / 100;
 
-  // Calculate shadow parameters like Cap
-  const size = strength * (shadowConfig.size / 100) * minDim * 0.3;
-  const opacity = strength * (shadowConfig.opacity / 100);
-  const blur = strength * (shadowConfig.blur / 100) * minDim * 0.5;
+  // Sensible defaults baked in:
+  // - Blur scales with size for natural look
+  // - Opacity stays subtle but visible
+  const blur = strength * minDim * 0.15;
+  const opacity = strength * 0.5; // Max 50% opacity at full strength
 
-  // CSS drop-shadow: offset-x offset-y blur-radius color
-  return `drop-shadow(0 ${size}px ${blur}px rgba(0, 0, 0, ${opacity}))`;
+  // CSS drop-shadow with 0 offset for even spread around all edges
+  return `drop-shadow(0 0 ${blur}px rgba(0, 0, 0, ${opacity}))`;
 }
 
 /**
@@ -416,10 +416,10 @@ export const WebcamOverlay = memo(function WebcamOverlay({
     };
   }, [config.border]);
 
-  // Shadow filter - calculated from shadow settings like Cap
+  // Shadow filter - single slider controls everything
   const shadowFilter = useMemo(
-    () => getShadowFilter(config.shadow, config.shadowConfig, webcamWidth, webcamHeight),
-    [config.shadow, config.shadowConfig, webcamWidth, webcamHeight]
+    () => getShadowFilter(config.shadow, webcamWidth, webcamHeight),
+    [config.shadow, webcamWidth, webcamHeight]
   );
 
   // Sync webcam video play/pause state with main playback
@@ -456,49 +456,57 @@ export const WebcamOverlay = memo(function WebcamOverlay({
   }
 
   return (
+    // Outer wrapper for shadow filter (must be separate from clipped element)
     <div
-      className="absolute overflow-hidden z-20"
+      className="absolute z-20"
       style={{
         width: webcamWidth,
         height: webcamHeight,
         ...positionStyle,
-        ...shapeStyle,
-        ...borderStyle,
         filter: shadowFilter,
       }}
     >
-      <video
-        ref={videoRef}
-        src={videoSrc}
-        className="w-full h-full object-cover bg-zinc-800"
+      {/* Inner container with shape clipping and border */}
+      <div
+        className="w-full h-full overflow-hidden"
         style={{
-          // Mirror flips horizontally
-          transform: config.mirror ? 'scaleX(-1)' : 'none',
+          ...shapeStyle,
+          ...borderStyle,
         }}
-        muted
-        playsInline
-        preload="auto"
-        onError={(e) => {
-          webcamLogger.error('Video load error:', e.currentTarget.error);
-        }}
-        onLoadedMetadata={(e) => {
-          updateVideoDimensions(e.currentTarget);
-        }}
-        onLoadedData={(e) => {
-          // Also try here in case metadata event was missed
-          updateVideoDimensions(e.currentTarget);
-        }}
-      />
-      {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
-      {!isPlaying && previewTimeMs !== null && webCodecsReady && hasFrame && (
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+      >
+        <video
+          ref={videoRef}
+          src={videoSrc}
+          className="w-full h-full object-cover bg-zinc-800"
           style={{
+            // Mirror flips horizontally
             transform: config.mirror ? 'scaleX(-1)' : 'none',
           }}
+          muted
+          playsInline
+          preload="auto"
+          onError={(e) => {
+            webcamLogger.error('Video load error:', e.currentTarget.error);
+          }}
+          onLoadedMetadata={(e) => {
+            updateVideoDimensions(e.currentTarget);
+          }}
+          onLoadedData={(e) => {
+            // Also try here in case metadata event was missed
+            updateVideoDimensions(e.currentTarget);
+          }}
         />
-      )}
+        {/* WebCodecs preview canvas - shown during scrubbing for instant preview */}
+        {!isPlaying && previewTimeMs !== null && webCodecsReady && hasFrame && (
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+            style={{
+              transform: config.mirror ? 'scaleX(-1)' : 'none',
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 });

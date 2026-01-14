@@ -8,6 +8,8 @@ use tauri::{AppHandle, Emitter};
 use crate::commands::video_recording::video_export::{ExportProgress, ExportStage};
 use crate::commands::video_recording::video_project::{ExportFormat, VideoProject};
 
+use super::encoder_selection::{select_encoder, EncoderType};
+
 /// Audio input info for building ffmpeg filter.
 struct AudioInput {
     input_index: usize,
@@ -74,14 +76,18 @@ pub fn start_ffmpeg_encoder(
     // Output encoding based on format
     match project.export.format {
         ExportFormat::Mp4 => {
-            let crf = quality_to_crf(project.export.quality);
+            // Select encoder (NVENC if available and preferred, otherwise x264)
+            let prefer_hardware = project.export.prefer_hardware_encoding.unwrap_or(false);
+            let encoder_config =
+                select_encoder(&ffmpeg_path, project.export.quality, prefer_hardware);
+
             args.extend([
                 "-c:v".to_string(),
-                "libx264".to_string(),
-                "-crf".to_string(),
-                crf.to_string(),
+                encoder_config.codec.clone(),
+                encoder_config.quality_param.clone(),
+                encoder_config.quality_value.to_string(),
                 "-preset".to_string(),
-                "fast".to_string(),
+                encoder_config.preset.clone(),
                 "-pix_fmt".to_string(),
                 "yuv420p".to_string(),
                 // Keyframe every 1 second for precise seeking
@@ -91,6 +97,34 @@ pub fn start_ffmpeg_encoder(
                 "-movflags".to_string(),
                 "+faststart".to_string(),
             ]);
+
+            // Encoder-specific optimizations
+            if encoder_config.encoder_type == EncoderType::Nvenc {
+                // NVENC: add b-frames and lookahead for better quality
+                args.extend([
+                    "-bf".to_string(),
+                    "2".to_string(),
+                    "-rc-lookahead".to_string(),
+                    "20".to_string(),
+                ]);
+            } else {
+                // x264: enable multi-threaded encoding for better CPU utilization
+                args.extend([
+                    "-threads".to_string(),
+                    "0".to_string(), // Auto-detect CPU cores
+                    "-x264-params".to_string(),
+                    "threads=auto:lookahead_threads=auto".to_string(),
+                ]);
+            }
+
+            log::info!(
+                "[EXPORT] Encoder: {} (preset: {}, {}: {})",
+                encoder_config.codec,
+                encoder_config.preset,
+                encoder_config.quality_param,
+                encoder_config.quality_value
+            );
+
             if !audio_inputs.is_empty() {
                 if let Some(ref filter) = audio_filter {
                     args.extend(["-filter_complex".to_string(), filter.clone()]);

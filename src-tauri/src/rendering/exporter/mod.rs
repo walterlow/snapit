@@ -5,9 +5,12 @@
 //! 2. Render on GPU with zoom/webcam effects
 //! 3. Pipe rendered RGBA frames to FFmpeg for encoding only
 
+mod encoder_selection;
 mod ffmpeg;
 mod frame_ops;
 mod webcam;
+
+pub use encoder_selection::is_nvenc_available;
 
 #[cfg(test)]
 mod tests;

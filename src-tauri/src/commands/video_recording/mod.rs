@@ -1304,6 +1304,19 @@ pub async fn export_video(
     Ok(result)
 }
 
+/// Check if NVENC hardware encoding is available.
+///
+/// This tests if the system has an NVIDIA GPU with NVENC support
+/// by running a quick FFmpeg encode test.
+///
+/// # Returns
+/// true if NVENC is available, false otherwise
+#[command]
+pub async fn check_nvenc_available() -> Result<bool, String> {
+    let ffmpeg_path = crate::commands::storage::find_ffmpeg().ok_or("FFmpeg not found")?;
+    Ok(crate::rendering::exporter::is_nvenc_available(&ffmpeg_path))
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================

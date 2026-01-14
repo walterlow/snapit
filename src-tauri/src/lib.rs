@@ -271,6 +271,7 @@ pub fn run() {
             commands::video_recording::extract_audio_waveform,
             commands::video_recording::generate_auto_zoom,
             commands::video_recording::export_video,
+            commands::video_recording::check_nvenc_available,
             // GPU-accelerated video editor commands
             commands::video_recording::gpu_editor::create_editor_instance,
             commands::video_recording::gpu_editor::destroy_editor_instance,

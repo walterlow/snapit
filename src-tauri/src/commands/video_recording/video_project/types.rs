@@ -645,6 +645,14 @@ pub struct ExportConfig {
     /// Crop configuration for video output.
     #[serde(default)]
     pub crop: CropConfig,
+    /// Prefer hardware encoding (NVENC) when available.
+    /// Defaults to true. Set to false to force software encoding.
+    #[serde(default = "default_prefer_hardware")]
+    pub prefer_hardware_encoding: Option<bool>,
+}
+
+fn default_prefer_hardware() -> Option<bool> {
+    Some(false)
 }
 
 impl Default for ExportConfig {
@@ -658,6 +666,7 @@ impl Default for ExportConfig {
             aspect_ratio: AspectRatio::Auto,
             background: BackgroundConfig::default(),
             crop: CropConfig::default(),
+            prefer_hardware_encoding: Some(false),
         }
     }
 }

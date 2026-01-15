@@ -26,7 +26,7 @@ import { BackgroundSettings } from '../components/VideoEditor/BackgroundSettings
 import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
-import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, SceneMode, ZoomRegion, CropConfig, MaskSegment, MaskType, TextSegment } from '../types';
+import type { ExportProgress, WebcamOverlayShape, WebcamOverlayPosition, AspectRatio, ExportPreset, SceneMode, ZoomRegion, CropConfig, CompositionConfig, MaskSegment, MaskType, TextSegment } from '../types';
 import { videoEditorLogger } from '../utils/logger';
 
 /**
@@ -903,10 +903,15 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
     }
   }, [project, exportVideo]);
 
-  // Handle crop apply
-  const handleCropApply = useCallback((crop: CropConfig) => {
-    updateExportConfig({ crop });
-    toast.success(crop.enabled ? 'Crop applied' : 'Crop removed');
+  // Handle crop apply (with composition)
+  const handleCropApply = useCallback((crop: CropConfig, composition: CompositionConfig) => {
+    updateExportConfig({ crop, composition });
+    const message = crop.enabled
+      ? composition.mode === 'manual'
+        ? `Video cropped, composition set to ${composition.aspectPreset}`
+        : 'Crop applied'
+      : 'Crop removed';
+    toast.success(message);
   }, [updateExportConfig]);
 
   // Seek to start
@@ -1770,7 +1775,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
         <VideoTimeline onExport={handleExport} />
       </div>
 
-      {/* Crop Dialog */}
+      {/* Crop Dialog - crops video content before composition */}
       {project && (
         <CropDialog
           open={isCropDialogOpen}
@@ -1779,6 +1784,8 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
           videoWidth={project.sources.originalWidth}
           videoHeight={project.sources.originalHeight}
           initialCrop={project.export.crop}
+          initialComposition={project.export.composition}
+          videoPath={project.sources.screenVideo}
         />
       )}
 

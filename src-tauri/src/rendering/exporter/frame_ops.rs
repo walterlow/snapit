@@ -1,9 +1,116 @@
 //! Frame manipulation operations.
 //!
-//! Includes scaling, blending, and cursor drawing.
+//! Includes scaling, blending, cropping, and cursor drawing.
 
 use super::super::types::DecodedFrame;
 use crate::commands::video_recording::video_project::SceneMode;
+
+/// Extract a cropped region from RGBA frame data.
+///
+/// This is used for non-destructive crop - the frame is rendered at full size,
+/// then the cropped region is extracted before encoding.
+///
+/// Returns the cropped RGBA data with proper row ordering.
+pub fn extract_crop_region(
+    frame_data: &[u8],
+    frame_width: u32,
+    frame_height: u32,
+    crop_x: u32,
+    crop_y: u32,
+    crop_width: u32,
+    crop_height: u32,
+) -> Vec<u8> {
+    // Clamp crop region to frame bounds
+    let crop_x = crop_x.min(frame_width.saturating_sub(1));
+    let crop_y = crop_y.min(frame_height.saturating_sub(1));
+    let crop_width = crop_width.min(frame_width.saturating_sub(crop_x));
+    let crop_height = crop_height.min(frame_height.saturating_sub(crop_y));
+
+    // Ensure even dimensions for video encoding
+    let crop_width = (crop_width / 2) * 2;
+    let crop_height = (crop_height / 2) * 2;
+
+    if crop_width == 0 || crop_height == 0 {
+        log::warn!(
+            "[CROP] Invalid crop region: {}x{} at ({}, {})",
+            crop_width,
+            crop_height,
+            crop_x,
+            crop_y
+        );
+        return frame_data.to_vec();
+    }
+
+    let mut output = Vec::with_capacity((crop_width * crop_height * 4) as usize);
+    let src_stride = (frame_width * 4) as usize;
+    let crop_stride = (crop_width * 4) as usize;
+
+    for row in 0..crop_height {
+        let src_y = crop_y + row;
+        let src_row_start = (src_y as usize * src_stride) + (crop_x as usize * 4);
+        let src_row_end = src_row_start + crop_stride;
+
+        if src_row_end <= frame_data.len() {
+            output.extend_from_slice(&frame_data[src_row_start..src_row_end]);
+        } else {
+            // Fill with black if out of bounds
+            output.extend(vec![0u8; crop_stride]);
+        }
+    }
+
+    output
+}
+
+/// Crop a DecodedFrame to the specified region.
+///
+/// This is used for video crop - cropping the source video before composition.
+/// Returns a new DecodedFrame with the cropped dimensions.
+pub fn crop_decoded_frame(
+    frame: &DecodedFrame,
+    crop_x: u32,
+    crop_y: u32,
+    crop_width: u32,
+    crop_height: u32,
+) -> DecodedFrame {
+    // Clamp crop region to frame bounds
+    let crop_x = crop_x.min(frame.width.saturating_sub(1));
+    let crop_y = crop_y.min(frame.height.saturating_sub(1));
+    let crop_width = crop_width.min(frame.width.saturating_sub(crop_x));
+    let crop_height = crop_height.min(frame.height.saturating_sub(crop_y));
+
+    // Ensure even dimensions for video encoding
+    let crop_width = (crop_width / 2) * 2;
+    let crop_height = (crop_height / 2) * 2;
+
+    if crop_width == 0 || crop_height == 0 {
+        log::warn!(
+            "[CROP] Invalid frame crop: {}x{} at ({}, {})",
+            crop_width,
+            crop_height,
+            crop_x,
+            crop_y
+        );
+        return frame.clone();
+    }
+
+    let cropped_data = extract_crop_region(
+        &frame.data,
+        frame.width,
+        frame.height,
+        crop_x,
+        crop_y,
+        crop_width,
+        crop_height,
+    );
+
+    DecodedFrame {
+        frame_number: frame.frame_number,
+        timestamp_ms: frame.timestamp_ms,
+        data: cropped_data,
+        width: crop_width,
+        height: crop_height,
+    }
+}
 
 /// Scale a frame to COVER target dimensions (crop to fill, like CSS object-fit: cover).
 /// Used for CameraOnly mode to show webcam fullscreen, matching Cap's approach.

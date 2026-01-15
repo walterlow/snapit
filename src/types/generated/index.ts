@@ -104,6 +104,8 @@ export type { BackgroundConfig } from './BackgroundConfig';
 export type { BackgroundShadowConfig } from './BackgroundShadowConfig';
 export type { BorderConfig } from './BorderConfig';
 export type { CropConfig } from './CropConfig';
+export type { CompositionMode } from './CompositionMode';
+export type { CompositionConfig } from './CompositionConfig';
 export type { ExportProgress } from './ExportProgress';
 export type { ExportResult } from './ExportResult';
 export type { ExportStage } from './ExportStage';

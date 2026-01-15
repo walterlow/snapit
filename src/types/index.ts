@@ -460,6 +460,8 @@ export type {
   BackgroundType as VideoBackgroundType,
   BackgroundConfig,
   CropConfig,
+  CompositionMode,
+  CompositionConfig,
   ExportProgress,
   ExportResult,
   ExportStage,

@@ -13,7 +13,7 @@ import { ClickHighlightOverlay } from './ClickHighlightOverlay';
 import { MaskOverlay } from './MaskOverlay';
 import { TextOverlay } from './TextOverlay';
 import { UnifiedTextOverlay } from './UnifiedTextOverlay';
-import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment } from '../../types';
+import type { SceneSegment, SceneMode, WebcamConfig, ZoomRegion, CursorRecording, CursorConfig, MaskSegment, TextSegment, CropConfig } from '../../types';
 
 // Selectors to prevent re-renders from unrelated store changes
 const selectProject = (s: ReturnType<typeof useVideoEditorStore.getState>) => s.project;
@@ -126,11 +126,13 @@ const VideoNoZoom = memo(function VideoNoZoom({
   videoSrc,
   onVideoClick,
   hidden,
+  cropStyle,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string;
   onVideoClick: () => void;
   hidden?: boolean;
+  cropStyle?: React.CSSProperties;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
   const isPlaying = useVideoEditorStore(selectIsPlaying);
@@ -149,16 +151,21 @@ const VideoNoZoom = memo(function VideoNoZoom({
     }
   }, [videoRef, currentTimeMs, isPlaying]);
 
+  // Default to contain, but crop style can override with cover + position
+  const hasCrop = cropStyle && cropStyle.objectFit === 'cover';
+
   return (
     <video
       ref={videoRef}
       src={videoSrc}
-      className="w-full h-full object-contain cursor-pointer bg-[var(--polar-ice)]"
+      className="w-full h-full cursor-pointer bg-[var(--polar-ice)]"
       style={{
         minWidth: 320,
         minHeight: 180,
         opacity: hidden ? 0 : 1,
         pointerEvents: hidden ? 'none' : 'auto',
+        objectFit: hasCrop ? 'cover' : 'contain',
+        ...cropStyle,
       }}
       onClick={onVideoClick}
       playsInline
@@ -256,6 +263,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   backgroundPadding = 0,
   rounding = 0,
   frameStyle,
+  cropConfig,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc: string | null | undefined;
@@ -289,6 +297,8 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   rounding?: number;
   /** Frame styling (rounding, shadow, border) to apply to zoom wrapper */
   frameStyle?: React.CSSProperties;
+  /** Crop configuration for video content */
+  cropConfig?: CropConfig;
 }) {
   const currentTimeMs = usePreviewOrPlaybackTime();
   const scene = useInterpolatedScene(sceneSegments, defaultSceneMode, currentTimeMs);
@@ -307,17 +317,10 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
 
   // Calculate transition styles - no CSS transitions, JS interpolation handles smoothness
   const screenStyle: React.CSSProperties = {
-    opacity: scene.screenOpacity,
-    filter: scene.screenBlur > 0.01 ? `blur(${scene.screenBlur * 20}px)` : undefined,
-  };
-
-  const fullscreenWebcamStyle: React.CSSProperties = {
     position: 'absolute',
     inset: 0,
-    zIndex: 10,
-    opacity: cameraOnlyOpacity,
-    transform: `scale(${scene.cameraOnlyZoom})`,
-    filter: scene.cameraOnlyBlur > 0.01 ? `blur(${scene.cameraOnlyBlur * 10}px)` : undefined,
+    opacity: scene.screenOpacity,
+    filter: scene.screenBlur > 0.01 ? `blur(${scene.screenBlur * 20}px)` : undefined,
   };
 
   // Combined frame + zoom style for the wrapper
@@ -325,16 +328,116 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   // During camera-only transitions, fade out the frame to prevent zoomed content
   // from bleeding through at the edges behind the fullscreen webcam
   const frameOpacity = 1 - cameraOnlyOpacity; // Fade out frame as webcam fades in
+
+  // When crop is enabled, the frame should have the crop aspect ratio and be centered
+  // The composition container has the original video aspect ratio
+  const cropEnabled = cropConfig?.enabled && cropConfig.width > 0 && cropConfig.height > 0;
+
+  // Calculate crop aspect ratio for frame sizing
+  const cropAspectRatio = cropEnabled && cropConfig
+    ? cropConfig.width / cropConfig.height
+    : null;
+
+  // Only apply crop-based frame sizing when we have background padding
+  // (so the cropped frame is visible against the background)
+  // When no background, frame fills container and crop only affects video content
+  const applyCropToFrameSize = cropEnabled && backgroundPadding > 0;
+
+  // Calculate cropped frame dimensions to fit inside container while maintaining crop aspect
+  const croppedFrameSize = useMemo(() => {
+    if (!applyCropToFrameSize || !cropAspectRatio || containerWidth === 0 || containerHeight === 0) {
+      return null;
+    }
+
+    const containerAspect = containerWidth / containerHeight;
+
+    if (containerAspect > cropAspectRatio) {
+      // Container is wider than crop - height constrains
+      return {
+        width: containerHeight * cropAspectRatio,
+        height: containerHeight,
+      };
+    } else {
+      // Container is taller than crop - width constrains
+      return {
+        width: containerWidth,
+        height: containerWidth / cropAspectRatio,
+      };
+    }
+  }, [applyCropToFrameSize, cropAspectRatio, containerWidth, containerHeight]);
+
+  // DEBUG: Log crop state
+  console.log('[CROP DEBUG] SceneModeRenderer:', {
+    cropEnabled,
+    cropConfig,
+    cropAspectRatio,
+    backgroundPadding,
+    applyCropToFrameSize,
+    containerWidth,
+    containerHeight,
+    croppedFrameSize,
+    videoWidth,
+    videoHeight,
+  });
+
+  // Fullscreen webcam style - uses same crop sizing as the frame when crop is enabled
+  const fullscreenWebcamStyle: React.CSSProperties = {
+    position: 'absolute',
+    zIndex: 10,
+    opacity: cameraOnlyOpacity,
+    filter: scene.cameraOnlyBlur > 0.01 ? `blur(${scene.cameraOnlyBlur * 10}px)` : undefined,
+    // When crop is enabled with background, use crop dimensions (centered)
+    // Otherwise fill container
+    ...(applyCropToFrameSize && croppedFrameSize ? {
+      width: croppedFrameSize.width,
+      height: croppedFrameSize.height,
+      left: '50%',
+      top: '50%',
+      transform: `translate(-50%, -50%) scale(${scene.cameraOnlyZoom})`,
+    } : {
+      inset: 0,
+      transform: `scale(${scene.cameraOnlyZoom})`,
+    }),
+  };
+
   const frameZoomStyle: React.CSSProperties = {
-    position: 'relative',
-    width: '100%',
-    height: '100%',
+    position: 'relative', // Always relative so absolutely positioned children work
     overflow: 'hidden',
     ...frameStyle,
     ...(showScreen ? zoomStyle : {}),
     opacity: frameOpacity,
     visibility: frameOpacity < 0.01 ? 'hidden' : 'visible',
+    // When cropped with background: use calculated dimensions to fit inside container
+    // Otherwise: fill container
+    ...(applyCropToFrameSize && croppedFrameSize ? {
+      width: croppedFrameSize.width,
+      height: croppedFrameSize.height,
+    } : {
+      width: '100%',
+      height: '100%',
+    }),
   };
+
+  // Video crop style - uses object-fit: cover with object-position
+  // Frame already has the crop aspect ratio, so cover + position shows correct region
+  const videoCropStyle: React.CSSProperties = useMemo(() => {
+    if (!cropEnabled || !cropConfig) {
+      return {};
+    }
+
+    // Calculate object-position to show the correct crop region
+    // position = crop.offset / (video - crop) * 100%
+    const overflowX = videoWidth - cropConfig.width;
+    const overflowY = videoHeight - cropConfig.height;
+
+    const posX = overflowX > 0 ? (cropConfig.x / overflowX) * 100 : 50;
+    const posY = overflowY > 0 ? (cropConfig.y / overflowY) * 100 : 50;
+
+    return {
+      objectFit: 'cover' as const,
+      objectPosition: `${posX}% ${posY}%`,
+    };
+  }, [cropEnabled, cropConfig, videoWidth, videoHeight]);
 
   return (
     <>
@@ -349,6 +452,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
               videoSrc={videoSrc}
               onVideoClick={onVideoClick}
               hidden={false}
+              cropStyle={videoCropStyle}
             />
           </div>
         )}
@@ -552,9 +656,12 @@ export function GPUVideoPreview() {
       : 16 / 9;
   }, [project?.sources.originalWidth, project?.sources.originalHeight]);
 
-  // Get background config for frame styling preview
+  // Get background and crop config for frame styling preview
   const backgroundConfig = project?.export?.background;
+  const cropConfig = project?.export?.crop;
   const originalWidth = project?.sources.originalWidth ?? 1920;
+  const originalHeight = project?.sources.originalHeight ?? 1080;
+
 
   // GPU preview modes:
   // - During scrubbing (not playing): Full frame (video + text) rendered by GPU
@@ -600,8 +707,9 @@ export function GPUVideoPreview() {
   }, [backgroundConfig?.bgType, backgroundConfig?.wallpaper]);
 
   // Calculate composite dimensions including padding
+  // Composition uses ORIGINAL video dimensions - crop only affects the video frame inside
   const compositeWidth = originalWidth + (backgroundConfig?.padding ?? 0) * 2;
-  const compositeHeight = (project?.sources.originalHeight ?? 1080) + (backgroundConfig?.padding ?? 0) * 2;
+  const compositeHeight = originalHeight + (backgroundConfig?.padding ?? 0) * 2;
   const compositeAspectRatio = compositeWidth / compositeHeight;
 
   // Calculate scale factor for preview (preview size / original size)
@@ -630,6 +738,21 @@ export function GPUVideoPreview() {
   };
 
   
+  // DEBUG: Log parent state
+  console.log('[CROP DEBUG] GPUVideoPreview:', {
+    hasFrameStyling,
+    backgroundConfig,
+    cropConfig,
+    containerSize,
+    compositeWidth,
+    compositeHeight,
+    compositeAspectRatio,
+    previewScale,
+    compositionSize,
+    originalWidth,
+    originalHeight,
+  });
+
   // Frame style for the video container (scaled rounding, shadow, border)
   const frameStyle = useMemo((): React.CSSProperties => {
     if (!backgroundConfig) return {};
@@ -929,9 +1052,15 @@ export function GPUVideoPreview() {
         style={{
           // Use composite aspect ratio when frame styling enabled, video aspect ratio when disabled
           aspectRatio: hasFrameStyling ? compositeAspectRatio : aspectRatio,
-          maxWidth: '100%',
+          // Need explicit width for aspect-ratio to calculate height
+          // Use 100% width, constrained by maxHeight if too tall for container
+          width: '100%',
           maxHeight: '100%',
-          padding: hasFrameStyling ? (backgroundConfig?.padding ?? 0) * previewScale : undefined,
+          // Padding as percentage of total width - avoids feedback loop with previewScale
+          // paddingPercent = rawPadding / compositeWidth * 100
+          padding: hasFrameStyling && backgroundConfig?.padding
+            ? `${(backgroundConfig.padding / compositeWidth) * 100}%`
+            : undefined,
           // Use only 'background' to avoid React warning about mixing shorthand/non-shorthand properties
           background: hasFrameStyling
             ? backgroundConfig?.bgType === 'solid'
@@ -975,10 +1104,10 @@ export function GPUVideoPreview() {
         )}
         <div
           ref={containerRef}
-          className="relative z-10"
+          className="relative z-10 flex items-center justify-center"
           style={{
             // When frame styling enabled: fill remaining space after padding (outer wrapper handles aspect ratio)
-            // When disabled: use video aspect ratio directly
+            // When disabled: use video aspect ratio directly with explicit width for sizing
             // Note: overflow is NOT hidden here - the frame wrapper inside handles clipping
             // This allows the zoomed frame (with rounded corners) to be visible
             ...(hasFrameStyling ? {
@@ -986,7 +1115,7 @@ export function GPUVideoPreview() {
               height: '100%',
             } : {
               aspectRatio: aspectRatio,
-              maxWidth: '100%',
+              width: '100%',
               maxHeight: '100%',
               filter: 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',
             }),
@@ -1007,6 +1136,7 @@ export function GPUVideoPreview() {
               containerHeight={containerSize.height}
               videoAspectRatio={aspectRatio}
               videoWidth={project?.sources.originalWidth ?? 1920}
+              cropConfig={cropConfig}
               videoHeight={project?.sources.originalHeight ?? 1080}
               maskSegments={project?.mask?.segments}
               textSegments={project?.text?.segments}

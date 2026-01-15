@@ -642,9 +642,12 @@ pub struct ExportConfig {
     pub aspect_ratio: AspectRatio,
     /// Background configuration for letterboxing/padding.
     pub background: BackgroundConfig,
-    /// Crop configuration for video output.
+    /// Crop configuration for video content (crops source video before composition).
     #[serde(default)]
     pub crop: CropConfig,
+    /// Composition configuration (output canvas size/aspect).
+    #[serde(default)]
+    pub composition: CompositionConfig,
     /// Prefer hardware encoding (NVENC) when available.
     /// Defaults to true. Set to false to force software encoding.
     #[serde(default = "default_prefer_hardware")]
@@ -666,6 +669,7 @@ impl Default for ExportConfig {
             aspect_ratio: AspectRatio::Auto,
             background: BackgroundConfig::default(),
             crop: CropConfig::default(),
+            composition: CompositionConfig::default(),
             prefer_hardware_encoding: Some(false),
         }
     }
@@ -906,6 +910,49 @@ impl Default for CropConfig {
             height: 0,
             lock_aspect_ratio: false,
             aspect_ratio: None,
+        }
+    }
+}
+
+/// Composition mode for output canvas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum CompositionMode {
+    /// Auto mode - composition matches video crop dimensions (+ padding).
+    Auto,
+    /// Manual mode - user specifies composition aspect ratio.
+    Manual,
+}
+
+impl Default for CompositionMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+/// Composition configuration for output canvas.
+/// Defines how the cropped video is placed within the output frame.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct CompositionConfig {
+    /// Composition mode (auto or manual).
+    #[serde(default)]
+    pub mode: CompositionMode,
+    /// Target aspect ratio for manual mode (width/height, e.g., 1.7778 for 16:9).
+    /// In auto mode, this is ignored.
+    pub aspect_ratio: Option<f32>,
+    /// Preset aspect ratio name for UI (e.g., "16:9", "1:1").
+    pub aspect_preset: Option<String>,
+}
+
+impl Default for CompositionConfig {
+    fn default() -> Self {
+        Self {
+            mode: CompositionMode::Auto,
+            aspect_ratio: None,
+            aspect_preset: None,
         }
     }
 }

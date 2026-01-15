@@ -8,14 +8,15 @@
 mod encoder_selection;
 mod ffmpeg;
 mod frame_ops;
+mod pipeline;
 mod webcam;
 
 pub use encoder_selection::is_nvenc_available;
+use pipeline::{spawn_decode_task, spawn_encode_task};
 
 #[cfg(test)]
 mod tests;
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
@@ -32,7 +33,9 @@ use super::zoom::ZoomInterpolator;
 use crate::commands::video_recording::cursor::events::load_cursor_recording;
 use crate::commands::video_recording::video_export::{ExportResult, ExportStage};
 use crate::commands::video_recording::video_project::XY;
-use crate::commands::video_recording::video_project::{CursorType, SceneMode, VideoProject};
+use crate::commands::video_recording::video_project::{
+    CompositionMode, CursorType, SceneMode, VideoProject,
+};
 
 // Re-export submodule functions used externally
 pub use ffmpeg::emit_progress;
@@ -40,7 +43,7 @@ pub use frame_ops::draw_cursor_circle;
 pub use webcam::build_webcam_overlay;
 
 use ffmpeg::start_ffmpeg_encoder;
-use frame_ops::{blend_frames_alpha, scale_frame_to_fill};
+use frame_ops::{blend_frames_alpha, crop_decoded_frame, scale_frame_to_fill};
 use webcam::is_webcam_visible_at;
 
 /// Export a video project using GPU rendering.
@@ -72,23 +75,109 @@ pub async fn export_video_gpu(
 
     // Calculate export parameters
     let fps = project.export.fps;
-    let width = project.sources.original_width;
-    let height = project.sources.original_height;
+    let original_width = project.sources.original_width;
+    let original_height = project.sources.original_height;
     let in_point_ms = project.timeline.in_point;
     let out_point_ms = project.timeline.out_point;
     let duration_ms = out_point_ms - in_point_ms;
     let duration_secs = duration_ms as f64 / 1000.0;
     let total_frames = ((duration_ms as f64 / 1000.0) * fps as f64).ceil() as u32;
 
-    // Include background padding in output dimensions (matches preview composition size)
-    // This ensures webcam overlay is anchored to the full composition, not just the video area
+    // Clone configs to avoid borrow issues with project
+    let crop = project.export.crop.clone();
+    let composition = project.export.composition.clone();
     let padding = project.export.background.padding as u32;
-    let out_w = ((width + padding * 2) / 2) * 2;
-    let out_h = ((height + padding * 2) / 2) * 2;
 
-    // Video dimensions without padding (for camera-only blending)
-    let video_w = (width / 2) * 2;
-    let video_h = (height / 2) * 2;
+    // Step 1: Determine video dimensions after crop
+    let crop_enabled = crop.enabled && crop.width > 0 && crop.height > 0;
+    let (video_w, video_h) = if crop_enabled {
+        // Video crop is applied - use crop dimensions
+        let crop_w = (crop.width / 2) * 2;
+        let crop_h = (crop.height / 2) * 2;
+        log::info!(
+            "[EXPORT] Video crop enabled: {}x{} at ({}, {})",
+            crop_w,
+            crop_h,
+            crop.x,
+            crop.y
+        );
+        (crop_w, crop_h)
+    } else {
+        // No crop - use original video dimensions
+        let w = (original_width / 2) * 2;
+        let h = (original_height / 2) * 2;
+        (w, h)
+    };
+
+    // Step 2: Calculate composition (output) dimensions based on composition mode
+    let (composition_w, composition_h) = match composition.mode {
+        CompositionMode::Auto => {
+            // Auto mode: composition matches video crop + padding
+            let w = ((video_w + padding * 2) / 2) * 2;
+            let h = ((video_h + padding * 2) / 2) * 2;
+            log::info!(
+                "[EXPORT] Auto composition: {}x{} (video {}x{} + padding {})",
+                w,
+                h,
+                video_w,
+                video_h,
+                padding
+            );
+            (w, h)
+        },
+        CompositionMode::Manual => {
+            // Manual mode: use specified aspect ratio, scale to fit video
+            if let Some(target_ratio) = composition.aspect_ratio {
+                // Calculate composition size that fits the video at the target aspect ratio
+                let video_ratio = video_w as f32 / video_h as f32;
+
+                let (comp_w, comp_h) = if target_ratio > video_ratio {
+                    // Composition is wider than video - video height determines composition height
+                    // Add padding to video, then calculate width from aspect ratio
+                    let h = video_h + padding * 2;
+                    let w = (h as f32 * target_ratio) as u32;
+                    (w, h)
+                } else {
+                    // Composition is taller than video - video width determines composition width
+                    // Add padding to video, then calculate height from aspect ratio
+                    let w = video_w + padding * 2;
+                    let h = (w as f32 / target_ratio) as u32;
+                    (w, h)
+                };
+
+                // Ensure even dimensions
+                let w = (comp_w / 2) * 2;
+                let h = (comp_h / 2) * 2;
+
+                log::info!(
+                    "[EXPORT] Manual composition: {}x{} (ratio {:.3}, video {}x{})",
+                    w,
+                    h,
+                    target_ratio,
+                    video_w,
+                    video_h
+                );
+                (w, h)
+            } else {
+                // No aspect ratio specified, fall back to auto
+                let w = ((video_w + padding * 2) / 2) * 2;
+                let h = ((video_h + padding * 2) / 2) * 2;
+                log::info!(
+                    "[EXPORT] Manual composition (no ratio): {}x{} (video {}x{} + padding {})",
+                    w,
+                    h,
+                    video_w,
+                    video_h,
+                    padding
+                );
+                (w, h)
+            }
+        },
+    };
+
+    // Output dimensions = composition dimensions
+    let out_w = composition_w;
+    let out_h = composition_h;
 
     // Initialize streaming decoders (ONE FFmpeg process each!)
     let screen_path = Path::new(&project.sources.screen_video);
@@ -96,7 +185,7 @@ pub async fn export_video_gpu(
     screen_decoder.start(screen_path)?;
 
     // Webcam decoder if enabled
-    let mut webcam_decoder = if project.webcam.enabled {
+    let webcam_decoder = if project.webcam.enabled {
         if let Some(ref path) = project.sources.webcam_video {
             let webcam_path = Path::new(path);
             if webcam_path.exists() {
@@ -114,6 +203,10 @@ pub async fn export_video_gpu(
     };
 
     let has_webcam = webcam_decoder.is_some();
+
+    // Spawn decode task for pipeline parallelism
+    let (mut decode_rx, decode_handle) =
+        spawn_decode_task(screen_decoder, webcam_decoder, total_frames);
 
     log::info!(
         "[EXPORT] GPU export (streaming): {}x{} @ {}fps, {} frames, webcam={}",
@@ -152,7 +245,10 @@ pub async fn export_video_gpu(
 
     // Start FFmpeg encoder (takes raw RGBA from stdin)
     let mut ffmpeg = start_ffmpeg_encoder(&project, &output_path, out_w, out_h, fps)?;
-    let mut stdin = ffmpeg.stdin.take().ok_or("Failed to get FFmpeg stdin")?;
+    let stdin = ffmpeg.stdin.take().ok_or("Failed to get FFmpeg stdin")?;
+
+    // Spawn encode task for pipeline parallelism
+    let (encode_tx, encode_handle) = spawn_encode_task(stdin);
 
     // NOTE: Auto zoom generation is disabled. Users must explicitly add zoom regions.
     // The zoom mode in project.zoom.mode is used to control how existing regions behave,
@@ -208,15 +304,22 @@ pub async fn export_video_gpu(
 
     emit_progress(&app, 0.08, ExportStage::Encoding, "Rendering frames...");
 
-    // Render each frame sequentially from streaming decoders
-    let mut frame_idx = 0u32;
-    let mut last_webcam_frame: Option<super::types::DecodedFrame> = None; // Cache last webcam frame
+    // Render frames from decode pipeline, send to encode pipeline
+    while let Some(bundle) = decode_rx.recv().await {
+        let frame_idx = bundle.frame_idx;
+        let current_webcam_frame = bundle.webcam_frame;
 
-    loop {
-        // Read next screen frame from stream (async)
-        let screen_frame = match screen_decoder.next_frame().await? {
-            Some(frame) => frame,
-            None => break, // End of stream
+        // Apply video crop to screen frame BEFORE composition
+        let screen_frame = if crop_enabled {
+            crop_decoded_frame(
+                &bundle.screen_frame,
+                crop.x,
+                crop.y,
+                crop.width,
+                crop.height,
+            )
+        } else {
+            bundle.screen_frame
         };
 
         // Calculate relative timestamp (position in trimmed video = what timeline shows)
@@ -238,19 +341,6 @@ pub async fn export_video_gpu(
                 interpolated_scene.transition_progress
             );
         }
-
-        // Read webcam frame if we have a decoder (always consume to stay in sync)
-        let current_webcam_frame = if let Some(ref mut decoder) = webcam_decoder {
-            match decoder.next_frame().await {
-                Ok(Some(webcam_frame)) => {
-                    last_webcam_frame = Some(webcam_frame.clone());
-                    Some(webcam_frame)
-                },
-                _ => last_webcam_frame.clone(),
-            }
-        } else {
-            None
-        };
 
         // Determine what to render based on interpolated scene values
         // This handles smooth transitions between scene modes
@@ -303,8 +393,12 @@ pub async fn export_video_gpu(
 
                 // Regular webcam overlay during transition (fades at 1.5x speed)
                 let overlay = if regular_camera_opacity > 0.01 && webcam_visible {
-                    let mut overlay =
-                        build_webcam_overlay(&project, webcam_frame.clone(), out_w, out_h);
+                    let mut overlay = build_webcam_overlay(
+                        &project,
+                        webcam_frame.clone(),
+                        composition_w,
+                        composition_h,
+                    );
                     // Apply the transition opacity to the overlay
                     overlay.shadow_opacity *= regular_camera_opacity as f32;
                     Some(overlay)
@@ -328,7 +422,12 @@ pub async fn export_video_gpu(
                     // Default mode - screen with webcam overlay (if visible)
                     let overlay = if webcam_visible && regular_camera_opacity > 0.01 {
                         current_webcam_frame.as_ref().map(|frame| {
-                            build_webcam_overlay(&project, frame.clone(), out_w, out_h)
+                            build_webcam_overlay(
+                                &project,
+                                frame.clone(),
+                                composition_w,
+                                composition_h,
+                            )
                         })
                     } else {
                         None
@@ -353,8 +452,8 @@ pub async fn export_video_gpu(
         }
 
         let render_options = RenderOptions {
-            output_width: out_w,
-            output_height: out_h,
+            output_width: composition_w,
+            output_height: composition_h,
             zoom: zoom_state,
             webcam: webcam_overlay,
             cursor: None,
@@ -365,7 +464,7 @@ pub async fn export_video_gpu(
         // Time is in seconds, output_size uses XY struct
         let frame_time_secs = relative_time_ms as f64 / 1000.0;
         let prepared_texts = prepare_texts(
-            XY::new(out_w, out_h),
+            XY::new(composition_w, composition_h),
             frame_time_secs,
             &project.text.segments,
         );
@@ -381,8 +480,10 @@ pub async fn export_video_gpu(
             )
             .await;
 
-        // Read rendered frame back to CPU
-        let mut rgba_data = renderer.read_texture(&output_texture, out_w, out_h).await;
+        // Read rendered frame back to CPU (at composition size, before crop)
+        let mut rgba_data = renderer
+            .read_texture(&output_texture, composition_w, composition_h)
+            .await;
 
         // Composite cursor onto frame (CPU-based) if cursor is visible and not in cameraOnly mode
         if let Some(ref cursor_interp) = cursor_interpolator {
@@ -395,8 +496,8 @@ pub async fn export_video_gpu(
                     // Draw circle indicator instead of actual cursor
                     draw_cursor_circle(
                         &mut rgba_data,
-                        out_w,
-                        out_h,
+                        composition_w,
+                        composition_h,
                         cursor.x,
                         cursor.y,
                         project.cursor.scale,
@@ -406,12 +507,12 @@ pub async fn export_video_gpu(
                     // This matches Cap's approach for consistent, resolution-independent cursors.
                     let mut rendered = false;
 
-                    // Calculate cursor scale relative to output size
+                    // Calculate cursor scale relative to composition size
                     // Base cursor is 24px (same as editor DEFAULT_CURSOR_SIZE)
                     // Scale relative to 720p reference so cursor looks proportional
                     let base_cursor_height = 24.0;
                     let reference_height = 720.0;
-                    let size_scale = out_h as f32 / reference_height;
+                    let size_scale = composition_h as f32 / reference_height;
                     let final_cursor_height =
                         base_cursor_height * size_scale * project.cursor.scale;
                     let final_cursor_height = final_cursor_height.clamp(16.0, 256.0);
@@ -434,8 +535,8 @@ pub async fn export_video_gpu(
                             // cursor.scale (click animation) is applied internally
                             composite_cursor(
                                 &mut rgba_data,
-                                out_w,
-                                out_h,
+                                composition_w,
+                                composition_h,
                                 &cursor,
                                 &svg_decoded,
                                 1.0,
@@ -452,8 +553,8 @@ pub async fn export_video_gpu(
                                 let bitmap_scale = final_cursor_height / cursor_image.height as f32;
                                 composite_cursor(
                                     &mut rgba_data,
-                                    out_w,
-                                    out_h,
+                                    composition_w,
+                                    composition_h,
                                     &cursor,
                                     cursor_image,
                                     bitmap_scale,
@@ -465,9 +566,10 @@ pub async fn export_video_gpu(
             }
         }
 
-        // Write to FFmpeg encoder
-        if let Err(e) = stdin.write_all(&rgba_data) {
-            log::error!("[EXPORT] Failed to write frame {}: {}", frame_idx, e);
+        // Send to encode pipeline (async, with backpressure)
+        // Note: Video crop is now applied to input frames, not extracted from output
+        if encode_tx.send(rgba_data).await.is_err() {
+            log::error!("[EXPORT] Encode channel closed unexpectedly");
             break;
         }
 
@@ -482,17 +584,20 @@ pub async fn export_video_gpu(
                 &format!("Rendering: {:.0}%", progress * 100.0),
             );
         }
-
-        frame_idx += 1;
-        if frame_idx >= total_frames {
-            break;
-        }
     }
 
-    // Close stdin to signal EOF
-    drop(stdin);
+    // Signal end of render loop and wait for encode to finish
+    drop(encode_tx);
 
     emit_progress(&app, 0.95, ExportStage::Finalizing, "Finalizing...");
+
+    // Wait for pipeline tasks to complete
+    if let Err(e) = decode_handle.await {
+        log::warn!("[EXPORT] Decode task join error: {:?}", e);
+    }
+    if let Err(e) = encode_handle.await {
+        log::warn!("[EXPORT] Encode task join error: {:?}", e);
+    }
 
     // Wait for FFmpeg encoder to finish
     let status = ffmpeg
@@ -504,8 +609,6 @@ pub async fn export_video_gpu(
             status.code()
         ));
     }
-
-    // Decoders are stopped automatically via Drop
 
     // Get output file info
     let metadata = std::fs::metadata(&output_path)

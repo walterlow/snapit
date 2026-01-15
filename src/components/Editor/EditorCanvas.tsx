@@ -22,14 +22,13 @@ import { useMiddleMousePan } from '../../hooks/useMiddleMousePan';
 
 // Components
 import { ShapeRenderer } from './shapes';
-import {
-  MarqueeSelection,
-  SelectionBoundsRect,
-  ZoomControls,
-  CropControls,
-  TextEditorOverlay,
-  CropOverlay,
-} from './overlays';
+// Direct imports avoid barrel file bundling overhead
+import { MarqueeSelection } from './overlays/MarqueeSelection';
+import { SelectionBoundsRect } from './overlays/SelectionBoundsRect';
+import { ZoomControls } from './overlays/ZoomControls';
+import { CropControls } from './overlays/CropControls';
+import { TextEditorOverlay } from './overlays/TextEditorOverlay';
+import { CropOverlay } from './overlays/CropOverlay';
 
 // Utility functions
 import { getSelectionBounds, getVisibleBounds, createCheckerPattern } from '../../utils/canvasGeometry';

@@ -8,7 +8,7 @@
  * - Timeline-based editing
  */
 
-import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef, useMemo } from 'react';
+import { useCallback, forwardRef, useImperativeHandle, useEffect, useState, useRef, useMemo, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 import { X, Circle, Square, Monitor, Crop, Italic, ArrowLeft } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
@@ -21,7 +21,8 @@ import { useWebCodecsPreview } from '../hooks/useWebCodecsPreview';
 import { usePreviewOrPlaybackTime } from '../hooks/usePlaybackEngine';
 import { GPUVideoPreview } from '../components/VideoEditor/GPUVideoPreview';
 import { VideoTimeline } from '../components/VideoEditor/VideoTimeline';
-import { CropDialog } from '../components/VideoEditor/CropDialog';
+// Lazy load CropDialog - only needed when crop tool is opened (861 lines)
+const CropDialog = lazy(() => import('../components/VideoEditor/CropDialog').then(m => ({ default: m.CropDialog })));
 import { BackgroundSettings } from '../components/VideoEditor/BackgroundSettings';
 import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
@@ -1775,18 +1776,20 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
         <VideoTimeline onExport={handleExport} />
       </div>
 
-      {/* Crop Dialog - crops video content before composition */}
-      {project && (
-        <CropDialog
-          open={isCropDialogOpen}
-          onClose={() => setIsCropDialogOpen(false)}
-          onApply={handleCropApply}
-          videoWidth={project.sources.originalWidth}
-          videoHeight={project.sources.originalHeight}
-          initialCrop={project.export.crop}
-          initialComposition={project.export.composition}
-          videoPath={project.sources.screenVideo}
-        />
+      {/* Crop Dialog - lazy loaded, crops video content before composition */}
+      {project && isCropDialogOpen && (
+        <Suspense fallback={null}>
+          <CropDialog
+            open={isCropDialogOpen}
+            onClose={() => setIsCropDialogOpen(false)}
+            onApply={handleCropApply}
+            videoWidth={project.sources.originalWidth}
+            videoHeight={project.sources.originalHeight}
+            initialCrop={project.export.crop}
+            initialComposition={project.export.composition}
+            videoPath={project.sources.screenVideo}
+          />
+        </Suspense>
       )}
 
       {/* Export Progress Overlay */}

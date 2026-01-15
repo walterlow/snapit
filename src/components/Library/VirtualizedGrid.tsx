@@ -1,7 +1,10 @@
 import { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { CaptureListItem } from '../../types';
-import { DateHeader, CaptureCard, CaptureRow } from './components';
+// Direct imports avoid barrel file bundling overhead
+import { DateHeader } from './components/DateHeader';
+import { CaptureCard } from './components/CaptureCard';
+import { CaptureRow } from './components/CaptureRow';
 import { useThumbnailPrefetch } from './hooks';
 import { LAYOUT, TIMING } from '../../constants';
 

@@ -13,15 +13,14 @@ import type { CaptureListItem } from '../../types';
 import { LAYOUT, TIMING } from '../../constants';
 
 import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock, type VirtualLayoutInfo } from './hooks';
-import {
-  DateHeader,
-  EmptyState,
-  DropZoneOverlay,
-  CaptureCard,
-  CaptureRow,
-  GlassBlobToolbar,
-  DeleteDialog,
-} from './components';
+// Direct imports avoid barrel file bundling overhead
+import { DateHeader } from './components/DateHeader';
+import { EmptyState } from './components/EmptyState';
+import { DropZoneOverlay } from './components/DropZoneOverlay';
+import { CaptureCard } from './components/CaptureCard';
+import { CaptureRow } from './components/CaptureRow';
+import { GlassBlobToolbar } from './components/GlassBlobToolbar';
+import { DeleteDialog } from './components/DeleteDialog';
 import { VirtualizedGrid, getColumnsForWidth, calculateRowHeight, getCardWidth, getGridWidth } from './VirtualizedGrid';
 
 type ViewMode = 'grid' | 'list';

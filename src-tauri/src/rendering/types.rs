@@ -236,25 +236,22 @@ pub enum CornerStyle {
 }
 
 /// Shadow configuration for rendering.
+/// Uses a single shadow value (0-100) that derives blur and opacity.
 #[derive(Debug, Clone, Copy)]
 pub struct ShadowStyle {
     /// Shadow enabled.
     pub enabled: bool,
-    /// Shadow size/spread (0-100).
-    pub size: f32,
-    /// Shadow opacity (0-100, converted to 0-1 for shader).
-    pub opacity: f32,
-    /// Shadow blur amount (0-100).
-    pub blur: f32,
+    /// Shadow intensity (0-100). Controls both blur size and opacity.
+    /// Blur = (shadow / 100) * minDim * 0.15
+    /// Opacity = (shadow / 100) * 0.5
+    pub shadow: f32,
 }
 
 impl Default for ShadowStyle {
     fn default() -> Self {
         Self {
             enabled: false,
-            size: 14.4,
-            opacity: 68.1,
-            blur: 3.8,
+            shadow: 50.0,
         }
     }
 }
@@ -378,9 +375,7 @@ impl BackgroundStyle {
 
         let shadow = ShadowStyle {
             enabled: config.shadow.enabled,
-            size: config.shadow.size,
-            opacity: config.shadow.opacity,
-            blur: config.shadow.blur,
+            shadow: config.shadow.shadow,
         };
 
         // Bake border opacity into color's alpha channel (matching Cap's approach)

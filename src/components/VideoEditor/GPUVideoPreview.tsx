@@ -808,14 +808,15 @@ export function GPUVideoPreview() {
 
   // Frame shadow style (drop-shadow filter) - applied to outer wrapper
   // Must be separate from clipped element so shadow renders outside the clip
-  // Formula matches export shader: (size / 100) * min_frame_size * 0.3
+  // Formula matches webcam: blur = strength * minDim * 0.15, opacity = strength * 0.5
   const frameShadowStyle = useMemo((): React.CSSProperties => {
     if (!backgroundConfig?.shadow?.enabled || containerSize.width === 0) return {};
 
-    // Match export shader exactly: blur = (size / 100) * min_frame_size * 0.3
+    // Match webcam shadow formula exactly
     const minFrameSize = Math.min(containerSize.width, containerSize.height);
-    const shadowBlur = (backgroundConfig.shadow.size / 100) * minFrameSize * 0.3;
-    const shadowOpacity = (backgroundConfig.shadow.opacity / 100) * 0.4;
+    const strength = (backgroundConfig.shadow.shadow ?? 50) / 100;
+    const shadowBlur = strength * minFrameSize * 0.15;
+    const shadowOpacity = strength * 0.5;
 
     return {
       filter: `drop-shadow(0 0 ${shadowBlur}px rgba(0, 0, 0, ${shadowOpacity}))`,

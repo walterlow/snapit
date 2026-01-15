@@ -495,54 +495,16 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
           <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Size</span>
+                <span className="text-[11px] text-[var(--ink-subtle)]">Shadow</span>
                 <span className="text-[11px] text-[var(--ink-faint)]">
-                  {Math.round(background.shadow.size)}%
+                  {Math.round(background.shadow.shadow)}%
                 </span>
               </div>
               <Slider
-                value={[background.shadow.size]}
+                value={[background.shadow.shadow]}
                 onValueChange={(values) =>
                   onUpdate({
-                    shadow: { ...background.shadow, size: values[0] },
-                  })
-                }
-                min={0}
-                max={100}
-                step={1}
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Opacity</span>
-                <span className="text-[11px] text-[var(--ink-faint)]">
-                  {Math.round(background.shadow.opacity)}%
-                </span>
-              </div>
-              <Slider
-                value={[background.shadow.opacity]}
-                onValueChange={(values) =>
-                  onUpdate({
-                    shadow: { ...background.shadow, opacity: values[0] },
-                  })
-                }
-                min={0}
-                max={100}
-                step={1}
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Blur</span>
-                <span className="text-[11px] text-[var(--ink-faint)]">
-                  {Math.round(background.shadow.blur)}%
-                </span>
-              </div>
-              <Slider
-                value={[background.shadow.blur]}
-                onValueChange={(values) =>
-                  onUpdate({
-                    shadow: { ...background.shadow, blur: values[0] },
+                    shadow: { ...background.shadow, shadow: values[0] },
                   })
                 }
                 min={0}

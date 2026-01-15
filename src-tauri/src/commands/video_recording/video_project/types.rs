@@ -753,27 +753,29 @@ pub enum BackgroundType {
 }
 
 /// Shadow configuration for video frame background.
+/// Uses a single shadow value (0-100) like webcam for simplicity.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct BackgroundShadowConfig {
     /// Shadow enabled.
     pub enabled: bool,
-    /// Shadow size/spread (0-100).
-    pub size: f32,
-    /// Shadow opacity (0-100).
-    pub opacity: f32,
-    /// Shadow blur amount (0-100).
-    pub blur: f32,
+    /// Shadow intensity (0-100). Controls both blur size and opacity.
+    /// Blur = (shadow / 100) * minDim * 0.15
+    /// Opacity = (shadow / 100) * 0.5
+    #[serde(default = "default_shadow_value")]
+    pub shadow: f32,
+}
+
+fn default_shadow_value() -> f32 {
+    50.0 // Sensible default - visible but not overwhelming
 }
 
 impl Default for BackgroundShadowConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            size: 14.4,
-            opacity: 68.1,
-            blur: 3.8,
+            shadow: default_shadow_value(),
         }
     }
 }

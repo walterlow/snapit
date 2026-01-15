@@ -137,12 +137,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let rounding_px = uniforms.frame_rounding.x;
     let rounding_type = uniforms.frame_rounding.y;
 
-    // Master shadow strength (0-100) - matches Cap's model where strength modulates all params
-    let master_shadow = uniforms.frame_shadow.x;
-    let shadow_enabled = master_shadow > 0.0;
-    let shadow_size_param = uniforms.frame_shadow.y;
-    let shadow_opacity_param = uniforms.frame_shadow.z;
-    let shadow_blur_param = uniforms.frame_shadow.w;
+    // Single shadow value (0-100) - same as webcam for simplicity
+    let shadow_value = uniforms.frame_shadow.x;
+    let shadow_enabled = shadow_value > 0.0;
 
     let border_enabled = uniforms.frame_border.x > 0.5;
     let border_width = uniforms.frame_border.y;
@@ -155,15 +152,17 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Start with transparent (background shows through)
     var color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
 
-    // Render shadow behind video frame (matching CSS drop-shadow behavior)
-    // CSS drop-shadow is subtle - much softer than a hard shadow
+    // Render shadow behind video frame (matching webcam shadow formula)
+    // Single slider controls both blur size and opacity
     if (shadow_enabled && frame_dist > 0.0) {
         let min_frame_size = min(frame_half_size.x, frame_half_size.y);
+        let strength = shadow_value / 100.0;
 
-        // Shadow blur radius (how far it extends)
-        let shadow_blur = (shadow_size_param / 100.0) * min_frame_size * 0.3;
-        // Cap opacity at 40% max for visible but not overwhelming shadow
-        let shadow_opacity = (shadow_opacity_param / 100.0) * 0.4;
+        // Derive blur and opacity from single value (matches webcam formula)
+        // blur = strength * minDim * 0.15
+        // opacity = strength * 0.5
+        let shadow_blur = strength * min_frame_size * 0.15;
+        let shadow_opacity = strength * 0.5;
 
         // Soft gaussian falloff
         let normalized_dist = frame_dist / max(shadow_blur * 2.0, 1.0);
@@ -701,17 +700,16 @@ impl Compositor {
         // Frame styling uniforms
         let frame_bounds = [frame_x, frame_y, frame_w, frame_h];
         let frame_rounding = [options.background.rounding, rounding_type, 0.0, 0.0];
-        // frame_shadow.x = enabled flag (100 = enabled, 0 = disabled)
-        // The shader uses this as a multiplier, so 100.0 means full strength
+        // Single shadow value (0-100) - shader derives blur/opacity from it
         let frame_shadow = [
             if options.background.shadow.enabled {
-                100.0
+                options.background.shadow.shadow
             } else {
                 0.0
             },
-            options.background.shadow.size,
-            options.background.shadow.opacity,
-            options.background.shadow.blur,
+            0.0, // unused
+            0.0, // unused
+            0.0, // unused
         ];
         let frame_border = [
             if options.background.border.enabled {

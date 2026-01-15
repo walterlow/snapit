@@ -2,6 +2,7 @@
 
 /**
  * Shadow configuration for video frame background.
+ * Uses a single shadow value (0-100) like webcam for simplicity.
  */
 export type BackgroundShadowConfig = {
   /**
@@ -9,15 +10,9 @@ export type BackgroundShadowConfig = {
    */
   enabled: boolean;
   /**
-   * Shadow size/spread (0-100).
+   * Shadow intensity (0-100). Controls both blur size and opacity.
+   * Blur = (shadow / 100) * minDim * 0.15
+   * Opacity = (shadow / 100) * 0.5
    */
-  size: number;
-  /**
-   * Shadow opacity (0-100).
-   */
-  opacity: number;
-  /**
-   * Shadow blur amount (0-100).
-   */
-  blur: number;
+  shadow: number;
 };

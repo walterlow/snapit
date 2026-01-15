@@ -263,6 +263,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   backgroundPadding = 0,
   rounding = 0,
   frameStyle,
+  shadowStyle,
   cropConfig,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -295,8 +296,10 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
   backgroundPadding?: number;
   /** Corner rounding - preserves rounded corners when zooming */
   rounding?: number;
-  /** Frame styling (rounding, shadow, border) to apply to zoom wrapper */
+  /** Frame styling (rounding, border) to apply to zoom wrapper */
   frameStyle?: React.CSSProperties;
+  /** Shadow styling (drop-shadow filter) to apply to outer wrapper */
+  shadowStyle?: React.CSSProperties;
   /** Crop configuration for video content */
   cropConfig?: CropConfig;
 }) {
@@ -366,20 +369,6 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
     }
   }, [applyCropToFrameSize, cropAspectRatio, containerWidth, containerHeight]);
 
-  // DEBUG: Log crop state
-  console.log('[CROP DEBUG] SceneModeRenderer:', {
-    cropEnabled,
-    cropConfig,
-    cropAspectRatio,
-    backgroundPadding,
-    applyCropToFrameSize,
-    containerWidth,
-    containerHeight,
-    croppedFrameSize,
-    videoWidth,
-    videoHeight,
-  });
-
   // Fullscreen webcam style - uses same crop sizing as the frame when crop is enabled
   const fullscreenWebcamStyle: React.CSSProperties = {
     position: 'absolute',
@@ -441,9 +430,18 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
 
   return (
     <>
-      {/* Frame wrapper - applies both frame styling (rounded corners) and zoom transform */}
-      {/* This ensures the rounded frame moves/scales with the zoom */}
-      <div style={frameZoomStyle}>
+      {/* Shadow wrapper - applies drop-shadow filter (must be separate from clipped element) */}
+      <div
+        className="flex items-center justify-center"
+        style={{
+          width: '100%',
+          height: '100%',
+          ...shadowStyle,
+        }}
+      >
+        {/* Frame wrapper - applies both frame styling (rounded corners) and zoom transform */}
+        {/* This ensures the rounded frame moves/scales with the zoom */}
+        <div style={frameZoomStyle}>
         {/* Screen video - with smooth opacity/blur transitions */}
         {videoSrc && showScreen && (
           <div style={screenStyle}>
@@ -529,6 +527,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
             videoAspectRatio={videoAspectRatio}
           />
         )}
+        </div>
       </div>
 
       {/* Fullscreen webcam - outside the frame wrapper (not affected by zoom) */}
@@ -712,12 +711,48 @@ export function GPUVideoPreview() {
   const compositeHeight = originalHeight + (backgroundConfig?.padding ?? 0) * 2;
   const compositeAspectRatio = compositeWidth / compositeHeight;
 
+  // Check if crop is enabled with background (frame will be sized to crop aspect)
+  const cropEnabled = cropConfig?.enabled && cropConfig.width > 0 && cropConfig.height > 0;
+  const applyCropToFrame = cropEnabled && hasFrameStyling && (backgroundConfig?.padding ?? 0) > 0;
+
+  // Calculate cropped frame size (same logic as SceneModeRenderer)
+  const croppedFrameSizeInParent = useMemo(() => {
+    if (!applyCropToFrame || !cropConfig || containerSize.width === 0 || containerSize.height === 0) {
+      return null;
+    }
+
+    const cropAspect = cropConfig.width / cropConfig.height;
+    const containerAspect = containerSize.width / containerSize.height;
+
+    if (containerAspect > cropAspect) {
+      // Container is wider - height constrains
+      return {
+        width: containerSize.height * cropAspect,
+        height: containerSize.height,
+      };
+    } else {
+      // Container is taller - width constrains
+      return {
+        width: containerSize.width,
+        height: containerSize.width / cropAspect,
+      };
+    }
+  }, [applyCropToFrame, cropConfig, containerSize]);
+
   // Calculate scale factor for preview (preview size / original size)
-  // This ensures padding, rounding, etc. scale proportionally with the preview
+  // When crop is enabled, scale based on cropped frame size vs crop dimensions
+  // This ensures padding, rounding, etc. scale proportionally with the actual frame
   const previewScale = useMemo(() => {
     if (containerSize.width === 0 || originalWidth === 0) return 1;
+
+    // When crop is applied to frame, use crop-based scale
+    if (applyCropToFrame && croppedFrameSizeInParent && cropConfig) {
+      return croppedFrameSizeInParent.width / cropConfig.width;
+    }
+
+    // Default: container-based scale
     return containerSize.width / originalWidth;
-  }, [containerSize.width, originalWidth]);
+  }, [containerSize.width, originalWidth, applyCropToFrame, croppedFrameSizeInParent, cropConfig]);
 
   // Calculate composition size in preview coordinates (video area + padding)
   // This is used for webcam positioning so it's anchored to the full composition, not just the video
@@ -738,23 +773,8 @@ export function GPUVideoPreview() {
   };
 
   
-  // DEBUG: Log parent state
-  console.log('[CROP DEBUG] GPUVideoPreview:', {
-    hasFrameStyling,
-    backgroundConfig,
-    cropConfig,
-    containerSize,
-    compositeWidth,
-    compositeHeight,
-    compositeAspectRatio,
-    previewScale,
-    compositionSize,
-    originalWidth,
-    originalHeight,
-  });
-
-  // Frame style for the video container (scaled rounding, shadow, border)
-  const frameStyle = useMemo((): React.CSSProperties => {
+  // Frame clipping style (rounding, border) - applied to inner frame element
+  const frameClipStyle = useMemo((): React.CSSProperties => {
     if (!backgroundConfig) return {};
 
     const style: React.CSSProperties = {};
@@ -776,14 +796,6 @@ export function GPUVideoPreview() {
       }
     }
 
-    // Shadow (scaled)
-    if (backgroundConfig.shadow?.enabled) {
-      const shadowSize = backgroundConfig.shadow.size * 0.5 * previewScale;
-      const shadowOpacity = backgroundConfig.shadow.opacity / 100;
-      const shadowBlur = backgroundConfig.shadow.blur * 0.5 * previewScale;
-      style.boxShadow = `0 ${shadowSize}px ${shadowBlur * 2}px rgba(0, 0, 0, ${shadowOpacity * 0.5}), 0 ${shadowSize * 2}px ${shadowBlur * 4}px rgba(0, 0, 0, ${shadowOpacity * 0.3})`;
-    }
-
     // Border (scaled)
     if (backgroundConfig.border?.enabled) {
       const scaledBorderWidth = Math.max(1, backgroundConfig.border.width * previewScale);
@@ -793,6 +805,26 @@ export function GPUVideoPreview() {
 
     return style;
   }, [backgroundConfig, previewScale]);
+
+  // Frame shadow style (drop-shadow filter) - applied to outer wrapper
+  // Must be separate from clipped element so shadow renders outside the clip
+  // Values tuned to match export shader output
+  const frameShadowStyle = useMemo((): React.CSSProperties => {
+    if (!backgroundConfig?.shadow?.enabled) return {};
+
+    // Match export shader: blur = size * 0.3, opacity capped at 25%
+    const shadowBlur = backgroundConfig.shadow.size * 0.3 * previewScale;
+    const shadowOpacity = (backgroundConfig.shadow.opacity / 100) * 0.25;
+
+    return {
+      filter: `drop-shadow(0 0 ${shadowBlur}px rgba(0, 0, 0, ${shadowOpacity}))`,
+    };
+  }, [backgroundConfig, previewScale]);
+
+  // Combined frame style for backwards compatibility (used by SceneModeRenderer)
+  const frameStyle = useMemo((): React.CSSProperties => {
+    return { ...frameClipStyle };
+  }, [frameClipStyle]);
 
   // Initialize playback engine when project loads
   useEffect(() => {
@@ -1146,6 +1178,7 @@ export function GPUVideoPreview() {
               backgroundPadding={backgroundConfig?.padding ?? 0}
               rounding={backgroundConfig?.rounding ?? 0}
               frameStyle={frameStyle}
+              shadowStyle={frameShadowStyle}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">

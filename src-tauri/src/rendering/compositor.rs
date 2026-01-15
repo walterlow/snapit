@@ -155,20 +155,20 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Start with transparent (background shows through)
     var color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
 
-    // Render shadow behind video frame (matching Cap's approach)
-    // Master strength multiplies all shadow parameters
-    if (shadow_enabled) {
+    // Render shadow behind video frame (matching CSS drop-shadow behavior)
+    // CSS drop-shadow is subtle - much softer than a hard shadow
+    if (shadow_enabled && frame_dist > 0.0) {
         let min_frame_size = min(frame_half_size.x, frame_half_size.y);
-        let strength = master_shadow / 100.0;
 
-        // Apply master strength to all shadow parameters (Cap's formula)
-        let shadow_spread = strength * (shadow_size_param / 100.0) * min_frame_size;
-        let shadow_opacity = strength * (shadow_opacity_param / 100.0);
-        let blur_amount = strength * (shadow_blur_param / 100.0) * min_frame_size;
+        // Shadow blur radius (how far it extends)
+        let shadow_blur = (shadow_size_param / 100.0) * min_frame_size * 0.3;
+        // Cap opacity at 40% max for visible but not overwhelming shadow
+        let shadow_opacity = (shadow_opacity_param / 100.0) * 0.4;
 
-        // Cap's shadow formula: symmetric smoothstep with abs(distance)
-        let shadow_strength = smoothstep(shadow_spread + blur_amount, -blur_amount, abs(frame_dist));
-        let shadow_alpha = shadow_strength * shadow_opacity;
+        // Soft gaussian falloff
+        let normalized_dist = frame_dist / max(shadow_blur * 2.0, 1.0);
+        let shadow_fade = exp(-normalized_dist * normalized_dist);
+        let shadow_alpha = shadow_fade * shadow_opacity;
 
         if (shadow_alpha > 0.001) {
             color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
@@ -701,10 +701,11 @@ impl Compositor {
         // Frame styling uniforms
         let frame_bounds = [frame_x, frame_y, frame_w, frame_h];
         let frame_rounding = [options.background.rounding, rounding_type, 0.0, 0.0];
-        // frame_shadow.x = master strength (0-100, 0 = disabled) - matches Cap's model
+        // frame_shadow.x = enabled flag (100 = enabled, 0 = disabled)
+        // The shader uses this as a multiplier, so 100.0 means full strength
         let frame_shadow = [
             if options.background.shadow.enabled {
-                options.background.shadow.strength
+                100.0
             } else {
                 0.0
             },

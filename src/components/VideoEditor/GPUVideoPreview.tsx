@@ -808,18 +808,19 @@ export function GPUVideoPreview() {
 
   // Frame shadow style (drop-shadow filter) - applied to outer wrapper
   // Must be separate from clipped element so shadow renders outside the clip
-  // Values tuned to match export shader output
+  // Formula matches export shader: (size / 100) * min_frame_size * 0.3
   const frameShadowStyle = useMemo((): React.CSSProperties => {
-    if (!backgroundConfig?.shadow?.enabled) return {};
+    if (!backgroundConfig?.shadow?.enabled || containerSize.width === 0) return {};
 
-    // Match export shader: blur = size * 0.3, opacity capped at 25%
-    const shadowBlur = backgroundConfig.shadow.size * 0.3 * previewScale;
-    const shadowOpacity = (backgroundConfig.shadow.opacity / 100) * 0.25;
+    // Match export shader exactly: blur = (size / 100) * min_frame_size * 0.3
+    const minFrameSize = Math.min(containerSize.width, containerSize.height);
+    const shadowBlur = (backgroundConfig.shadow.size / 100) * minFrameSize * 0.3;
+    const shadowOpacity = (backgroundConfig.shadow.opacity / 100) * 0.4;
 
     return {
       filter: `drop-shadow(0 0 ${shadowBlur}px rgba(0, 0, 0, ${shadowOpacity}))`,
     };
-  }, [backgroundConfig, previewScale]);
+  }, [backgroundConfig, containerSize]);
 
   // Combined frame style for backwards compatibility (used by SceneModeRenderer)
   const frameStyle = useMemo((): React.CSSProperties => {

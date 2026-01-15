@@ -267,7 +267,6 @@ impl PreviewRenderer {
             rounding_type: CornerStyle::Rounded,
             shadow: ShadowStyle {
                 enabled: false,
-                strength: 0.0,
                 size: 0.0,
                 opacity: 0.0,
                 blur: 0.0,

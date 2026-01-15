@@ -108,12 +108,14 @@ pub fn build_webcam_overlay(
         WebcamOverlayShape::RoundedRectangle | WebcamOverlayShape::Source => WebcamShape::Squircle,
     };
 
-    // Default shadow settings (subtle drop shadow like Cap)
-    // TODO: Add shadow settings to WebcamConfig for user control
-    let shadow = 0.5; // 50% shadow strength
-    let shadow_size = 0.15; // 15% of webcam size
-    let shadow_opacity = 0.25; // 25% opacity
-    let shadow_blur = 0.3; // 30% blur
+    // Match preview formula from WebcamOverlay.tsx getShadowFilter():
+    // blur = (shadow/100) * minDim * 0.15
+    // opacity = (shadow/100) * 0.5
+    let strength = project.webcam.shadow / 100.0;
+    let shadow = strength; // Pass strength as shadow_strength to shader
+    let shadow_size = 0.15; // Matches preview: strength * minDim * 0.15
+    let shadow_opacity = strength * 0.5; // Matches preview: max 50% opacity
+    let shadow_blur = 0.15; // Same as size for consistent falloff
 
     WebcamOverlay {
         frame,

@@ -759,10 +759,6 @@ pub enum BackgroundType {
 pub struct BackgroundShadowConfig {
     /// Shadow enabled.
     pub enabled: bool,
-    /// Master shadow strength (0-100). Multiplies all other shadow parameters.
-    /// This matches Cap's shadow model where strength modulates size/opacity/blur.
-    #[serde(default = "default_shadow_strength")]
-    pub strength: f32,
     /// Shadow size/spread (0-100).
     pub size: f32,
     /// Shadow opacity (0-100).
@@ -771,15 +767,10 @@ pub struct BackgroundShadowConfig {
     pub blur: f32,
 }
 
-fn default_shadow_strength() -> f32 {
-    73.6 // Cap's default
-}
-
 impl Default for BackgroundShadowConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            strength: default_shadow_strength(),
             size: 14.4,
             opacity: 68.1,
             blur: 3.8,

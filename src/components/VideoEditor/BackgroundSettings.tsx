@@ -495,25 +495,6 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
           <div className="space-y-3 pl-3 border-l border-[var(--glass-border)]">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[var(--ink-subtle)]">Strength</span>
-                <span className="text-[11px] text-[var(--ink-faint)]">
-                  {Math.round(background.shadow.strength)}%
-                </span>
-              </div>
-              <Slider
-                value={[background.shadow.strength]}
-                onValueChange={(values) =>
-                  onUpdate({
-                    shadow: { ...background.shadow, strength: values[0] },
-                  })
-                }
-                min={0}
-                max={100}
-                step={1}
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] text-[var(--ink-subtle)]">Size</span>
                 <span className="text-[11px] text-[var(--ink-faint)]">
                   {Math.round(background.shadow.size)}%

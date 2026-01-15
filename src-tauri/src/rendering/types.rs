@@ -240,8 +240,6 @@ pub enum CornerStyle {
 pub struct ShadowStyle {
     /// Shadow enabled.
     pub enabled: bool,
-    /// Master shadow strength (0-100). Multiplies all shadow parameters.
-    pub strength: f32,
     /// Shadow size/spread (0-100).
     pub size: f32,
     /// Shadow opacity (0-100, converted to 0-1 for shader).
@@ -254,7 +252,6 @@ impl Default for ShadowStyle {
     fn default() -> Self {
         Self {
             enabled: false,
-            strength: 73.6, // Cap's default
             size: 14.4,
             opacity: 68.1,
             blur: 3.8,
@@ -381,7 +378,6 @@ impl BackgroundStyle {
 
         let shadow = ShadowStyle {
             enabled: config.shadow.enabled,
-            strength: config.shadow.strength,
             size: config.shadow.size,
             opacity: config.shadow.opacity,
             blur: config.shadow.blur,

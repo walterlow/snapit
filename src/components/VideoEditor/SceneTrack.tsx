@@ -197,9 +197,8 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
         width: `${Math.max(segmentWidth, 20)}px`,
         backgroundColor: vars.bg,
         borderColor: vars.border,
-        // @ts-expect-error CSS custom property for ring color
         '--tw-ring-color': vars.border,
-      }}
+      } as React.CSSProperties}
       onClick={handleClick}
     >
       {/* Left resize handle */}

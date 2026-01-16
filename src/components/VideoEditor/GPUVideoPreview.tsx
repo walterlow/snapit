@@ -567,10 +567,12 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
 export function GPUVideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const previewAreaRef = useRef<HTMLDivElement>(null);
   const systemAudioRef = useRef<HTMLAudioElement>(null);
   const micAudioRef = useRef<HTMLAudioElement>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [previewAreaSize, setPreviewAreaSize] = useState({ width: 0, height: 0 });
   const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null);
 
   // Use selectors for stable subscriptions
@@ -595,23 +597,59 @@ export function GPUVideoPreview() {
   // Calculate webcam overlay opacity - fades out when transitioning to camera-only mode
   const webcamOverlayOpacity = getRegularCameraTransitionOpacity(scene);
 
-  // Track container size for overlays (cursor, mask, text, webcam)
-  // No debounce - webcam position should update immediately during resize
+  // Track container size for webcam overlay positioning
+  // Debounced to only update when resize settles (avoids lag during panel resize)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
-        setContainerSize({
+        const newSize = {
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        };
+
+        // Clear any pending update
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+
+        // Only update state after resize settles (150ms debounce)
+        debounceTimer = setTimeout(() => {
+          setContainerSize(newSize);
+        }, 150);
+      }
+    });
+
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+    };
+  }, []);
+
+  // Track preview area size for "contain" layout calculation
+  useEffect(() => {
+    const previewArea = previewAreaRef.current;
+    if (!previewArea) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setPreviewAreaSize({
           width: entry.contentRect.width,
           height: entry.contentRect.height,
         });
       }
     });
 
-    observer.observe(container);
+    observer.observe(previewArea);
     return () => observer.disconnect();
   }, []);
 
@@ -706,11 +744,36 @@ export function GPUVideoPreview() {
   }, [backgroundConfig?.bgType, backgroundConfig?.wallpaper]);
 
   // Calculate composite dimensions including padding
-  // Composition uses ORIGINAL video dimensions - crop only affects the video frame inside
-  const compositeWidth = originalWidth + (backgroundConfig?.padding ?? 0) * 2;
-  const compositeHeight = originalHeight + (backgroundConfig?.padding ?? 0) * 2;
+  // When crop is enabled, use crop dimensions; otherwise use original video dimensions
+  const contentWidth = cropConfig?.enabled && cropConfig.width > 0 ? cropConfig.width : originalWidth;
+  const contentHeight = cropConfig?.enabled && cropConfig.height > 0 ? cropConfig.height : originalHeight;
+  const compositeWidth = contentWidth + (backgroundConfig?.padding ?? 0) * 2;
+  const compositeHeight = contentHeight + (backgroundConfig?.padding ?? 0) * 2;
   const compositeAspectRatio = compositeWidth / compositeHeight;
 
+  // Calculate "contain" size - fit composition within preview area while maintaining aspect ratio
+  const containedSize = useMemo(() => {
+    if (previewAreaSize.width === 0 || previewAreaSize.height === 0) {
+      return null;
+    }
+
+    const targetAspect = hasFrameStyling ? compositeAspectRatio : (cropAspectRatio ?? aspectRatio);
+    const areaAspect = previewAreaSize.width / previewAreaSize.height;
+
+    if (areaAspect > targetAspect) {
+      // Preview area is wider - height constrains
+      return {
+        width: previewAreaSize.height * targetAspect,
+        height: previewAreaSize.height,
+      };
+    } else {
+      // Preview area is taller - width constrains
+      return {
+        width: previewAreaSize.width,
+        height: previewAreaSize.width / targetAspect,
+      };
+    }
+  }, [previewAreaSize, hasFrameStyling, compositeAspectRatio, cropAspectRatio, aspectRatio]);
 
   // Check if crop is enabled with background (frame will be sized to crop aspect)
   const cropEnabled = cropConfig?.enabled && cropConfig.width > 0 && cropConfig.height > 0;
@@ -755,8 +818,15 @@ export function GPUVideoPreview() {
     return containerSize.width / originalWidth;
   }, [containerSize.width, originalWidth, applyCropToFrame, croppedFrameSizeInParent, cropConfig]);
 
-  // compositionSize is now tracked via ResizeObserver on compositionRef
-  // This ensures webcam positioning updates immediately when window resizes
+  // Calculate composition size in preview coordinates (video area + padding)
+  // This is used for webcam positioning so it's anchored to the full composition, not just the video
+  const compositionSize = useMemo(() => {
+    const scaledPadding = hasFrameStyling ? (backgroundConfig?.padding ?? 0) * previewScale : 0;
+    return {
+      width: containerSize.width + scaledPadding * 2,
+      height: containerSize.height + scaledPadding * 2,
+    };
+  }, [containerSize, hasFrameStyling, backgroundConfig?.padding, previewScale]);
 
   // Helper to convert hex to rgba
   const hexToRgba = (hex: string, alpha: number) => {
@@ -1043,7 +1113,7 @@ export function GPUVideoPreview() {
   }, [controls]);
 
   return (
-    <div className="flex items-center justify-center h-full bg-[var(--polar-snow)] overflow-hidden">
+    <div ref={previewAreaRef} className="flex items-center justify-center h-full bg-[var(--polar-snow)] overflow-hidden">
       {/* Hidden audio elements for playback */}
       {systemAudioSrc && (
         <audio
@@ -1075,16 +1145,12 @@ export function GPUVideoPreview() {
       )}
 
       {/* Outer wrapper for background (shows when frame styling is enabled) */}
-      {/* This is also the positioning context for the webcam overlay */}
       <div
         className="relative overflow-hidden"
         style={{
-          // When frame styling: use composite (includes padding)
-          // When no frame styling but crop enabled: use crop aspect ratio (direct crop)
-          // Otherwise: use original video aspect ratio
-          aspectRatio: hasFrameStyling ? compositeAspectRatio : (cropAspectRatio ?? aspectRatio),
-          height: '100%',
-          maxWidth: '100%',
+          // Use calculated "contain" size - fits within preview area maintaining aspect ratio
+          width: containedSize?.width,
+          height: containedSize?.height,
           // Padding as percentage of total width - avoids feedback loop with previewScale
           // paddingPercent = rawPadding / compositeWidth * 100
           padding: hasFrameStyling && backgroundConfig?.padding
@@ -1195,18 +1261,20 @@ export function GPUVideoPreview() {
             </div>
           )}
 
-          {/* Webcam overlay - positioned relative to video container */}
-          {/* Fades out during camera-only scene transitions (fullscreen webcam takes over) */}
-          {project?.sources.webcamVideo && project?.webcam && containerSize.width > 0 && (
-            <WebcamOverlay
-              webcamVideoPath={project.sources.webcamVideo}
-              config={project.webcam}
-              containerWidth={containerSize.width}
-              containerHeight={containerSize.height}
-              sceneOpacity={webcamOverlayOpacity}
-            />
-          )}
         </div>
+
+        {/* Webcam overlay - positioned relative to composition (includes padding) */}
+        {/* Rendered outside containerRef so it anchors to the full canvas, not just video area */}
+        {/* Fades out during camera-only scene transitions (fullscreen webcam takes over) */}
+        {project?.sources.webcamVideo && project?.webcam && compositionSize.width > 0 && (
+          <WebcamOverlay
+            webcamVideoPath={project.sources.webcamVideo}
+            config={project.webcam}
+            containerWidth={compositionSize.width}
+            containerHeight={compositionSize.height}
+            sceneOpacity={webcamOverlayOpacity}
+          />
+        )}
       </div>
     </div>
   );

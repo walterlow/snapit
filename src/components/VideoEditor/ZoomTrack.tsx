@@ -1,7 +1,13 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import { GripVertical, Plus } from 'lucide-react';
 import type { ZoomRegion, ZoomTransition } from '../../types';
 import { useVideoEditorStore, formatTimeSimple, generateZoomRegionId } from '../../stores/videoEditorStore';
+
+// Drag state stored in ref to avoid re-renders during drag
+interface DragState {
+  startMs: number;
+  endMs: number;
+}
 
 interface ZoomTrackProps {
   regions: ZoomRegion[];
@@ -52,6 +58,7 @@ const PreviewRegion = memo(function PreviewRegion({
 
 /**
  * Memoized zoom region component.
+ * Uses refs for intermediate drag state to avoid re-renders during drag.
  */
 const ZoomRegionItem = memo(function ZoomRegionItem({
   region,
@@ -72,6 +79,10 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
   onDelete: (id: string) => void;
   onDragStart: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
 }) {
+  const elementRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<DragState | null>(null);
+
   const left = region.startMs * timelineZoom;
   const regionWidth = (region.endMs - region.startMs) * timelineZoom;
 
@@ -80,12 +91,15 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
     onSelect(region.id);
   }, [onSelect, region.id]);
 
-  const handleMouseDown = useCallback((
-    e: React.MouseEvent,
+  const handlePointerDown = useCallback((
+    e: React.PointerEvent,
     edge: 'start' | 'end' | 'move'
   ) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // Capture pointer to prevent flickering when cursor leaves element
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
     onSelect(region.id);
     onDragStart(true, edge);
@@ -94,19 +108,25 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
     const startTimeMs = edge === 'end' ? region.endMs : region.startMs;
     const regionDuration = region.endMs - region.startMs;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    // Initialize drag state
+    dragStateRef.current = { startMs: region.startMs, endMs: region.endMs };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaMs = deltaX / timelineZoom;
 
+      let newStartMs = dragStateRef.current!.startMs;
+      let newEndMs = dragStateRef.current!.endMs;
+
       if (edge === 'start') {
-        const newStartMs = Math.max(0, Math.min(region.endMs - 500, startTimeMs + deltaMs));
-        onUpdate(region.id, { startMs: newStartMs });
+        newStartMs = Math.max(0, Math.min(region.endMs - 500, startTimeMs + deltaMs));
+        newEndMs = region.endMs;
       } else if (edge === 'end') {
-        const newEndMs = Math.max(region.startMs + 500, Math.min(durationMs, startTimeMs + deltaMs));
-        onUpdate(region.id, { endMs: newEndMs });
+        newStartMs = region.startMs;
+        newEndMs = Math.max(region.startMs + 500, Math.min(durationMs, startTimeMs + deltaMs));
       } else {
-        let newStartMs = startTimeMs + deltaMs;
-        let newEndMs = newStartMs + regionDuration;
+        newStartMs = startTimeMs + deltaMs;
+        newEndMs = newStartMs + regionDuration;
 
         if (newStartMs < 0) {
           newStartMs = 0;
@@ -116,19 +136,44 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
           newEndMs = durationMs;
           newStartMs = durationMs - regionDuration;
         }
+      }
 
-        onUpdate(region.id, { startMs: newStartMs, endMs: newEndMs });
+      // Update ref state
+      dragStateRef.current = { startMs: newStartMs, endMs: newEndMs };
+
+      // Update DOM directly (no re-render)
+      if (elementRef.current) {
+        const newLeft = newStartMs * timelineZoom;
+        const newWidth = (newEndMs - newStartMs) * timelineZoom;
+        elementRef.current.style.left = `${newLeft}px`;
+        elementRef.current.style.width = `${Math.max(newWidth, 20)}px`;
+      }
+
+      // Update tooltip if visible
+      if (tooltipRef.current) {
+        tooltipRef.current.textContent = `${formatTimeSimple(newStartMs)} - ${formatTimeSimple(newEndMs)}`;
       }
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      // Release pointer capture
+      (upEvent.target as HTMLElement).releasePointerCapture(upEvent.pointerId);
+
+      // Commit final state to store
+      if (dragStateRef.current) {
+        const { startMs, endMs } = dragStateRef.current;
+        if (startMs !== region.startMs || endMs !== region.endMs) {
+          onUpdate(region.id, { startMs, endMs });
+        }
+      }
+      dragStateRef.current = null;
       onDragStart(false);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
   }, [region, durationMs, timelineZoom, onSelect, onUpdate, onDragStart]);
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
@@ -138,10 +183,10 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
 
   return (
     <div
+      ref={elementRef}
       data-region
       className={`
         absolute top-1 bottom-1 rounded-md cursor-pointer
-        transition-all duration-100
         ${isSelected ? 'border-2 shadow-lg' : 'border'}
         ${region.isAuto ? 'border-dashed' : ''}
       `}
@@ -155,17 +200,17 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
     >
       {/* Left resize handle */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-l-md"
+        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-l-md touch-none"
         style={{ '--tw-bg-opacity': 1 } as React.CSSProperties}
-        onMouseDown={(e) => handleMouseDown(e, 'start')}
+        onPointerDown={(e) => handlePointerDown(e, 'start')}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--track-zoom-hover)')}
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       />
 
       {/* Center drag handle */}
       <div
-        className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center"
-        onMouseDown={(e) => handleMouseDown(e, 'move')}
+        className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center touch-none"
+        onPointerDown={(e) => handlePointerDown(e, 'move')}
       >
         {regionWidth > 60 && (
           <div className="flex items-center gap-1" style={{ color: 'var(--track-zoom-text)' }}>
@@ -179,8 +224,8 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
 
       {/* Right resize handle */}
       <div
-        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-r-md"
-        onMouseDown={(e) => handleMouseDown(e, 'end')}
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-r-md touch-none"
+        onPointerDown={(e) => handlePointerDown(e, 'end')}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--track-zoom-hover)')}
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       />
@@ -197,7 +242,10 @@ const ZoomRegionItem = memo(function ZoomRegionItem({
 
       {/* Tooltip showing time range */}
       {isSelected && (
-        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-[var(--glass-bg-solid)] border border-[var(--glass-border)] text-[var(--ink-dark)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20 shadow-sm">
+        <div
+          ref={tooltipRef}
+          className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-[var(--glass-bg-solid)] border border-[var(--glass-border)] text-[var(--ink-dark)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20 shadow-sm"
+        >
           {formatTimeSimple(region.startMs)} - {formatTimeSimple(region.endMs)}
         </div>
       )}
@@ -229,10 +277,15 @@ export const ZoomTrackContent = memo(function ZoomTrackContent({
     setDraggingZoomRegion,
   } = useVideoEditorStore();
 
+  // Check if any segment is being dragged
+  const isDraggingAny = useVideoEditorStore((s) =>
+    s.isDraggingZoomRegion || s.isDraggingSceneSegment || s.isDraggingMaskSegment || s.isDraggingTextSegment
+  );
+
   // Calculate preview region details when hovering
   const previewRegionDetails = useMemo(() => {
-    // Only show preview when hovering over this track and not playing
-    if (hoveredTrack !== 'zoom' || previewTimeMs === null || isPlaying) {
+    // Only show preview when hovering over this track, not playing, and not dragging
+    if (hoveredTrack !== 'zoom' || previewTimeMs === null || isPlaying || isDraggingAny) {
       return null;
     }
 
@@ -262,7 +315,7 @@ export const ZoomTrackContent = memo(function ZoomTrackContent({
     }
 
     return { startMs, endMs };
-  }, [hoveredTrack, previewTimeMs, isPlaying, regions, durationMs]);
+  }, [hoveredTrack, previewTimeMs, isPlaying, isDraggingAny, regions, durationMs]);
 
   // Handle track hover
   const handleMouseEnter = useCallback(() => {

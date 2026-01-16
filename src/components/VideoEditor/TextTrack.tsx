@@ -1,7 +1,13 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import { Type, GripVertical, Plus } from 'lucide-react';
 import type { TextSegment } from '../../types';
 import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
+
+// Drag state stored in ref to avoid re-renders during drag (in seconds)
+interface DragState {
+  start: number;
+  end: number;
+}
 
 interface TextTrackProps {
   segments: TextSegment[];
@@ -54,6 +60,7 @@ const PreviewSegment = memo(function PreviewSegment({
 /**
  * Memoized text segment component.
  * Uses Cap's model: time in seconds, center-based positioning, size for bounding box.
+ * Uses refs for intermediate drag state to avoid re-renders during drag.
  */
 const TextSegmentItem = memo(function TextSegmentItem({
   segment,
@@ -76,6 +83,10 @@ const TextSegmentItem = memo(function TextSegmentItem({
   onDelete: (id: string) => void;
   onDragStart: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
 }) {
+  const elementRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<DragState | null>(null);
+
   // Convert seconds to ms for timeline positioning
   const left = segment.start * 1000 * timelineZoom;
   const segmentWidth = (segment.end - segment.start) * 1000 * timelineZoom;
@@ -85,12 +96,15 @@ const TextSegmentItem = memo(function TextSegmentItem({
     onSelect(segmentId);
   }, [onSelect, segmentId]);
 
-  const handleMouseDown = useCallback((
-    e: React.MouseEvent,
+  const handlePointerDown = useCallback((
+    e: React.PointerEvent,
     edge: 'start' | 'end' | 'move'
   ) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // Capture pointer to prevent flickering when cursor leaves element
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
     onSelect(segmentId);
     onDragStart(true, edge);
@@ -99,20 +113,26 @@ const TextSegmentItem = memo(function TextSegmentItem({
     const startTimeSec = edge === 'end' ? segment.end : segment.start;
     const segmentDuration = segment.end - segment.start;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    // Initialize drag state
+    dragStateRef.current = { start: segment.start, end: segment.end };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
       // Convert pixel delta to seconds (timeline zoom is px/ms, so divide by 1000 for px/sec)
       const deltaSec = deltaX / (timelineZoom * 1000);
 
+      let newStart = dragStateRef.current!.start;
+      let newEnd = dragStateRef.current!.end;
+
       if (edge === 'start') {
-        const newStart = Math.max(0, Math.min(segment.end - 0.5, startTimeSec + deltaSec));
-        onUpdate(segmentId, { start: newStart });
+        newStart = Math.max(0, Math.min(segment.end - 0.5, startTimeSec + deltaSec));
+        newEnd = segment.end;
       } else if (edge === 'end') {
-        const newEnd = Math.max(segment.start + 0.5, Math.min(durationSec, startTimeSec + deltaSec));
-        onUpdate(segmentId, { end: newEnd });
+        newStart = segment.start;
+        newEnd = Math.max(segment.start + 0.5, Math.min(durationSec, startTimeSec + deltaSec));
       } else {
-        let newStart = startTimeSec + deltaSec;
-        let newEnd = newStart + segmentDuration;
+        newStart = startTimeSec + deltaSec;
+        newEnd = newStart + segmentDuration;
 
         if (newStart < 0) {
           newStart = 0;
@@ -122,19 +142,44 @@ const TextSegmentItem = memo(function TextSegmentItem({
           newEnd = durationSec;
           newStart = durationSec - segmentDuration;
         }
+      }
 
-        onUpdate(segmentId, { start: newStart, end: newEnd });
+      // Update ref state
+      dragStateRef.current = { start: newStart, end: newEnd };
+
+      // Update DOM directly (no re-render)
+      if (elementRef.current) {
+        const newLeft = newStart * 1000 * timelineZoom;
+        const newWidth = (newEnd - newStart) * 1000 * timelineZoom;
+        elementRef.current.style.left = `${newLeft}px`;
+        elementRef.current.style.width = `${Math.max(newWidth, 20)}px`;
+      }
+
+      // Update tooltip if visible (convert to ms for formatting)
+      if (tooltipRef.current) {
+        tooltipRef.current.textContent = `${formatTimeSimple(newStart * 1000)} - ${formatTimeSimple(newEnd * 1000)}`;
       }
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      // Release pointer capture
+      (upEvent.target as HTMLElement).releasePointerCapture(upEvent.pointerId);
+
+      // Commit final state to store
+      if (dragStateRef.current) {
+        const { start, end } = dragStateRef.current;
+        if (start !== segment.start || end !== segment.end) {
+          onUpdate(segmentId, { start, end });
+        }
+      }
+      dragStateRef.current = null;
       onDragStart(false);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
   }, [segment, durationSec, timelineZoom, segmentId, onSelect, onUpdate, onDragStart]);
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
@@ -144,10 +189,10 @@ const TextSegmentItem = memo(function TextSegmentItem({
 
   return (
     <div
+      ref={elementRef}
       data-segment
       className={`
         absolute top-1 bottom-1 rounded-md cursor-pointer
-        transition-all duration-100
         ${isSelected ? 'border-2 shadow-lg' : 'border'}
       `}
       style={{
@@ -160,17 +205,17 @@ const TextSegmentItem = memo(function TextSegmentItem({
     >
       {/* Left resize handle */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-l-md"
+        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-l-md touch-none"
         style={{ '--tw-bg-opacity': 1 } as React.CSSProperties}
-        onMouseDown={(e) => handleMouseDown(e, 'start')}
+        onPointerDown={(e) => handlePointerDown(e, 'start')}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--track-text-hover)')}
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       />
 
       {/* Center drag handle */}
       <div
-        className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center"
-        onMouseDown={(e) => handleMouseDown(e, 'move')}
+        className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center touch-none"
+        onPointerDown={(e) => handlePointerDown(e, 'move')}
       >
         {segmentWidth > 60 && (
           <div className="flex items-center gap-1 overflow-hidden" style={{ color: 'var(--track-text-text)' }}>
@@ -187,8 +232,8 @@ const TextSegmentItem = memo(function TextSegmentItem({
 
       {/* Right resize handle */}
       <div
-        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-r-md"
-        onMouseDown={(e) => handleMouseDown(e, 'end')}
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-r-md touch-none"
+        onPointerDown={(e) => handlePointerDown(e, 'end')}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--track-text-hover)')}
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       />
@@ -205,7 +250,10 @@ const TextSegmentItem = memo(function TextSegmentItem({
 
       {/* Tooltip showing time range */}
       {isSelected && (
-        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-[var(--glass-bg-solid)] border border-[var(--glass-border)] text-[var(--ink-dark)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20 shadow-sm">
+        <div
+          ref={tooltipRef}
+          className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-[var(--glass-bg-solid)] border border-[var(--glass-border)] text-[var(--ink-dark)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20 shadow-sm"
+        >
           {formatTimeSimple(segment.start * 1000)} - {formatTimeSimple(segment.end * 1000)}
         </div>
       )}
@@ -241,10 +289,15 @@ export const TextTrackContent = memo(function TextTrackContent({
   // Duration in seconds
   const durationSec = durationMs / 1000;
 
+  // Check if any segment is being dragged
+  const isDraggingAny = useVideoEditorStore((s) =>
+    s.isDraggingZoomRegion || s.isDraggingSceneSegment || s.isDraggingMaskSegment || s.isDraggingTextSegment
+  );
+
   // Calculate preview segment details when hovering
   const previewSegmentDetails = useMemo(() => {
-    // Only show preview when hovering over this track and not playing
-    if (hoveredTrack !== 'text' || previewTimeMs === null || isPlaying) {
+    // Only show preview when hovering over this track, not playing, and not dragging
+    if (hoveredTrack !== 'text' || previewTimeMs === null || isPlaying || isDraggingAny) {
       return null;
     }
 
@@ -276,7 +329,7 @@ export const TextTrackContent = memo(function TextTrackContent({
     }
 
     return { startSec, endSec };
-  }, [hoveredTrack, previewTimeMs, isPlaying, segments, durationSec]);
+  }, [hoveredTrack, previewTimeMs, isPlaying, isDraggingAny, segments, durationSec]);
 
   // Handle track hover
   const handleMouseEnter = useCallback(() => {

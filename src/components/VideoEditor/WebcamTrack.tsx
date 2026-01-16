@@ -1,7 +1,13 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useRef } from 'react';
 import { Video, Eye, EyeOff } from 'lucide-react';
 import type { VisibilitySegment } from '../../types';
 import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
+
+// Drag state stored in ref to avoid re-renders during drag
+interface DragState {
+  startMs: number;
+  endMs: number;
+}
 
 interface WebcamTrackProps {
   segments: VisibilitySegment[];
@@ -16,6 +22,7 @@ const selectSelectedWebcamSegmentIndex = (s: ReturnType<typeof useVideoEditorSto
 
 /**
  * Memoized webcam segment component.
+ * Uses refs for intermediate drag state to avoid re-renders during drag.
  */
 const WebcamSegmentItem = memo(function WebcamSegmentItem({
   segment,
@@ -36,6 +43,10 @@ const WebcamSegmentItem = memo(function WebcamSegmentItem({
   onUpdate: (index: number, updates: Partial<VisibilitySegment>) => void;
   onDelete: (index: number) => void;
 }) {
+  const elementRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<DragState | null>(null);
+
   const left = segment.startMs * timelineZoom;
   const segmentWidth = (segment.endMs - segment.startMs) * timelineZoom;
 
@@ -44,33 +55,42 @@ const WebcamSegmentItem = memo(function WebcamSegmentItem({
     onSelect(index);
   }, [onSelect, index]);
 
-  const handleMouseDown = useCallback((
-    e: React.MouseEvent,
+  const handlePointerDown = useCallback((
+    e: React.PointerEvent,
     edge: 'start' | 'end' | 'move'
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
+    // Capture pointer to prevent flickering when cursor leaves element
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     onSelect(index);
 
     const startX = e.clientX;
     const startTimeMs = edge === 'end' ? segment.endMs : segment.startMs;
     const segmentDuration = segment.endMs - segment.startMs;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    // Initialize drag state
+    dragStateRef.current = { startMs: segment.startMs, endMs: segment.endMs };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaMs = deltaX / timelineZoom;
-      
+
+      let newStartMs = dragStateRef.current!.startMs;
+      let newEndMs = dragStateRef.current!.endMs;
+
       if (edge === 'start') {
-        const newStartMs = Math.max(0, Math.min(segment.endMs - 100, startTimeMs + deltaMs));
-        onUpdate(index, { startMs: newStartMs });
+        newStartMs = Math.max(0, Math.min(segment.endMs - 100, startTimeMs + deltaMs));
+        newEndMs = segment.endMs;
       } else if (edge === 'end') {
-        const newEndMs = Math.max(segment.startMs + 100, Math.min(durationMs, startTimeMs + deltaMs));
-        onUpdate(index, { endMs: newEndMs });
+        newStartMs = segment.startMs;
+        newEndMs = Math.max(segment.startMs + 100, Math.min(durationMs, startTimeMs + deltaMs));
       } else {
-        let newStartMs = startTimeMs + deltaMs;
-        let newEndMs = newStartMs + segmentDuration;
-        
+        newStartMs = startTimeMs + deltaMs;
+        newEndMs = newStartMs + segmentDuration;
+
         if (newStartMs < 0) {
           newStartMs = 0;
           newEndMs = segmentDuration;
@@ -79,18 +99,43 @@ const WebcamSegmentItem = memo(function WebcamSegmentItem({
           newEndMs = durationMs;
           newStartMs = durationMs - segmentDuration;
         }
-        
-        onUpdate(index, { startMs: newStartMs, endMs: newEndMs });
+      }
+
+      // Update ref state
+      dragStateRef.current = { startMs: newStartMs, endMs: newEndMs };
+
+      // Update DOM directly (no re-render)
+      if (elementRef.current) {
+        const newLeft = newStartMs * timelineZoom;
+        const newWidth = (newEndMs - newStartMs) * timelineZoom;
+        elementRef.current.style.left = `${newLeft}px`;
+        elementRef.current.style.width = `${Math.max(newWidth, 20)}px`;
+      }
+
+      // Update tooltip if visible
+      if (tooltipRef.current) {
+        tooltipRef.current.textContent = `${formatTimeSimple(newStartMs)} - ${formatTimeSimple(newEndMs)}`;
       }
     };
 
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      // Release pointer capture
+      (upEvent.target as HTMLElement).releasePointerCapture(upEvent.pointerId);
+
+      // Commit final state to store
+      if (dragStateRef.current) {
+        const { startMs, endMs } = dragStateRef.current;
+        if (startMs !== segment.startMs || endMs !== segment.endMs) {
+          onUpdate(index, { startMs, endMs });
+        }
+      }
+      dragStateRef.current = null;
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
   }, [segment, index, durationMs, timelineZoom, onSelect, onUpdate]);
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
@@ -105,9 +150,9 @@ const WebcamSegmentItem = memo(function WebcamSegmentItem({
 
   return (
     <div
+      ref={elementRef}
       className={`
         absolute top-1 bottom-1 rounded-md cursor-pointer
-        transition-all duration-100
         ${segment.visible
           ? isSelected
             ? 'bg-emerald-500/50 border-2 border-emerald-400 shadow-lg shadow-emerald-500/20'
@@ -125,20 +170,20 @@ const WebcamSegmentItem = memo(function WebcamSegmentItem({
     >
       {/* Left resize handle */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-emerald-400/50 rounded-l-md"
-        onMouseDown={(e) => handleMouseDown(e, 'start')}
+        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-emerald-400/50 rounded-l-md touch-none"
+        onPointerDown={(e) => handlePointerDown(e, 'start')}
       />
 
       {/* Center drag handle */}
       <div
-        className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center"
-        onMouseDown={(e) => handleMouseDown(e, 'move')}
+        className="absolute inset-x-2 top-0 bottom-0 cursor-move flex items-center justify-center touch-none"
+        onPointerDown={(e) => handlePointerDown(e, 'move')}
       >
         {segmentWidth > 40 && (
           <button
             className={`p-1 rounded transition-colors ${
-              segment.visible 
-                ? 'text-emerald-300/80 hover:text-emerald-200' 
+              segment.visible
+                ? 'text-emerald-300/80 hover:text-emerald-200'
                 : 'text-zinc-400/80 hover:text-zinc-300'
             }`}
             onClick={handleToggleVisibility}
@@ -154,8 +199,8 @@ const WebcamSegmentItem = memo(function WebcamSegmentItem({
 
       {/* Right resize handle */}
       <div
-        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-emerald-400/50 rounded-r-md"
-        onMouseDown={(e) => handleMouseDown(e, 'end')}
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-emerald-400/50 rounded-r-md touch-none"
+        onPointerDown={(e) => handlePointerDown(e, 'end')}
       />
 
       {/* Delete button (shown when selected) */}
@@ -170,7 +215,10 @@ const WebcamSegmentItem = memo(function WebcamSegmentItem({
 
       {/* Tooltip showing time range */}
       {isSelected && (
-        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20">
+        <div
+          ref={tooltipRef}
+          className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-zinc-300 text-[10px] px-2 py-0.5 rounded whitespace-nowrap z-20"
+        >
           {formatTimeSimple(segment.startMs)} - {formatTimeSimple(segment.endMs)}
         </div>
       )}

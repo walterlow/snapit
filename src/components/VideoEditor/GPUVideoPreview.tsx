@@ -31,8 +31,10 @@ const selectAudioConfig = (s: ReturnType<typeof useVideoEditorStore.getState>) =
  */
 const WebCodecsCanvasNoZoom = memo(function WebCodecsCanvasNoZoom({
   videoPath,
+  cropStyle,
 }: {
   videoPath: string | null;
+  cropStyle?: React.CSSProperties;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastDrawnTimeRef = useRef<number | null>(null);
@@ -105,12 +107,17 @@ const WebCodecsCanvasNoZoom = memo(function WebCodecsCanvasNoZoom({
 
   if (!showCanvas) return null;
 
+  // Check if crop style is applied (object-cover with position)
+  const hasCrop = cropStyle && cropStyle.objectFit === 'cover';
+
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+      className="absolute inset-0 w-full h-full pointer-events-none"
       style={{
         zIndex: 5,
+        objectFit: hasCrop ? 'cover' : 'contain',
+        ...cropStyle,
       }}
     />
   );
@@ -460,6 +467,7 @@ const SceneModeRenderer = memo(function SceneModeRenderer({
           <div style={screenStyle}>
             <WebCodecsCanvasNoZoom
               videoPath={originalVideoPath}
+              cropStyle={videoCropStyle}
             />
           </div>
         )}
@@ -654,6 +662,15 @@ export function GPUVideoPreview() {
       ? project.sources.originalWidth / project.sources.originalHeight
       : 16 / 9;
   }, [project?.sources.originalWidth, project?.sources.originalHeight]);
+
+  // Calculate crop aspect ratio when crop is enabled
+  const cropAspectRatio = useMemo(() => {
+    const crop = project?.export?.crop;
+    if (crop?.enabled && crop.width > 0 && crop.height > 0) {
+      return crop.width / crop.height;
+    }
+    return null;
+  }, [project?.export?.crop]);
 
   // Get background and crop config for frame styling preview
   const backgroundConfig = project?.export?.background;
@@ -1082,14 +1099,16 @@ export function GPUVideoPreview() {
 
       {/* Outer wrapper for background (shows when frame styling is enabled) */}
       <div
-        className="flex items-center justify-center relative overflow-hidden"
+        className="relative overflow-hidden"
         style={{
-          // Use composite aspect ratio when frame styling enabled, video aspect ratio when disabled
-          aspectRatio: hasFrameStyling ? compositeAspectRatio : aspectRatio,
-          // Need explicit width for aspect-ratio to calculate height
-          // Use 100% width, constrained by maxHeight if too tall for container
-          width: '100%',
-          maxHeight: '100%',
+          // When frame styling: use composite (includes padding)
+          // When no frame styling but crop enabled: use crop aspect ratio (direct crop)
+          // Otherwise: use original video aspect ratio
+          aspectRatio: hasFrameStyling ? compositeAspectRatio : (cropAspectRatio ?? aspectRatio),
+          // Constrain to parent bounds while maintaining aspect ratio
+          // height: 100% with aspect-ratio calculates width automatically
+          height: '100%',
+          maxWidth: '100%',
           // Padding as percentage of total width - avoids feedback loop with previewScale
           // paddingPercent = rawPadding / compositeWidth * 100
           padding: hasFrameStyling && backgroundConfig?.padding
@@ -1148,7 +1167,8 @@ export function GPUVideoPreview() {
               width: '100%',
               height: '100%',
             } : {
-              aspectRatio: aspectRatio,
+              // Use crop aspect ratio when crop enabled, otherwise original video aspect
+              aspectRatio: cropAspectRatio ?? aspectRatio,
               width: '100%',
               maxHeight: '100%',
               filter: 'drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4))',

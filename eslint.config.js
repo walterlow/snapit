@@ -43,7 +43,7 @@ export default tseslint.config(
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
 
       // Allow empty catch blocks with comment
       'no-empty': ['error', { allowEmptyCatch: true }],

@@ -35,7 +35,22 @@ export const createCheckerPattern = (): HTMLImageElement | null => {
 };
 
 /**
- * Transform screen position to canvas position (accounting for zoom and pan)
+ * Transform screen position to canvas position (accounting for zoom and pan).
+ * Converts mouse/pointer coordinates from screen space to canvas space,
+ * factoring in the current pan offset and zoom level.
+ *
+ * @param screenPos - The position in screen/viewport coordinates
+ * @param position - The current canvas pan offset (top-left origin)
+ * @param zoom - The current zoom level (1.0 = 100%)
+ * @returns The corresponding position in canvas coordinates
+ *
+ * @example
+ * // Convert mouse event coordinates to canvas position
+ * const canvasPos = screenToCanvas(
+ *   { x: event.clientX, y: event.clientY },
+ *   { x: canvasOffsetX, y: canvasOffsetY },
+ *   currentZoom
+ * );
  */
 export const screenToCanvas = (
   screenPos: { x: number; y: number },
@@ -49,8 +64,28 @@ export const screenToCanvas = (
 };
 
 /**
- * Get the bounding box for any shape type
- * Handles rectangles, circles, arrows, pen strokes, etc.
+ * Get the bounding box for any shape type.
+ * Calculates the axis-aligned bounding box (AABB) for rectangles, circles,
+ * ellipses, arrows, lines, pen strokes, and other shape types.
+ *
+ * @param shape - The canvas shape to calculate bounds for
+ * @returns The bounding box with x, y (top-left corner), width, and height
+ *
+ * @example
+ * // Get bounds for hit testing
+ * const bounds = getShapeBounds(selectedShape);
+ * if (pointInBounds(mouseX, mouseY, bounds)) {
+ *   // Shape was clicked
+ * }
+ *
+ * @example
+ * // Get bounds for a circle (uses radiusX/radiusY or radius)
+ * const circleBounds = getShapeBounds({
+ *   type: 'circle',
+ *   x: 100, y: 100,
+ *   radius: 50
+ * });
+ * // Returns: { x: 50, y: 50, width: 100, height: 100 }
  */
 export const getShapeBounds = (
   shape: CanvasShape
@@ -97,11 +132,21 @@ export const getShapeBounds = (
 };
 
 /**
- * Compute bounding box of multiple shapes for group selection
+ * Compute the combined bounding box of multiple shapes for group selection.
+ * Calculates the smallest rectangle that contains all selected shapes,
+ * with optional padding around the edges.
+ *
  * @param shapes - All shapes in the canvas
- * @param selectedIds - IDs of selected shapes
- * @param padding - Padding around the bounding box (default: 4)
- * @returns Bounding box or null if fewer than 2 shapes selected
+ * @param selectedIds - Array of IDs for the selected shapes
+ * @param padding - Padding in pixels around the bounding box (default: 4)
+ * @returns The combined bounding box, or null if fewer than 2 shapes are selected
+ *
+ * @example
+ * // Draw selection rectangle around multiple selected shapes
+ * const bounds = getSelectionBounds(allShapes, ['shape1', 'shape2', 'shape3']);
+ * if (bounds) {
+ *   ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+ * }
  */
 export const getSelectionBounds = (
   shapes: CanvasShape[],
@@ -137,11 +182,24 @@ export const getSelectionBounds = (
 };
 
 /**
- * Compute visible content bounds based on crop settings
- * @param image - The source image
- * @param canvasBounds - Current canvas bounds (crop settings)
- * @param isCropMode - Whether crop tool is currently active
- * @returns Visible bounds or null if no image
+ * Compute visible content bounds based on crop settings.
+ * Determines what portion of the source image should be displayed,
+ * accounting for active crop regions and crop mode state.
+ *
+ * @param image - The source image element (may be undefined if not loaded)
+ * @param canvasBounds - Current canvas bounds including crop offsets and dimensions
+ * @param isCropMode - Whether the crop tool is currently active
+ * @returns The visible bounds rectangle, or null if no image is available
+ *
+ * @example
+ * // Get visible area for rendering
+ * const visible = getVisibleBounds(imageElement, cropBounds, isEditing);
+ * if (visible) {
+ *   ctx.drawImage(image,
+ *     visible.x, visible.y, visible.width, visible.height,
+ *     0, 0, visible.width, visible.height
+ *   );
+ * }
  */
 export const getVisibleBounds = (
   image: HTMLImageElement | undefined,
@@ -176,7 +234,21 @@ export const getVisibleBounds = (
 };
 
 /**
- * Calculate composition size with padding for compositor
+ * Calculate composition size with padding for the compositor.
+ * Adds padding around the content when compositor effects are enabled
+ * (e.g., background gradients, shadows, rounded corners).
+ *
+ * @param contentWidth - The width of the actual content in pixels
+ * @param contentHeight - The height of the actual content in pixels
+ * @param paddingPx - The padding to add on each side in pixels
+ * @param compositorEnabled - Whether compositor effects are active
+ * @returns The total composition dimensions (width and height)
+ *
+ * @example
+ * // Calculate canvas size for export with compositor padding
+ * const size = getCompositionSize(imageWidth, imageHeight, 48, true);
+ * // If compositorEnabled: { width: imageWidth + 96, height: imageHeight + 96 }
+ * // If not enabled: { width: imageWidth, height: imageHeight }
  */
 export const getCompositionSize = (
   contentWidth: number,
@@ -195,7 +267,21 @@ export const getCompositionSize = (
 };
 
 /**
- * Check if two rectangles intersect (for marquee selection)
+ * Check if two rectangles intersect (overlap).
+ * Used for marquee selection to determine which shapes fall within the selection area.
+ * Uses axis-aligned bounding box (AABB) intersection test.
+ *
+ * @param a - First rectangle with x, y (top-left), width, and height
+ * @param b - Second rectangle with x, y (top-left), width, and height
+ * @returns True if the rectangles overlap, false otherwise
+ *
+ * @example
+ * // Check if marquee selection overlaps a shape's bounds
+ * const marquee = { x: 100, y: 100, width: 200, height: 150 };
+ * const shapeBounds = getShapeBounds(shape);
+ * if (rectsIntersect(marquee, shapeBounds)) {
+ *   selectShape(shape.id);
+ * }
  */
 export const rectsIntersect = (
   a: { x: number; y: number; width: number; height: number },
@@ -210,7 +296,13 @@ export const rectsIntersect = (
 };
 
 /**
- * Check if a point is inside a rectangle
+ * Check if a point is inside a rectangle.
+ * Tests if the given coordinates fall within the rectangle's bounds (inclusive).
+ *
+ * @param px - The x-coordinate of the point
+ * @param py - The y-coordinate of the point
+ * @param rect - The rectangle to test against
+ * @returns True if the point is inside or on the edge of the rectangle
  */
 const pointInRect = (
   px: number,
@@ -222,8 +314,19 @@ const pointInRect = (
 };
 
 /**
- * Check if two line segments intersect
- * Uses cross product to determine if segments cross
+ * Check if two line segments intersect.
+ * Uses cross product orientation tests to determine if segments cross,
+ * including handling collinear edge cases.
+ *
+ * @param x1 - X-coordinate of first segment's start point
+ * @param y1 - Y-coordinate of first segment's start point
+ * @param x2 - X-coordinate of first segment's end point
+ * @param y2 - Y-coordinate of first segment's end point
+ * @param x3 - X-coordinate of second segment's start point
+ * @param y3 - Y-coordinate of second segment's start point
+ * @param x4 - X-coordinate of second segment's end point
+ * @param y4 - Y-coordinate of second segment's end point
+ * @returns True if the line segments intersect
  */
 const segmentsIntersect = (
   x1: number, y1: number, x2: number, y2: number,
@@ -248,18 +351,59 @@ const segmentsIntersect = (
   return false;
 };
 
+/**
+ * Calculate the cross product direction for three points.
+ * Used to determine the orientation (clockwise, counterclockwise, or collinear)
+ * of three points for line segment intersection tests.
+ *
+ * @param x1 - X-coordinate of first point
+ * @param y1 - Y-coordinate of first point
+ * @param x2 - X-coordinate of second point
+ * @param y2 - Y-coordinate of second point
+ * @param x3 - X-coordinate of third point
+ * @param y3 - Y-coordinate of third point
+ * @returns Positive for counterclockwise, negative for clockwise, 0 for collinear
+ */
 const direction = (x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): number => {
   return (x3 - x1) * (y2 - y1) - (y3 - y1) * (x2 - x1);
 };
 
+/**
+ * Check if a point lies on a line segment (for collinear case).
+ * Used when three points are collinear to verify the third point
+ * falls within the segment bounds.
+ *
+ * @param x1 - X-coordinate of segment start
+ * @param y1 - Y-coordinate of segment start
+ * @param x2 - X-coordinate of segment end
+ * @param y2 - Y-coordinate of segment end
+ * @param x3 - X-coordinate of point to test
+ * @param y3 - Y-coordinate of point to test
+ * @returns True if point (x3, y3) lies on the segment from (x1, y1) to (x2, y2)
+ */
 const onSegment = (x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): boolean => {
   return Math.min(x1, x2) <= x3 && x3 <= Math.max(x1, x2) &&
          Math.min(y1, y2) <= y3 && y3 <= Math.max(y1, y2);
 };
 
 /**
- * Check if a line segment intersects with a rectangle
- * Used for marquee selection of lines/arrows
+ * Check if a line segment intersects with a rectangle.
+ * Used for marquee selection of line-based shapes like arrows and lines.
+ * Returns true if the line passes through or has endpoints inside the rectangle.
+ *
+ * @param x1 - X-coordinate of line segment start
+ * @param y1 - Y-coordinate of line segment start
+ * @param x2 - X-coordinate of line segment end
+ * @param y2 - Y-coordinate of line segment end
+ * @param rect - The rectangle to test against
+ * @returns True if the line segment intersects or is contained within the rectangle
+ *
+ * @example
+ * // Check if an arrow is within marquee selection
+ * const [startX, startY, endX, endY] = arrow.points;
+ * if (lineIntersectsRect(startX, startY, endX, endY, marqueeRect)) {
+ *   selectShape(arrow.id);
+ * }
  */
 export const lineIntersectsRect = (
   x1: number, y1: number, x2: number, y2: number,
@@ -289,8 +433,20 @@ export const lineIntersectsRect = (
 };
 
 /**
- * Check if a shape intersects with a rectangle (for marquee selection)
- * Handles special cases for lines/arrows that need line-rect intersection
+ * Check if a shape intersects with a rectangle (for marquee selection).
+ * Handles different shape types appropriately:
+ * - Lines and arrows use line-rectangle intersection
+ * - All other shapes use bounding box intersection
+ *
+ * @param shape - The canvas shape to test
+ * @param rect - The rectangle to test against (typically the marquee selection area)
+ * @returns True if the shape intersects with the rectangle
+ *
+ * @example
+ * // Select all shapes within marquee
+ * const selectedIds = shapes
+ *   .filter(shape => shapeIntersectsRect(shape, marqueeRect))
+ *   .map(shape => shape.id);
  */
 export const shapeIntersectsRect = (
   shape: CanvasShape,

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { SliceCreator, ExportProgress, ExportResult, ExportConfig, AutoZoomConfig, VideoProject } from './types';
 import { videoEditorLogger } from '../../utils/logger';
+import { sanitizeProjectForSave } from './projectSlice';
 
 /**
  * Export state and actions for video export and auto-zoom generation
@@ -75,18 +76,21 @@ export const createExportSlice: SliceCreator<ExportSlice> = (set, get) => ({
           }
         : project;
 
+    // Sanitize project to ensure all ms values are integers (Rust expects u64)
+    const sanitizedProject = sanitizeProjectForSave(projectWithFormat);
+
     videoEditorLogger.info(`Exporting to: ${outputPath}`);
     videoEditorLogger.debug(
-      `Format: ${selectedFormat}, Quality: ${projectWithFormat.export.quality}, FPS: ${projectWithFormat.export.fps}`
+      `Format: ${selectedFormat}, Quality: ${sanitizedProject.export.quality}, FPS: ${sanitizedProject.export.fps}`
     );
-    videoEditorLogger.debug('Scene config:', projectWithFormat.scene);
-    videoEditorLogger.debug('Zoom config:', projectWithFormat.zoom);
+    videoEditorLogger.debug('Scene config:', sanitizedProject.scene);
+    videoEditorLogger.debug('Zoom config:', sanitizedProject.zoom);
 
     set({ isExporting: true, exportProgress: null });
 
     try {
       const result = await invoke<ExportResult>('export_video', {
-        project: projectWithFormat,
+        project: sanitizedProject,
         outputPath,
       });
 

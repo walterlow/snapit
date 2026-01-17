@@ -11,6 +11,10 @@ import { DEFAULT_TIMELINE_ZOOM } from './timelineSlice';
 export function sanitizeProjectForSave(project: VideoProject): VideoProject {
   return {
     ...project,
+    sources: {
+      ...project.sources,
+      durationMs: Math.round(project.sources.durationMs),
+    },
     timeline: {
       ...project.timeline,
       durationMs: Math.round(project.timeline.durationMs),

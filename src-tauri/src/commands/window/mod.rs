@@ -11,6 +11,7 @@
 //! ```
 
 pub mod capture;
+pub mod image_editor;
 pub mod recording;
 pub mod settings;
 pub mod toolbar;

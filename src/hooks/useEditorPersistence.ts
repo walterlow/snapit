@@ -8,7 +8,7 @@
 import { useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useCaptureStore } from '../stores/captureStore';
-import { useEditorStore, clearHistory } from '../stores/editorStore';
+import { useEditorStore, globalEditorStore, clearHistory } from '../stores/editorStore';
 import { createErrorHandler } from '../utils/errorReporting';
 import type { EditorCanvasRef } from '../components/Editor/EditorCanvas';
 import type { Annotation, CropBoundsAnnotation, CompositorSettingsAnnotation } from '../types';
@@ -37,7 +37,7 @@ export function useEditorPersistence({ editorCanvasRef }: UseEditorPersistencePr
       // Finalize any in-progress drawing FIRST to capture shapes that might be in refs
       // Then read DIRECTLY from store to get latest state (bypasses React batching)
       editorCanvasRef.current?.finalizeAndGetShapes();
-      const storeState = useEditorStore.getState();
+      const storeState = globalEditorStore.getState();
       const finalizedShapes = storeState.shapes;
 
       // Capture data for save BEFORE any state changes

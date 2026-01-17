@@ -5,6 +5,7 @@
 use tauri::{Manager, Window, WindowEvent};
 
 use crate::commands::video_recording::audio_monitor;
+use crate::commands::window::image_editor;
 use crate::commands::window::video_editor;
 use crate::config;
 
@@ -55,6 +56,11 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             // Clean up video editor window tracking
             if video_editor::is_video_editor_window(label) {
                 video_editor::on_video_editor_closed(label);
+            }
+
+            // Clean up image editor window tracking
+            if image_editor::is_image_editor_window(label) {
+                image_editor::on_image_editor_closed(label);
             }
             // Otherwise let the window close normally
         },

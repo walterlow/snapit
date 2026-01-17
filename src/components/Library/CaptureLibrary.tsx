@@ -81,7 +81,6 @@ export const CaptureLibrary: React.FC = () => {
     initialized,
     loadingProjectId,
     loadCaptures,
-    loadProject,
     deleteCapture,
     deleteCaptures,
     toggleFavorite,
@@ -174,6 +173,30 @@ export const CaptureLibrary: React.FC = () => {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
 
+  // Open image in dedicated editor window
+  const handleEditImage = useCallback(async (capture: CaptureListItem) => {
+    try {
+      // Open image in a dedicated floating window
+      // If the image is already open, the existing window will be focused
+      await invoke('show_image_editor_window', { capturePath: capture.image_path });
+    } catch (error) {
+      reportError(error, { operation: 'image editor open' });
+      toast.error('Failed to open image editor');
+    }
+  }, []);
+
+  // Open project - now uses window-based editor for images
+  const handleOpenProject = useCallback(async (id: string) => {
+    const capture = captures.find(c => c.id === id);
+    if (!capture || capture.is_missing) return;
+
+    // Images open in dedicated window editor
+    if (capture.capture_type !== 'video' && capture.capture_type !== 'gif') {
+      await handleEditImage(capture);
+    }
+    // Videos/GIFs are handled separately in useMarqueeSelection
+  }, [captures, handleEditImage]);
+
   // Selection hook
   const {
     selectedIds,
@@ -189,7 +212,7 @@ export const CaptureLibrary: React.FC = () => {
   } = useMarqueeSelection({
     captures,
     containerRef: containerRef as React.RefObject<HTMLDivElement>,
-    onOpenProject: loadProject,
+    onOpenProject: handleOpenProject,
     virtualLayout,
   });
 

@@ -145,6 +145,10 @@ pub fn run() {
             commands::window::video_editor::show_video_editor_window,
             commands::window::video_editor::close_video_editor_window,
             commands::window::video_editor::get_video_editor_project_path,
+            // Window commands - image editor
+            commands::window::image_editor::show_image_editor_window,
+            commands::window::image_editor::close_image_editor_window,
+            commands::window::image_editor::get_image_editor_capture_path,
             // Image commands
             commands::image::copy_image_to_clipboard,
             // Storage commands

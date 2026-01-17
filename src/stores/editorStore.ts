@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, useStore } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { CanvasShape, CompositorSettings, BlurType, CanvasBounds } from '../types';
 import { DEFAULT_COMPOSITOR_SETTINGS } from '../types';
@@ -10,6 +10,7 @@ import {
   haveBoundsChanged,
   haveShapesChanged,
 } from './editorHistory';
+import { useEditorStoreContext } from './EditorStoreProvider';
 
 // Re-export CanvasBounds for backward compatibility
 export type { CanvasBounds } from '../types';
@@ -83,7 +84,15 @@ interface EditorState {
   _clearHistory: () => void;
 }
 
-export const useEditorStore = create<EditorState>()(
+// ============================================================================
+// Store Factory
+// ============================================================================
+
+/**
+ * Create an editor store instance.
+ * Used for window-based editors where each window has its own store.
+ */
+export const createEditorStore = () => create<EditorState>()(
   devtools(
     (set, get) => ({
   shapes: [],
@@ -340,6 +349,50 @@ export const useEditorStore = create<EditorState>()(
 );
 
 // ============================================================================
+// Store Types
+// ============================================================================
+
+export type EditorStore = ReturnType<typeof createEditorStore>;
+
+// Re-export provider from separate file (JSX requires .tsx)
+export { EditorStoreProvider } from './EditorStoreProvider';
+
+// ============================================================================
+// Global store (for backward compatibility with main window)
+// ============================================================================
+
+/**
+ * Global editor store instance.
+ * Used by the main window editor (embedded mode).
+ */
+export const globalEditorStore = createEditorStore();
+
+/**
+ * Hook to access the editor store.
+ * Uses context store if available (window mode), falls back to global store (main window mode).
+ */
+export function useEditorStore(): EditorState;
+export function useEditorStore<T>(selector: (state: EditorState) => T): T;
+export function useEditorStore<T>(selector?: (state: EditorState) => T): T | EditorState {
+  const contextStore = useEditorStoreContext();
+  const store = contextStore ?? globalEditorStore;
+  const selectAll = (state: EditorState) => state;
+
+  // useStore must be called unconditionally to satisfy React hooks rules
+  return useStore(store, selector ?? selectAll);
+}
+
+/**
+ * Get the appropriate store (context or global).
+ * Used by standalone functions that need store access.
+ */
+function getActiveStore(): EditorStore {
+  // This is called outside React context, so we can only use the global store
+  // Window-based editors should use store.getState() directly
+  return globalEditorStore;
+}
+
+// ============================================================================
 // Exported convenience functions (maintain backwards compatibility)
 // ============================================================================
 
@@ -347,33 +400,33 @@ export const useEditorStore = create<EditorState>()(
  * Take a snapshot BEFORE starting a user action (drag, transform, etc.)
  * Call this in onDragStart, onTransformStart, before shape creation, etc.
  */
-export const takeSnapshot = () => useEditorStore.getState()._takeSnapshot();
+export const takeSnapshot = () => getActiveStore().getState()._takeSnapshot();
 
 /**
  * Commit the pending snapshot to history AFTER an action completes
  * Call this in onDragEnd, onTransformEnd, after shape creation, etc.
  */
-export const commitSnapshot = () => useEditorStore.getState()._commitSnapshot();
+export const commitSnapshot = () => getActiveStore().getState()._commitSnapshot();
 
 /**
  * Discard pending snapshot without committing (e.g., action cancelled)
  */
-export const discardSnapshot = () => useEditorStore.getState()._discardSnapshot();
+export const discardSnapshot = () => getActiveStore().getState()._discardSnapshot();
 
 /**
  * Undo last action
  */
-export const undo = () => useEditorStore.getState()._undo();
+export const undo = () => getActiveStore().getState()._undo();
 
 /**
  * Redo last undone action
  */
-export const redo = () => useEditorStore.getState()._redo();
+export const redo = () => getActiveStore().getState()._redo();
 
 /**
  * Clear all history (e.g., when loading new image)
  */
-export const clearHistory = () => useEditorStore.getState()._clearHistory();
+export const clearHistory = () => getActiveStore().getState()._clearHistory();
 
 /**
  * Convenience: take snapshot + commit in one call for instant actions

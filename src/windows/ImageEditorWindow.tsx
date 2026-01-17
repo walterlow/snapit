@@ -285,7 +285,7 @@ const ImageEditorWindow: React.FC = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
         <Titlebar title="Loading..." showLogo={true} showMaximize={true} />
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
@@ -300,7 +300,7 @@ const ImageEditorWindow: React.FC = () => {
   // Error state
   if (error) {
     return (
-      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
         <Titlebar title="Error" showLogo={true} showMaximize={true} />
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-4 max-w-md text-center">
@@ -318,7 +318,7 @@ const ImageEditorWindow: React.FC = () => {
   // No image data loaded
   if (!imageData) {
     return (
-      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
         <Titlebar title="Image Editor" showLogo={true} showMaximize={true} />
         <div className="flex-1 flex items-center justify-center">
           <p className="text-sm text-(--ink-muted)">No image data loaded</p>
@@ -329,7 +329,7 @@ const ImageEditorWindow: React.FC = () => {
 
   // Main editor UI
   return (
-    <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+    <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
       <Titlebar
         title={getTitle()}
         showLogo={true}

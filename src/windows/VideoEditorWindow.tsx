@@ -116,7 +116,7 @@ const VideoEditorWindow: React.FC = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
         <Titlebar title="Loading..." showLogo={true} showMaximize={true} />
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
@@ -131,7 +131,7 @@ const VideoEditorWindow: React.FC = () => {
   // Error state
   if (error) {
     return (
-      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
         <Titlebar title="Error" showLogo={true} showMaximize={true} />
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-4 max-w-md text-center">
@@ -149,7 +149,7 @@ const VideoEditorWindow: React.FC = () => {
   // No project loaded
   if (!project) {
     return (
-      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+      <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
         <Titlebar title="Video Editor" showLogo={true} showMaximize={true} />
         <div className="flex-1 flex items-center justify-center">
           <p className="text-sm text-(--ink-muted)">Waiting for project...</p>
@@ -160,7 +160,7 @@ const VideoEditorWindow: React.FC = () => {
 
   // Main editor UI - reuse VideoEditorView with custom back handler
   return (
-    <div className="h-screen w-screen flex flex-col bg-card overflow-hidden rounded-lg">
+    <div className="h-screen w-screen flex flex-col bg-card overflow-hidden">
       <Titlebar
         title={project.name || 'Video Editor'}
         showLogo={true}

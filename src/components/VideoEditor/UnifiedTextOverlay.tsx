@@ -20,6 +20,7 @@ import { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { TextSegment } from '../../types';
 import { GlyphonTextOverlay } from './GlyphonTextOverlay';
+import { videoEditorLogger } from '@/utils/logger';
 
 interface UnifiedTextOverlayProps {
   segments: TextSegment[];
@@ -131,9 +132,9 @@ const NativeTextPreview = memo(function NativeTextPreview({
           height: pos.h,
         });
         setIsInitialized(true);
-        console.log('[NativeTextPreview] Initialized at', pos);
+        videoEditorLogger.info('NativeTextPreview initialized at', pos);
       } catch (err) {
-        console.warn('[NativeTextPreview] Failed to initialize:', err);
+        videoEditorLogger.warn('NativeTextPreview failed to initialize:', err);
         onError(err instanceof Error ? err : new Error(String(err)));
       }
     };
@@ -166,7 +167,7 @@ const NativeTextPreview = memo(function NativeTextPreview({
       y: pos.y,
       width: pos.w,
       height: pos.h,
-    }).catch(console.error);
+    }).catch((err) => videoEditorLogger.error('Failed to resize native text preview:', err));
   }, [isInitialized, containerWidth, containerHeight, getContainerPosition]);
 
   // Update text segments
@@ -187,7 +188,7 @@ const NativeTextPreview = memo(function NativeTextPreview({
     invoke('update_native_text_preview', {
       segments: visibleSegments,
       timeMs: Math.floor(currentTime * 1000),
-    }).catch(console.error);
+    }).catch((err) => videoEditorLogger.error('Failed to update native text preview:', err));
   }, [segments, currentTime, enabled, isInitialized]);
 
   // Render a transparent placeholder that marks the position
@@ -217,7 +218,7 @@ export const UnifiedTextOverlay = memo(function UnifiedTextOverlay({
 
   // Handle native preview error - fall back to WebSocket
   const handleNativeError = useCallback((err: Error) => {
-    console.warn('[UnifiedTextOverlay] Native preview failed, falling back to WebSocket:', err);
+    videoEditorLogger.warn('Native preview failed, falling back to WebSocket:', err);
     setNativeError(err);
     setUseNative(false);
   }, []);

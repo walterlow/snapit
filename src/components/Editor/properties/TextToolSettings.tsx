@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useEditorStore, recordAction } from '../../../stores/editorStore';
 import { DEFAULT_FONT_FAMILIES, type CanvasShape } from '../../../types';
+import { editorLogger } from '@/utils/logger';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -55,7 +56,7 @@ export const TextToolSettings: React.FC<TextToolSettingsProps> = ({
         }
       })
       .catch((err) => {
-        console.warn('Failed to load system fonts:', err);
+        editorLogger.warn('Failed to load system fonts:', err);
       });
   }, []);
 

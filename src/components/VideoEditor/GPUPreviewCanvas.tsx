@@ -11,6 +11,7 @@ import { memo, useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { usePreviewStream } from '../../hooks/usePreviewStream';
 import type { VideoProject } from '../../types';
+import { videoEditorLogger } from '@/utils/logger';
 
 interface GPUPreviewCanvasProps {
   /** Video project configuration */
@@ -68,7 +69,7 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
       // Frame received - could update UI if needed
     },
     onError: (error) => {
-      console.error('[GPUPreviewCanvas] Error:', error);
+      videoEditorLogger.error('GPUPreviewCanvas error:', error);
       initStateRef.current = 'error';
       onError?.(error);
     },
@@ -125,7 +126,7 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
       initStateRef.current = 'ready';
       onReadyRef.current?.();
     } catch (error) {
-      console.error('[GPUPreviewCanvas] Failed to initialize:', error);
+      videoEditorLogger.error('GPUPreviewCanvas failed to initialize:', error);
       initStateRef.current = 'error';
       onErrorRef.current?.(String(error));
     }
@@ -144,13 +145,13 @@ export const GPUPreviewCanvas = memo(function GPUPreviewCanvas({
       // This prevents re-renders on text edits
       if (isNewProject) {
         setProjectId(proj.id);
-        console.log('[GPUPreviewCanvas] Project set:', proj.id);
+        videoEditorLogger.info('GPUPreviewCanvas project set:', proj.id);
       }
 
       // Render a frame immediately after setting project
       await invoke('render_preview_frame', { timeMs: Math.floor(timeMs) });
     } catch (error) {
-      console.error('[GPUPreviewCanvas] Failed to set project:', error);
+      videoEditorLogger.error('GPUPreviewCanvas failed to set project:', error);
       onErrorRef.current?.(String(error));
     }
   }, []);

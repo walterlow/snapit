@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { videoEditorLogger } from '@/utils/logger';
 
 // RGBA magic number for frame validation (matches Rust backend)
 const RGBA_MAGIC = 0x52474241; // "RGBA" in little-endian
@@ -68,7 +69,7 @@ function parseFrameMetadata(buffer: ArrayBuffer): FrameMetadata | null {
 
   // Validate magic number
   if (magic !== RGBA_MAGIC) {
-    console.warn('[PreviewStream] Invalid frame magic:', magic.toString(16));
+    videoEditorLogger.warn('Invalid frame magic:', magic.toString(16));
     return null;
   }
 
@@ -150,7 +151,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
   const initPreview = useCallback(async () => {
     // Prevent concurrent initialization
     if (initializingRef.current || wsRef.current) {
-      console.log('[PreviewStream] Already initialized or initializing');
+      videoEditorLogger.debug('Preview stream already initialized or initializing');
       return;
     }
 
@@ -166,7 +167,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
-        console.log('[PreviewStream] Connected to', url);
+        videoEditorLogger.debug('Preview stream connected to', url);
         setIsConnected(true);
 
         // Clear canvas to transparent on connect (prevents showing uninitialized garbage)
@@ -180,12 +181,12 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
       };
 
       ws.onclose = () => {
-        console.log('[PreviewStream] Disconnected');
+        videoEditorLogger.debug('Preview stream disconnected');
         setIsConnected(false);
       };
 
       ws.onerror = (event) => {
-        console.error('[PreviewStream] WebSocket error:', event);
+        videoEditorLogger.error('WebSocket error:', event);
         onErrorRef.current?.('WebSocket connection error');
       };
 
@@ -196,7 +197,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
 
       wsRef.current = ws;
     } catch (error) {
-      console.error('[PreviewStream] Failed to initialize:', error);
+      videoEditorLogger.error('Failed to initialize preview stream:', error);
       onErrorRef.current?.(String(error));
     } finally {
       initializingRef.current = false;
@@ -209,7 +210,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
       // Convert to integer - backend expects u64
       await invoke('render_preview_frame', { timeMs: Math.floor(timeMs) });
     } catch (error) {
-      console.error('[PreviewStream] Failed to render frame:', error);
+      videoEditorLogger.error('Failed to render frame:', error);
     }
   }, []);
 
@@ -218,7 +219,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
     try {
       await invoke('render_text_only_frame', { timeMs: Math.floor(timeMs) });
     } catch (error) {
-      console.error('[PreviewStream] Failed to render text-only frame:', error);
+      videoEditorLogger.error('Failed to render text-only frame:', error);
     }
   }, []);
 
@@ -234,7 +235,7 @@ export function usePreviewStream(options: UsePreviewStreamOptions = {}): UsePrev
     try {
       await invoke('shutdown_preview');
     } catch (error) {
-      console.error('[PreviewStream] Failed to shutdown:', error);
+      videoEditorLogger.error('Failed to shutdown preview stream:', error);
     }
 
     setIsConnected(false);

@@ -4,6 +4,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { FileText, Upload, Send, Check, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { settingsLogger } from '@/utils/logger';
 
 const FEEDBACK_API = 'https://snapit-feedback.walterlow88.workers.dev/feedback';
 
@@ -63,7 +64,7 @@ export const FeedbackTab: React.FC = () => {
       const logs = await invoke<string>('get_recent_logs', { lines: 500 });
       setAttachedLogs(logs);
     } catch (error) {
-      console.error('Failed to attach logs:', error);
+      settingsLogger.error('Failed to attach logs:', error);
     } finally {
       setIsAttachingLogs(false);
     }

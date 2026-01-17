@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from 'sonner';
+import { logger } from '@/utils/logger';
 
 interface UpdateState {
   available: boolean;
@@ -49,7 +50,7 @@ export function useUpdater(checkOnMount = true) {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to check for updates';
       setState(prev => ({ ...prev, error: message }));
-      console.error('Update check failed:', error);
+      logger.error('Update check failed:', error);
     }
   }, []);
 

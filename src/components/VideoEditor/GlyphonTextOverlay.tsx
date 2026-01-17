@@ -11,6 +11,7 @@
 import { memo, useRef, useEffect, useCallback, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { TextSegment } from '../../types';
+import { videoEditorLogger } from '@/utils/logger';
 
 // RGBA magic number (must match Rust)
 const RGBA_MAGIC = 0x52474241;
@@ -217,7 +218,7 @@ export const GlyphonTextOverlay = memo(function GlyphonTextOverlay({
               }
             }
           } catch (e) {
-            console.error('[GlyphonText] Bitmap creation failed:', e);
+            videoEditorLogger.error('GlyphonText bitmap creation failed:', e);
           }
         };
 
@@ -228,7 +229,7 @@ export const GlyphonTextOverlay = memo(function GlyphonTextOverlay({
           wsRef.current = null;
         };
       } catch (error) {
-        console.error('[GlyphonText] Connection failed:', error);
+        videoEditorLogger.error('GlyphonText connection failed:', error);
       }
     };
 
@@ -302,7 +303,7 @@ export const GlyphonTextOverlay = memo(function GlyphonTextOverlay({
     }).catch(err => {
       // Only log if this is still the current request
       if (thisRequestId === requestIdRef.current) {
-        console.error('[GlyphonText] Render failed:', err);
+        videoEditorLogger.error('GlyphonText render failed:', err);
       }
       pendingKeyRef.current = null;
     });

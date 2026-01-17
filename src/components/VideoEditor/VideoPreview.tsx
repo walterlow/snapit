@@ -87,7 +87,7 @@ export function VideoPreview({ width, height }: VideoPreviewProps) {
   useEffect(() => {
     return () => {
       if (videoPath) {
-        invoke('clear_video_frame_cache', { videoPath }).catch(console.error);
+        invoke('clear_video_frame_cache', { videoPath }).catch((err) => videoEditorLogger.error('Failed to clear video frame cache:', err));
       }
     };
   }, [videoPath]);

@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Italic } from 'lucide-react';
+import { videoEditorLogger } from '@/utils/logger';
 import { Slider } from '../../components/ui/slider';
 import type { TextSegment } from '../../types';
 
@@ -60,7 +61,7 @@ export function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextS
         }
       })
       .catch((err) => {
-        console.warn('Failed to load system fonts:', err);
+        videoEditorLogger.warn('Failed to load system fonts:', err);
       });
   }, []);
 
@@ -86,7 +87,7 @@ export function TextSegmentConfig({ segment, onUpdate, onDelete, onDone }: TextS
         }
       })
       .catch((err) => {
-        console.warn('Failed to load font weights:', err);
+        videoEditorLogger.warn('Failed to load font weights:', err);
         setAvailableWeights([400, 700]); // Fallback
       });
   }, [segment.fontFamily]);

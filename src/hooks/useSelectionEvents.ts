@@ -12,6 +12,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { availableMonitors, type Monitor } from '@tauri-apps/api/window';
 import { useCaptureSettingsStore } from '@/stores/captureSettingsStore';
+import { toolbarLogger } from '@/utils/logger';
 
 export interface SelectionBounds {
   x: number;
@@ -166,7 +167,7 @@ export function useSelectionEvents(): UseSelectionEventsReturn {
         const currentMode = useCaptureSettingsStore.getState().activeMode;
         const format = currentMode === 'gif' ? 'gif' : 'mp4';
         invoke('prepare_recording', { format }).catch((e) => {
-          console.warn('Failed to prepare recording:', e);
+          toolbarLogger.warn('Failed to prepare recording:', e);
         });
 
         // Wait for React to re-render and resize hook to run, then reposition
@@ -177,7 +178,7 @@ export function useSelectionEvents(): UseSelectionEventsReturn {
         try {
           await repositionToolbar(bounds);
         } catch (e) {
-          console.error('Failed to reposition toolbar:', e);
+          toolbarLogger.error('Failed to reposition toolbar:', e);
         }
       });
 

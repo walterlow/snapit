@@ -12,6 +12,7 @@ import {
   useVideoEditorStore as globalVideoEditorStore,
   type VideoEditorState,
 } from '../stores/videoEditorStore';
+import { videoEditorLogger } from '@/utils/logger';
 
 // Context holds the store instance
 const VideoEditorContext = createContext<StoreApi<VideoEditorState> | null>(null);
@@ -40,7 +41,7 @@ export function VideoEditorProvider({ children }: VideoEditorProviderProps) {
       if (store) {
         const state = store.getState();
         if (state.editorInstanceId) {
-          state.destroyGPUEditor().catch(console.warn);
+          state.destroyGPUEditor().catch((err) => videoEditorLogger.warn('Failed to destroy GPU editor:', err));
         }
       }
     };

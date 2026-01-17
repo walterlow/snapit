@@ -8,6 +8,7 @@
 
 import { readFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
+import { logger } from '@/utils/logger';
 
 /**
  * Load raw RGBA data from a temp file and create an ImageBitmap.
@@ -131,7 +132,7 @@ export async function cleanupRgbaFile(filePath: string): Promise<void> {
     await invoke('cleanup_rgba_file', { filePath });
   } catch (error) {
     // Ignore cleanup errors - file might already be deleted
-    console.warn('Failed to cleanup temp file:', error);
+    logger.warn('Failed to cleanup temp file:', error);
   }
 }
 

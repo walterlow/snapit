@@ -203,7 +203,7 @@ export const VideoEditorView = forwardRef<VideoEditorViewRef, VideoEditorViewPro
     const timeoutId = setTimeout(() => {
       saveProject().catch((error) => {
         // Silent fail for auto-save - user can manually save with Ctrl+S
-        console.warn('Auto-save failed:', error);
+        videoEditorLogger.warn('Auto-save failed:', error);
       });
     }, 2000); // 2 second debounce
 

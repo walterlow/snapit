@@ -5,6 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { ColorPicker } from '@/components/ui/color-picker';
 import { Check, Upload, X, Loader2 } from 'lucide-react';
 import type { BackgroundConfig, VideoBackgroundType } from '@/types';
+import { videoEditorLogger } from '@/utils/logger';
 import {
   WALLPAPER_THEMES,
   WALLPAPERS_BY_THEME,
@@ -60,7 +61,7 @@ export function BackgroundSettings({ background, onUpdate }: BackgroundSettingsP
 
         setLoadedWallpapers(loaded);
       } catch (err) {
-        console.error('Failed to load wallpapers:', err);
+        videoEditorLogger.error('Failed to load wallpapers:', err);
       } finally {
         setIsLoadingWallpapers(false);
       }

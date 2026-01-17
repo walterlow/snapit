@@ -31,6 +31,7 @@ import type { Tool, CanvasShape } from '@/types';
 import { toast } from 'sonner';
 import { reportError } from '@/utils/errorReporting';
 import { useEditorActions } from '@/hooks/useEditorActions';
+import { useEditorKeyboardShortcuts } from '@/hooks/useEditorKeyboardShortcuts';
 import { DeleteDialog } from '@/components/Library/components/DeleteDialog';
 
 /**
@@ -50,6 +51,7 @@ const ImageEditorContent: React.FC<{
     setShapes,
     compositorSettings,
     setCompositorSettings,
+    selectedIds,
     setSelectedIds,
     strokeColor,
     setStrokeColor,
@@ -64,6 +66,26 @@ const ImageEditorContent: React.FC<{
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { isCopying, isSaving, handleCopy, handleSave, handleSaveAs } = useEditorActions({ stageRef });
+
+  // Fit to center handler - dispatch custom event that EditorCanvas listens for
+  const handleFitToCenter = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('fit-to-center'));
+  }, []);
+
+  // Show shortcuts handler (no-op for now, could add modal later)
+  const handleShowShortcuts = useCallback(() => {
+    // TODO: Add keyboard shortcuts help modal
+  }, []);
+
+  // Deselect handler
+  const handleDeselect = useCallback(() => {
+    setSelectedIds([]);
+  }, [setSelectedIds]);
+
+  // Toggle compositor handler
+  const handleToggleCompositor = useCallback(() => {
+    setCompositorSettings({ enabled: !compositorSettings.enabled });
+  }, [compositorSettings.enabled, setCompositorSettings]);
 
   // Handle tool change
   const handleToolChange = useCallback((newTool: Tool) => {
@@ -109,17 +131,28 @@ const ImageEditorContent: React.FC<{
     setDeleteDialogOpen(false);
   }, []);
 
-  // Compositor toggle (unused for now, but kept for feature parity)
-  const _handleToggleCompositor = useCallback(() => {
-    setCompositorSettings({ enabled: !compositorSettings.enabled });
-  }, [compositorSettings.enabled, setCompositorSettings]);
-  void _handleToggleCompositor; // Silence unused warning
-
   // Back/Close handler
   const handleBack = useCallback(async () => {
     // TODO: Check for unsaved changes and prompt
     onClose();
   }, [onClose]);
+
+  // Wire up keyboard shortcuts
+  useEditorKeyboardShortcuts({
+    view: 'editor',
+    selectedTool,
+    selectedIds,
+    compositorEnabled: compositorSettings.enabled,
+    onToolChange: handleToolChange,
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onSave: handleSave,
+    onCopy: handleCopy,
+    onToggleCompositor: handleToggleCompositor,
+    onShowShortcuts: handleShowShortcuts,
+    onDeselect: handleDeselect,
+    onFitToCenter: handleFitToCenter,
+  });
 
   return (
     <>

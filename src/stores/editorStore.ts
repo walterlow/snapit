@@ -376,10 +376,11 @@ export function useEditorStore<T>(selector: (state: EditorState) => T): T;
 export function useEditorStore<T>(selector?: (state: EditorState) => T): T | EditorState {
   const contextStore = useEditorStoreContext();
   const store = contextStore ?? globalEditorStore;
-  const selectAll = (state: EditorState) => state;
 
   // useStore must be called unconditionally to satisfy React hooks rules
-  return useStore(store, selector ?? selectAll);
+  // Type assertion is safe because overloads guarantee correct usage
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return useStore(store, (selector ?? ((state: EditorState) => state)) as any);
 }
 
 /**

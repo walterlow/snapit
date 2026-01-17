@@ -1,7 +1,8 @@
 import { memo, useCallback, useMemo, useRef } from 'react';
 import { Camera, Monitor, Video, Plus, GripVertical } from 'lucide-react';
-import type { SceneSegment, SceneMode } from '../../types';
-import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
+import type { SceneSegment, SceneMode } from '../../../types';
+import { useVideoEditorStore, formatTimeSimple } from '../../../stores/videoEditorStore';
+import type { DragEdge } from './BaseTrack';
 
 // Drag state stored in ref to avoid re-renders during drag
 interface DragState {
@@ -51,16 +52,12 @@ const SCENE_MODE_ICONS: Record<SceneMode, typeof Camera> = {
   screenOnly: Monitor,
 };
 
-// Labels can be used in tooltips if needed
-// const SCENE_MODE_LABELS: Record<SceneMode, string> = {
-//   default: 'Screen + Cam',
-//   cameraOnly: 'Camera Only',
-//   screenOnly: 'Screen Only',
-// };
-
 /**
  * SceneSegmentItem component for rendering individual scene segments.
  * Uses refs for intermediate drag state to avoid re-renders during drag.
+ *
+ * Note: SceneTrack has unique styling per mode, so we use a custom implementation
+ * rather than BaseSegmentItem to handle the mode-specific colors.
  */
 const SceneSegmentItem = memo(function SceneSegmentItem({
   segment,
@@ -79,7 +76,7 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
   onSelect: (id: string) => void;
   onUpdate: (id: string, updates: Partial<SceneSegment>) => void;
   onDelete: (id: string) => void;
-  onDragStart: (dragging: boolean, edge?: 'start' | 'end' | 'move') => void;
+  onDragStart: (dragging: boolean, edge?: DragEdge) => void;
 }) {
   const elementRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -97,7 +94,7 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
 
   const handlePointerDown = useCallback((
     e: React.PointerEvent,
-    edge: 'start' | 'end' | 'move'
+    edge: DragEdge
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -123,11 +120,11 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
       let newEndMs = dragStateRef.current!.endMs;
 
       if (edge === 'start') {
-        newStartMs = Math.max(0, Math.min(segment.endMs - 500, startTimeMs + deltaMs));
+        newStartMs = Math.max(0, Math.min(segment.endMs - MIN_SEGMENT_DURATION_MS, startTimeMs + deltaMs));
         newEndMs = segment.endMs;
       } else if (edge === 'end') {
         newStartMs = segment.startMs;
-        newEndMs = Math.max(segment.startMs + 500, Math.min(durationMs, startTimeMs + deltaMs));
+        newEndMs = Math.max(segment.startMs + MIN_SEGMENT_DURATION_MS, Math.min(durationMs, startTimeMs + deltaMs));
       } else {
         newStartMs = startTimeMs + deltaMs;
         newEndMs = newStartMs + segmentDuration;
@@ -236,7 +233,7 @@ const SceneSegmentItem = memo(function SceneSegmentItem({
           className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center text-white text-xs shadow-md"
           onClick={handleDelete}
         >
-          ×
+          x
         </button>
       )}
 
@@ -289,39 +286,19 @@ const PreviewSegment = memo(function PreviewSegment({
 });
 
 /**
- * SceneTrack component for displaying and editing scene mode segments.
- *
- * Scene modes control how the video is displayed:
- * - Default: Screen with webcam overlay
- * - Camera Only: Fullscreen webcam
- * - Screen Only: Hide webcam
+ * Hook for scene track preview segment calculation.
+ * Shared between SceneTrack and SceneTrackContent.
  */
-export const SceneTrack = memo(function SceneTrack({
-  segments,
-  defaultMode,
-  durationMs,
-  timelineZoom,
-}: SceneTrackProps) {
-  const selectSceneSegment = useVideoEditorStore((s) => s.selectSceneSegment);
-  const addSceneSegment = useVideoEditorStore((s) => s.addSceneSegment);
-  const updateSceneSegment = useVideoEditorStore((s) => s.updateSceneSegment);
-  const deleteSceneSegment = useVideoEditorStore((s) => s.deleteSceneSegment);
-  const setDraggingSceneSegment = useVideoEditorStore((s) => s.setDraggingSceneSegment);
-  const selectedSceneSegmentId = useVideoEditorStore((s) => s.selectedSceneSegmentId);
-  const previewTimeMs = useVideoEditorStore((s) => s.previewTimeMs);
-  const hoveredTrack = useVideoEditorStore((s) => s.hoveredTrack);
-  const setHoveredTrack = useVideoEditorStore((s) => s.setHoveredTrack);
-  const isPlaying = useVideoEditorStore((s) => s.isPlaying);
-
-  const totalWidth = durationMs * timelineZoom;
-
-  // Check if any segment is being dragged
-  const isDraggingAny = useVideoEditorStore((s) =>
-    s.isDraggingZoomRegion || s.isDraggingSceneSegment || s.isDraggingMaskSegment || s.isDraggingTextSegment
-  );
-
-  // Calculate preview segment details when hovering
-  const previewSegmentDetails = useMemo(() => {
+function useScenePreviewSegment(
+  segments: SceneSegment[],
+  defaultMode: SceneMode,
+  durationMs: number,
+  hoveredTrack: string | null,
+  previewTimeMs: number | null,
+  isPlaying: boolean,
+  isDraggingAny: boolean
+) {
+  return useMemo(() => {
     // Only show preview when hovering over this track, not playing, and not dragging
     if (hoveredTrack !== 'scene' || previewTimeMs === null || isPlaying || isDraggingAny) {
       return null;
@@ -358,6 +335,43 @@ export const SceneTrack = memo(function SceneTrack({
 
     return { startMs, endMs, mode: newMode };
   }, [hoveredTrack, previewTimeMs, isPlaying, isDraggingAny, segments, durationMs, defaultMode]);
+}
+
+/**
+ * SceneTrack component for displaying and editing scene mode segments.
+ *
+ * Scene modes control how the video is displayed:
+ * - Default: Screen with webcam overlay
+ * - Camera Only: Fullscreen webcam
+ * - Screen Only: Hide webcam
+ */
+export const SceneTrack = memo(function SceneTrack({
+  segments,
+  defaultMode,
+  durationMs,
+  timelineZoom,
+}: SceneTrackProps) {
+  const selectSceneSegment = useVideoEditorStore((s) => s.selectSceneSegment);
+  const addSceneSegment = useVideoEditorStore((s) => s.addSceneSegment);
+  const updateSceneSegment = useVideoEditorStore((s) => s.updateSceneSegment);
+  const deleteSceneSegment = useVideoEditorStore((s) => s.deleteSceneSegment);
+  const setDraggingSceneSegment = useVideoEditorStore((s) => s.setDraggingSceneSegment);
+  const selectedSceneSegmentId = useVideoEditorStore((s) => s.selectedSceneSegmentId);
+  const previewTimeMs = useVideoEditorStore((s) => s.previewTimeMs);
+  const hoveredTrack = useVideoEditorStore((s) => s.hoveredTrack);
+  const setHoveredTrack = useVideoEditorStore((s) => s.setHoveredTrack);
+  const isPlaying = useVideoEditorStore((s) => s.isPlaying);
+
+  const totalWidth = durationMs * timelineZoom;
+
+  // Check if any segment is being dragged
+  const isDraggingAny = useVideoEditorStore((s) =>
+    s.isDraggingZoomRegion || s.isDraggingSceneSegment || s.isDraggingMaskSegment || s.isDraggingTextSegment
+  );
+
+  const previewSegmentDetails = useScenePreviewSegment(
+    segments, defaultMode, durationMs, hoveredTrack, previewTimeMs, isPlaying, isDraggingAny
+  );
 
   // Handle track hover
   const handleMouseEnter = useCallback(() => {
@@ -470,44 +484,9 @@ export const SceneTrackContent = memo(function SceneTrackContent({
     s.isDraggingZoomRegion || s.isDraggingSceneSegment || s.isDraggingMaskSegment || s.isDraggingTextSegment
   );
 
-  // Calculate preview segment details when hovering
-  const previewSegmentDetails = useMemo(() => {
-    // Only show preview when hovering over this track, not playing, and not dragging
-    if (hoveredTrack !== 'scene' || previewTimeMs === null || isPlaying || isDraggingAny) {
-      return null;
-    }
-
-    // Check if hovering over an existing segment
-    const isOnSegment = segments.some(
-      (seg) => previewTimeMs >= seg.startMs && previewTimeMs <= seg.endMs
-    );
-
-    if (isOnSegment) {
-      return null;
-    }
-
-    // Calculate preview segment bounds - left edge at playhead
-    const startMs = previewTimeMs;
-    const endMs = Math.min(durationMs, startMs + DEFAULT_SEGMENT_DURATION_MS);
-
-    // Don't allow if there's not enough space for minimum duration
-    if (endMs - startMs < MIN_SEGMENT_DURATION_MS) {
-      return null;
-    }
-
-    // Check for collisions with existing segments and adjust
-    for (const seg of segments) {
-      // If preview would overlap with an existing segment, don't show it
-      if (startMs < seg.endMs && endMs > seg.startMs) {
-        return null;
-      }
-    }
-
-    // Determine the mode for new segment (opposite of default for visibility)
-    const newMode: SceneMode = defaultMode === 'default' ? 'cameraOnly' : 'default';
-
-    return { startMs, endMs, mode: newMode };
-  }, [hoveredTrack, previewTimeMs, isPlaying, isDraggingAny, segments, durationMs, defaultMode]);
+  const previewSegmentDetails = useScenePreviewSegment(
+    segments, defaultMode, durationMs, hoveredTrack, previewTimeMs, isPlaying, isDraggingAny
+  );
 
   // Handle track hover
   const handleMouseEnter = useCallback(() => {

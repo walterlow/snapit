@@ -26,10 +26,7 @@ import {
 import { useVideoEditorStore, formatTimeSimple } from '../../stores/videoEditorStore';
 import { usePlaybackTime, usePlaybackControls, getPlaybackState } from '../../hooks/usePlaybackEngine';
 import { TimelineRuler } from './TimelineRuler';
-import { ZoomTrackContent } from './ZoomTrack';
-import { SceneTrackContent } from './SceneTrack';
-import { MaskTrackContent } from './MaskTrack';
-import { TextTrackContent } from './TextTrack';
+import { ZoomTrackContent, SceneTrackContent, MaskTrackContent, TextTrackContent } from './tracks';
 import { TrackManager } from './TrackManager';
 import type { AudioWaveform } from '../../types';
 

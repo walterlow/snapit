@@ -29,18 +29,39 @@ const shapeHashCache = new WeakMap<CanvasShape, string>();
 export function getShapeHash(shape: CanvasShape): string {
   let hash = shapeHashCache.get(shape);
   if (!hash) {
-    // Create hash from mutable properties only
+    // Create hash from all mutable properties
     hash = JSON.stringify({
+      // Position & dimensions
       x: shape.x,
       y: shape.y,
       width: shape.width,
       height: shape.height,
       rotation: shape.rotation,
       points: shape.points,
+      // Circle/ellipse radius
+      radius: shape.radius,
+      radiusX: shape.radiusX,
+      radiusY: shape.radiusY,
+      // Text properties
       text: shape.text,
+      fontSize: shape.fontSize,
+      fontFamily: shape.fontFamily,
+      fontStyle: shape.fontStyle,
+      textDecoration: shape.textDecoration,
+      align: shape.align,
+      verticalAlign: shape.verticalAlign,
+      wrap: shape.wrap,
+      lineHeight: shape.lineHeight,
+      // Style properties
       fill: shape.fill,
       stroke: shape.stroke,
       strokeWidth: shape.strokeWidth,
+      // Step number
+      number: shape.number,
+      // Blur properties
+      blurType: shape.blurType,
+      blurAmount: shape.blurAmount,
+      pixelSize: shape.pixelSize,
     });
     shapeHashCache.set(shape, hash);
   }
@@ -131,12 +152,15 @@ export function haveBoundsChanged(
 }
 
 /**
- * Check if shapes have changed (quick check by ID and count).
+ * Check if shapes have changed (by ID, count, and properties).
  */
 export function haveShapesChanged(
   prevShapes: CanvasShape[],
   currentShapes: CanvasShape[]
 ): boolean {
   if (prevShapes.length !== currentShapes.length) return true;
-  return prevShapes.some((s, i) => s.id !== currentShapes[i]?.id);
+  return prevShapes.some((s, i) =>
+    s.id !== currentShapes[i]?.id ||
+    getShapeHash(s) !== getShapeHash(currentShapes[i])
+  );
 }

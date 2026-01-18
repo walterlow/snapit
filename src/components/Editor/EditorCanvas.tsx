@@ -732,6 +732,140 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 }
               });
             }}
+            onTransformEnd={() => {
+              // Handle ALL shapes at once to ensure batched history entry
+              const nodes = transformerRef.current?.nodes() || [];
+              if (nodes.length === 0) {
+                history.commitSnapshot();
+                return;
+              }
+
+              // Collect updates for all transformed shapes
+              const shapeUpdates = new Map<string, Partial<CanvasShape>>();
+
+              nodes.forEach(node => {
+                const shapeId = node.id();
+                const shape = shapes.find(s => s.id === shapeId);
+                if (!shape) return;
+
+                const scaleX = node.scaleX();
+                const scaleY = node.scaleY();
+
+                let updates: Partial<CanvasShape>;
+
+                if (shape.type === 'pen' && shape.points && shape.points.length >= 2) {
+                  // Pen: convert scale to points
+                  const nodeX = node.x();
+                  const nodeY = node.y();
+                  const newPoints = shape.points.map((val, i) =>
+                    i % 2 === 0 ? nodeX + val * scaleX : nodeY + val * scaleY
+                  );
+                  node.scaleX(1);
+                  node.scaleY(1);
+                  node.position({ x: 0, y: 0 });
+                  updates = { points: newPoints };
+                } else if (shape.type === 'blur') {
+                  // Blur: just use position and dimensions
+                  updates = {
+                    x: node.x(),
+                    y: node.y(),
+                    width: node.width(),
+                    height: node.height(),
+                  };
+                } else if (shape.type === 'text') {
+                  // Text: normalize negative dimensions
+                  const rawWidth = node.width();
+                  const rawHeight = node.height();
+                  let finalX = node.x();
+                  let finalY = node.y();
+                  const finalWidth = Math.max(50, Math.abs(rawWidth));
+                  const finalHeight = Math.max(24, Math.abs(rawHeight));
+                  if (rawWidth < 0) finalX += rawWidth;
+                  if (rawHeight < 0) finalY += rawHeight;
+
+                  // Reset child positions
+                  if (node instanceof Konva.Group) {
+                    const border = node.findOne('.text-box-border');
+                    const textContent = node.findOne('.text-content');
+                    if (border) {
+                      border.x(0);
+                      border.y(0);
+                      border.width(finalWidth);
+                      border.height(finalHeight);
+                    }
+                    if (textContent) {
+                      textContent.x(0);
+                      textContent.y(0);
+                      textContent.width(finalWidth);
+                      textContent.height(finalHeight);
+                    }
+                  }
+                  node.x(finalX);
+                  node.y(finalY);
+                  node.width(finalWidth);
+                  node.height(finalHeight);
+
+                  updates = {
+                    x: finalX,
+                    y: finalY,
+                    width: finalWidth,
+                    height: finalHeight,
+                    rotation: node.rotation(),
+                  };
+                } else if (shape.type === 'step') {
+                  // Step: convert scale to radius
+                  const avgScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
+                  const currentRadius = shape.radius ?? 15;
+                  const newRadius = Math.max(8, currentRadius * avgScale);
+                  node.scaleX(1);
+                  node.scaleY(1);
+                  updates = {
+                    x: node.x(),
+                    y: node.y(),
+                    radius: newRadius,
+                  };
+                } else {
+                  // Default: convert scale to dimensions
+                  node.scaleX(1);
+                  node.scaleY(1);
+                  updates = {
+                    x: node.x(),
+                    y: node.y(),
+                    rotation: node.rotation(),
+                  };
+                  if (shape.width !== undefined) {
+                    updates.width = Math.abs(shape.width * scaleX);
+                  }
+                  if (shape.height !== undefined) {
+                    updates.height = Math.abs(shape.height * scaleY);
+                  }
+                  if (shape.radiusX !== undefined) {
+                    updates.radiusX = Math.abs(shape.radiusX * scaleX);
+                  }
+                  if (shape.radiusY !== undefined) {
+                    updates.radiusY = Math.abs(shape.radiusY * scaleY);
+                  }
+                  if (shape.radius !== undefined && shape.radiusX === undefined) {
+                    updates.radiusX = Math.abs(shape.radius * scaleX);
+                    updates.radiusY = Math.abs(shape.radius * scaleY);
+                    updates.radius = undefined;
+                  }
+                }
+
+                shapeUpdates.set(shapeId, updates);
+              });
+
+              // Apply all updates at once
+              if (shapeUpdates.size > 0) {
+                const updatedShapes = shapes.map(s => {
+                  const updates = shapeUpdates.get(s.id);
+                  return updates ? { ...s, ...updates } : s;
+                });
+                onShapesChange(updatedShapes);
+              }
+
+              history.commitSnapshot();
+            }}
           />
         </Layer>
       </Stage>

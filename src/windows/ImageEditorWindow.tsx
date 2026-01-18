@@ -36,6 +36,13 @@ import { useEditorActions } from '@/hooks/useEditorActions';
 import { useEditorKeyboardShortcuts } from '@/hooks/useEditorKeyboardShortcuts';
 import { DeleteDialog } from '@/components/Library/components/DeleteDialog';
 
+// Default stroke colors per tool - used when switching tools on new captures
+const TOOL_DEFAULT_COLORS: Partial<Record<Tool, string>> = {
+  highlight: '#FFEB3B', // Yellow
+  // All other tools use the default red (#ef4444)
+};
+const DEFAULT_STROKE_COLOR = '#ef4444';
+
 /**
  * Inner component that uses the editor store context
  */
@@ -93,10 +100,9 @@ const ImageEditorContent: React.FC<{
     if (newTool !== selectedTool && selectedTool === 'select') {
       setSelectedIds([]);
     }
-    // Set default yellow color when switching to highlight tool
-    if (newTool === 'highlight') {
-      setStrokeColor('#FFEB3B'); // Yellow - highlight uses strokeColor with opacity
-    }
+    // Set tool's default color when switching tools
+    const defaultColor = TOOL_DEFAULT_COLORS[newTool] ?? DEFAULT_STROKE_COLOR;
+    setStrokeColor(defaultColor);
     setSelectedTool(newTool);
   }, [selectedTool, setSelectedIds, setStrokeColor]);
 

@@ -17,14 +17,19 @@ import type { Annotation } from '../types';
 
 interface UseEditorActionsProps {
   stageRef: React.RefObject<Konva.Stage | null>;
+  /** Optional image data for standalone windows that don't use captureStore */
+  imageData?: string | null;
 }
 
-export function useEditorActions({ stageRef }: UseEditorActionsProps) {
+export function useEditorActions({ stageRef, imageData }: UseEditorActionsProps) {
   const [isCopying, setIsCopying] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const { currentProject, currentImageData, updateAnnotations } = useCaptureStore();
   const { shapes, canvasBounds, compositorSettings } = useEditorStore();
+
+  // Use provided imageData or fall back to store value
+  const hasImageData = imageData ?? currentImageData;
 
   /**
    * Save all project annotations (shapes, crop bounds, compositor settings).
@@ -62,7 +67,7 @@ export function useEditorActions({ stageRef }: UseEditorActionsProps) {
    * Copy canvas to clipboard (browser native API - faster than Rust for clipboard).
    */
   const handleCopy = useCallback(async () => {
-    if (!stageRef.current || !currentImageData) return;
+    if (!stageRef.current || !hasImageData) return;
 
     setIsCopying(true);
     try {
@@ -73,13 +78,13 @@ export function useEditorActions({ stageRef }: UseEditorActionsProps) {
     } finally {
       setIsCopying(false);
     }
-  }, [stageRef, currentImageData, canvasBounds, compositorSettings]);
+  }, [stageRef, hasImageData, canvasBounds, compositorSettings]);
 
   /**
    * Save to file (browser toBlob + Tauri writeFile - no IPC serialization).
    */
   const handleSave = useCallback(async () => {
-    if (!stageRef.current || !currentImageData) return;
+    if (!stageRef.current || !hasImageData) return;
 
     setIsSaving(true);
     try {
@@ -99,14 +104,14 @@ export function useEditorActions({ stageRef }: UseEditorActionsProps) {
     } finally {
       setIsSaving(false);
     }
-  }, [stageRef, currentImageData, canvasBounds, compositorSettings, saveProjectAnnotations]);
+  }, [stageRef, hasImageData, canvasBounds, compositorSettings, saveProjectAnnotations]);
 
   /**
    * Save to file with specific format.
    */
   const handleSaveAs = useCallback(
     async (format: 'png' | 'jpg' | 'webp') => {
-      if (!stageRef.current || !currentImageData) return;
+      if (!stageRef.current || !hasImageData) return;
 
       setIsSaving(true);
       try {
@@ -134,7 +139,7 @@ export function useEditorActions({ stageRef }: UseEditorActionsProps) {
         setIsSaving(false);
       }
     },
-    [stageRef, currentImageData, canvasBounds, compositorSettings]
+    [stageRef, hasImageData, canvasBounds, compositorSettings]
   );
 
   return {

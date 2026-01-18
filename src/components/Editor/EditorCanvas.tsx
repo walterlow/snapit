@@ -407,12 +407,10 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         backgroundColor = compositorSettings.backgroundColor;
         break;
       case 'gradient': {
-        const gradientStops = compositorSettings.gradientStops
-          .map((s) => `${s.color} ${s.position}%`)
-          .join(', ');
-        backgroundImage = `linear-gradient(${compositorSettings.gradientAngle}deg, ${gradientStops})`;
+        backgroundImage = `linear-gradient(${compositorSettings.gradientAngle}deg, ${compositorSettings.gradientStart}, ${compositorSettings.gradientEnd})`;
         break;
       }
+      case 'wallpaper':
       case 'image':
         backgroundImage = compositorSettings.backgroundImage
           ? `url(${compositorSettings.backgroundImage})`
@@ -436,7 +434,8 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     compositorSettings.backgroundType,
     compositorSettings.backgroundColor,
     compositorSettings.backgroundImage,
-    compositorSettings.gradientStops,
+    compositorSettings.gradientStart,
+    compositorSettings.gradientEnd,
     compositorSettings.gradientAngle,
   ]);
 

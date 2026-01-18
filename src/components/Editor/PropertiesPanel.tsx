@@ -714,7 +714,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const HeaderIcon = toolInfo.icon;
 
   return (
-    <div className="compositor-sidebar w-72 flex flex-col flex-shrink-0 h-full">
+    <div className="compositor-sidebar w-92 flex flex-col flex-shrink-0 h-full">
       {/* Header */}
       <div className="properties-panel-header">
         <div className="flex items-center gap-2">

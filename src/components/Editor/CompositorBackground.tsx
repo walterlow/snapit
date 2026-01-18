@@ -4,7 +4,7 @@ import type { CompositorSettings } from '../../types';
 import {
   useCompositorBackgroundImage,
   calculateGradientPoints,
-  gradientStopsToKonva,
+  gradientColorsToKonva,
   calculateCoverSize,
 } from '../../hooks/useCompositorBackground';
 
@@ -92,7 +92,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
           x: gradientPoints.x2,
           y: gradientPoints.y2,
         }}
-        fillLinearGradientColorStops={gradientStopsToKonva(settings.gradientStops)}
+        fillLinearGradientColorStops={gradientColorsToKonva(settings.gradientStart, settings.gradientEnd)}
         cornerRadius={borderRadius}
         listening={false}
         {...shadowProps}

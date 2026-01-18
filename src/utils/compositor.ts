@@ -75,15 +75,15 @@ function drawBackground(
         gradientPoints.x2,
         gradientPoints.y2
       );
-      settings.gradientStops.forEach((stop) => {
-        gradient.addColorStop(stop.position / 100, stop.color);
-      });
+      gradient.addColorStop(0, settings.gradientStart);
+      gradient.addColorStop(1, settings.gradientEnd);
 
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, width, height);
       break;
     }
 
+    case 'wallpaper':
     case 'image':
       if (backgroundImage) {
         // Use shared cover calculation

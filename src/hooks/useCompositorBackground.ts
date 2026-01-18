@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import type { CompositorSettings, GradientStop } from '../types';
+import type { CompositorSettings } from '../types';
 
 export interface BackgroundBounds {
   x: number;
@@ -46,15 +46,10 @@ export function calculateGradientPoints(
 }
 
 /**
- * Convert gradient stops to Konva format [position, color, position, color, ...]
+ * Convert gradient start/end colors to Konva format [position, color, position, color]
  */
-export function gradientStopsToKonva(stops: GradientStop[]): (number | string)[] {
-  const result: (number | string)[] = [];
-  stops.forEach((stop) => {
-    result.push(stop.position / 100);
-    result.push(stop.color);
-  });
-  return result;
+export function gradientColorsToKonva(start: string, end: string): (number | string)[] {
+  return [0, start, 1, end];
 }
 
 /**
@@ -198,7 +193,8 @@ export function getSolidBackgroundProps(
 export function getGradientBackgroundProps(
   bounds: BackgroundBounds,
   angle: number,
-  stops: GradientStop[],
+  gradientStart: string,
+  gradientEnd: string,
   borderRadius = 0
 ) {
   const gradientPoints = calculateGradientPoints(
@@ -222,7 +218,7 @@ export function getGradientBackgroundProps(
       x: gradientPoints.x2 - bounds.x,
       y: gradientPoints.y2 - bounds.y,
     },
-    fillLinearGradientColorStops: gradientStopsToKonva(stops),
+    fillLinearGradientColorStops: gradientColorsToKonva(gradientStart, gradientEnd),
     cornerRadius: borderRadius,
     listening: false,
   };
@@ -278,7 +274,8 @@ export function useCompositorBackground(
       return getGradientBackgroundProps(
         backgroundBounds,
         settings.gradientAngle,
-        settings.gradientStops,
+        settings.gradientStart,
+        settings.gradientEnd,
         0
       );
     }
@@ -330,7 +327,8 @@ export function useCompositorBackground(
       return getGradientBackgroundProps(
         contentBounds,
         settings.gradientAngle,
-        settings.gradientStops,
+        settings.gradientStart,
+        settings.gradientEnd,
         settings.borderRadius
       );
     }

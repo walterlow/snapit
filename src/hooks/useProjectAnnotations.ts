@@ -51,15 +51,18 @@ export function useProjectAnnotations() {
           enabled: compositorAnn.enabled,
           backgroundType: compositorAnn.backgroundType ?? 'gradient',
           backgroundColor: compositorAnn.backgroundColor ?? '#6366f1',
+          gradientStart: compositorAnn.gradientStart ?? '#667eea',
+          gradientEnd: compositorAnn.gradientEnd ?? '#764ba2',
           gradientAngle: compositorAnn.gradientAngle ?? 135,
-          gradientStops: compositorAnn.gradientStops ?? [
-            { color: '#667eea', position: 0 },
-            { color: '#764ba2', position: 100 },
-          ],
+          wallpaper: compositorAnn.wallpaper ?? null,
           backgroundImage: compositorAnn.backgroundImage ?? null,
           padding: compositorAnn.padding ?? 64,
           borderRadius: compositorAnn.borderRadius ?? 12,
+          borderRadiusType: compositorAnn.borderRadiusType ?? 'squircle',
           shadowIntensity: compositorAnn.shadowIntensity ?? 0.5,
+          borderWidth: compositorAnn.borderWidth ?? 2,
+          borderColor: compositorAnn.borderColor ?? '#ffffff',
+          borderOpacity: compositorAnn.borderOpacity ?? 0,
           aspectRatio: compositorAnn.aspectRatio ?? 'auto',
         });
       }

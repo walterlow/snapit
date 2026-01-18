@@ -49,8 +49,10 @@ export interface CompositorSettingsAnnotation {
   enabled: boolean;
   backgroundType: BackgroundType;
   backgroundColor: string;
+  gradientStart: string;
+  gradientEnd: string;
   gradientAngle: number;
-  gradientStops: GradientStop[];
+  wallpaper: string | null;
   backgroundImage: string | null;
   padding: number;
   borderRadius: number;
@@ -201,23 +203,26 @@ export interface SaveCaptureResponse {
 }
 
 // Compositor types for background effects
-export type BackgroundType = 'solid' | 'gradient' | 'image';
-
-export interface GradientStop {
-  color: string;
-  position: number; // 0-100
-}
+export type BackgroundType = 'wallpaper' | 'image' | 'solid' | 'gradient';
 
 export interface CompositorSettings {
   enabled: boolean;
   backgroundType: BackgroundType;
+  // Solid color
   backgroundColor: string;
+  // Gradient
+  gradientStart: string;
+  gradientEnd: string;
   gradientAngle: number; // degrees
-  gradientStops: GradientStop[];
-  backgroundImage: string | null; // base64 or URL
-  padding: number; // pixels (direct, no conversion)
+  // Wallpaper (ID format: "theme/name", e.g., "macOS/sequoia-dark")
+  wallpaper: string | null;
+  // Custom image (base64 or URL)
+  backgroundImage: string | null;
+  // Layout
+  padding: number; // pixels
   borderRadius: number; // pixels
-  borderRadiusType: 'squircle' | 'rounded'; // corner style
+  borderRadiusType: 'squircle' | 'rounded';
+  // Effects
   shadowIntensity: number; // 0 = off, > 0 = on (0-1 range)
   borderWidth: number; // pixels
   borderColor: string; // hex color
@@ -229,11 +234,10 @@ export const DEFAULT_COMPOSITOR_SETTINGS: CompositorSettings = {
   enabled: false,
   backgroundType: 'gradient',
   backgroundColor: '#6366f1',
+  gradientStart: '#667eea',
+  gradientEnd: '#764ba2',
   gradientAngle: 135,
-  gradientStops: [
-    { color: '#667eea', position: 0 },
-    { color: '#764ba2', position: 100 },
-  ],
+  wallpaper: null,
   backgroundImage: null,
   padding: 64,
   borderRadius: 12,
@@ -244,32 +248,6 @@ export const DEFAULT_COMPOSITOR_SETTINGS: CompositorSettings = {
   borderOpacity: 0,
   aspectRatio: 'auto',
 };
-
-export const GRADIENT_PRESETS = [
-  { name: 'Purple Dream', stops: [{ color: '#667eea', position: 0 }, { color: '#764ba2', position: 100 }] },
-  { name: 'Ocean Blue', stops: [{ color: '#2193b0', position: 0 }, { color: '#6dd5ed', position: 100 }] },
-  { name: 'Sunset', stops: [{ color: '#f12711', position: 0 }, { color: '#f5af19', position: 100 }] },
-  { name: 'Forest', stops: [{ color: '#134e5e', position: 0 }, { color: '#71b280', position: 100 }] },
-  { name: 'Midnight', stops: [{ color: '#232526', position: 0 }, { color: '#414345', position: 100 }] },
-  { name: 'Cotton Candy', stops: [{ color: '#ff9a9e', position: 0 }, { color: '#fecfef', position: 100 }] },
-  { name: 'Northern Lights', stops: [{ color: '#43cea2', position: 0 }, { color: '#185a9d', position: 100 }] },
-  { name: 'Flamingo', stops: [{ color: '#f953c6', position: 0 }, { color: '#b91d73', position: 100 }] },
-];
-
-// Wallpaper count - single source of truth for wallpaper array generation
-const WALLPAPER_COUNT = 18;
-
-// Default wallpapers from public/wallpapers
-// Full resolution images for actual background use
-export const DEFAULT_WALLPAPERS = Array.from(
-  { length: WALLPAPER_COUNT },
-  (_, i) => `/wallpapers/wallpaper${i + 1}.jpg`
-);
-
-// Thumbnails for fast gallery loading (200px wide, ~5KB each vs ~1MB originals)
-export const WALLPAPER_THUMBNAILS = DEFAULT_WALLPAPERS.map(
-  (path) => path.replace('/wallpapers/', '/wallpapers/thumbs/')
-);
 
 // Blur effect types
 export type BlurType = 'pixelate' | 'gaussian';

@@ -360,7 +360,7 @@ export const BackgroundSettings: React.FC<BackgroundSettingsProps> = ({
                     settings.gradientStart === preset.start &&
                     settings.gradientEnd === preset.end
                       ? 'border-[var(--ink-dark)]'
-                      : 'border-transparent'
+                      : 'border-[var(--glass-border)]'
                   }`}
                   style={{
                     background: `linear-gradient(${preset.angle}deg, ${preset.start}, ${preset.end})`,

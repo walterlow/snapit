@@ -7,6 +7,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Loader2 } from 'lucide-react';
 import { Titlebar } from '@/components/Titlebar/Titlebar';
@@ -92,8 +93,12 @@ const ImageEditorContent: React.FC<{
     if (newTool !== selectedTool && selectedTool === 'select') {
       setSelectedIds([]);
     }
+    // Set default yellow color when switching to highlight tool
+    if (newTool === 'highlight') {
+      setStrokeColor('#FFEB3B'); // Yellow - highlight uses strokeColor with opacity
+    }
     setSelectedTool(newTool);
-  }, [selectedTool, setSelectedIds]);
+  }, [selectedTool, setSelectedIds, setStrokeColor]);
 
   // Handle shapes change
   const handleShapesChange = useCallback((newShapes: CanvasShape[]) => {
@@ -118,6 +123,8 @@ const ImageEditorContent: React.FC<{
     if (!projectId) return;
     try {
       await invoke('delete_project', { projectId });
+      // Notify main window to refresh library
+      await emit('capture-deleted', { projectId });
       toast.success('Capture deleted');
       onClose();
     } catch (error) {
@@ -339,6 +346,28 @@ const ImageEditorWindow: React.FC = () => {
     }
   }, [loadProject]);
 
+  // Listen for capture-saved event to get projectId for fresh captures
+  // This enables delete functionality for captures opened immediately after taking
+  useEffect(() => {
+    if (projectId || !capturePath) return; // Already have projectId or no path yet
+
+    const unlisten = listen<{ originalPath: string; imagePath: string; projectId: string }>('capture-saved', (event: { payload: { originalPath: string; imagePath: string; projectId: string } }) => {
+      const { originalPath, imagePath, projectId: newProjectId } = event.payload;
+      // Check if this event is for our capture (match the path)
+      if (originalPath === capturePath) {
+        editorLogger.info('Received projectId for fresh capture:', newProjectId);
+        setProjectId(newProjectId);
+        projectIdRef.current = newProjectId;
+        // Update to permanent path
+        setCapturePath(imagePath);
+      }
+    });
+
+    return () => {
+      unlisten.then((unlistenFn: () => void) => unlistenFn());
+    };
+  }, [projectId, capturePath]);
+
   // Save annotations to the project
   // Uses projectIdRef to avoid dependency on projectId state (prevents race conditions)
   const saveAnnotations = useCallback(async (force = false) => {
@@ -475,6 +504,10 @@ const ImageEditorWindow: React.FC = () => {
   // Extract filename for title
   const getTitle = () => {
     if (capturePath) {
+      // Don't show .rgba temp files - show friendly name until saved
+      if (capturePath.endsWith('.rgba')) {
+        return 'New Capture';
+      }
       const parts = capturePath.split(/[/\\]/);
       return parts[parts.length - 1] || 'Image Editor';
     }
@@ -507,7 +540,9 @@ const ImageEditorWindow: React.FC = () => {
               <span className="text-2xl">!</span>
             </div>
             <p className="text-sm text-(--error)">{error}</p>
-            <p className="text-xs text-(--ink-muted)">Path: {capturePath}</p>
+            {capturePath && !capturePath.endsWith('.rgba') && (
+              <p className="text-xs text-(--ink-muted)">Path: {capturePath}</p>
+            )}
           </div>
         </div>
       </div>

@@ -168,12 +168,9 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             onClick={() => onChange(color)}
             className={cn(
               'w-7 h-7 rounded-lg border-2 transition-all hover:scale-110',
-              value === color ? 'border-[var(--ink-black)] shadow-md' : 'border-transparent'
+              value === color ? 'border-[var(--ink-black)] shadow-md' : 'border-[var(--glass-border)]'
             )}
-            style={{
-              backgroundColor: color,
-              boxShadow: color === '#FFFFFF' ? 'inset 0 0 0 1px rgba(0,0,0,0.1)' : undefined,
-            }}
+            style={{ backgroundColor: color }}
           />
         ))}
       </div>

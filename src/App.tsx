@@ -54,7 +54,11 @@ function App() {
 
         // Save to library in background (don't block editor)
         saveNewCaptureFromFile(data.file_path, data.width, data.height, 'region', {}, { silent: true })
-          .then(async ({ imagePath }) => {
+          .then(async ({ imagePath, id: projectId }) => {
+            // Notify editor window of the saved project ID and permanent path
+            const { emit } = await import('@tauri-apps/api/event');
+            await emit('capture-saved', { originalPath: data.file_path, imagePath, projectId });
+
             // Copy to clipboard after save completes (if enabled)
             const copyToClipboard = useCaptureSettingsStore.getState().copyToClipboardAfterCapture;
             if (copyToClipboard) {
@@ -69,6 +73,7 @@ function App() {
             console.error('Failed to save capture:', error);
           });
       },
+      onCaptureDeleted: loadCaptures,
     }),
     [loadCaptures, saveNewCaptureFromFile]
   );

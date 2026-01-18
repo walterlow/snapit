@@ -30,6 +30,8 @@ interface AppEventCallbacks {
     width: number;
     height: number;
   }) => Promise<void>;
+  /** Called when a capture is deleted from editor window - refresh library */
+  onCaptureDeleted: () => void;
 }
 
 /**
@@ -41,6 +43,7 @@ interface AppEventCallbacks {
  * - open-settings: Open settings modal from tray
  * - create-capture-toolbar: Create selection toolbar window
  * - capture-complete-fast: Handle screenshot capture (raw RGBA file path)
+ * - capture-deleted: Refresh library when capture is deleted from editor
  */
 export function useAppEventListeners(callbacks: AppEventCallbacks) {
   useEffect(() => {
@@ -137,6 +140,14 @@ export function useAppEventListeners(callbacks: AppEventCallbacks) {
           }
         }
       )
+    );
+
+    // Capture deleted from editor window - refresh library
+    unlisteners.push(
+      listen<{ projectId: string }>('capture-deleted', () => {
+        libraryLogger.info('Capture deleted from editor, refreshing library...');
+        callbacks.onCaptureDeleted();
+      })
     );
 
     // Cleanup function

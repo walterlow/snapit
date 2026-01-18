@@ -121,4 +121,3 @@ export const MicrophonePopover: React.FC<MicrophonePopoverProps> = ({ disabled =
   );
 };
 
-export default MicrophonePopover;

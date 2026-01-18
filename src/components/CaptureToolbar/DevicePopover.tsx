@@ -132,4 +132,3 @@ export const DevicePopover: React.FC<DevicePopoverProps> = ({ disabled = false }
   );
 };
 
-export default DevicePopover;

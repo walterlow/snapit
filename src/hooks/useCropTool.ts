@@ -57,6 +57,20 @@ const HANDLE_THICKNESS = 6;
 const MIN_CROP_SIZE = 50;
 const SNAP_THRESHOLD = 8; // pixels threshold for snap detection
 
+// Helper to check if a crop edge aligns with any image boundary
+function findSnapGuide(
+  cropEdge: number,
+  targets: { position: number; label: SnapGuide['label'] }[],
+  guideType: SnapGuide['type']
+): SnapGuide | null {
+  for (const target of targets) {
+    if (Math.abs(cropEdge - target.position) < SNAP_THRESHOLD) {
+      return { type: guideType, position: target.position, label: target.label };
+    }
+  }
+  return null;
+}
+
 /**
  * Hook for crop tool state management
  * Handles crop preview, axis locking, and bounds updates
@@ -385,12 +399,22 @@ export const useCropTool = ({
     const bounds = cropPreview;
 
     // Image snap targets
-    const imageLeft = 0;
-    const imageRight = originalImageSize.width;
-    const imageTop = 0;
-    const imageBottom = originalImageSize.height;
     const imageCenterX = originalImageSize.width / 2;
     const imageCenterY = originalImageSize.height / 2;
+
+    // Vertical targets (for left/right edge snapping)
+    const verticalTargets: { position: number; label: SnapGuide['label'] }[] = [
+      { position: 0, label: 'left' },
+      { position: imageCenterX, label: 'centerX' },
+      { position: originalImageSize.width, label: 'right' },
+    ];
+
+    // Horizontal targets (for top/bottom edge snapping)
+    const horizontalTargets: { position: number; label: SnapGuide['label'] }[] = [
+      { position: 0, label: 'top' },
+      { position: imageCenterY, label: 'centerY' },
+      { position: originalImageSize.height, label: 'bottom' },
+    ];
 
     // Crop bounds edges and center
     const cropLeft = bounds.x;
@@ -401,73 +425,44 @@ export const useCropTool = ({
     const cropCenterY = bounds.y + bounds.height / 2;
 
     // Determine which edges to check based on active handle
-    const checkLeft = activeHandle === 'l' || activeHandle === 'tl' || activeHandle === 'bl' || activeHandle === 'center';
-    const checkRight = activeHandle === 'r' || activeHandle === 'tr' || activeHandle === 'br' || activeHandle === 'center';
-    const checkTop = activeHandle === 't' || activeHandle === 'tl' || activeHandle === 'tr' || activeHandle === 'center';
-    const checkBottom = activeHandle === 'b' || activeHandle === 'bl' || activeHandle === 'br' || activeHandle === 'center';
-    const checkCenterX = activeHandle === 'center';
-    const checkCenterY = activeHandle === 'center';
+    const isCenter = activeHandle === 'center';
+    const checkLeft = activeHandle.includes('l') || isCenter;
+    const checkRight = activeHandle.includes('r') || isCenter;
+    const checkTop = activeHandle.includes('t') || isCenter;
+    const checkBottom = activeHandle.includes('b') || isCenter;
 
-    // Check left edge alignment
+    // Check vertical guides (left/right edges)
     if (checkLeft) {
-      if (Math.abs(cropLeft - imageLeft) < SNAP_THRESHOLD) {
-        guides.push({ type: 'vertical', position: imageLeft, label: 'left' });
-      } else if (Math.abs(cropLeft - imageCenterX) < SNAP_THRESHOLD) {
-        guides.push({ type: 'vertical', position: imageCenterX, label: 'centerX' });
-      } else if (Math.abs(cropLeft - imageRight) < SNAP_THRESHOLD) {
-        guides.push({ type: 'vertical', position: imageRight, label: 'right' });
-      }
+      const guide = findSnapGuide(cropLeft, verticalTargets, 'vertical');
+      if (guide) guides.push(guide);
     }
-
-    // Check right edge alignment
     if (checkRight) {
-      if (Math.abs(cropRight - imageRight) < SNAP_THRESHOLD) {
-        guides.push({ type: 'vertical', position: imageRight, label: 'right' });
-      } else if (Math.abs(cropRight - imageCenterX) < SNAP_THRESHOLD) {
-        guides.push({ type: 'vertical', position: imageCenterX, label: 'centerX' });
-      } else if (Math.abs(cropRight - imageLeft) < SNAP_THRESHOLD) {
-        guides.push({ type: 'vertical', position: imageLeft, label: 'left' });
-      }
+      const guide = findSnapGuide(cropRight, verticalTargets, 'vertical');
+      if (guide) guides.push(guide);
+    }
+    if (isCenter) {
+      const guide = findSnapGuide(cropCenterX, [{ position: imageCenterX, label: 'centerX' }], 'vertical');
+      if (guide) guides.push(guide);
     }
 
-    // Check center X alignment (only when dragging center)
-    if (checkCenterX && Math.abs(cropCenterX - imageCenterX) < SNAP_THRESHOLD) {
-      guides.push({ type: 'vertical', position: imageCenterX, label: 'centerX' });
-    }
-
-    // Check top edge alignment
+    // Check horizontal guides (top/bottom edges)
     if (checkTop) {
-      if (Math.abs(cropTop - imageTop) < SNAP_THRESHOLD) {
-        guides.push({ type: 'horizontal', position: imageTop, label: 'top' });
-      } else if (Math.abs(cropTop - imageCenterY) < SNAP_THRESHOLD) {
-        guides.push({ type: 'horizontal', position: imageCenterY, label: 'centerY' });
-      } else if (Math.abs(cropTop - imageBottom) < SNAP_THRESHOLD) {
-        guides.push({ type: 'horizontal', position: imageBottom, label: 'bottom' });
-      }
+      const guide = findSnapGuide(cropTop, horizontalTargets, 'horizontal');
+      if (guide) guides.push(guide);
     }
-
-    // Check bottom edge alignment
     if (checkBottom) {
-      if (Math.abs(cropBottom - imageBottom) < SNAP_THRESHOLD) {
-        guides.push({ type: 'horizontal', position: imageBottom, label: 'bottom' });
-      } else if (Math.abs(cropBottom - imageCenterY) < SNAP_THRESHOLD) {
-        guides.push({ type: 'horizontal', position: imageCenterY, label: 'centerY' });
-      } else if (Math.abs(cropBottom - imageTop) < SNAP_THRESHOLD) {
-        guides.push({ type: 'horizontal', position: imageTop, label: 'top' });
-      }
+      const guide = findSnapGuide(cropBottom, horizontalTargets, 'horizontal');
+      if (guide) guides.push(guide);
     }
-
-    // Check center Y alignment (only when dragging center)
-    if (checkCenterY && Math.abs(cropCenterY - imageCenterY) < SNAP_THRESHOLD) {
-      guides.push({ type: 'horizontal', position: imageCenterY, label: 'centerY' });
+    if (isCenter) {
+      const guide = findSnapGuide(cropCenterY, [{ position: imageCenterY, label: 'centerY' }], 'horizontal');
+      if (guide) guides.push(guide);
     }
 
     // Deduplicate guides by type and position
-    const uniqueGuides = guides.filter((guide, index, self) =>
+    return guides.filter((guide, index, self) =>
       index === self.findIndex(g => g.type === guide.type && g.position === guide.position)
     );
-
-    return uniqueGuides;
   }, [originalImageSize, cropPreview, activeHandle]);
 
   return {

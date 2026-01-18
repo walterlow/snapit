@@ -254,4 +254,3 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
   );
 };
 
-export default SettingsPopover;

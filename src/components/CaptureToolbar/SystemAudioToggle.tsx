@@ -39,4 +39,3 @@ export const SystemAudioToggle: React.FC<SystemAudioToggleProps> = ({ disabled =
   );
 };
 
-export default SystemAudioToggle;

@@ -172,4 +172,3 @@ export const DimensionSelect: React.FC<DimensionSelectProps> = ({
   );
 };
 
-export default DimensionSelect;

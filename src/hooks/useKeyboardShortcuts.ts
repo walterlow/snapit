@@ -3,6 +3,11 @@ import { nanoid } from 'nanoid';
 import type { CanvasShape } from '../types';
 import { recordAction } from '../stores/editorStore';
 
+/** Check if keyboard event target is a text input (should ignore shortcuts) */
+export function isTextInputTarget(e: KeyboardEvent): boolean {
+  return e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+}
+
 interface UseKeyboardShortcutsProps {
   selectedIds: string[];
   setSelectedIds: (ids: string[]) => void;
@@ -84,7 +89,7 @@ export const useKeyboardShortcuts = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't handle if user is typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      if (isTextInputTarget(e)) {
         return;
       }
 

@@ -3,6 +3,133 @@ import Konva from 'konva';
 import type { CanvasShape } from '../types';
 import { takeSnapshot, commitSnapshot } from '../stores/editorStore';
 
+// Shape-specific transform end handlers
+type TransformResult = Partial<CanvasShape>;
+
+function handlePenTransformEnd(shape: CanvasShape, node: Konva.Node): TransformResult {
+  const scaleX = node.scaleX();
+  const scaleY = node.scaleY();
+  const nodeX = node.x();
+  const nodeY = node.y();
+
+  const newPoints = shape.points!.map((val, i) =>
+    i % 2 === 0 ? nodeX + val * scaleX : nodeY + val * scaleY
+  );
+
+  node.scaleX(1);
+  node.scaleY(1);
+  node.position({ x: 0, y: 0 });
+
+  return { points: newPoints };
+}
+
+function handleBlurTransformEnd(node: Konva.Node): TransformResult {
+  return {
+    x: node.x(),
+    y: node.y(),
+    width: node.width(),
+    height: node.height(),
+  };
+}
+
+function handleTextTransformEnd(node: Konva.Node): TransformResult {
+  const rawWidth = node.width();
+  const rawHeight = node.height();
+  let finalX = node.x();
+  let finalY = node.y();
+
+  // Normalize negative dimensions (from crossover) to positive with position adjustment
+  const finalWidth = Math.max(50, Math.abs(rawWidth));
+  const finalHeight = Math.max(24, Math.abs(rawHeight));
+
+  // Adjust position if dimensions were negative
+  if (rawWidth < 0) finalX += rawWidth;
+  if (rawHeight < 0) finalY += rawHeight;
+
+  // Reset child positions (they were offset during drag for negative dimensions)
+  if (node instanceof Konva.Group) {
+    const border = node.findOne('.text-box-border');
+    const textContent = node.findOne('.text-content');
+    if (border) {
+      border.x(0);
+      border.y(0);
+      border.width(finalWidth);
+      border.height(finalHeight);
+    }
+    if (textContent) {
+      textContent.x(0);
+      textContent.y(0);
+      textContent.width(finalWidth);
+      textContent.height(finalHeight);
+    }
+  }
+
+  // Update node dimensions
+  node.x(finalX);
+  node.y(finalY);
+  node.width(finalWidth);
+  node.height(finalHeight);
+
+  return {
+    x: finalX,
+    y: finalY,
+    width: finalWidth,
+    height: finalHeight,
+    rotation: node.rotation(),
+  };
+}
+
+function handleStepTransformEnd(shape: CanvasShape, node: Konva.Node): TransformResult {
+  const scaleX = node.scaleX();
+  const scaleY = node.scaleY();
+  const avgScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
+  const currentRadius = shape.radius ?? 15;
+  const newRadius = Math.max(8, currentRadius * avgScale);
+
+  node.scaleX(1);
+  node.scaleY(1);
+
+  return {
+    x: node.x(),
+    y: node.y(),
+    radius: newRadius,
+  };
+}
+
+function handleDefaultTransformEnd(shape: CanvasShape, node: Konva.Node): TransformResult {
+  const scaleX = node.scaleX();
+  const scaleY = node.scaleY();
+
+  node.scaleX(1);
+  node.scaleY(1);
+
+  const updates: TransformResult = {
+    x: node.x(),
+    y: node.y(),
+    rotation: node.rotation(),
+  };
+
+  if (shape.width !== undefined) {
+    updates.width = Math.abs(shape.width * scaleX);
+  }
+  if (shape.height !== undefined) {
+    updates.height = Math.abs(shape.height * scaleY);
+  }
+  if (shape.radiusX !== undefined) {
+    updates.radiusX = Math.abs(shape.radiusX * scaleX);
+  }
+  if (shape.radiusY !== undefined) {
+    updates.radiusY = Math.abs(shape.radiusY * scaleY);
+  }
+  if (shape.radius !== undefined && shape.radiusX === undefined) {
+    updates.radiusX = Math.abs(shape.radius * scaleX);
+    updates.radiusY = Math.abs(shape.radius * scaleY);
+    updates.radius = undefined;
+  }
+
+  return updates;
+}
+
 interface UseShapeTransformProps {
   shapes: CanvasShape[];
   onShapesChange: (shapes: CanvasShape[]) => void;
@@ -137,163 +264,29 @@ export const useShapeTransform = ({
       const node = e.target;
       const shape = shapes.find(s => s.id === id);
 
-      // For pen strokes, bake transform into points
-      if (shape?.type === 'pen' && shape.points && shape.points.length >= 2) {
-        const scaleX = node.scaleX();
-        const scaleY = node.scaleY();
-        const nodeX = node.x();
-        const nodeY = node.y();
-
-        const newPoints = shape.points.map((val, i) => {
-          if (i % 2 === 0) {
-            return nodeX + val * scaleX;
-          } else {
-            return nodeY + val * scaleY;
-          }
-        });
-
-        node.scaleX(1);
-        node.scaleY(1);
-        node.position({ x: 0, y: 0 });
-
-        const updatedShapes = shapes.map(s =>
-          s.id === id ? { ...s, points: newPoints } : s
-        );
-        onShapesChange(updatedShapes);
-      }
-      // For blur shapes, read dimensions from node
-      else if (shape?.type === 'blur') {
-        const updatedShapes = shapes.map(s => {
-          if (s.id !== id) return s;
-          return {
-            ...s,
-            x: node.x(),
-            y: node.y(),
-            width: node.width(),
-            height: node.height(),
-          };
-        });
-        onShapesChange(updatedShapes);
-      }
-      // For text shapes, read final dimensions from node (scale was reset during transform)
-      else if (shape?.type === 'text') {
-        const rawWidth = node.width();
-        const rawHeight = node.height();
-        let finalX = node.x();
-        let finalY = node.y();
-
-        // Normalize negative dimensions (from crossover) to positive with position adjustment
-        const finalWidth = Math.max(50, Math.abs(rawWidth));
-        const finalHeight = Math.max(24, Math.abs(rawHeight));
-
-        // Adjust position if dimensions were negative
-        if (rawWidth < 0) {
-          finalX += rawWidth;
-        }
-        if (rawHeight < 0) {
-          finalY += rawHeight;
-        }
-
-        // Reset child positions (they were offset during drag for negative dimensions)
-        if (node instanceof Konva.Group) {
-          const border = node.findOne('.text-box-border');
-          const textContent = node.findOne('.text-content');
-          if (border) {
-            border.x(0);
-            border.y(0);
-            border.width(finalWidth);
-            border.height(finalHeight);
-          }
-          if (textContent) {
-            textContent.x(0);
-            textContent.y(0);
-            textContent.width(finalWidth);
-            textContent.height(finalHeight);
-          }
-        }
-
-        // Update node dimensions
-        node.x(finalX);
-        node.y(finalY);
-        node.width(finalWidth);
-        node.height(finalHeight);
-
-        const updatedShapes = shapes.map(s => {
-          if (s.id !== id) return s;
-          return {
-            ...s,
-            x: finalX,
-            y: finalY,
-            width: finalWidth,
-            height: finalHeight,
-            rotation: node.rotation(),
-          };
-        });
-        onShapesChange(updatedShapes);
-      }
-      // For step shapes, bake scale into radius
-      else if (shape?.type === 'step') {
-        const scaleX = node.scaleX();
-        const scaleY = node.scaleY();
-        const avgScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
-        const currentRadius = shape.radius ?? 15;
-        const newRadius = Math.max(8, currentRadius * avgScale);
-
-        node.scaleX(1);
-        node.scaleY(1);
-
-        const updatedShapes = shapes.map(s => {
-          if (s.id !== id) return s;
-          return {
-            ...s,
-            x: node.x(),
-            y: node.y(),
-            radius: newRadius,
-          };
-        });
-        onShapesChange(updatedShapes);
-      }
-      // For rect, circle, highlight, text - bake scale into dimensions
-      else if (shape) {
-        const scaleX = node.scaleX();
-        const scaleY = node.scaleY();
-
-        node.scaleX(1);
-        node.scaleY(1);
-
-        const updatedShapes = shapes.map((s) => {
-          if (s.id !== id) return s;
-
-          const updates: Partial<CanvasShape> = {
-            x: node.x(),
-            y: node.y(),
-            rotation: node.rotation(),
-          };
-
-          if (s.width !== undefined) {
-            updates.width = Math.abs(s.width * scaleX);
-          }
-          if (s.height !== undefined) {
-            updates.height = Math.abs(s.height * scaleY);
-          }
-          if (s.radiusX !== undefined) {
-            updates.radiusX = Math.abs(s.radiusX * scaleX);
-          }
-          if (s.radiusY !== undefined) {
-            updates.radiusY = Math.abs(s.radiusY * scaleY);
-          }
-          if (s.radius !== undefined && s.radiusX === undefined) {
-            updates.radiusX = Math.abs(s.radius * scaleX);
-            updates.radiusY = Math.abs(s.radius * scaleY);
-            updates.radius = undefined;
-          }
-
-          return { ...s, ...updates };
-        });
-
-        onShapesChange(updatedShapes);
+      if (!shape) {
+        commitSnapshot();
+        return;
       }
 
+      // Get shape-specific updates
+      let updates: TransformResult;
+      if (shape.type === 'pen' && shape.points && shape.points.length >= 2) {
+        updates = handlePenTransformEnd(shape, node);
+      } else if (shape.type === 'blur') {
+        updates = handleBlurTransformEnd(node);
+      } else if (shape.type === 'text') {
+        updates = handleTextTransformEnd(node);
+      } else if (shape.type === 'step') {
+        updates = handleStepTransformEnd(shape, node);
+      } else {
+        updates = handleDefaultTransformEnd(shape, node);
+      }
+
+      const updatedShapes = shapes.map(s =>
+        s.id === id ? { ...s, ...updates } : s
+      );
+      onShapesChange(updatedShapes);
       commitSnapshot();
     },
     [shapes, onShapesChange]

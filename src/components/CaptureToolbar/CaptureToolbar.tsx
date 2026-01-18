@@ -88,7 +88,6 @@ function formatTime(seconds: number): string {
 export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   mode,
   captureType,
-  captureSource: _captureSource = 'area',
   width,
   height,
   sourceType,
@@ -104,7 +103,6 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   onCancel,
   format = 'mp4',
   elapsedTime = 0,
-  progress: _progress = 0,
   errorMessage,
   onPause,
   onResume,
@@ -120,6 +118,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   const isError = mode === 'error';
   const isPaused = mode === 'paused';
   const isVideoMode = captureType === 'video'; // Only video supports webcam/audio
+  const isBusy = isRecording || isStarting || isProcessing; // Disable controls during capture
 
   // Get audio settings for level meters
   const { settings } = useCaptureSettingsStore();
@@ -132,7 +131,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
   const { micLevel, systemLevel } = useRustAudioLevels({
     micDeviceIndex: isMicEnabled ? micDeviceIndex : null,
     monitorSystemAudio: isSystemAudioEnabled,
-    enabled: isVideoMode && !isRecording && !isStarting && !isProcessing,
+    enabled: isVideoMode && !isBusy,
   });
 
   // Handle pause/resume toggle
@@ -146,17 +145,17 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
   // Disable mode changes during recording
   const handleModeChange = useCallback((newMode: CaptureType) => {
-    if (!isRecording && !isStarting && !isProcessing) {
+    if (!isBusy) {
       onCaptureTypeChange(newMode);
     }
-  }, [isRecording, isStarting, isProcessing, onCaptureTypeChange]);
+  }, [isBusy, onCaptureTypeChange]);
 
   // Handle source change
   const handleSourceChange = useCallback((source: CaptureSource) => {
-    if (!isRecording && !isStarting && !isProcessing) {
+    if (!isBusy) {
       onCaptureSourceChange?.(source);
     }
-  }, [isRecording, isStarting, isProcessing, onCaptureSourceChange]);
+  }, [isBusy, onCaptureSourceChange]);
 
   // Render recording UI
   if (isRecording || isStarting || isProcessing || isError) {
@@ -265,7 +264,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
         <ModeSelector
           activeMode={captureType}
           onModeChange={handleModeChange}
-          disabled={isRecording || isStarting || isProcessing}
+          disabled={isBusy}
           fullWidth
         />
       </div>
@@ -282,7 +281,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
               monitorName={monitorName}
               monitorIndex={monitorIndex}
               onBack={onRedo}
-              disabled={isRecording || isStarting || isProcessing}
+              disabled={isBusy}
             />
           ) : (
             // Area selection - show dimension selector
@@ -291,7 +290,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
               height={height}
               onDimensionChange={onDimensionChange}
               onBack={onRedo}
-              disabled={isRecording || isStarting || isProcessing}
+              disabled={isBusy}
             />
           )
         ) : (
@@ -300,7 +299,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
             onSelectArea={() => handleSourceChange('area')}
             captureType={captureType}
             onCaptureComplete={onCaptureComplete}
-            disabled={isRecording || isStarting || isProcessing}
+            disabled={isBusy}
           />
         )}
 
@@ -309,12 +308,12 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
         <div className={`glass-devices-section ${!isVideoMode ? 'glass-devices-section--disabled' : ''}`}>
           <div className="glass-device-column">
-            <DevicePopover disabled={!isVideoMode || isRecording || isStarting || isProcessing} />
+            <DevicePopover disabled={!isVideoMode || isBusy} />
             <div className="glass-audio-meter--column-spacer" />
           </div>
 
           <div className="glass-device-column">
-            <MicrophonePopover disabled={!isVideoMode || isRecording || isStarting || isProcessing} />
+            <MicrophonePopover disabled={!isVideoMode || isBusy} />
             <AudioLevelMeter
               enabled
               level={isMicEnabled && isVideoMode ? micLevel : 0}
@@ -323,7 +322,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
           </div>
 
           <div className="glass-device-column">
-            <SystemAudioToggle disabled={!isVideoMode || isRecording || isStarting || isProcessing} />
+            <SystemAudioToggle disabled={!isVideoMode || isBusy} />
             <AudioLevelMeter
               enabled
               level={isSystemAudioEnabled && isVideoMode ? systemLevel : 0}
@@ -336,7 +335,7 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
 
         <SettingsPopover
           mode={captureType}
-          disabled={isRecording || isStarting || isProcessing}
+          disabled={isBusy}
           onOpenSettings={onOpenSettings}
         />
 
@@ -357,5 +356,3 @@ export const CaptureToolbar: React.FC<CaptureToolbarProps> = ({
     </div>
   );
 };
-
-export default CaptureToolbar;

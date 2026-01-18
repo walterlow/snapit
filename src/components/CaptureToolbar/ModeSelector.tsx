@@ -45,5 +45,3 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
     </div>
   );
 };
-
-export default ModeSelector;

@@ -62,4 +62,3 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   );
 };
 
-export default SourceSelector;

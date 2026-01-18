@@ -98,4 +98,3 @@ export const AudioLevelMeter: React.FC<AudioLevelMeterProps> = ({
   );
 };
 
-export default AudioLevelMeter;

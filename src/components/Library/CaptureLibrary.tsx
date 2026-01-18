@@ -13,6 +13,7 @@ import type { CaptureListItem } from '../../types';
 import { LAYOUT, TIMING } from '../../constants';
 
 import { useMarqueeSelection, useDragDropImport, useMomentumScroll, useResizeTransitionLock, type VirtualLayoutInfo } from './hooks';
+import { isTextInputTarget } from '../../hooks/useKeyboardShortcuts';
 // Direct imports avoid barrel file bundling overhead
 import { DateHeader } from './components/DateHeader';
 import { EmptyState } from './components/EmptyState';
@@ -34,6 +35,24 @@ interface DateGroup {
   captures: CaptureListItem[];
 }
 
+// Date label rules in priority order (first match wins)
+const dateLabelRules: { check: (d: Date) => boolean; label: string | ((d: Date) => string) }[] = [
+  { check: isToday, label: 'Today' },
+  { check: isYesterday, label: 'Yesterday' },
+  { check: (d) => isThisWeek(d, { weekStartsOn: 1 }), label: 'This Week' },
+  { check: isThisMonth, label: 'This Month' },
+  { check: isThisYear, label: (d) => format(d, 'MMMM') },
+];
+
+function getDateLabel(date: Date): string {
+  for (const rule of dateLabelRules) {
+    if (rule.check(date)) {
+      return typeof rule.label === 'function' ? rule.label(date) : rule.label;
+    }
+  }
+  return format(date, 'MMMM yyyy');
+}
+
 // Group captures by date periods
 function groupCapturesByDate(captures: CaptureListItem[]): DateGroup[] {
   const groups: Map<string, CaptureListItem[]> = new Map();
@@ -45,22 +64,7 @@ function groupCapturesByDate(captures: CaptureListItem[]): DateGroup[] {
   );
 
   for (const capture of sorted) {
-    const date = new Date(capture.created_at);
-    let label: string;
-
-    if (isToday(date)) {
-      label = 'Today';
-    } else if (isYesterday(date)) {
-      label = 'Yesterday';
-    } else if (isThisWeek(date, { weekStartsOn: 1 })) {
-      label = 'This Week';
-    } else if (isThisMonth(date)) {
-      label = 'This Month';
-    } else if (isThisYear(date)) {
-      label = format(date, 'MMMM');
-    } else {
-      label = format(date, 'MMMM yyyy');
-    }
+    const label = getDateLabel(new Date(capture.created_at));
 
     if (!groups.has(label)) {
       groups.set(label, []);
@@ -168,10 +172,9 @@ export const CaptureLibrary: React.FC = () => {
     };
   }, [useVirtualization, containerWidth, dateGroups, viewMode]);
 
-  // Delete confirmation state
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
+  // Delete confirmation state - consolidated into single object
+  type DeleteDialogState = { type: 'single'; id: string } | { type: 'bulk' } | null;
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(null);
 
   // Open image in dedicated editor window
   const handleEditImage = useCallback(async (capture: CaptureListItem) => {
@@ -254,26 +257,19 @@ export const CaptureLibrary: React.FC = () => {
 
   // Delete handlers
   const handleRequestDeleteSingle = useCallback((id: string) => {
-    setPendingDeleteId(id);
-    setPendingBulkDelete(false);
-    setDeleteDialogOpen(true);
+    setDeleteDialog({ type: 'single', id });
   }, []);
 
   const handleRequestDeleteSelected = useCallback(() => {
     if (selectedIds.size === 0) return;
-    setPendingDeleteId(null);
-    setPendingBulkDelete(true);
-    setDeleteDialogOpen(true);
+    setDeleteDialog({ type: 'bulk' });
   }, [selectedIds.size]);
 
   // Keyboard shortcut for deleting selected captures
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if typing in an input field
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
+      if (isTextInputTarget(e)) {
         return;
       }
 
@@ -296,26 +292,22 @@ export const CaptureLibrary: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     try {
-      if (pendingBulkDelete) {
+      if (deleteDialog?.type === 'bulk') {
         await deleteCaptures(Array.from(selectedIds));
         setSelectedIds(new Set());
         toast.success(`Deleted ${selectedIds.size} capture${selectedIds.size > 1 ? 's' : ''}`);
-      } else if (pendingDeleteId) {
-        await deleteCapture(pendingDeleteId);
+      } else if (deleteDialog?.type === 'single') {
+        await deleteCapture(deleteDialog.id);
         toast.success('Capture deleted');
       }
     } catch (error) {
       reportError(error, { operation: 'delete capture' });
     }
-    setDeleteDialogOpen(false);
-    setPendingDeleteId(null);
-    setPendingBulkDelete(false);
+    setDeleteDialog(null);
   };
 
   const handleCancelDelete = () => {
-    setDeleteDialogOpen(false);
-    setPendingDeleteId(null);
-    setPendingBulkDelete(false);
+    setDeleteDialog(null);
   };
 
   const handleOpenInFolder = useCallback(async (capture: CaptureListItem) => {
@@ -355,8 +347,8 @@ export const CaptureLibrary: React.FC = () => {
   }, []);
 
   const getDeleteCount = () => {
-    if (pendingBulkDelete) return selectedIds.size;
-    return pendingDeleteId ? 1 : 0;
+    if (deleteDialog?.type === 'bulk') return selectedIds.size;
+    return deleteDialog?.type === 'single' ? 1 : 0;
   };
 
   const formatDate = (dateStr: string) => {
@@ -496,8 +488,8 @@ export const CaptureLibrary: React.FC = () => {
 
         {/* Delete Confirmation Dialog */}
         <DeleteDialog
-          open={deleteDialogOpen}
-          onOpenChange={setDeleteDialogOpen}
+          open={deleteDialog !== null}
+          onOpenChange={(open) => !open && setDeleteDialog(null)}
           count={getDeleteCount()}
           onConfirm={handleConfirmDelete}
           onCancel={handleCancelDelete}

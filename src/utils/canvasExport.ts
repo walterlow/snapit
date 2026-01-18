@@ -1,6 +1,7 @@
 import Konva from 'konva';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import type { CompositorSettings, CanvasBounds } from '../types';
+import { compositeImage } from './compositor';
 
 export interface ContentBounds {
   x: number;
@@ -108,7 +109,7 @@ export interface ExportOptions {
 
 /**
  * Export the current canvas state to a Blob.
- * Handles stage reset, layer finding, bounds calculation, and cleanup.
+ * Handles stage reset, layer finding, bounds calculation, and compositor effects.
  */
 export async function exportToBlob(
   stageRef: React.RefObject<Konva.Stage | null>,
@@ -122,9 +123,22 @@ export async function exportToBlob(
   const layer = stage.findOne('Layer') as Konva.Layer | undefined;
   if (!layer) throw new Error('Layer not found');
 
+  // Export raw content from Konva (without compositor padding)
   const content = getContentBounds(stage, canvasBounds);
-  const bounds = calculateExportBounds(content, compositorSettings);
-  const outputCanvas = exportCanvas(stage, layer, bounds);
+  const rawBounds: ExportBounds = {
+    x: Math.round(content.x),
+    y: Math.round(content.y),
+    width: Math.round(content.width),
+    height: Math.round(content.height),
+  };
+  const rawCanvas = exportCanvas(stage, layer, rawBounds);
+
+  // Apply compositor effects (background, shadow, padding, border radius)
+  const outputCanvas = await compositeImage({
+    settings: compositorSettings,
+    sourceCanvas: rawCanvas,
+    canvasBounds: null, // Already handled in rawBounds
+  });
 
   return new Promise<Blob>((resolve, reject) => {
     outputCanvas.toBlob(

@@ -147,10 +147,12 @@ function drawShadow(
 
 /**
  * Load an image from URL
+ * Sets crossOrigin to allow canvas export (prevents tainted canvas error)
  */
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = reject;
     img.src = src;
@@ -247,8 +249,8 @@ export async function compositeImage(
       throw new Error('Failed to get canvas context');
     }
 
-    // Load background image if needed
-    if (settings.backgroundType === 'image' && settings.backgroundImage) {
+    // Load background image if needed (for both 'image' and 'wallpaper' types)
+    if ((settings.backgroundType === 'image' || settings.backgroundType === 'wallpaper') && settings.backgroundImage) {
       backgroundImage = await loadImage(settings.backgroundImage);
     }
 

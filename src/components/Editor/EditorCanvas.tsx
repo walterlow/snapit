@@ -499,12 +499,14 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         style={{ backgroundColor: 'transparent' }}
       >
         <Layer ref={layerRef}>
-          {/* Background layer: shadow (disabled compositor) or full compositor background */}
-          <KonvaBackgroundLayer
-            settings={compositorSettings}
-            visibleBounds={visibleBounds}
-            baseCompositionSize={baseCompositionSize}
-          />
+          {/* Background layer: only render shadow when compositor disabled */}
+          {!compositorSettings.enabled && (
+            <KonvaBackgroundLayer
+              settings={compositorSettings}
+              visibleBounds={visibleBounds}
+              baseCompositionSize={baseCompositionSize}
+            />
+          )}
 
           {/* Cropped canvas content - only render when visibleBounds is ready */}
           {image && visibleBounds && (() => {
@@ -594,7 +596,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
           })()}
 
           {/* Border on screenshot content - grows outward, not into content */}
-          {image && visibleBounds && compositorSettings.enabled && compositorSettings.borderEnabled && (() => {
+          {image && visibleBounds && compositorSettings.enabled && compositorSettings.borderOpacity > 0 && (() => {
             const halfStroke = compositorSettings.borderWidth / 2;
             return (
               <Rect

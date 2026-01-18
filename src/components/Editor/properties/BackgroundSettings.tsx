@@ -10,13 +10,10 @@ import {
   X,
   Square,
   Circle,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import { GRADIENT_PRESETS, DEFAULT_WALLPAPERS, WALLPAPER_THUMBNAILS, type GradientStop, type CompositorSettings } from '../../../types';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { ColorPicker } from '@/components/ui/color-picker';
 
 // Color presets for quick selection
@@ -38,26 +35,19 @@ export const BackgroundSettings: React.FC<BackgroundSettingsProps> = ({
   const [localPadding, setLocalPadding] = React.useState(settings.padding);
   const [localBorderRadius, setLocalBorderRadius] = React.useState(settings.borderRadius);
   const [localShadowIntensity, setLocalShadowIntensity] = React.useState(settings.shadowIntensity);
-  const [localShadowSize, setLocalShadowSize] = React.useState(settings.shadowSize ?? 14.4);
-  const [localShadowOpacity, setLocalShadowOpacity] = React.useState(settings.shadowOpacity ?? 68.1);
-  const [localShadowBlur, setLocalShadowBlur] = React.useState(settings.shadowBlur ?? 3.8);
   const [localGradientAngle, setLocalGradientAngle] = React.useState(settings.gradientAngle);
   const [localBorderWidth, setLocalBorderWidth] = React.useState(settings.borderWidth ?? 2);
   const [localBorderOpacity, setLocalBorderOpacity] = React.useState(settings.borderOpacity ?? 80);
-  const [showAdvancedShadow, setShowAdvancedShadow] = React.useState(false);
 
   // Sync local state when store changes
   React.useEffect(() => {
     setLocalPadding(settings.padding);
     setLocalBorderRadius(settings.borderRadius);
     setLocalShadowIntensity(settings.shadowIntensity);
-    setLocalShadowSize(settings.shadowSize ?? 14.4);
-    setLocalShadowOpacity(settings.shadowOpacity ?? 68.1);
-    setLocalShadowBlur(settings.shadowBlur ?? 3.8);
     setLocalGradientAngle(settings.gradientAngle);
     setLocalBorderWidth(settings.borderWidth ?? 2);
     setLocalBorderOpacity(settings.borderOpacity ?? 80);
-  }, [settings.padding, settings.borderRadius, settings.shadowIntensity, settings.shadowSize, settings.shadowOpacity, settings.shadowBlur, settings.gradientAngle, settings.borderWidth, settings.borderOpacity]);
+  }, [settings.padding, settings.borderRadius, settings.shadowIntensity, settings.gradientAngle, settings.borderWidth, settings.borderOpacity]);
 
   const handleGradientPreset = (stops: GradientStop[]) => {
     onSettingsChange({ gradientStops: stops, backgroundType: 'gradient' });
@@ -316,103 +306,19 @@ export const BackgroundSettings: React.FC<BackgroundSettingsProps> = ({
             <Layers className="w-3.5 h-3.5" />
             Shadow
           </Label>
-          <Switch
-            checked={settings.shadowEnabled}
-            onCheckedChange={(checked) => onSettingsChange({ shadowEnabled: checked })}
-          />
+          <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(localShadowIntensity * 100)}%</span>
         </div>
-        {settings.shadowEnabled && (
-          <div className="space-y-3">
-            {/* Quick intensity slider */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-[var(--ink-muted)]">Intensity</Label>
-                <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(localShadowIntensity * 100)}%</span>
-              </div>
-              <Slider
-                value={[localShadowIntensity * 100]}
-                onValueChange={([value]) => {
-                  setLocalShadowIntensity(value / 100);
-                  onSettingsChange({ shadowIntensity: value / 100 });
-                }}
-                min={0}
-                max={100}
-                step={2}
-                className="w-full"
-              />
-            </div>
-
-            {/* Advanced shadow toggle */}
-            <button
-              onClick={() => setShowAdvancedShadow(!showAdvancedShadow)}
-              className="w-full flex items-center justify-between py-2 px-3 rounded-lg text-xs font-medium text-[var(--ink-muted)] bg-[var(--card)] hover:bg-[var(--polar-ice)] border border-[var(--polar-frost)] transition-colors"
-            >
-              <span>Advanced Settings</span>
-              {showAdvancedShadow ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-
-            {showAdvancedShadow && (
-              <div className="space-y-3 p-3 rounded-lg bg-[var(--polar-ice)] border border-[var(--polar-frost)]">
-                {/* Shadow Size */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-[var(--ink-muted)]">Size</Label>
-                    <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(localShadowSize)}</span>
-                  </div>
-                  <Slider
-                    value={[localShadowSize]}
-                    onValueChange={([value]) => {
-                      setLocalShadowSize(value);
-                      onSettingsChange({ shadowSize: value });
-                    }}
-                    min={0}
-                    max={100}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-
-                {/* Shadow Opacity */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-[var(--ink-muted)]">Opacity</Label>
-                    <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(localShadowOpacity)}%</span>
-                  </div>
-                  <Slider
-                    value={[localShadowOpacity]}
-                    onValueChange={([value]) => {
-                      setLocalShadowOpacity(value);
-                      onSettingsChange({ shadowOpacity: value });
-                    }}
-                    min={0}
-                    max={100}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-
-                {/* Shadow Blur */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-[var(--ink-muted)]">Blur</Label>
-                    <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(localShadowBlur)}</span>
-                  </div>
-                  <Slider
-                    value={[localShadowBlur]}
-                    onValueChange={([value]) => {
-                      setLocalShadowBlur(value);
-                      onSettingsChange({ shadowBlur: value });
-                    }}
-                    min={0}
-                    max={100}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <Slider
+          value={[localShadowIntensity * 100]}
+          onValueChange={([value]) => {
+            setLocalShadowIntensity(value / 100);
+            onSettingsChange({ shadowIntensity: value / 100 });
+          }}
+          min={0}
+          max={100}
+          step={2}
+          className="w-full"
+        />
       </div>
 
       {/* Border */}
@@ -422,12 +328,20 @@ export const BackgroundSettings: React.FC<BackgroundSettingsProps> = ({
             <RectangleHorizontal className="w-3.5 h-3.5" />
             Border
           </Label>
-          <Switch
-            checked={settings.borderEnabled ?? false}
-            onCheckedChange={(checked) => onSettingsChange({ borderEnabled: checked })}
-          />
+          <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(localBorderOpacity)}%</span>
         </div>
-        {(settings.borderEnabled ?? false) && (
+        <Slider
+          value={[localBorderOpacity]}
+          onValueChange={([value]) => {
+            setLocalBorderOpacity(value);
+            onSettingsChange({ borderOpacity: value });
+          }}
+          min={0}
+          max={100}
+          step={1}
+          className="w-full"
+        />
+        {localBorderOpacity > 0 && (
           <div className="space-y-3">
             {/* Border Width */}
             <div className="space-y-2">
@@ -455,25 +369,6 @@ export const BackgroundSettings: React.FC<BackgroundSettingsProps> = ({
                 value={settings.borderColor ?? '#ffffff'}
                 onChange={(color) => onSettingsChange({ borderColor: color })}
                 presets={COLOR_PRESETS}
-              />
-            </div>
-
-            {/* Border Opacity */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-[var(--ink-muted)]">Opacity</Label>
-                <span className="text-xs text-[var(--ink-dark)] font-mono">{Math.round(localBorderOpacity)}%</span>
-              </div>
-              <Slider
-                value={[localBorderOpacity]}
-                onValueChange={([value]) => {
-                  setLocalBorderOpacity(value);
-                  onSettingsChange({ borderOpacity: value });
-                }}
-                min={0}
-                max={100}
-                step={1}
-                className="w-full"
               />
             </div>
           </div>

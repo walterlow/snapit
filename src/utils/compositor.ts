@@ -261,8 +261,8 @@ export async function compositeImage(
       backgroundImage
     );
 
-    // Draw shadow if enabled
-    if (settings.shadowEnabled) {
+    // Draw shadow if intensity > 0
+    if (settings.shadowIntensity > 0) {
       drawShadow(
         ctx,
         dimensions.contentX,

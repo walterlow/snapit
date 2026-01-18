@@ -59,7 +59,6 @@ export function useProjectAnnotations() {
           backgroundImage: compositorAnn.backgroundImage ?? null,
           padding: compositorAnn.padding ?? 64,
           borderRadius: compositorAnn.borderRadius ?? 12,
-          shadowEnabled: compositorAnn.shadowEnabled ?? true,
           shadowIntensity: compositorAnn.shadowIntensity ?? 0.5,
           aspectRatio: compositorAnn.aspectRatio ?? 'auto',
         });

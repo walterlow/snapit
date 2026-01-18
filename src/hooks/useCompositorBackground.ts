@@ -340,7 +340,7 @@ export function useCompositorBackground(
 
   // Shadow props
   const shadowProps = useMemo(() => {
-    if (!settings.enabled || !settings.shadowEnabled) return null;
+    if (!settings.enabled || settings.shadowIntensity <= 0) return null;
 
     const intensity = settings.shadowIntensity;
     return {
@@ -349,7 +349,7 @@ export function useCompositorBackground(
       shadowOffsetY: 8 * intensity,
       shadowOpacity: 0.35 * intensity,
     };
-  }, [settings.enabled, settings.shadowEnabled, settings.shadowIntensity]);
+  }, [settings.enabled, settings.shadowIntensity]);
 
   return {
     dimensions,

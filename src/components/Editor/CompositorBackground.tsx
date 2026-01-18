@@ -40,7 +40,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
   if (!settings.enabled) return null;
 
   // Shadow props
-  const shadowProps = includeShadow && settings.shadowEnabled
+  const shadowProps = includeShadow && settings.shadowIntensity > 0
     ? {
         shadowColor: 'black',
         shadowBlur: 32 * settings.shadowIntensity,

@@ -55,12 +55,7 @@ export interface CompositorSettingsAnnotation {
   padding: number;
   borderRadius: number;
   borderRadiusType: 'squircle' | 'rounded';
-  shadowEnabled: boolean;
   shadowIntensity: number;
-  shadowSize: number;
-  shadowOpacity: number;
-  shadowBlur: number;
-  borderEnabled: boolean;
   borderWidth: number;
   borderColor: string;
   borderOpacity: number;
@@ -223,15 +218,10 @@ export interface CompositorSettings {
   padding: number; // pixels (direct, no conversion)
   borderRadius: number; // pixels
   borderRadiusType: 'squircle' | 'rounded'; // corner style
-  shadowEnabled: boolean;
-  shadowIntensity: number; // 0-1 (legacy, maps to shadowOpacity)
-  shadowSize: number; // 0-100
-  shadowOpacity: number; // 0-100
-  shadowBlur: number; // 0-100
-  borderEnabled: boolean;
+  shadowIntensity: number; // 0 = off, > 0 = on (0-1 range)
   borderWidth: number; // pixels
   borderColor: string; // hex color
-  borderOpacity: number; // 0-100
+  borderOpacity: number; // 0 = off, > 0 = on (0-100)
   aspectRatio: 'auto' | '16:9' | '4:3' | '1:1' | 'twitter' | 'instagram';
 }
 
@@ -248,15 +238,10 @@ export const DEFAULT_COMPOSITOR_SETTINGS: CompositorSettings = {
   padding: 64,
   borderRadius: 12,
   borderRadiusType: 'squircle',
-  shadowEnabled: true,
   shadowIntensity: 0.5,
-  shadowSize: 14.4,
-  shadowOpacity: 68.1,
-  shadowBlur: 3.8,
-  borderEnabled: false,
   borderWidth: 2,
   borderColor: '#ffffff',
-  borderOpacity: 80,
+  borderOpacity: 0,
   aspectRatio: 'auto',
 };
 

@@ -64,13 +64,33 @@ export const KonvaBackgroundLayer: React.FC<KonvaBackgroundLayerProps> = ({
   };
 
   return (
-    <CompositorBackground
-      name="compositor-background"
-      settings={settings}
-      bounds={compBounds}
-      borderRadius={0}
-      includeShadow={false}
-    />
+    <>
+      {/* Shadow on content - rendered first so background covers the fill */}
+      {settings.shadowIntensity > 0 && (
+        <Rect
+          name="content-shadow"
+          x={visibleBounds.x}
+          y={visibleBounds.y}
+          width={visibleBounds.width}
+          height={visibleBounds.height}
+          cornerRadius={settings.borderRadius}
+          fill="#000000"
+          shadowColor="black"
+          shadowBlur={30 * settings.shadowIntensity}
+          shadowOffsetY={10 * settings.shadowIntensity}
+          shadowOpacity={0.4 * settings.shadowIntensity}
+          shadowEnabled={true}
+          listening={false}
+        />
+      )}
+      <CompositorBackground
+        name="compositor-background"
+        settings={settings}
+        bounds={compBounds}
+        borderRadius={0}
+        includeShadow={false}
+      />
+    </>
   );
 };
 

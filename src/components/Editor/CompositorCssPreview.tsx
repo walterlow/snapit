@@ -57,7 +57,7 @@ export const CompositorCssPreview: React.FC<CompositorCssPreviewProps> = ({
         ...backgroundStyle,
       }}
     >
-      {settings.shadowEnabled && (
+      {settings.shadowIntensity > 0 && (
         <div
           style={{
             position: 'absolute',

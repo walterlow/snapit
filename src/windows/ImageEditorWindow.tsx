@@ -63,7 +63,6 @@ const ImageEditorContent: React.FC<{
   } = useEditorStore();
 
   const [selectedTool, setSelectedTool] = useState<Tool>('select');
-  const [, setHasUnsavedChanges] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { isCopying, isSaving, handleCopy, handleSave, handleSaveAs } = useEditorActions({ stageRef });
@@ -99,7 +98,6 @@ const ImageEditorContent: React.FC<{
   // Handle shapes change
   const handleShapesChange = useCallback((newShapes: CanvasShape[]) => {
     setShapes(newShapes);
-    setHasUnsavedChanges(true);
   }, [setShapes]);
 
   // Undo/Redo handlers - use store methods directly for window context
@@ -287,23 +285,11 @@ const ImageEditorWindow: React.FC = () => {
               });
             }
 
-            // Load compositor settings if present
+            // Load compositor settings if present (spread defaults, then saved values)
             if (compositorAnn) {
               store.getState().setCompositorSettings({
-                enabled: compositorAnn.enabled,
-                backgroundType: compositorAnn.backgroundType ?? 'gradient',
-                backgroundColor: compositorAnn.backgroundColor ?? '#6366f1',
-                gradientAngle: compositorAnn.gradientAngle ?? 135,
-                gradientStops: compositorAnn.gradientStops ?? [
-                  { color: '#667eea', position: 0 },
-                  { color: '#764ba2', position: 100 },
-                ],
-                backgroundImage: compositorAnn.backgroundImage ?? null,
-                padding: compositorAnn.padding ?? 64,
-                borderRadius: compositorAnn.borderRadius ?? 12,
-                shadowEnabled: compositorAnn.shadowEnabled ?? true,
-                shadowIntensity: compositorAnn.shadowIntensity ?? 0.5,
-                aspectRatio: compositorAnn.aspectRatio ?? 'auto',
+                ...DEFAULT_COMPOSITOR_SETTINGS,
+                ...compositorAnn,
               });
             }
 
@@ -399,25 +385,7 @@ const ImageEditorWindow: React.FC = () => {
       const compositorAnn: CompositorSettingsAnnotation = {
         id: '__compositor_settings__',
         type: '__compositor_settings__',
-        enabled: compositorSettings.enabled,
-        backgroundType: compositorSettings.backgroundType,
-        backgroundColor: compositorSettings.backgroundColor,
-        gradientAngle: compositorSettings.gradientAngle,
-        gradientStops: compositorSettings.gradientStops,
-        backgroundImage: compositorSettings.backgroundImage,
-        padding: compositorSettings.padding,
-        borderRadius: compositorSettings.borderRadius,
-        borderRadiusType: compositorSettings.borderRadiusType ?? 'rounded',
-        shadowEnabled: compositorSettings.shadowEnabled,
-        shadowIntensity: compositorSettings.shadowIntensity,
-        shadowSize: compositorSettings.shadowSize ?? DEFAULT_COMPOSITOR_SETTINGS.shadowSize,
-        shadowOpacity: compositorSettings.shadowOpacity ?? DEFAULT_COMPOSITOR_SETTINGS.shadowOpacity,
-        shadowBlur: compositorSettings.shadowBlur ?? DEFAULT_COMPOSITOR_SETTINGS.shadowBlur,
-        borderEnabled: compositorSettings.borderEnabled ?? DEFAULT_COMPOSITOR_SETTINGS.borderEnabled,
-        borderWidth: compositorSettings.borderWidth ?? DEFAULT_COMPOSITOR_SETTINGS.borderWidth,
-        borderColor: compositorSettings.borderColor ?? DEFAULT_COMPOSITOR_SETTINGS.borderColor,
-        borderOpacity: compositorSettings.borderOpacity ?? DEFAULT_COMPOSITOR_SETTINGS.borderOpacity,
-        aspectRatio: compositorSettings.aspectRatio,
+        ...compositorSettings,
       };
       annotations.push(compositorAnn);
 

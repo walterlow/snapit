@@ -264,8 +264,14 @@ export const SettingsCol1: React.FC<SettingsColProps> = ({ mode }) => {
  * Column 2: Cursor + Audio + Countdown + Max duration
  */
 export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
-  const { settings, updateScreenshotSettings, updateVideoSettings, updateGifSettings } =
-    useCaptureSettingsStore();
+  const {
+    settings,
+    updateScreenshotSettings,
+    updateVideoSettings,
+    updateGifSettings,
+    copyToClipboardAfterCapture,
+    setCopyToClipboardAfterCapture,
+  } = useCaptureSettingsStore();
   const { devices: audioDevices, loadDevices: loadAudioDevices, isLoadingDevices } = useAudioInputStore();
 
   // Load audio devices when in video mode
@@ -307,10 +313,19 @@ export const SettingsCol2: React.FC<SettingsColProps> = ({ mode }) => {
   switch (mode) {
     case 'screenshot':
       return (
-        <div className="glass-inline-group">
-          <span className="glass-inline-label">Cursor</span>
-          <Switch checked={getCursorEnabled()} onCheckedChange={setCursorEnabled} />
-        </div>
+        <>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Cursor</span>
+            <Switch checked={getCursorEnabled()} onCheckedChange={setCursorEnabled} />
+          </div>
+          <div className="glass-inline-group">
+            <span className="glass-inline-label">Clipboard</span>
+            <Switch
+              checked={copyToClipboardAfterCapture}
+              onCheckedChange={setCopyToClipboardAfterCapture}
+            />
+          </div>
+        </>
       );
 
     case 'video':

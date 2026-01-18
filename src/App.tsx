@@ -8,6 +8,7 @@ import { KeyboardShortcutsModal } from './components/KeyboardShortcuts/KeyboardS
 import { VideoEditorView } from './views/VideoEditorView';
 import { useCaptureStore } from './stores/captureStore';
 import { useSettingsStore } from './stores/settingsStore';
+import { useCaptureSettingsStore } from './stores/captureSettingsStore';
 import { useUpdater } from './hooks/useUpdater';
 import { useTheme } from './hooks/useTheme';
 import { useAppEventListeners } from './hooks/useAppEventListeners';
@@ -47,7 +48,17 @@ function App() {
       onThumbnailReady: useCaptureStore.getState().updateCaptureThumbnail,
       onCaptureCompleteFast: async (data: { file_path: string; width: number; height: number }) => {
         // Save the capture first (creates project in library)
-        await saveNewCaptureFromFile(data.file_path, data.width, data.height, 'region', {}, { silent: true });
+        const { imagePath } = await saveNewCaptureFromFile(data.file_path, data.width, data.height, 'region', {}, { silent: true });
+
+        // Copy to clipboard if enabled
+        const copyToClipboard = useCaptureSettingsStore.getState().copyToClipboardAfterCapture;
+        if (copyToClipboard) {
+          try {
+            await invoke('copy_image_to_clipboard', { path: imagePath });
+          } catch (error) {
+            console.error('Failed to copy to clipboard:', error);
+          }
+        }
 
         // Open image editor window with the captured image
         try {

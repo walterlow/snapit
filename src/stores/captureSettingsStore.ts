@@ -69,9 +69,12 @@ interface CaptureSettingsState {
 
   // Current active mode
   activeMode: CaptureType;
-  
+
   // Current source mode (display/window/region)
   sourceMode: CaptureSourceMode;
+
+  // Copy to clipboard after screenshot capture
+  copyToClipboardAfterCapture: boolean;
 
   // Actions - Settings management
   loadSettings: () => Promise<void>;
@@ -79,6 +82,9 @@ interface CaptureSettingsState {
   
   // Actions - Source mode
   setSourceMode: (mode: CaptureSourceMode) => void;
+
+  // Actions - Clipboard
+  setCopyToClipboardAfterCapture: (value: boolean) => void;
 
   // Actions - Mode
   setActiveMode: (mode: CaptureType) => void;
@@ -105,6 +111,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
   isInitialized: false,
   activeMode: 'video',
   sourceMode: 'area',
+  copyToClipboardAfterCapture: true,
 
   loadSettings: async () => {
     set({ isLoading: true });
@@ -114,6 +121,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       const savedSettings = await store.get<CaptureSettings>('captureSettings');
       const savedActiveMode = await store.get<CaptureType>('activeMode');
       const savedSourceMode = await store.get<CaptureSourceMode>('sourceMode');
+      const savedCopyToClipboard = await store.get<boolean>('copyToClipboardAfterCapture');
 
       // Merge with defaults (in case new settings were added)
       const settings: CaptureSettings = {
@@ -137,6 +145,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
         settings,
         activeMode: savedActiveMode || 'video',
         sourceMode: savedSourceMode || 'area',
+        copyToClipboardAfterCapture: savedCopyToClipboard ?? true,
         isLoading: false,
         isInitialized: true,
       });
@@ -145,7 +154,8 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       set({
         settings: { ...DEFAULT_CAPTURE_SETTINGS },
         activeMode: 'video',
-  sourceMode: 'area',
+        sourceMode: 'area',
+        copyToClipboardAfterCapture: true,
         isLoading: false,
         isInitialized: true,
       });
@@ -153,12 +163,13 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
   },
 
   saveSettings: async () => {
-    const { settings, activeMode, sourceMode } = get();
+    const { settings, activeMode, sourceMode, copyToClipboardAfterCapture } = get();
     try {
       const store = await getStore();
       await store.set('captureSettings', settings);
       await store.set('activeMode', activeMode);
       await store.set('sourceMode', sourceMode);
+      await store.set('copyToClipboardAfterCapture', copyToClipboardAfterCapture);
       await store.save();
     } catch (error) {
       settingsLogger.error('Failed to save capture settings:', error);
@@ -177,6 +188,14 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
   setSourceMode: (mode) => {
     set({ sourceMode: mode });
     // Auto-save when source mode changes
+    get().saveSettings().catch(
+      createErrorHandler({ operation: 'save capture settings', silent: true })
+    );
+  },
+
+  setCopyToClipboardAfterCapture: (value) => {
+    set({ copyToClipboardAfterCapture: value });
+    // Auto-save when clipboard setting changes
     get().saveSettings().catch(
       createErrorHandler({ operation: 'save capture settings', silent: true })
     );
@@ -282,6 +301,7 @@ export const useCaptureSettingsStore = create<CaptureSettingsState>((set, get) =
       settings: { ...DEFAULT_CAPTURE_SETTINGS },
       activeMode: 'video',
       sourceMode: 'area',
+      copyToClipboardAfterCapture: true,
     });
     get().saveSettings().catch(
       createErrorHandler({ operation: 'save capture settings', silent: true })
@@ -324,4 +344,9 @@ export const useGifSettings = () => {
 // Selector for source mode
 export const useSourceMode = () => {
   return useCaptureSettingsStore((state) => state.sourceMode);
+};
+
+// Selector for copy to clipboard setting
+export const useCopyToClipboardAfterCapture = () => {
+  return useCaptureSettingsStore((state) => state.copyToClipboardAfterCapture);
 };

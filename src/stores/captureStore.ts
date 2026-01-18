@@ -153,7 +153,7 @@ interface CaptureState {
     captureType: string,
     source: CaptureSource,
     options?: { silent?: boolean }
-  ) => Promise<string>;
+  ) => Promise<{ id: string; imagePath: string }>;
   updateAnnotations: (annotations: Annotation[]) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => Promise<void>;
@@ -462,7 +462,7 @@ export const useCaptureStore = create<CaptureState>()(
         });
       }
 
-      return result.id;
+      return { id: result.id, imagePath: result.image_path };
     } catch (error) {
       // Remove placeholder on error
       set({

@@ -2,7 +2,6 @@ import React, { useRef, useCallback, useMemo, useEffect } from 'react';
 import { Arrow, Circle } from 'react-konva';
 import Konva from 'konva';
 import type { CanvasShape } from '../../../types';
-import { takeSnapshot, commitSnapshot } from '../../../stores/editorStore';
 import { useShapeCursor } from '../../../hooks/useShapeCursor';
 
 interface ArrowShapeProps {
@@ -15,6 +14,10 @@ interface ArrowShapeProps {
   onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>, newPoints: number[]) => void;
   onEndpointDragEnd: (endpointIndex: 0 | 1, newPoints: number[]) => void;
+  /** Take snapshot before starting an edit action */
+  takeSnapshot: () => void;
+  /** Commit snapshot after completing an edit action */
+  commitSnapshot: () => void;
 }
 
 // Compute arrow visual endpoints from anchor positions
@@ -48,6 +51,8 @@ export const ArrowShape: React.FC<ArrowShapeProps> = React.memo(({
   onDragStart,
   onDragEnd,
   onEndpointDragEnd,
+  takeSnapshot,
+  commitSnapshot,
 }) => {
   const cursorHandlers = useShapeCursor(isDraggable);
   // points[] = anchor positions (where handles sit)

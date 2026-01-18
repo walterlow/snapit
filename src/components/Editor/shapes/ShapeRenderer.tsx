@@ -29,6 +29,10 @@ interface ShapeRendererProps {
   onTransformEnd: (shapeId: string, e: Konva.KonvaEventObject<Event>) => void;
   onArrowEndpointDragEnd: (shapeId: string, newPoints: number[]) => void;
   onTextStartEdit: (shapeId: string, currentText: string) => void;
+  /** Take snapshot before starting an edit action */
+  takeSnapshot: () => void;
+  /** Commit snapshot after completing an edit action */
+  commitSnapshot: () => void;
 }
 
 /**
@@ -53,6 +57,8 @@ const MemoizedShape = React.memo<{
   onTransformEnd: (shapeId: string, e: Konva.KonvaEventObject<Event>) => void;
   onArrowEndpointDragEnd: (shapeId: string, newPoints: number[]) => void;
   onTextStartEdit: (shapeId: string, currentText: string) => void;
+  takeSnapshot: () => void;
+  commitSnapshot: () => void;
 }>(({
   shape,
   isSelected,
@@ -72,6 +78,8 @@ const MemoizedShape = React.memo<{
   onTransformEnd,
   onArrowEndpointDragEnd,
   onTextStartEdit,
+  takeSnapshot,
+  commitSnapshot,
 }) => {
   const isActivelyDrawing = isDrawing && isLastShape;
 
@@ -133,6 +141,8 @@ const MemoizedShape = React.memo<{
           zoom={zoom}
           onDragEnd={handleArrowDragEnd}
           onEndpointDragEnd={handleArrowEndpointDragEnd}
+          takeSnapshot={takeSnapshot}
+          commitSnapshot={commitSnapshot}
         />
       );
     case 'line':
@@ -142,6 +152,8 @@ const MemoizedShape = React.memo<{
           zoom={zoom}
           onDragEnd={handleArrowDragEnd}
           onEndpointDragEnd={handleArrowEndpointDragEnd}
+          takeSnapshot={takeSnapshot}
+          commitSnapshot={commitSnapshot}
         />
       );
     case 'rect':
@@ -207,6 +219,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(({
   onTransformEnd,
   onArrowEndpointDragEnd,
   onTextStartEdit,
+  takeSnapshot,
+  commitSnapshot,
 }) => {
   const isDraggable = selectedTool === 'select' && !isPanning;
 
@@ -237,6 +251,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(({
           onTransformEnd={onTransformEnd}
           onArrowEndpointDragEnd={onArrowEndpointDragEnd}
           onTextStartEdit={onTextStartEdit}
+          takeSnapshot={takeSnapshot}
+          commitSnapshot={commitSnapshot}
         />
       ))}
     </>

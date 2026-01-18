@@ -300,6 +300,7 @@ pub async fn update_project_annotations(
 
     let project_json = serde_json::to_string_pretty(&project)
         .map_err(|e| format!("Failed to serialize project: {}", e))?;
+
     fs::write(&project_file, project_json)
         .map_err(|e| format!("Failed to write project: {}", e))?;
 

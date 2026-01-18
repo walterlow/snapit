@@ -10,7 +10,8 @@ import {
   AlignRight,
   ChevronDown,
 } from 'lucide-react';
-import { useEditorStore, recordAction } from '../../../stores/editorStore';
+import { useEditorStore } from '../../../stores/editorStore';
+import { useEditorHistory } from '../../../hooks/useEditorHistory';
 import { DEFAULT_FONT_FAMILIES, type CanvasShape } from '../../../types';
 import { editorLogger } from '@/utils/logger';
 import { Slider } from '@/components/ui/slider';
@@ -42,6 +43,7 @@ export const TextToolSettings: React.FC<TextToolSettingsProps> = ({
   onStrokeWidthChange,
 }) => {
   const { fontSize, setFontSize, updateShape } = useEditorStore();
+  const { recordAction } = useEditorHistory();
 
   // System fonts state
   const [systemFonts, setSystemFonts] = useState<string[]>([...DEFAULT_FONT_FAMILIES]);

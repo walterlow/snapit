@@ -2,7 +2,6 @@ import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import { Line, Circle } from 'react-konva';
 import Konva from 'konva';
 import type { CanvasShape } from '../../../types';
-import { takeSnapshot, commitSnapshot } from '../../../stores/editorStore';
 import { useShapeCursor } from '../../../hooks/useShapeCursor';
 
 interface LineShapeProps {
@@ -15,6 +14,10 @@ interface LineShapeProps {
   onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>, newPoints: number[]) => void;
   onEndpointDragEnd: (endpointIndex: 0 | 1, newPoints: number[]) => void;
+  /** Take snapshot before starting an edit action */
+  takeSnapshot: () => void;
+  /** Commit snapshot after completing an edit action */
+  commitSnapshot: () => void;
 }
 
 export const LineShape: React.FC<LineShapeProps> = React.memo(({
@@ -27,6 +30,8 @@ export const LineShape: React.FC<LineShapeProps> = React.memo(({
   onDragStart,
   onDragEnd,
   onEndpointDragEnd,
+  takeSnapshot,
+  commitSnapshot,
 }) => {
   const cursorHandlers = useShapeCursor(isDraggable);
   // points[] = [startX, startY, endX, endY]

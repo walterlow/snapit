@@ -5,7 +5,8 @@ import useImage from 'use-image';
 import { Loader2 } from 'lucide-react';
 import { useFastImage } from '../../hooks/useFastImage';
 import type { Tool, CanvasShape } from '../../types';
-import { useEditorStore, takeSnapshot, commitSnapshot } from '../../stores/editorStore';
+import { useEditorStore } from '../../stores/editorStore';
+import { useEditorHistory } from '../../hooks/useEditorHistory';
 import { CompositorBackground } from './CompositorBackground';
 import { CompositorCssPreview } from './CompositorCssPreview';
 import { KonvaBackgroundLayer } from './KonvaBackgroundLayer';
@@ -102,6 +103,8 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
   const resetCanvasBounds = useEditorStore((state) => state.resetCanvasBounds);
   const originalImageSize = useEditorStore((state) => state.originalImageSize);
 
+  // Context-aware history actions for undo/redo
+  const history = useEditorHistory();
 
   // Load image - use fast path for RGBA files, standard path for base64
   const isRgbaFile = imageData.endsWith('.rgba');
@@ -140,6 +143,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     shapes,
     onShapesChange,
     setSelectedIds,
+    recordAction: history.recordAction,
   });
 
   // Middle mouse panning hook
@@ -170,6 +174,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     onShapesChange,
     selectedIds,
     setSelectedIds,
+    history,
   });
 
   // Font size state for text tool
@@ -197,6 +202,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         textEditing.startEditing(shapeId, shape.text || '');
       }
     },
+    history,
   });
 
   // Expose imperative methods via ref
@@ -216,6 +222,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     setCanvasBounds,
     isShiftHeld,
     originalImageSize,
+    history,
   });
 
   // Visible bounds for clipping
@@ -586,6 +593,8 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                   onTransformEnd={transform.handleTransformEnd}
                   onArrowEndpointDragEnd={transform.handleArrowEndpointDragEnd}
                   onTextStartEdit={textEditing.startEditing}
+                  takeSnapshot={history.takeSnapshot}
+                  commitSnapshot={history.commitSnapshot}
                 />
               </Group>
             );
@@ -628,7 +637,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
               isDraggable={true}
               selectedIds={selectedIds}
               layerRef={layerRef}
-              onDragStart={() => takeSnapshot()}
+              onDragStart={() => history.takeSnapshot()}
               onDragEnd={(dx, dy) => {
                 const updatedShapes = shapes.map((shape) => {
                   if (!selectedIds.includes(shape.id)) return shape;
@@ -645,7 +654,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                   };
                 });
                 onShapesChange(updatedShapes);
-                commitSnapshot();
+                history.commitSnapshot();
               }}
             />
           )}
@@ -664,7 +673,7 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
               }
               return newBox;
             }}
-            onTransformStart={() => takeSnapshot()}
+            onTransformStart={() => history.takeSnapshot()}
             onTransform={() => {
               // For text shapes, convert scale to width/height in real-time to prevent stretching
               const nodes = transformerRef.current?.nodes() || [];

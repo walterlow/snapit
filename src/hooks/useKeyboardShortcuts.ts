@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { nanoid } from 'nanoid';
 import type { CanvasShape } from '../types';
-import { recordAction } from '../stores/editorStore';
 
 /** Check if keyboard event target is a text input (should ignore shortcuts) */
 export function isTextInputTarget(e: KeyboardEvent): boolean {
@@ -13,6 +12,8 @@ interface UseKeyboardShortcutsProps {
   setSelectedIds: (ids: string[]) => void;
   shapes: CanvasShape[];
   onShapesChange: (shapes: CanvasShape[]) => void;
+  /** Record action for undo/redo (take snapshot + action + commit) */
+  recordAction: (action: () => void) => void;
 }
 
 interface UseKeyboardShortcutsReturn {
@@ -31,6 +32,7 @@ export const useKeyboardShortcuts = ({
   setSelectedIds,
   shapes,
   onShapesChange,
+  recordAction,
 }: UseKeyboardShortcutsProps): UseKeyboardShortcutsReturn => {
   const [isShiftHeld, setIsShiftHeld] = useState(false);
 

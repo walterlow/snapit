@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import Konva from 'konva';
 import type { Tool, CanvasShape, BlurType } from '../types';
-import { takeSnapshot, commitSnapshot, recordAction } from '../stores/editorStore';
+import type { EditorHistoryActions } from './useEditorHistory';
 
 const MIN_SHAPE_SIZE = 5;
 
@@ -23,6 +23,8 @@ interface UseShapeDrawingProps {
   stageRef: React.RefObject<Konva.Stage | null>;
   getCanvasPosition: (screenPos: { x: number; y: number }) => { x: number; y: number };
   onTextShapeCreated?: (shapeId: string) => void;
+  /** Context-aware history actions for undo/redo support */
+  history: EditorHistoryActions;
 }
 
 interface UseShapeDrawingReturn {
@@ -54,7 +56,9 @@ export const useShapeDrawing = ({
   stageRef,
   getCanvasPosition,
   onTextShapeCreated,
+  history,
 }: UseShapeDrawingProps): UseShapeDrawingReturn => {
+  const { takeSnapshot, commitSnapshot, recordAction } = history;
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState({ x: 0, y: 0 });
   const [shapeSpawned, setShapeSpawned] = useState(false);

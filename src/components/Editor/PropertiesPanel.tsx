@@ -14,7 +14,8 @@ import {
   Pencil,
   Crop,
 } from 'lucide-react';
-import { useEditorStore, recordAction } from '../../stores/editorStore';
+import { useEditorStore } from '../../stores/editorStore';
+import { useEditorHistory } from '../../hooks/useEditorHistory';
 import { type Tool } from '../../types';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -92,6 +93,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     setBlurAmount,
     updateShape,
   } = useEditorStore();
+
+  const { recordAction } = useEditorHistory();
 
   // Get selected shapes
   const selectedShapes = shapes.filter(s => selectedIds.includes(s.id));

@@ -27,7 +27,8 @@ const PropertiesPanel = React.lazy(() =>
 
 import type Konva from 'konva';
 import type { EditorCanvasRef } from '@/components/Editor/EditorCanvas';
-import type { Tool, CanvasShape } from '@/types';
+import type { Tool, CanvasShape, Annotation, CropBoundsAnnotation, CompositorSettingsAnnotation } from '@/types';
+import { isCropBoundsAnnotation, isCompositorSettingsAnnotation, DEFAULT_COMPOSITOR_SETTINGS } from '@/types';
 import { toast } from 'sonner';
 import { reportError } from '@/utils/errorReporting';
 import { useEditorActions } from '@/hooks/useEditorActions';
@@ -219,6 +220,12 @@ const ImageEditorWindow: React.FC = () => {
   const [imageData, setImageData] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
+  // Use ref for projectId to avoid race conditions in close handler
+  const projectIdRef = useRef<string | null>(null);
+  // Flag to prevent auto-save during initial load
+  const isInitialLoadRef = useRef(true);
+  // Flag to prevent auto-save during window close (clearEditor triggers store change)
+  const isClosingRef = useRef(false);
 
   // Create a store instance for this window
   const [store] = useState(() => createEditorStore());
@@ -253,23 +260,88 @@ const ImageEditorWindow: React.FC = () => {
 
       if (capture) {
         setProjectId(capture.id);
+        projectIdRef.current = capture.id;
 
         // Load the image data (base64 encoded)
         const loadedImageData = await invoke<string>('get_project_image', { projectId: capture.id });
         setImageData(loadedImageData);
-        editorLogger.info('Image data loaded successfully');
+
+        // Load project annotations (shapes, crop bounds, compositor settings)
+        try {
+          const project = await invoke<{ annotations?: Annotation[]; dimensions?: { width: number; height: number } }>('get_project', { projectId: capture.id });
+          if (project.annotations && project.annotations.length > 0) {
+            // Separate special annotations from shape annotations
+            const cropBoundsAnn = project.annotations.find(isCropBoundsAnnotation);
+            const compositorAnn = project.annotations.find(isCompositorSettingsAnnotation);
+            const shapeAnnotations = project.annotations.filter(
+              (ann: Annotation) => !isCropBoundsAnnotation(ann) && !isCompositorSettingsAnnotation(ann)
+            );
+
+            // Load crop bounds if present
+            if (cropBoundsAnn) {
+              store.getState().setCanvasBounds({
+                width: cropBoundsAnn.width,
+                height: cropBoundsAnn.height,
+                imageOffsetX: cropBoundsAnn.imageOffsetX,
+                imageOffsetY: cropBoundsAnn.imageOffsetY,
+              });
+            }
+
+            // Load compositor settings if present
+            if (compositorAnn) {
+              store.getState().setCompositorSettings({
+                enabled: compositorAnn.enabled,
+                backgroundType: compositorAnn.backgroundType ?? 'gradient',
+                backgroundColor: compositorAnn.backgroundColor ?? '#6366f1',
+                gradientAngle: compositorAnn.gradientAngle ?? 135,
+                gradientStops: compositorAnn.gradientStops ?? [
+                  { color: '#667eea', position: 0 },
+                  { color: '#764ba2', position: 100 },
+                ],
+                backgroundImage: compositorAnn.backgroundImage ?? null,
+                padding: compositorAnn.padding ?? 64,
+                borderRadius: compositorAnn.borderRadius ?? 12,
+                shadowEnabled: compositorAnn.shadowEnabled ?? true,
+                shadowIntensity: compositorAnn.shadowIntensity ?? 0.5,
+                aspectRatio: compositorAnn.aspectRatio ?? 'auto',
+              });
+            }
+
+            // Set original image size for reset functionality
+            if (project.dimensions) {
+              store.getState().setOriginalImageSize({
+                width: project.dimensions.width,
+                height: project.dimensions.height,
+              });
+            }
+
+            // Load shapes
+            const projectShapes: CanvasShape[] = shapeAnnotations.map((ann: Annotation) => ({
+              ...ann,
+              id: ann.id,
+              type: ann.type,
+            } as CanvasShape));
+            store.getState().setShapes(projectShapes);
+          }
+        } catch (err) {
+          editorLogger.warn('Failed to load project annotations:', err);
+        }
       } else {
         throw new Error('Could not find project for image path');
       }
 
       setCapturePath(path);
       setIsLoading(false);
+      // Allow auto-save after initial load is complete (with delay to let store settle)
+      setTimeout(() => {
+        isInitialLoadRef.current = false;
+      }, 500);
     } catch (err) {
       editorLogger.error('Failed to load image project:', err);
       setError(err instanceof Error ? err.message : 'Failed to load image project');
       setIsLoading(false);
     }
-  }, []);
+  }, [store]);
 
   // Load project from URL params on mount
   useEffect(() => {
@@ -281,26 +353,156 @@ const ImageEditorWindow: React.FC = () => {
     }
   }, [loadProject]);
 
-  // Cleanup on window close
+  // Save annotations to the project
+  // Uses projectIdRef to avoid dependency on projectId state (prevents race conditions)
+  const saveAnnotations = useCallback(async (force = false) => {
+    // Skip if closing (unless forced - used by close handler)
+    if (!force && isClosingRef.current) {
+      return;
+    }
+
+    const currentProjectId = projectIdRef.current;
+    if (!currentProjectId) {
+      return;
+    }
+
+    try {
+      const state = store.getState();
+      const { shapes, canvasBounds, compositorSettings } = state;
+
+      // Build annotations array
+      const annotations: Annotation[] = [];
+
+      // Add shape annotations
+      shapes.forEach((shape: CanvasShape) => {
+        annotations.push({
+          ...shape,
+          id: shape.id,
+          type: shape.type,
+        });
+      });
+
+      // Add crop bounds annotation if canvas has been modified
+      if (canvasBounds) {
+        const cropBoundsAnn: CropBoundsAnnotation = {
+          id: '__crop_bounds__',
+          type: '__crop_bounds__',
+          width: canvasBounds.width,
+          height: canvasBounds.height,
+          imageOffsetX: canvasBounds.imageOffsetX,
+          imageOffsetY: canvasBounds.imageOffsetY,
+        };
+        annotations.push(cropBoundsAnn);
+      }
+
+      // Add compositor settings annotation (always save to preserve state)
+      const compositorAnn: CompositorSettingsAnnotation = {
+        id: '__compositor_settings__',
+        type: '__compositor_settings__',
+        enabled: compositorSettings.enabled,
+        backgroundType: compositorSettings.backgroundType,
+        backgroundColor: compositorSettings.backgroundColor,
+        gradientAngle: compositorSettings.gradientAngle,
+        gradientStops: compositorSettings.gradientStops,
+        backgroundImage: compositorSettings.backgroundImage,
+        padding: compositorSettings.padding,
+        borderRadius: compositorSettings.borderRadius,
+        borderRadiusType: compositorSettings.borderRadiusType ?? 'rounded',
+        shadowEnabled: compositorSettings.shadowEnabled,
+        shadowIntensity: compositorSettings.shadowIntensity,
+        shadowSize: compositorSettings.shadowSize ?? DEFAULT_COMPOSITOR_SETTINGS.shadowSize,
+        shadowOpacity: compositorSettings.shadowOpacity ?? DEFAULT_COMPOSITOR_SETTINGS.shadowOpacity,
+        shadowBlur: compositorSettings.shadowBlur ?? DEFAULT_COMPOSITOR_SETTINGS.shadowBlur,
+        borderEnabled: compositorSettings.borderEnabled ?? DEFAULT_COMPOSITOR_SETTINGS.borderEnabled,
+        borderWidth: compositorSettings.borderWidth ?? DEFAULT_COMPOSITOR_SETTINGS.borderWidth,
+        borderColor: compositorSettings.borderColor ?? DEFAULT_COMPOSITOR_SETTINGS.borderColor,
+        borderOpacity: compositorSettings.borderOpacity ?? DEFAULT_COMPOSITOR_SETTINGS.borderOpacity,
+        aspectRatio: compositorSettings.aspectRatio,
+      };
+      annotations.push(compositorAnn);
+
+      await invoke('update_project_annotations', { projectId: currentProjectId, annotations });
+    } catch (err) {
+      editorLogger.warn('Failed to save annotations:', err);
+      // Don't block window close on save failure
+    }
+  }, [store]);
+
+  // Auto-save annotations when store state changes (debounced)
   useEffect(() => {
-    const currentWindow = getCurrentWebviewWindow();
-    const unlisten = currentWindow.onCloseRequested(async () => {
-      // Clear store state
-      store.getState().clearEditor();
-      store.getState()._clearHistory();
+    // Don't auto-save until project is loaded
+    if (!projectIdRef.current || isLoading) return;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    // Subscribe to store changes and debounce saves
+    const unsubscribe = store.subscribe((state: ReturnType<typeof store.getState>, prevState: ReturnType<typeof store.getState>) => {
+      // Don't auto-save during initial load or window close (prevents overwriting good data)
+      if (isInitialLoadRef.current || isClosingRef.current) {
+        return;
+      }
+
+      // Check if any saveable state changed
+      const shapesChanged = state.shapes !== prevState.shapes;
+      const boundsChanged = state.canvasBounds !== prevState.canvasBounds;
+      const compositorChanged = state.compositorSettings !== prevState.compositorSettings;
+
+      // Don't auto-save if shapes went from some to zero (this is a clear operation, not a user edit)
+      if (shapesChanged && state.shapes.length === 0 && prevState.shapes.length > 0) {
+        return;
+      }
+
+      if (shapesChanged || boundsChanged || compositorChanged) {
+        // Clear previous timeout
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+
+        // Schedule auto-save after 1 second of inactivity
+        timeoutId = setTimeout(() => {
+          saveAnnotations().catch((error: unknown) => {
+            editorLogger.warn('Auto-save failed:', error);
+          });
+        }, 1000);
+      }
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unsubscribe();
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
-  }, [store]);
+  }, [store, isLoading, saveAnnotations]);
+
+  // Cleanup on window close
+  useEffect(() => {
+    const currentWindow = getCurrentWebviewWindow();
+    const unlisten = currentWindow.onCloseRequested(async (event: { preventDefault: () => void }) => {
+      // Prevent the default close to ensure we save first
+      event.preventDefault();
+      // Set closing flag to prevent any more auto-saves
+      isClosingRef.current = true;
+      // Save annotations (force=true to bypass the closing check)
+      await saveAnnotations(true);
+      // Now actually close the window (don't clear store - it gets garbage collected)
+      currentWindow.destroy();
+    });
+
+    return () => {
+      unlisten.then((fn: () => void) => fn());
+    };
+  }, [store, saveAnnotations]);
 
   // Handle close
   const handleClose = useCallback(async () => {
-    store.getState().clearEditor();
-    store.getState()._clearHistory();
+    // Set closing flag to prevent any more auto-saves
+    isClosingRef.current = true;
+    // Save with force=true to bypass the closing check
+    await saveAnnotations(true);
+    // Don't clear store - it gets garbage collected when window closes
     getCurrentWebviewWindow().close();
-  }, [store]);
+  }, [saveAnnotations]);
 
   // Extract filename for title
   const getTitle = () => {

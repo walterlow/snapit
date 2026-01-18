@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import Konva from 'konva';
 import type { CanvasShape } from '../types';
-import { takeSnapshot, commitSnapshot } from '../stores/editorStore';
+import type { EditorHistoryActions } from './useEditorHistory';
 
 // Shape-specific transform end handlers
 type TransformResult = Partial<CanvasShape>;
@@ -135,6 +135,8 @@ interface UseShapeTransformProps {
   onShapesChange: (shapes: CanvasShape[]) => void;
   selectedIds: string[];
   setSelectedIds: (ids: string[]) => void;
+  /** Context-aware history actions for undo/redo support */
+  history: EditorHistoryActions;
 }
 
 interface UseShapeTransformReturn {
@@ -156,7 +158,9 @@ export const useShapeTransform = ({
   onShapesChange,
   selectedIds,
   setSelectedIds,
+  history,
 }: UseShapeTransformProps): UseShapeTransformReturn => {
+  const { takeSnapshot, commitSnapshot } = history;
 
   // Pause history at drag start to batch all drag updates
   const handleShapeDragStart = useCallback((id: string, e: Konva.KonvaEventObject<DragEvent>) => {

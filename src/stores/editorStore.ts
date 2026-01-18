@@ -358,83 +358,24 @@ export type EditorStore = ReturnType<typeof createEditorStore>;
 export { EditorStoreProvider } from './EditorStoreProvider';
 
 // ============================================================================
-// Global store (for backward compatibility with main window)
+// Store Hook
 // ============================================================================
 
 /**
- * Global editor store instance.
- * Used by the main window editor (embedded mode).
- */
-export const globalEditorStore = createEditorStore();
-
-/**
- * Hook to access the editor store.
- * Uses context store if available (window mode), falls back to global store (main window mode).
+ * Hook to access the editor store from context.
+ * Must be used within an EditorStoreProvider.
  */
 export function useEditorStore(): EditorState;
 export function useEditorStore<T>(selector: (state: EditorState) => T): T;
 export function useEditorStore<T>(selector?: (state: EditorState) => T): T | EditorState {
-  const contextStore = useEditorStoreContext();
-  const store = contextStore ?? globalEditorStore;
+  const store = useEditorStoreContext();
+
+  if (!store) {
+    throw new Error('useEditorStore must be used within an EditorStoreProvider');
+  }
 
   // useStore must be called unconditionally to satisfy React hooks rules
   // Type assertion is safe because overloads guarantee correct usage
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return useStore(store, (selector ?? ((state: EditorState) => state)) as any);
 }
-
-/**
- * Get the appropriate store (context or global).
- * Used by standalone functions that need store access.
- */
-function getActiveStore(): EditorStore {
-  // This is called outside React context, so we can only use the global store
-  // Window-based editors should use store.getState() directly
-  return globalEditorStore;
-}
-
-// ============================================================================
-// Exported convenience functions (maintain backwards compatibility)
-// ============================================================================
-
-/**
- * Take a snapshot BEFORE starting a user action (drag, transform, etc.)
- * Call this in onDragStart, onTransformStart, before shape creation, etc.
- */
-export const takeSnapshot = () => getActiveStore().getState()._takeSnapshot();
-
-/**
- * Commit the pending snapshot to history AFTER an action completes
- * Call this in onDragEnd, onTransformEnd, after shape creation, etc.
- */
-export const commitSnapshot = () => getActiveStore().getState()._commitSnapshot();
-
-/**
- * Discard pending snapshot without committing (e.g., action cancelled)
- */
-export const discardSnapshot = () => getActiveStore().getState()._discardSnapshot();
-
-/**
- * Undo last action
- */
-export const undo = () => getActiveStore().getState()._undo();
-
-/**
- * Redo last undone action
- */
-export const redo = () => getActiveStore().getState()._redo();
-
-/**
- * Clear all history (e.g., when loading new image)
- */
-export const clearHistory = () => getActiveStore().getState()._clearHistory();
-
-/**
- * Convenience: take snapshot + commit in one call for instant actions
- * Use for actions that don't have a drag phase (e.g., delete, paste)
- */
-export const recordAction = (action: () => void) => {
-  takeSnapshot();
-  action();
-  commitSnapshot();
-};

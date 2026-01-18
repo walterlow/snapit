@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { takeSnapshot, commitSnapshot } from '../stores/editorStore';
+import type { EditorHistoryActions } from './useEditorHistory';
 
 interface CropBounds {
   x: number;
@@ -31,6 +31,8 @@ interface UseCropToolProps {
   setCanvasBounds: (bounds: CanvasBounds) => void;
   isShiftHeld: boolean;
   originalImageSize: ImageSize | null;
+  /** Context-aware history actions for undo/redo support */
+  history: EditorHistoryActions;
 }
 
 interface UseCropToolReturn {
@@ -80,7 +82,9 @@ export const useCropTool = ({
   setCanvasBounds,
   isShiftHeld,
   originalImageSize,
+  history,
 }: UseCropToolProps): UseCropToolReturn => {
+  const { takeSnapshot, commitSnapshot } = history;
   const [cropPreview, setCropPreview] = useState<CropBounds | null>(null);
   const [cropDragStart, setCropDragStart] = useState<{ x: number; y: number } | null>(null);
   const [cropLockedAxis, setCropLockedAxis] = useState<'x' | 'y' | null>(null);

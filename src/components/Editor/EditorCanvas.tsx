@@ -365,19 +365,19 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
   }, [drawing, marquee]);
 
   // Composition box dimensions (for CSS preview background)
+  // Simple calculation: content size + padding on each side, scaled by zoom
   const compositionBox = useMemo(() => {
     if (!compositorSettings.enabled || !visibleBounds) return null;
 
-    const contentWidth = visibleBounds.width;
-    const contentHeight = visibleBounds.height;
-
-    // Padding is now in pixels - just scale by zoom
     const padding = compositorSettings.padding * navigation.zoom;
+    const contentWidth = visibleBounds.width * navigation.zoom;
+    const contentHeight = visibleBounds.height * navigation.zoom;
 
-    const left = navigation.position.x + visibleBounds.x * navigation.zoom - padding - 1;
-    const top = navigation.position.y + visibleBounds.y * navigation.zoom - padding - 1;
-    const width = contentWidth * navigation.zoom + padding * 2 + 2;
-    const height = contentHeight * navigation.zoom + padding * 2 + 2;
+    // Position: content position in screen space, offset by padding
+    const left = navigation.position.x + visibleBounds.x * navigation.zoom - padding;
+    const top = navigation.position.y + visibleBounds.y * navigation.zoom - padding;
+    const width = contentWidth + padding * 2;
+    const height = contentHeight + padding * 2;
 
     return { width, height, left, top };
   }, [compositorSettings.enabled, compositorSettings.padding, visibleBounds, navigation.zoom, navigation.position]);
@@ -418,11 +418,8 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
           ? `url(${compositorSettings.backgroundImage})`
           : undefined;
         backgroundColor = compositorSettings.backgroundImage ? undefined : '#1a1a2e';
-        if (compositorSettings.backgroundImage && baseCompositionSize.width > 0) {
-          const bgWidth = baseCompositionSize.width * navigation.zoom;
-          const bgHeight = baseCompositionSize.height * navigation.zoom;
-          backgroundSize = `${bgWidth}px ${bgHeight}px`;
-        }
+        // Use 'cover' to match Konva's calculateCoverSize behavior
+        backgroundSize = 'cover';
         break;
       default:
         backgroundColor = '#1a1a2e';
@@ -441,8 +438,6 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     compositorSettings.backgroundImage,
     compositorSettings.gradientStops,
     compositorSettings.gradientAngle,
-    baseCompositionSize,
-    navigation.zoom,
   ]);
 
   return (
@@ -477,14 +472,12 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         }}
       >
       {/* Composition Preview Background */}
-      {compositionBox && visibleBounds && (
+      {compositionBox && (
         <CompositorCssPreview
           previewRef={compositorBgRef}
           settings={compositorSettings}
           compositionBox={compositionBox}
-          contentBounds={visibleBounds}
           zoom={navigation.zoom}
-          position={navigation.position}
           backgroundStyle={compositionBackgroundStyle}
         />
       )}
@@ -597,6 +590,24 @@ export const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                   commitSnapshot={history.commitSnapshot}
                 />
               </Group>
+            );
+          })()}
+
+          {/* Border on screenshot content - grows outward, not into content */}
+          {image && visibleBounds && compositorSettings.enabled && compositorSettings.borderEnabled && (() => {
+            const halfStroke = compositorSettings.borderWidth / 2;
+            return (
+              <Rect
+                x={Math.round(visibleBounds.x) - halfStroke}
+                y={Math.round(visibleBounds.y) - halfStroke}
+                width={Math.round(visibleBounds.width) + compositorSettings.borderWidth}
+                height={Math.round(visibleBounds.height) + compositorSettings.borderWidth}
+                cornerRadius={compositorSettings.borderRadius + halfStroke}
+                stroke={compositorSettings.borderColor}
+                strokeWidth={compositorSettings.borderWidth}
+                opacity={compositorSettings.borderOpacity / 100}
+                listening={false}
+              />
             );
           })()}
 

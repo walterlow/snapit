@@ -8,13 +8,6 @@ interface CompositionBox {
   height: number;
 }
 
-interface ContentBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 interface CompositorCssPreviewProps {
   /** Ref to attach to the preview div for coordinated transforms */
   previewRef?: React.RefObject<HTMLDivElement | null>;
@@ -22,12 +15,8 @@ interface CompositorCssPreviewProps {
   settings: CompositorSettings;
   /** Computed composition box position/size in screen coordinates */
   compositionBox: CompositionBox;
-  /** Content bounds for shadow positioning */
-  contentBounds: ContentBounds;
   /** Current zoom level */
   zoom: number;
-  /** Current pan position */
-  position: { x: number; y: number };
   /** Background style computed from settings */
   backgroundStyle: React.CSSProperties;
 }
@@ -41,18 +30,16 @@ export const CompositorCssPreview: React.FC<CompositorCssPreviewProps> = ({
   previewRef,
   settings,
   compositionBox,
-  contentBounds,
   zoom,
-  position,
   backgroundStyle,
 }) => {
   if (!settings.enabled) return null;
 
-  // Calculate shadow position relative to composition box
-  const contentLeft = position.x + contentBounds.x * zoom - compositionBox.left;
-  const contentTop = position.y + contentBounds.y * zoom - compositionBox.top;
-  const contentWidth = contentBounds.width * zoom;
-  const contentHeight = contentBounds.height * zoom;
+  // Shadow position is simply the padding offset within the composition box
+  // Content sits at (padding, padding) within the compositor area
+  const scaledPadding = settings.padding * zoom;
+  const contentWidth = compositionBox.width - scaledPadding * 2;
+  const contentHeight = compositionBox.height - scaledPadding * 2;
   const intensity = settings.shadowIntensity;
 
   return (
@@ -74,8 +61,8 @@ export const CompositorCssPreview: React.FC<CompositorCssPreviewProps> = ({
         <div
           style={{
             position: 'absolute',
-            left: contentLeft,
-            top: contentTop,
+            left: scaledPadding,
+            top: scaledPadding,
             width: contentWidth,
             height: contentHeight,
             borderRadius: settings.borderRadius * zoom,

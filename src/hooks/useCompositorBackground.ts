@@ -89,7 +89,9 @@ export function calculateCoverSize(
 }
 
 /**
- * Calculate compositor output dimensions based on content size and settings
+ * Calculate compositor output dimensions based on content size and settings.
+ * Padding is always even on all sides - no aspect ratio manipulation.
+ * This matches the video editor's approach for consistency.
  */
 export function calculateCompositorDimensions(
   contentWidth: number,
@@ -109,46 +111,21 @@ export function calculateCompositorDimensions(
     };
   }
 
-  // Padding is now in pixels
+  // Padding is in pixels - always even on all sides
   const padding = settings.padding;
+  const outputWidth = contentWidth + padding * 2;
+  const outputHeight = contentHeight + padding * 2;
 
-  // For auto aspect ratio, just add padding
-  let outputWidth = contentWidth + padding * 2;
-  let outputHeight = contentHeight + padding * 2;
-
-  // Handle aspect ratio constraints
-  if (settings.aspectRatio !== 'auto') {
-    const ratios: Record<string, number> = {
-      '16:9': 16 / 9,
-      '4:3': 4 / 3,
-      '1:1': 1,
-      'twitter': 16 / 9,
-      'instagram': 4 / 5,
-    };
-    const targetRatio = ratios[settings.aspectRatio];
-    if (targetRatio) {
-      const currentRatio = outputWidth / outputHeight;
-      if (currentRatio > targetRatio) {
-        outputHeight = outputWidth / targetRatio;
-      } else {
-        outputWidth = outputHeight * targetRatio;
-      }
-    }
-  }
-
-  // Center content in output
-  const contentX = (outputWidth - contentWidth) / 2;
-  const contentY = (outputHeight - contentHeight) / 2;
-
+  // Content is always centered with even padding
   return {
     outputWidth: Math.round(outputWidth),
     outputHeight: Math.round(outputHeight),
-    contentX: Math.round(contentX),
-    contentY: Math.round(contentY),
+    contentX: padding,
+    contentY: padding,
     contentWidth,
     contentHeight,
-    paddingX: Math.round(contentX),
-    paddingY: Math.round(contentY),
+    paddingX: padding,
+    paddingY: padding,
   };
 }
 

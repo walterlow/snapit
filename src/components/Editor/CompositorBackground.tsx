@@ -49,6 +49,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
       }
     : {};
 
+
   // Solid color background
   if (settings.backgroundType === 'solid') {
     return (
@@ -62,7 +63,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
         cornerRadius={borderRadius}
         listening={false}
         {...shadowProps}
-      />
+              />
     );
   }
 
@@ -95,7 +96,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
         cornerRadius={borderRadius}
         listening={false}
         {...shadowProps}
-      />
+              />
     );
   }
 
@@ -114,7 +115,7 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
           cornerRadius={borderRadius}
           listening={false}
           {...shadowProps}
-        />
+                  />
       );
     }
 
@@ -125,12 +126,12 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
       bounds.height
     );
 
-    // Need clipping for border radius
-    if (borderRadius > 0) {
-      return (
-        <Group
-          name={name}
-          clipFunc={(ctx) => {
+    // Always clip image to bounds - cover sizing means image may be larger than bounds
+    return (
+      <Group
+        name={name}
+        clipFunc={(ctx) => {
+          if (borderRadius > 0) {
             // Use arcTo for circular corners (matches Konva Rect cornerRadius)
             const r = Math.min(borderRadius, bounds.width / 2, bounds.height / 2);
             ctx.beginPath();
@@ -140,23 +141,14 @@ export const CompositorBackground: React.FC<CompositorBackgroundProps> = ({
             ctx.arcTo(bounds.x, bounds.y + bounds.height, bounds.x, bounds.y, r);
             ctx.arcTo(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y, r);
             ctx.closePath();
-          }}
-        >
-          <Image
-            image={backgroundImage}
-            x={bounds.x + cover.offsetX}
-            y={bounds.y + cover.offsetY}
-            width={cover.width}
-            height={cover.height}
-            listening={false}
-            {...shadowProps}
-          />
-        </Group>
-      );
-    }
-
-    return (
-      <Group name={name}>
+          } else {
+            // Simple rect clip
+            ctx.beginPath();
+            ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+            ctx.closePath();
+          }
+        }}
+      >
         <Image
           image={backgroundImage}
           x={bounds.x + cover.offsetX}

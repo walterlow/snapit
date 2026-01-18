@@ -244,7 +244,16 @@ const ImageEditorWindow: React.FC = () => {
     try {
       editorLogger.info('Loading image project:', path);
 
-      // Try to find the project by image path to get the project ID
+      // Fast path: RGBA files can be loaded directly without IPC lookup
+      if (path.endsWith('.rgba')) {
+        setImageData(path);
+        setCapturePath(path);
+        setIsLoading(false);
+        editorLogger.info('RGBA file loaded directly (fast path)');
+        return;
+      }
+
+      // For saved images, find the project to get the project ID
       // This allows us to save annotations back to the correct project
       const captures = await invoke<Array<{ id: string; image_path: string }>>('get_capture_list');
       const capture = captures.find((c: { id: string; image_path: string }) => c.image_path === path);
@@ -257,13 +266,7 @@ const ImageEditorWindow: React.FC = () => {
         setImageData(loadedImageData);
         editorLogger.info('Image data loaded successfully');
       } else {
-        // For new captures that might not be in the list yet, check if path is .rgba
-        if (path.endsWith('.rgba')) {
-          // RGBA files can be loaded directly by EditorCanvas
-          setImageData(path);
-        } else {
-          throw new Error('Could not find project for image path');
-        }
+        throw new Error('Could not find project for image path');
       }
 
       setCapturePath(path);

@@ -47,25 +47,27 @@ function App() {
       onRecordingComplete: loadCaptures,
       onThumbnailReady: useCaptureStore.getState().updateCaptureThumbnail,
       onCaptureCompleteFast: async (data: { file_path: string; width: number; height: number }) => {
-        // Save the capture first (creates project in library)
-        const { imagePath } = await saveNewCaptureFromFile(data.file_path, data.width, data.height, 'region', {}, { silent: true });
-
-        // Copy to clipboard if enabled
-        const copyToClipboard = useCaptureSettingsStore.getState().copyToClipboardAfterCapture;
-        if (copyToClipboard) {
-          try {
-            await invoke('copy_image_to_clipboard', { path: imagePath });
-          } catch (error) {
-            console.error('Failed to copy to clipboard:', error);
-          }
-        }
-
-        // Open image editor window with the captured image
-        try {
-          await invoke('show_image_editor_window', { capturePath: data.file_path });
-        } catch (error) {
+        // Open editor immediately with RGBA file (fast path - no waiting for save)
+        invoke('show_image_editor_window', { capturePath: data.file_path }).catch((error) => {
           console.error('Failed to open image editor:', error);
-        }
+        });
+
+        // Save to library in background (don't block editor)
+        saveNewCaptureFromFile(data.file_path, data.width, data.height, 'region', {}, { silent: true })
+          .then(async ({ imagePath }) => {
+            // Copy to clipboard after save completes (if enabled)
+            const copyToClipboard = useCaptureSettingsStore.getState().copyToClipboardAfterCapture;
+            if (copyToClipboard) {
+              try {
+                await invoke('copy_image_to_clipboard', { path: imagePath });
+              } catch (error) {
+                console.error('Failed to copy to clipboard:', error);
+              }
+            }
+          })
+          .catch((error) => {
+            console.error('Failed to save capture:', error);
+          });
       },
     }),
     [loadCaptures, saveNewCaptureFromFile]

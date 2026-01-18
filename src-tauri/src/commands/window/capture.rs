@@ -226,24 +226,12 @@ pub async fn open_editor_fast(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    // Close all overlays and restore main window (this is for screenshots)
+    // Close all overlays
     hide_overlay(app.clone(), None).await?;
 
-    // Show main window with the capture file path
+    // Emit event to main window - it will open the image editor window
+    // (library window no longer needs to be shown/focused since editor opens in separate window)
     if let Some(main_window) = app.get_webview_window("library") {
-        let _ = main_window.unminimize();
-
-        main_window
-            .show()
-            .map_err(|e| format!("Failed to show main window: {}", e))?;
-
-        let _ = main_window.request_user_attention(Some(tauri::UserAttentionType::Informational));
-
-        main_window
-            .set_focus()
-            .map_err(|e| format!("Failed to focus window: {}", e))?;
-
-        // Emit a different event for fast capture with file path
         let payload = serde_json::json!({
             "file_path": file_path,
             "width": width,

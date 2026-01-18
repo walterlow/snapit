@@ -131,12 +131,6 @@ const ImageEditorContent: React.FC<{
     setDeleteDialogOpen(false);
   }, []);
 
-  // Back/Close handler
-  const handleBack = useCallback(async () => {
-    // TODO: Check for unsaved changes and prompt
-    onClose();
-  }, [onClose]);
-
   // Wire up keyboard shortcuts
   useEditorKeyboardShortcuts({
     view: 'editor',
@@ -195,7 +189,6 @@ const ImageEditorContent: React.FC<{
             onCopy={handleCopy}
             onSave={handleSave}
             onSaveAs={handleSaveAs}
-            onBack={handleBack}
             onUndo={handleUndo}
             onRedo={handleRedo}
             onDelete={handleRequestDelete}

@@ -219,7 +219,6 @@ export const EditorView = forwardRef<EditorViewRef>(function EditorView(_props, 
               onCopy={handleCopy}
               onSave={handleSave}
               onSaveAs={handleSaveAs}
-              onBack={handleBack}
               onUndo={handleUndo}
               onRedo={handleRedo}
               onDelete={handleRequestDelete}

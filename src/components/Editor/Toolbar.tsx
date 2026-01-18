@@ -10,7 +10,6 @@ import {
   Hash,
   Copy,
   Download,
-  ArrowLeft,
   Check,
   Undo2,
   Redo2,
@@ -47,7 +46,6 @@ interface ToolbarProps {
   onCopy: () => void;
   onSave: () => void;
   onSaveAs?: (format: 'png' | 'jpg' | 'webp') => void;
-  onBack: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onDelete: () => void;
@@ -76,7 +74,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onCopy,
   onSave,
   onSaveAs,
-  onBack,
   onUndo,
   onRedo,
   onDelete,
@@ -120,23 +117,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     <TooltipProvider delayDuration={200} skipDelayDuration={300}>
       <div className="editor-toolbar-container">
         <div className="floating-toolbar animate-scale-in">
-          {/* Back Button */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onBack}
-                className={`glass-btn ${buttonSize}`}
-              >
-                <ArrowLeft className={iconSize} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p className="text-xs">Back to Library</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <div className="toolbar-divider" />
-
           {/* Undo/Redo Buttons */}
           <Tooltip>
             <TooltipTrigger asChild>
